@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dragram</title>
+    <style>
+      :root { color: #173a2d; background: #f4fbf7; font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans KR", sans-serif; }
+      body { width: 320px; margin: 0; }
+      main { padding: 16px; }
+      header { margin-bottom: 16px; padding: 14px; border: 1px solid #cfe8dc; border-radius: 16px; background: #fff; }
+      .brand { color: #14734f; font-size: 12px; font-weight: 900; letter-spacing: .14em; }
+      h1, p { margin: 0; }
+      h1 { margin-top: 3px; font-size: 18px; }
+      .setting { display: flex; align-items: center; gap: 12px; padding: 14px; border: 1px solid #cfe8dc; border-radius: 14px; background: #fff; }
+      .setting + .setting { margin-top: 10px; }
+      .copy { flex: 1; }
+      .label { display: block; color: #14734f; font-size: 12px; font-weight: 800; letter-spacing: .06em; }
+      .hint, #status { color: #5f776d; font-size: 12px; }
+      .switch { position: relative; display: inline-flex; flex: none; width: 46px; height: 26px; }
+      .switch input { position: absolute; opacity: 0; }
+      .track { width: 100%; border-radius: 999px; background: #cfe8dc; transition: background .15s; }
+      .track::after { display: block; width: 20px; height: 20px; margin: 3px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(16, 78, 55, .25); content: ""; transition: transform .15s; }
+      .switch input:checked + .track { background: #1b8a61; }
+      .switch input:checked + .track::after { transform: translateX(20px); }
+      select { width: 126px; border: 1px solid #cfe8dc; border-radius: 9px; padding: 8px; color: #173a2d; background: #f7fcf9; font: inherit; }
+      select:disabled { color: #8aa398; background: #f1f5f3; cursor: not-allowed; }
+      input:focus-visible + .track, select:focus-visible { outline: 3px solid #f0a868; outline-offset: 2px; }
+      #status { margin: 12px 2px 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="brand">DRAGRAM</p>
+        <h1>일본어 문법 분석</h1>
+      </header>
+      <section class="setting">
+        <div class="copy">
+          <label class="label" for="enabled">드래그 분석</label>
+          <p class="hint">일본어 문장을 선택하면 분석합니다.</p>
+        </div>
+        <label class="switch">
+          <input id="enabled" type="checkbox" role="switch" aria-label="드래그 분석 사용" />
+          <span class="track"></span>
+        </label>
+      </section>
+      <section class="setting">
+        <label class="copy label" for="model">분석 모델</label>
+        <select id="model">
+          <option value="gpt-5.6-luna">Luna</option>
+          <option value="gpt-5.6-terra">Terra</option>
+        </select>
+      </section>
+      <p id="status" aria-live="polite"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

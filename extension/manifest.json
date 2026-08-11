@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Dragram",
+  "version": "0.1.0",
+  "description": "선택한 일본어 문장을 형태소와 문법 단위로 분석합니다.",
+  "action": {
+    "default_title": "Dragram",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["http://localhost:8000/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["sentences.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

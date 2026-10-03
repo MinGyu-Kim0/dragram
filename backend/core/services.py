@@ -129,7 +129,7 @@ def analyze_grammar(text, morphology, model):
     payload = {
         "model": model,
         "store": False,
-        "reasoning": {"effort": "low"},
+        "reasoning": {"effort": "medium"},
         "input": [
             {
                 "role": "system",

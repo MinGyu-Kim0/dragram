@@ -1,0 +1,44 @@
+name: 버그 신고
+description: 예상과 다르게 동작하는 문제를 제보합니다.
+title: "[Bug] "
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: 문제 설명
+      description: 어느 기능에서 어떤 문제가 발생했는지 적어 주세요.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: 재현 방법
+      placeholder: |
+        1. 접속한 화면 또는 실행한 명령
+        2. 수행한 동작
+        3. 발생한 문제
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 기대한 동작
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 실제 동작
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: 실행 환경
+      description: 알고 있는 OS, 브라우저, 실행 방식, 커밋 SHA를 적어 주세요.
+      placeholder: "예: Windows + WSL, Chrome, Docker Compose, 커밋 abc1234"
+  - type: textarea
+    id: evidence
+    attributes:
+      label: 로그 및 참고 자료
+      description: 관련 로그, 스크린샷, 이슈 링크를 첨부해 주세요. 비밀키나 개인정보는 제외해 주세요.

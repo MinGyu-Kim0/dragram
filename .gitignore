@@ -282,3 +282,13 @@ dist-ssr/
 .yarn/build-state.yml
 .yarn/install-state.gz
 .pnp.*
+
+# claude
+.claude
+CLAUDE.md
+
+# Codex
+AGENTS.md
+
+# docs
+docs

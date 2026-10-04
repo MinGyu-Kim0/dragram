@@ -33,7 +33,7 @@ jobs:
           docker compose -p dragram-ci run --rm backend uv run --frozen python manage.py check
           docker compose -p dragram-ci run --rm backend uv run --frozen python manage.py makemigrations --check --dry-run
       - name: Run backend tests
-        run: docker compose -p dragram-ci run --rm backend uv run --frozen python manage.py test core
+        run: docker compose -p dragram-ci run --rm backend uv run --frozen python manage.py test
       - name: Clean up test containers and data
         if: always()
         run: docker compose -p dragram-ci down --volumes --remove-orphans
@@ -56,3 +56,6 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run build
+      - name: Check extension entry points
+        run: node --test extension/tests/*.test.cjs
+        working-directory: .

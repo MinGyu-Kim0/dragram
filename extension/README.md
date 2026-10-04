@@ -6,4 +6,4 @@
 4. 확장 아이콘의 메뉴에서 분석을 켜고 Luna 또는 Terra를 선택합니다.
 5. 웹 페이지의 일본어 문장을 선택하면 `。` 단위로 페이지가 나뉘어 분석됩니다. 분석한 내용은 `http://localhost:5173`에서 복습할 수 있습니다.
 
-운영 서버를 사용할 때는 `manifest.json`의 `host_permissions`와 `background.js`의 `API_ROOT`를 함께 변경하세요.
+운영 서버를 사용할 때는 `manifest.json`의 `host_permissions`와 `src/background.js`의 `API_ROOT`를 함께 변경하세요.

@@ -1,0 +1,48 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    branches: [dev, main]
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: >-
+      !github.event.pull_request.draft &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Review pull request
+        uses: anthropics/claude-code-action@cab360f6565aa35a51d6ce9e43f1f4287c0a32ea # v1.0.241
+        with:
+          # Repository secret: Settings > Secrets and variables > Actions.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            이 PR의 최신 diff와 관련 코드를 검토하고 한국어로 리뷰하세요.
+            버그, 보안, 데이터 안정성, 회귀와 누락된 테스트를 우선 확인하세요.
+            변경으로 발생한 문제만 지적하고 각 항목에 심각도, 파일:라인,
+            문제 이유와 구체적인 수정안을 포함하세요. 실제로 실행하지 않은
+            테스트를 통과했다고 적지 마세요. 소스 수정, 커밋, 푸시, 병합은 하지 마세요.
+
+            기존 리뷰 댓글이 있어도 최신 변경을 다시 검토하세요.
+            gh pr comment로 이 PR에 리뷰 결과를 게시하세요.
+            문제가 없으면 확인한 범위와 함께 간결하게 알려주세요.
+          claude_args: >-
+            --max-turns 20
+            --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"

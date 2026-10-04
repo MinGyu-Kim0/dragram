@@ -59,6 +59,7 @@ class FailureCategoryTests(unittest.TestCase):
         for error, expected in (
             ("HTTP 401 Unauthorized", claude_failure.AUTHENTICATION_ERROR),
             ("status code: 429", claude_failure.USAGE_ERROR),
+            ("Rate limit exceeded", claude_failure.USAGE_ERROR),
         ):
             with self.subTest(error=error):
                 messages = [{"type": "result", "is_error": True, "result": error}]
@@ -83,6 +84,7 @@ class FailureCategoryTests(unittest.TestCase):
     def test_generic_topics_and_numeric_identifiers_are_not_error_categories(self):
         for error in (
             "The review of the model, credit, payment and oauth modules could not finish.",
+            "Could not finish reviewing rate limit handling in the application.",
             "Process exited with request 401 and record 429 pending.",
             "API Error: 1401; status code: 4290",
             "Request identifiers: 1401, 4290, 401234, 142900",

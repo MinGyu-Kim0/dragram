@@ -24,7 +24,7 @@ CATEGORIES = (
     )),
     (USAGE_ERROR, (
         r"\brate_limit(?:_error|_exceeded)?\b",
-        r"\brate limit(?:ed| exceeded| reached)?\b",
+        r"\brate limit(?:ed| exceeded| reached)\b",
         r"\busage limit (?:reached|exceeded)\b|\bhit your limit\b",
         r"\b(?:http(?: status)?|status(?: code)?|api error)\s*[:=]?\s*429\b",
     )),

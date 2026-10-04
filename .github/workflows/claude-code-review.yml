@@ -17,6 +17,8 @@ jobs:
   review:
     if: >-
       !github.event.pull_request.draft &&
+      github.actor != 'dependabot[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -42,37 +44,14 @@ jobs:
             테스트를 통과했다고 적지 마세요. 소스 수정, 커밋, 푸시, 병합은 하지 마세요.
 
             기존 리뷰 댓글이 있어도 최신 변경을 다시 검토하세요.
-            gh pr comment로 이 PR에 리뷰 결과를 게시하세요.
+            gh pr comment --edit-last --create-if-none으로 이 PR의 기존 봇 리뷰 댓글을
+            갱신하고, 댓글이 없으면 생성하세요. PR 번호와 --repo로 대상을 명시하세요.
             문제가 없으면 확인한 범위와 함께 간결하게 알려주세요.
           claude_args: >-
             --max-turns 20
             --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
       - name: Report Claude failure category
-        if: failure() && steps.claude.outputs.execution_file != ''
+        if: failure() && steps.claude.outcome == 'failure'
         env:
           EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
-        run: |
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          messages = json.loads(Path(os.environ["EXECUTION_FILE"]).read_text())
-          error = " ".join(
-              str(message.get("result", "")) + " " + str(message.get("error", ""))
-              for message in messages
-              if message.get("type") in ("result", "assistant")
-          ).lower()
-          categories = {
-              "Authentication failed; renew CLAUDE_CODE_OAUTH_TOKEN.": ("authentication", "oauth", "401", "unauthorized", "not logged in"),
-              "Claude usage limit reached; retry after the limit resets.": ("rate_limit", "rate limit", "usage limit", "hit your limit", "429"),
-              "Claude billing or credit issue; check the subscription.": ("billing", "credit", "payment"),
-              "Claude model unavailable; check model access.": ("model", "not_found"),
-          }
-          for category, markers in categories.items():
-              if any(marker in error for marker in markers):
-                  print(f"::error::{category}")
-                  break
-          else:
-              print("::error::Claude execution failed; no known error category matched.")
-          PY
+        run: python3 .github/scripts/claude_failure.py

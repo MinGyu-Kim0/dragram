@@ -25,6 +25,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Review pull request
+        id: claude
         uses: anthropics/claude-code-action@cab360f6565aa35a51d6ce9e43f1f4287c0a32ea # v1.0.241
         with:
           # Repository secret: Settings > Secrets and variables > Actions.
@@ -46,3 +47,32 @@ jobs:
           claude_args: >-
             --max-turns 20
             --allowedTools "Read,Glob,Grep,Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr comment:*)"
+      - name: Report Claude failure category
+        if: failure() && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          messages = json.loads(Path(os.environ["EXECUTION_FILE"]).read_text())
+          error = " ".join(
+              str(message.get("result", "")) + " " + str(message.get("error", ""))
+              for message in messages
+              if message.get("type") in ("result", "assistant")
+          ).lower()
+          categories = {
+              "Authentication failed; renew CLAUDE_CODE_OAUTH_TOKEN.": ("authentication", "oauth", "401", "unauthorized", "not logged in"),
+              "Claude usage limit reached; retry after the limit resets.": ("rate_limit", "rate limit", "usage limit", "hit your limit", "429"),
+              "Claude billing or credit issue; check the subscription.": ("billing", "credit", "payment"),
+              "Claude model unavailable; check model access.": ("model", "not_found"),
+          }
+          for category, markers in categories.items():
+              if any(marker in error for marker in markers):
+                  print(f"::error::{category}")
+                  break
+          else:
+              print("::error::Claude execution failed; no known error category matched.")
+          PY

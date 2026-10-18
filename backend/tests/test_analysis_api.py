@@ -1,3 +1,6 @@
+import pytest
+
+
 def analyze(client, text):
     return client.post("/api/analyses/", {"text": text}, content_type="application/json")
 
@@ -9,6 +12,44 @@ def test_new_sentence_returns_translation(client, fake_llm):
 
     assert response.status_code == 200
     assert response.json() == {"translation_ko": "나는 학생입니다."}
+
+
+@pytest.mark.parametrize(
+    "llm_response",
+    [
+        {"translation_ko": ""},
+        {"translation_ko": "   "},
+        {"translation_ko": 3},
+        {},
+        "not an object",
+    ],
+)
+def test_invalid_llm_response_fails_the_sentence(client, fake_llm, llm_response):
+    fake_llm.response = llm_response
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "analysis_failed"}
+
+
+def test_llm_error_fails_the_sentence(client, fake_llm):
+    fake_llm.error = RuntimeError("timeout")
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "analysis_failed"}
+
+
+@pytest.mark.parametrize(
+    "body", [{}, {"text": ""}, {"text": "  "}, {"text": 3}, ["私は学生です。"]]
+)
+def test_missing_text_is_rejected_without_calling_llm(client, fake_llm, body):
+    response = client.post("/api/analyses/", body, content_type="application/json")
+
+    assert response.status_code == 400
+    assert fake_llm.requests == []
 
 
 def test_llm_receives_sentence_and_token_ids(client, fake_llm):

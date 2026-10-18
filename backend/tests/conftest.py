@@ -8,10 +8,13 @@ class FakeLLMClient:
 
     def __init__(self):
         self.response = {"translation_ko": "번역"}
+        self.error = None
         self.requests = []
 
     def analyze(self, sentence, tokens):
         self.requests.append({"sentence": sentence, "tokens": tokens})
+        if self.error:
+            raise self.error
         return self.response
 
 

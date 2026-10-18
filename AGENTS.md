@@ -6,7 +6,7 @@
 - `backend/`: Django + DRF + PostgreSQL. SudachiPy로 형태소를 분석하고 OpenAI를 호출한다.
 - `web/`: React + Vite + TypeScript 웹페이지(내 일본어, 학습 카드, 작문 평가)
 - `extension/`: 크롬 확장(사이드 패널)
-- `infra/`: 로컬·운영 compose, 나중에 Terraform
+- `infra/`: 운영 compose·nginx, 나중에 Terraform. 로컬 개발용 compose는 루트 `compose.yaml`
 
 폴더별 규칙은 그 폴더의 `AGENTS.md`에 둔다(폴더를 만들 때 함께 만든다).
 

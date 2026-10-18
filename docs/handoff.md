@@ -24,14 +24,16 @@
 - Terraform: 첫 배포가 필요할 때 `infra/terraform/`(모듈 없이 시작)으로 ECR + OIDC부터 붙인다. tfstate는 커밋하지 않는다. 운영용 `compose.prod.yaml`(이미지 digest 고정)과 `nginx/`도 `infra/`에 둔다.
 
 ## 현재 레포 상태
-새로 시작한 레포다. 이전 MVP 코드는 `MinGyu-Kim0/dragram-mvp`(아카이브)에 있다. 지금은 문서, 규칙 문서, PR 템플릿만 있다.
-CI, 이슈 템플릿, backend·web·extension 뼈대(Dockerfile, pyproject, Vite 설정, compose)와 `infra/`는 새로 만든다.
-`dev` 브랜치는 첫 PR(문서)을 `main`에 합친 뒤 만든다. 그 뒤로는 `CONTRIBUTING.md`대로 `dev`를 기준으로 작업한다.
+새로 시작한 레포다. 이전 MVP 코드는 `MinGyu-Kim0/dragram-mvp`(아카이브)에 있다.
+backend·web·extension 뼈대와 CI(`.github/workflows/ci.yml`)가 있다. 기능 코드는 아직 없다. 폴더별 명령은 각 폴더의 `AGENTS.md`에 있다.
+이슈 템플릿과 `infra/`(운영 compose, nginx, Terraform)는 아직 없다. `infra/`는 첫 배포 때 만든다.
+작업은 `CONTRIBUTING.md`대로 `dev`에서 브랜치를 만들어 PR로 합친다.
 
 ## 다음 단계
-1. 뼈대(backend, web, extension)를 새로 만들고 CI를 붙인다.
-2. to-spec → to-tickets → implement(tdd + code-review) → retro.
-3. 화면 작업 전에 `DESIGN.md` §7 미정 항목(특히 분석 시작 방식, 루비 켜기/끄기)을 사용자와 정한다.
+1. AI 코드 리뷰를 Codex(ChatGPT)로 붙인다. `AGENTS.md`의 `Review guidelines`와 `CONTRIBUTING.md`의 "코드 리뷰" 절 기준을 맞춘다.
+2. grill-with-docs로 첫 기능 단위를 정한다. 문서 간 모순(구간 state 정의, 큐 역할, 패턴 활성화 등)도 이때 정리한다.
+3. to-spec → to-tickets → implement(tdd + code-review) → retro.
+4. 화면 작업 전에 `DESIGN.md` §7 미정 항목(특히 분석 시작 방식, 루비 켜기/끄기)을 사용자와 정한다.
 
 ## 주의
 - 합의되지 않은 내용을 결정처럼 기록하지 않는다. 모르면 묻는다.

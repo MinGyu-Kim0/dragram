@@ -50,7 +50,7 @@
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis |  |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청) / llm(LLM 호출). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache / db / llm |
-| purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / word_gloss(단어 뜻·태그) / kanji_gloss(한자 한국어 뜻) |
+| purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(단어 뜻·태그) / kanji_gloss(한자 한국어 뜻) |
 | model | 모델명 | varchar(255) | Y |  |  |
 | input_tokens | 입력 토큰 수 | integer | Y |  |  |
 | cached_input_tokens | 캐시된 입력 토큰 수 | integer | Y |  | 프롬프트 캐싱 효과 확인용(cached_tokens) |

@@ -1,0 +1,46 @@
+name: dragram
+
+# 로컬 개발용. 값은 모두 개발 전용이며 운영에서 쓰지 않는다.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dragram
+      POSTGRES_USER: dragram
+      POSTGRES_PASSWORD: dragram-dev-only
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dragram -d dragram"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    # 마운트한 폴더에 만든 파일(마이그레이션 등)이 root 소유가 되지 않게 한다.
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DJANGO_SECRET_KEY: dev-only-not-secret
+      DJANGO_DEBUG: "true"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      POSTGRES_DB: dragram
+      POSTGRES_USER: dragram
+      POSTGRES_PASSWORD: dragram-dev-only
+      POSTGRES_HOST: db
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

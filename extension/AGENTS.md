@@ -17,5 +17,6 @@
 
 - 진입점은 `entrypoints/`에 두고, manifest는 `wxt.config.ts`와 진입점에서 만든다. `manifest.json`을 직접 쓰지 않는다.
 - 권한(`permissions`, `host_permissions`)은 실제로 쓰는 것만 추가한다.
+- 아이콘(`public/icon/*.png`)은 `web/public/favicon.svg`에서 만든 PNG다. 로고를 바꾸면 SVG를 고친 뒤 같은 크기(16·32·48·96·128)로 다시 만든다.
 - 테스트는 대상 파일 옆에 `*.test.ts(x)`로 둔다.
 - 화면 색·문구는 루트 `DESIGN.md`를 따른다.

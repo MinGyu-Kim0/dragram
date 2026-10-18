@@ -1,3 +1,4 @@
 export default defineBackground(() => {
-  console.log("Hello background!", { id: browser.runtime.id });
+  // 툴바의 확장 아이콘을 누르면 사이드 패널을 연다.
+  browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 });

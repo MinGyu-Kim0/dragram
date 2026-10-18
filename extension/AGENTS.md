@@ -1,0 +1,21 @@
+# extension
+
+크롬 확장(MV3). WXT + React + TypeScript로 만들고, 결과는 사이드 패널에 보여준다. 패키지는 npm으로 관리한다.
+
+## 명령
+
+`extension/`에서 실행한다.
+
+- 빌드: `npm run build` → `.output/chrome-mv3/`. 크롬 `chrome://extensions`에서 개발자 모드를 켜고 "압축해제된 확장 프로그램 로드"로 이 폴더를 불러온다.
+- 개발 모드: `npm run dev` (파일을 고치면 다시 빌드한다. WSL에서는 브라우저를 자동으로 띄우지 못하므로 위처럼 `.output/chrome-mv3-dev/`를 불러온다. Windows 크롬에서는 `\\wsl.localhost\<배포판>\...\extension\.output\chrome-mv3-dev` 경로로 고른다)
+- 테스트: `npm test` (Vitest + Testing Library, jsdom. `browser.*` API는 WXT의 fake-browser로 대체된다)
+- 린트: `npm run lint` (oxlint)
+- 포맷: `npm run format`, 확인만 할 때 `npm run format:check` (Prettier)
+- 타입 검사: `npm run typecheck`
+
+## 규칙
+
+- 진입점은 `entrypoints/`에 두고, manifest는 `wxt.config.ts`와 진입점에서 만든다. `manifest.json`을 직접 쓰지 않는다.
+- 권한(`permissions`, `host_permissions`)은 실제로 쓰는 것만 추가한다.
+- 테스트는 대상 파일 옆에 `*.test.ts(x)`로 둔다.
+- 화면 색·문구는 루트 `DESIGN.md`를 따른다.

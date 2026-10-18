@@ -127,7 +127,7 @@
 | explanation_ko | 한국어 설명 | text |  |  | LLM이 처음 1회 작성 → 관리자 검수. 공용 재사용 |
 | example_ja | 예문 | text | Y |  | LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지 |
 | revision | 용법 판 번호 | integer |  |  | 설명이 아닌 의미 정의가 바뀌면 증가. span_match.usage_revision과 조회 시 비교 |
-| status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. pending은 'AI 생성·미검수' 배지로 표시, 확정 판별 근거로는 approved만. rejected는 판정·규칙·LLM 후보에서 빼고 응답에도 보이지 않음 |
+| status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. pending은 'AI 생성·미검수' 배지로 표시, 확정 판별 근거로는 approved만. rejected는 판정·규칙·LLM 후보에서 빼고 응답에도 보이지 않음. rejected에서 다른 상태로 되돌리면 그 패턴을 쓰던 분석을 stale로 |
 | approved_via | 승인 방식 | varchar(30) | Y |  | manual / auto. auto는 그림자 모드 검증 후 실제 자동 승인을 켠 뒤에만 |
 | approved_by | 승인자 ID | bigint | Y | → users | 자동 승인이면 null |
 | approved_at | 승인일시 | timestamptz | Y |  |  |
@@ -203,7 +203,7 @@
 | end_offset | 끝 위치 | integer |  |  |  |
 | before_usage_id | 정정 전 용법 ID | bigint | Y | → grammar_usage | 미발견 구간이었으면 null |
 | after_usage_id | 정정 후 용법 ID | bigint | Y | → grammar_usage | null이면 매칭 해제 |
-| status | 적용 상태 | varchar(30) |  |  | active / suspended. active만 우선 적용, 오답으로 확인된 결과는 재분석 중에도 노출 안 함 |
+| status | 적용 상태 | varchar(30) |  |  | active / suspended. active만 우선 적용, 오답으로 확인된 결과는 재분석 중에도 노출 안 함. after_usage_id 용법이 반려되면 suspended |
 | corrected_by | 정정자 ID | bigint |  | → users |  |
 | created_at | 정정일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |

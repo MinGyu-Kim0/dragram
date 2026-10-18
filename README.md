@@ -16,7 +16,7 @@ docs/        요구사항, DB 스키마, 설계 결정, ADR
 compose.yaml 로컬 개발용 compose
 ```
 
-`web/`, `extension/`, `infra/`는 구현하면서 만든다.
+`extension/`, `infra/`는 구현하면서 만든다.
 
 ## 로컬 실행
 
@@ -28,7 +28,8 @@ docker compose up -d
 ```
 
 - API: http://localhost:8000/api/health/
-- 테스트: `docker compose run --rm backend pytest`
+- 웹: http://localhost:5173
+- 테스트: `docker compose run --rm backend pytest`, `cd web && npm test`
 
 폴더별 명령은 각 폴더의 `AGENTS.md`에 있다.
 

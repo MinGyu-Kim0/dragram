@@ -42,5 +42,16 @@ services:
       db:
         condition: service_healthy
 
+  web:
+    build: ./web
+    volumes:
+      - ./web:/app
+      # 이미지에 설치한 node_modules를 쓴다. 의존성을 바꾸면 build 후 `up -V`로 다시 만든다.
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
 volumes:
   postgres_data:

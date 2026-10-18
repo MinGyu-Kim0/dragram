@@ -11,15 +11,26 @@
 backend/     Django + DRF + PostgreSQL (SudachiPy, OpenAI)
 web/         React + Vite + TypeScript 웹페이지
 extension/   크롬 확장 (사이드 패널)
-infra/       로컬·운영 compose
+infra/       운영 compose, nginx, Terraform
 docs/        요구사항, DB 스키마, 설계 결정, ADR
+compose.yaml 로컬 개발용 compose
 ```
 
-`backend/`, `web/`, `extension/`, `infra/`는 구현하면서 만든다.
+`web/`, `extension/`, `infra/`는 구현하면서 만든다.
 
 ## 로컬 실행
 
-뼈대를 만들 때 추가한다.
+Docker(Compose 포함)가 필요하다.
+
+```bash
+cp .env.example .env   # 필요한 값만 채운다
+docker compose up -d
+```
+
+- API: http://localhost:8000/api/health/
+- 테스트: `docker compose run --rm backend pytest`
+
+폴더별 명령은 각 폴더의 `AGENTS.md`에 있다.
 
 ## 문서
 

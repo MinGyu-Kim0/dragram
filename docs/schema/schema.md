@@ -211,7 +211,7 @@
 | end_offset | 끝 위치 | integer |  |  |  |
 | before_usage_id | 정정 전 용법 ID | bigint | Y | → grammar_usage | 미발견 구간이었으면 null |
 | after_usage_id | 정정 후 용법 ID | bigint | Y | → grammar_usage | null이면 매칭 해제 |
-| status | 적용 상태 | varchar(30) |  |  | active / suspended. active만 우선 적용, 오답으로 확인된 결과는 재분석 중에도 노출 안 함. 관리자가 직접 바꿀 때만 변경. after_usage_id 용법이나 그 패턴이 rejected면 적용할 때 건너뜀(상태는 그대로) |
+| status | 적용 상태 | varchar(30) |  |  | active / suspended. active만 우선 적용, 오답으로 확인된 결과는 재분석 중에도 노출 안 함. 관리자가 직접 바꿀 때만 변경. after_usage_id 용법, 그 소속 패턴, 같은 위치 span_match의 실제 매칭 패턴(pattern_id, 회화체면 회화체 패턴) 중 하나라도 rejected면 적용할 때 건너뜀(상태는 그대로) |
 | corrected_by | 정정자 ID | bigint |  | → users |  |
 | created_at | 정정일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |

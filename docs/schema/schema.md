@@ -100,10 +100,18 @@
 | revision | 패턴 판 번호 | integer |  |  | 용법 완결 여부·형태소 조건·용법 구성이 바뀌면 증가. span_match.basis_revision과 조회 시 비교 |
 | show_parts | 구성 문법 표시 여부 | boolean |  |  | 긴 패턴 안의 구성 문법을 화면에서 펼쳐 보일지. 화면 접기 전용, 분석 후보는 항상 보존 |
 | test_cases | 검증 예문 | jsonb |  |  | [{text, should_match}] 성공·실패 예문. 첫 '걸려야 함' 항목은 등록 때 LLM이 새로 쓴 예문(원문을 베꼈으면 거부: 키 텍스트가 같거나, 원문 전체를 포함하거나, 원문의 연속된 일부를 기준 길이 이상 포함). 전부 통과해야 승인·용법 완결 가능. 새로 쓴 should_match true·false 예문이 각각 1개 이상 있어야 하고 빈 배열은 통과 아님 / LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지(매칭기로 확인 후 저장, 회귀 테스트 겸용) |
-| is_active | 활성 여부 | boolean |  |  | 활성화 근거(등록 때 원래 문장 재매칭 통과 + 새로 쓴 should_match 예문 1개 이상 통과, LLM·관리자 예문 모두 인정)가 있고 rejected가 아니면 true. 반려 취소·예문 보완 때 서버가 다시 검증. 값이 바뀌면 패턴 세트 버전(sentence_analysis.matcher_version과 비교하는 값)을 올림. false면 매칭에 쓰지 않음 |
+| is_active | 활성 여부 | boolean |  |  | 활성화 근거(등록 때 원래 문장 재매칭 통과 + 새로 쓴 should_match 예문 1개 이상 통과, LLM·관리자 예문 모두 인정)가 있고 rejected가 아니면 true. 반려 취소·예문 보완 때 서버가 다시 검증. 값이 바뀌면 같은 트랜잭션에서 pattern_set_version.version을 1 올림. false면 매칭에 쓰지 않음 |
 | status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. 형태소 조건의 검수 상태(용법 승인과 별개). LLM이 만든 패턴은 pending으로 생성. 원형에 연결된 회화체 패턴의 미검수 여부도 이 칸으로 판단. 반려·반려 취소 시 이 패턴과 이 패턴을 원형으로 가리키는 회화체 패턴의 분석을 stale로(전이표는 requirements '패턴 매칭 규칙') |
 | created_at | 등록일시 | timestamptz |  |  |  |
 | variant_of | 원형 패턴 | bigint | Y | → grammar_pattern | 회화체 패턴이 가리키는 원형 패턴(자기 참조). 1단계만·체인 금지(원형은 variant_of null). 회화체는 자기 용법 없이 원형 용법을 씀 / 체인 금지, 연결된 회화체는 자기 용법 없음 |
+
+## pattern_set_version — 패턴 세트 버전
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | smallint |  | PK | 항상 1인 한 행만 둔다(CHECK id = 1) |
+| version | 현재 패턴 세트 버전 | integer |  |  | grammar_pattern.is_active가 바뀌는 트랜잭션에서 행을 잠그고(SELECT … FOR UPDATE) 1 증가. sentence_analysis.matcher_version과 비교하는 현재값 |
+| updated_at | 수정일시 | timestamptz |  |  |  |
 
 ## pattern_morpheme — 패턴 형태소
 
@@ -162,11 +170,11 @@
 | sentence_hash | 문장 해시 | char(64) |  |  | 키 텍스트(정규화+숫자 자리표시자) SHA-256. UNIQUE(sentence_hash). 공용 테이블에 원문 미저장 |
 | normalize_version | 정규화 버전 | smallint |  |  | 기록용. 정규화 규칙이 바뀌면 마이그레이션으로 해시 재계산 |
 | pipeline_version | 파이프라인 버전 | varchar(30) |  |  | SudachiPy·사전·판별 로직 버전 |
-| matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전. 현재 값보다 낮으면 조회 시 로컬 매칭만 다시 돌림(LLM 없음) |
+| matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전(pattern_set_version.version). 현재 값보다 낮으면 조회 시 로컬 매칭만 다시 돌림(LLM 없음) |
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
 | status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete |
 | processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 선점 만료 판단과 미완료 작업 재투입 기준 |
-| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려되거나 반려 취소될 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지 |
+| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소될 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지 |
 | is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시 |
 | translation_ko | 한국어 번역 | text | Y |  | 자리표시자(⟨N1⟩) 포함 형태. 자리표시자가 모두 보존된 경우에만 저장 |
 | name_spans | 고유명사 구간 | jsonb | Y |  | [{start, end, type: person/place/org/work/other}]. 형태소·문법 후보는 보존하고 주석만 |

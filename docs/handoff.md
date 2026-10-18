@@ -31,7 +31,7 @@ backend·web·extension 뼈대와 CI(`.github/workflows/ci.yml`)가 있다. 기�
 
 ## 다음 단계
 1. AI 코드 리뷰는 Codex(ChatGPT GitHub 연동)가 PR을 열 때 자동으로 단다. `AGENTS.md`의 `Review guidelines`와 `CONTRIBUTING.md`의 "코드 리뷰" 절(등급·`[권장]` 기준, "CI의 AI 리뷰" 표현)을 서로 맞춘다.
-2. grill-with-docs로 첫 기능 단위를 정한다. 문서 간 모순(구간 state 정의, 큐 역할, 패턴 활성화 등)도 이때 정리한다.
+2. ~~grill-with-docs로 첫 기능 단위를 정한다. 문서 간 모순도 이때 정리한다.~~ 완료. 결과는 `docs/design-decisions.md` 28절과 ADR 0003.
 3. to-spec → to-tickets → implement(tdd + code-review) → retro.
 4. 화면 작업 전에 `DESIGN.md` §7 미정 항목(특히 분석 시작 방식, 루비 켜기/끄기)을 사용자와 정한다.
 

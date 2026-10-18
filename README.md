@@ -33,7 +33,7 @@ docker compose up -d
 
 확장 프로그램은 compose로 띄우지 않는다. `cd extension && npm run build` 후 `chrome://extensions`에서 `extension/.output/chrome-mv3`를 압축해제된 확장 프로그램으로 불러온다.
 
-폴더별 명령은 각 폴더의 `AGENTS.md`에 있다.
+폴더별 명령은 각 폴더의 `AGENTS.md`에 있다. PR을 올리면 CI(`.github/workflows/ci.yml`)가 바뀐 폴더의 검사(린트, 포맷, 타입, 테스트, 빌드)를 돌린다.
 
 ## 문서
 

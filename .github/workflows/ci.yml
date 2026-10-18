@@ -35,6 +35,8 @@ jobs:
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
+          # dev·main push는 직전 커밋과 비교한다. PR은 비워 두면 PR 대상 브랜치와 비교한다.
+          base: ${{ github.event_name == 'push' && github.ref || '' }}
           filters: |
             backend:
               - 'backend/**'
@@ -89,7 +91,7 @@ jobs:
           version: "0.12.13"
           working-directory: backend
           enable-cache: true
-          cache-dependency-glob: backend/uv.lock
+          cache-dependency-glob: uv.lock
       - name: Install dependencies
         run: uv sync --frozen
       - name: Format

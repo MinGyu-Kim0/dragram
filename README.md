@@ -1,1 +1,42 @@
-# dragram
+# Dragram
+
+웹에서 일본어 문장을 드래그하면 번역과 함께 문법·단어·한자를 분석해 크롬 사이드 패널에 보여주는 확장 프로그램이다.
+교재가 아니라 내가 직접 고른 글(기술 문서, 뉴스, 소설 등)에서 나에게 필요한 일본어를 배우는 것이 목표다.
+
+> 새 설계로 다시 만드는 중이다. 이전 MVP는 [dragram-mvp](https://github.com/MinGyu-Kim0/dragram-mvp)(보관됨)에 있다.
+
+## 구조
+
+```text
+backend/     Django + DRF + PostgreSQL (SudachiPy, OpenAI)
+web/         React + Vite + TypeScript 웹페이지
+extension/   크롬 확장 (사이드 패널)
+infra/       로컬·운영 compose
+docs/        요구사항, DB 스키마, 설계 결정, ADR
+```
+
+`backend/`, `web/`, `extension/`, `infra/`는 구현하면서 만든다.
+
+## 로컬 실행
+
+뼈대를 만들 때 추가한다.
+
+## 문서
+
+- [요구사항](docs/requirements.md)
+- [DB 스키마](docs/schema/schema.md)
+- [설계 결정 기록](docs/design-decisions.md) · [ADR](docs/adr/)
+- [디자인 기준](DESIGN.md)
+- [용어집](GLOSSARY.md)
+- [기여 안내](.github/CONTRIBUTING.md)
+
+## 데이터 출처
+
+- 단어 사전: [JMdict](https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project)
+- 한자 사전: [KANJIDIC2](https://www.edrdg.org/wiki/index.php/KANJIDIC_Project)
+
+두 데이터는 Electronic Dictionary Research and Development Group(EDRDG)의 자료이며 [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)으로 제공된다. 이를 바탕으로 만든 한국어 뜻 데이터도 같은 라이선스를 따른다.
+
+## 라이선스
+
+코드: [MIT](LICENSE)

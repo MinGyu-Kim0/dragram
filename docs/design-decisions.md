@@ -1,0 +1,193 @@
+# 설계 결정 기록
+
+> 시간순 기록이다. **절끼리 충돌하면 뒤 절이 이긴다**(예: 0절의 시드·JLPT는 13절에서 삭제, 14절 회화체 복사는 18절 원형 참조로 대체, 26절 user_sentence.sentence_hash는 analysis_id로 대체).
+> 최종 상태의 기준은 `requirements.md`와 `schema/`이다. 이 문서는 "왜 그렇게 정했나"를 찾을 때 본다.
+
+## 0. 목적과 범위
+- 본질: 사용자가 직접 고른 글(기술 문서, 뉴스, 게임, 소설 등)에서 필요한 일본어를 집중해서 배우게 하는 것. 웹소설 전용 아님.
+- MVP 언어 범위: 표준어 + 회화체. 시드 = JLPT N5~N1 문법 + 기본 축약형(てる, ちゃう, とく, なきゃ, ちゃ, じゃない, って) + 경어 대표 패턴(お〜になる, お〜する, ご〜いたす, 〜させていただく) + 특별 경어 동사 10개 정도.
+- 나중: 방언, 인터넷 말투, 신조어, 과장된 캐릭터 말투, 수동태 세분화(수동/가능/존경 등 れる 세분은 MVP 제외), 말투(register) 칸.
+- 결과 표시: 크롬 사이드 패널. 드래그 → 문장 끝(마침표)까지 자동 확장, 사용자가 실제 드래그한 범위는 따로 강조 표시.
+- 사전: SudachiPy core 사전, SplitMode C. full 사전 전환은 OOV 비율 + 실제 분할·품사 오류를 보고 결정.
+- 관리자 도구: Django admin (ModelAdmin/템플릿 오버라이드로 UI 수정 가능).
+
+## 1. 정규화 (해시 기준 텍스트, normalize_version으로 기록)
+1. 루비(rt, rp) 제거 (화면에는 원래 페이지 루비 그대로)
+2. 폭 통일만: 전각 영숫자→반각, 반각 가나→전각. NFKC 전체 적용 안 함(위첨자 x² 같은 호환 분해 금지)
+3. 일본어 문자 사이 공백 제거, 영어 단어 사이는 공백 1개 유지
+4. 물결표(~ 〜) 제거
+5. 문장 전체를 감싼 바깥 괄호/따옴표만 제거
+6. 의미를 바꾸는 기호(！ ？ … 등)만 남기고 나머지 기호 제거
+7. 숫자: 아라비아 숫자(0~9, 폭 통일 후)만 ⟨N1⟩, ⟨N2⟩ 자리표시자로 치환. 한자 숫자(一二三…)는 절대 치환하지 않음(二枚目, 一人前, 七夕, 一石二鳥 등 관용 표현 보호)
+8. 두 텍스트: 분석 텍스트(숫자 그대로, SudachiPy 입력) / 키 텍스트(자리표시자, 해시·LLM 입력·번역 저장·위치 기준)
+9. 공용 캐시 저장 조건: LLM 번역 출력에 자리표시자가 빠짐없이 그대로 있을 때만. 실패 시 숫자 넣고 분석한 결과는 공용 캐시에 저장하지 않음
+10. 정규화 규칙 변경 시 마이그레이션으로 해시 재계산
+
+## 2. 저장과 캐시
+- 공용 테이블에 원문 미저장. sentence_analysis는 UNIQUE(sentence_hash)만 (SHA-256, char(64)). normalized_text 칸 없음.
+- 개인 원문은 user_sentence에 저장, UNIQUE(user_id, original_hash). sentence_hash는 공용 분석 참조용.
+- 출처는 사용자별: user_sentence_source (UNIQUE(user_sentence_id, url_hash)), 10분 내 재방문은 last_seen_at만 갱신하고 새 출처 연결은 누락 없이.
+- 위치: 키 텍스트 코드포인트 기준 반열린 구간 [start, end). 원문 매핑은 서버가 계산(JS는 UTF-16이라 서버가 변환해 내려줌). LLM은 서버가 부여한 후보 ID만 고르고 구간은 서버가 계산.
+- 문장 분리: 인용부호(「」『』 등) 안의 마침표에서는 나누지 않는 규칙부터. ？！ 줄바꿈 포함 대표 사례로 확정.
+- 문장 단독 분석(MVP는 문맥을 입력에 넣지 않음). 문맥에 따라 갈리면 '판별 불가' + 복수 해석 표시. 번역은 재사용하되 정정 시 재번역 경로 있음.
+
+## 3. 최신성(stale)과 재분석
+- 판 번호(revision)를 조회 시 비교: grammar_pattern.revision, grammar_usage.revision ↔ span_match.basis_revision / usage_revision.
+- is_stale 플래그는 번호가 없는 사건용으로만.
+- matcher_version(패턴 세트 버전)이 sentence_analysis 값보다 높으면 로컬 매칭만 다시 돌림(LLM 없음). 후보나 용법 revision·판별 규칙이 바뀐 구간은 전부 재검토, 판정은 입력이 완전히 같을 때만 재사용.
+- 표시: stale-while-revalidate. 옛 결과를 '재분석 중' 표시와 함께 보여주고 SSE로 갱신.
+- 관리자 정정(match_correction)이 우선. 이미 오답으로 아는 결과는 재분석 중에도 그대로 노출하지 않음. 정정 우선순위는 '활성 정정만', suspended 제외.
+
+## 4. 동시성과 장애 복구
+- 같은 문장 동시 요청: 조건부 UPDATE로 status=processing 선점 → 단일 실행.
+- 결과 쓰기 시 세대 번호(generation) 비교, span 묶음은 트랜잭션으로 통째 교체.
+- 선점 만료 시간(processing_started_at 기준) + DB의 미완료 작업을 큐에 다시 넣는 복구 경로. SSE 응답은 결과 버전 포함, 재접속 시 DB 현재 결과 재조회.
+- 동시 요청 약 10개에서 시작, 테스트로 조정. 최대 입력량·재시도 횟수·전체 작업 시간 상한은 처음부터 둠.
+
+## 5. 매칭과 판별
+- pattern_morpheme: lemma(= SudachiPy normalized_form + 예외 매핑), pos1, pos2, conjugation_form. NULL = 아무거나.
+- 활용형: 과거/조건(食べた 終止形 vs 食べたら 仮定形)처럼 필요한 패턴은 conjugation_form 필수. usage_closed 패턴은 활용형 조건 검토 필수, 등록 시 성공 예문 + 실패 예문 테스트를 통과해야 활성화.
+- 판별 순서: 후보 0개 → '대상 문법 없음'(정상 결과) / usage_closed → 확정(승인된 것만) / usage_rule → 확정(승인된 것만) / 통계(off) / LLM 1차 호출이 ID 선택('해당 없음', '판별 불가' 허용).
+- 신규 문법 발견 에이전트: 큐 + 일일 상한 + 모든 호출·재시도 기록으로만 실행. pending만 생성.
+- 겹침: 화면 접기와 분석 제외를 분리. 긴 패턴이 이겨도 내부 후보는 보존. 구성 관계가 명시된 패턴만 중복 표시 생략.
+- 고유명사: 원래 형태소·문법 후보는 보존, name_spans(type: person/place/org/work/other)로 주석만. 이름은 번역에 맡김. OOV 전문 용어는 word에 저장.
+
+## 6. 단어
+- 내부 word_id가 식별자. jmdict_seq는 선택적 연결 키(NULL 허용). 같은 표기에 여러 사전 항목·뜻 가능 → 선택된 뜻/미확정 상태 보관.
+- 정규형은 조회 열쇠로만 사용.
+- 뜻 검수 상태(meaning_status): 검수 없으면 'AI 번역' 표시. JMdict CC BY-SA 4.0 출처·라이선스 링크 표기.
+
+## 7. 승인과 품질
+- LLM이 문법 설명을 처음 1회 작성 → 관리자 검수. 공용 문법 설명은 재사용.
+- pending도 화면에는 'AI 생성·미검수' 배지로 표시. 확정 판별의 근거(usage_closed, usage_rule)로는 승인된 것만.
+- 그림자 모드: 자동 승인 기준으로 '승인했을 것'만 기록(would_auto_approve, 근거, 평가 시각), status는 pending 유지. 관리자 결정과 비교해 일치율이 충분하면(예: 95%) 실제 자동 승인을 따로 켬.
+- 관리자 정정은 평가 후보로 사용.
+- 평가: 고정 평가 세트 50문장부터(정상 / 문법 없음 / 동형이의 / 축약 / 인용 / 기술 문서 / 범위 밖). 지표: 구간 정확도, 용법 정확도, 판별 보류 비율, 문장당 호출 수·비용. LLM 신뢰도 수치를 정확도로 취급하지 않음.
+
+## 8. LLM과 비용
+- OpenAI만. structured outputs, 프롬프트 캐싱(고정 접두부 ≥1024토큰)은 cached_tokens로 효과 확인.
+- 목표: 공용 캐시·문법 재사용으로 비용이 0에 수렴.
+- 확장 문장(축약어 원문 복원 등) 기능은 제외.
+
+## 9. 보관·법적
+- 작업 큐 입력은 완료 즉시 삭제, usage_log에 원문 미저장, Redis 영속화 끔.
+- 공용 번역 저장이 남은 법적 위험. 삭제 요청은 작품 문장 해시로 처리. 한국 저작권법 적용, 일본 측 CODA.
+- 번역·작업 입력·로그·평가 자료의 보관 기간과 접근 범위를 정함. 평가 세트 편입은 직접 작성 문장·이용 가능 자료·동의 확보 자료만.
+
+## 10. 써 보며 정할 것 (보류)
+- 분석 트리거 기본값(자동/버튼), 루비 없는 한자 후리가나, 수치 임계값들, 애매한 히라가나 단어, 〜の 표시 방식, core→full 전환, 말투 칸.
+
+## 11. 구현 순서 (Codex 제안, 합의)
+1. 문장 경계·캐시 동일성·구간 위치 → 2. 개인 원문·출처, 문법·용법·단어 식별자, 승인 상태, 분석·작업 버전 → 3. 작은 시드로 매칭·용법 판별 → 4. 번역·모호성 판별과 작업 실행 → 5. 사이드 패널·정정·stale 갱신, 이후 시드 확대.
+첫 구현에서 미룰 것: 숫자 템플릿의 범위 확장, 구간별 정교한 LLM 재사용, 무조건적인 신규 문법 에이전트 실행.
+
+## 12. ERD 변경 (사용자 ERDCloud 12테이블 기준 → 13테이블)
+- sentence_analysis: normalized_text 삭제, UNIQUE(sentence_hash)만, pipeline_version 유지, normalize_version(기록용), matcher_version 추가, generation 추가, name_spans json 추가, status/processing_started_at/is_stale/translation_ko 유지
+- span_match: usage_revision 추가 (basis_revision, rule_id 유지)
+- grammar_pattern: revision 유지, show_parts 추가, test_cases json(성공/실패 예문) 추가
+- grammar_usage: revision 추가, would_auto_approve(bool, NULL=미평가), auto_approve_basis(json), auto_approve_evaluated_at 추가 (status/approved_via/approved_by/approved_at 유지)
+- pattern_morpheme: dictionary_form → lemma 로 이름 변경 (conjugation_form 유지)
+- user_sentence: original_hash 추가, UNIQUE(user_id, original_hash), sentence_hash는 참조용
+- user_sentence_source(신규): id, user_sentence_id, source_url, url_hash, source_title, first_seen_at, last_seen_at, UNIQUE(user_sentence_id, url_hash)
+- word: 내부 id 유지, jmdict_seq NULL 허용, meaning_status 추가(ai/reviewed 등)
+- usage_rule: created_by NULL 허용
+- usage_log: 원문 칸 없음 확인
+- users, admin_action_log, match_correction: 유지
+
+## 13. 추가 결정 (2026-10-17 15:51)
+- 한자 테이블 kanji 추가(FR-A17 대응): id, character(UNIQUE), on_readings, kun_readings, korean_readings, meaning_en, meaning_ko(훈음, LLM 생성 후 검수), meaning_source, meaning_status, grade(교육·상용 구분, 일본 정부 공식), stroke_count, updated_at. 연결 테이블 없음(표기를 글자 단위로 잘라 조회). 데이터는 KANJIDIC2(EDRDG, CC BY-SA 4.0)로 상용한자 약 2,100자 선적재.
+- JLPT 급수는 문법·한자 모두 MVP에서 제거(공식 목록 없음). 나중에 NULL 허용 칸으로 추가 가능, 문법은 외부 목록과의 짝짓기 작업 필요.
+- 시드 없이 시작. "JLPT N5~N1 + 축약형 + 경어" 시드 근거는 삭제(사용자 결정 아님). MVP 언어 범위(표준어+회화체)는 유지.
+- 후보 0개 규칙 정정(0절·5절의 "후보 0개 → 대상 문법 없음"을 대체): DB에 없는 문법은 원래대로 LLM이 분석해 pending 패턴으로 등록하고 'AI 생성·미검수' 배지로 바로 표시. LLM 호출 여부는 싼 신호로 거름 — 어떤 패턴에도 안 걸린 조사·조동사·보조동사가 남아 있으면 LLM 분석(후보가 일부 잡힌 문장도 동일, = 미발견 판정), 그런 게 없으면(명사만 있는 제목 등) LLM 없이 '대상 문법 없음'. 큐·일일 상한·호출 기록은 비용 안전장치로 유지, 초반 상한은 넉넉히.
+
+## 14. grill-with-docs 세션 결정 (2026-10-17 16:14~17:16) — 앞 절과 충돌하면 14절이 이긴다
+- 분석 호출: 새 문장은 LLM 1회 호출(structured output)로 번역 + 애매한 용법 판별 + 미발견 구간의 새 문법 찾기를 함께 수행. 큐는 실패 재시도용. '에이전트'라는 말은 나중 일괄 작업(중복 패턴 합치기 등)용으로 보류.
+- 미검수 재사용: 미검수(pending) 패턴이 걸리면 LLM 없이 재사용하고 '미검수' 표시. 용법이 여러 개인 미검수 패턴은 LLM이 고름. 결과 상태 용어: 확정(승인 지식으로 정함) / 재사용(미검수). usage_rule은 승인된 것만.
+- 해석 갈림(기존 '판별 불가' 대체): 번역과 용법은 한 호출에서 같은 해석으로 정함. 문장만으로 갈리면 주 용법 + 대안 해석(대안 용법 ID + 짧은 대안 번역) 저장·표시. LLM이 근거 없이 대안을 내면 그 구간만 한 번 재질문. 관리자 용법 정정 시 그 문장 번역도 재번역 대상.
+- 패턴 생성: LLM은 서버가 부여한 토큰 ID로 핵심 토큰만 고르고 토큰마다 'lemma 고정 / 활용형도 고정 / 아무거나' 표시. 처음·끝 토큰은 '아무거나' 불가. 생성한 패턴으로 원래 문장을 재매칭해 걸려야 저장, 그 문장은 성공 예문으로 test_cases에.
+- で→て 조건부 규칙(코드 상수): 접속조사 で는 앞 토큰이 1그룹(五段) 동사의 음편형(撥音便·イ音便)일 때만 て로 봄. ないで 등은 で 유지(별개 패턴). 테스트: 読んでしまう(합쳐짐), 行かないで(안 합쳐짐). SudachiPy는 だ→た, でる→てる, じゃう→ちゃう, ちゃ→て를 이미 정규화함. しまう의 lemma는 仕舞う(표시 이름 별도 필요).
+- 중복 방지: grammar_pattern.morpheme_key = 형태소 행(lemma|pos1|pos2|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256, UNIQUE. Django get_or_create로 동시 생성 처리(Redis·락 없음). 충돌로 기존 패턴을 받은 쪽은 자기 용법을 버리고 기존 용법 목록으로 재질문(작은 LLM 호출). 의미상 중복은 Django admin 패턴 합치기(span_match 참조 이전 포함).
+- 회화체 패턴: ちゃう·てる·とく·なきゃ 등은 별도 패턴. 원형 패턴이 있으면 그 용법·설명을 복사해 새 행으로 저장, grammar_pattern.register(standard/colloquial)로 '회화체' 배지, 설명 첫 줄에 "「〜てしまう」의 회화체 축약형…" 표시. 원형이 아직 없으면 LLM이 새로 쓰고 나중에 관리자가 정리. 원본 추적 칸(copied_from)은 두지 않음.
+- 동사 그룹 표시: 1그룹(5단) / 2그룹(1단) / 3그룹(する·くる). SudachiPy 活用型에서 계산, DB 칸 없음.
+- 단어 태그: word.tags text[] (영문 코드, GIN 인덱스, 허용 목록은 코드 상수로 저장 시 검사). SudachiPy 유래: 품사(명사·대명사·동사·い형용사·な형용사·부사·연체사·접속사·감동사), 동사 그룹(group1/2/3), 고유명사, 예외 활용(tricky). LLM 유래(단어 뜻 생성 호출에서 함께, 추가 호출 없음): 자동사/타동사, 경어(존경어/겸양어/정중어), 의성어·의태어, 외래어. 짝 동사는 word.pair_word_id(word 자기 참조, NULL 허용). word.pos는 SudachiPy 원래 값 기록용으로 유지. 사이드 패널에서 단어 밑에 태그 표시, 예외 활용은 '주의'.
+- 예외 활용: 모양은 2그룹인데 1그룹(帰る·入る·走る·知る), 行く(行って), ある(ない), いい(よくない), する·くる, 경어 동사 등. 표기와 SudachiPy 그룹 비교 + 예외 목록으로 자동 판정.
+- 활용표: 규칙 코드(그룹별 규칙 + 예외 목록)로 ない형·ます형·て형·た형·가능형·의지형 등을 계산, 웹페이지 API에서만 내려줌(사이드 패널 미표시). 그룹별 설명문 6개 정도는 한 번 작성 후 관리자 검수. DB 칸 없음.
+- 만난 항목: sentence_analysis.word_ids bigint[] 추가. 내 단어 = 내 user_sentence들의 word_ids, 내 한자 = 내 단어 표기 속 한자, 내 문법 = 내 문장들의 span_match. 본인만 조회. 단어 합치기·삭제 시 배열 안 ID도 갱신해야 함. 웹페이지에서 태그 필터(구현은 나중). 학습 카드(Phase 2)는 만난 항목 중 골라 등록한 것으로 별개.
+- ERD 변경: grammar_pattern(+morpheme_key UNIQUE, +register), span_match(state에 ambiguous='해석 갈림', +alternatives json), word(+tags text[], +pair_word_id), sentence_analysis(+word_ids bigint[]).
+
+## 15. 짝 동사 (2026-10-17 17:28)
+- word.pair_word_id(자기 참조 FK) → word.pair_form varchar NULL로 변경(짝 단어 행이 없을 수 있고 양쪽 동기화가 번거로움). 짝이 없거나 동사가 아니면 NULL(뜻이 채워진 단어의 NULL = 짝 없음).
+- 표시: 짝 동사는 웹페이지 단어 화면에서만(활용표와 함께). 사이드 패널은 자동사/타동사 등 단어 태그까지만 표시(가독성).
+
+## 16. 단어 사전 (2026-10-17 17:33)
+- 단어 사전은 JMdict(EDRDG, CC BY-SA 4.0)로 정식 결정. 읽기·품사·영어 뜻을 근거로 LLM이 한국어 뜻을 1회 생성, 관리자 검수. 앱에 출처·라이선스 링크 표기.
+- ShareAlike 원칙: JMdict 기반 한국어 뜻 데이터 자체를 판매하거나 외부에 배포하지 않는다. 앱 내 표시가 해당되는지는 해석이 갈리므로 유료화 전에 재검토.
+- 짝 동사·단어 식별은 읽기까지 포함한 단어 단위(開く あく / ひらく 구분). SudachiPy 읽기가 문맥상 틀릴 수 있어 단어 뜻 LLM 호출에서 읽기 확인.
+
+## 17. Codex 최종 확인 합의 (2026-10-17 19:30) — "구현 계획 진행 가능", 치명 없음
+- lemma 규칙 변경: 조사·조동사 토큰은 dictionary_form, 동사·형용사 등 내용어만 normalized_form. (SudachiPy가 ちゃ→て, じゃ(格助詞)→で로 정규화해 ちゃいけない와 ていけない가 합쳐지는 문제. てはいけない의 ては는 한 토큰.) 탁음화는 조건부 매핑 하나: 앞 토큰이 1그룹 음편형(撥音便·イ音便)이면 탁음 기능어를 청음형으로(で→て, でる→てる, じゃう→ちゃう, だ→た, だら→たら). morpheme_key는 이 lemma로 계산. (14절 で→て 규칙을 일반화·대체)
+- 새 문장 LLM 1회 호출에 '승인된 usage_closed 패턴을 제외한 모든 후보 구간'(미검수 단일 용법 포함)을 확인 대상으로 넣고 문장 전체에서 새 구문 제안도 받음. 미발견 신호는 힌트. 'LLM 없이 재사용'은 이미 캐시된 문장에만. 기존 용법이 안 맞으면 같은 패턴 아래 pending 용법 추가. ('대상 문법 없음 → LLM 없음' 규칙은 문법 탐색에 한해 폐기: 새 문장은 번역 때문에 어차피 호출)
+- 단어 뜻은 JMdict sense 단위: word.meanings_ko json(sense 목록). 문장별 선택 sense는 같은 LLM 호출에서 받아 sentence_analysis.word_senses smallint[](word_ids와 같은 순서)에 저장.
+- span_match.state에 unresolved(미확정·지원 범위 밖) 추가. 재질문으로 주 용법이 바뀌면 번역도 갱신.
+- 패턴은 연속 토큰만, '아무거나'는 정확히 1토큰. 불연속 문법(〜ば〜ほど 등) MVP 제외.
+- 만난 한자는 user_sentence 원문에서 직접 추출(사전형 아님). word_ids는 단어 목록용.
+- 태그는 JMdict 태그(vi/vt, hon/hum/pol, on-mim, 외래어 출처) 우선, 부족분만 LLM. pair_form NULL = 짝 없음 또는 미확인. 배열 정리는 병합·삭제·지연 작업 모두. usage_log purpose에 kanji_gloss 추가.
+- [사용자 결정 대기] 회화체 설명 복사 vs 원형 참조(Codex: 원형 정정 미전파, 학습 카드 중복). JMdict ShareAlike(Codex: 앱 표시도 공유에 해당. JMdict 기반 한국어 뜻에 CC BY-SA 4.0·출처·변경 사실 표시, 재배포 권리를 약관으로 제한하지 않으면 유료 서비스도 가능, 앱 코드 공개 의무 없음. 번역·문법 설명이 JMdict를 번역·각색한 게 아니면 별개).
+
+## 18. 사용자 결정 (2026-10-17 20:41) — 14절 회화체 '복사'와 16절 ShareAlike 기준을 대체
+- 회화체 패턴은 원형 참조: grammar_pattern.variant_of(원형 패턴 FK, NULL 허용). 회화체 패턴은 자기 용법을 갖지 않고 원형 패턴의 용법을 그대로 씀 → 설명 1벌, 학습 카드 1장. 화면에서만 '회화체' 배지 + 안내 한 줄. register 칸 유지.
+  - 규칙: span_match.usage_id의 용법은 span의 패턴 또는 그 패턴의 variant_of 패턴 소속이어야 함(서버 검증). variant_of는 1단계만(원형은 variant_of NULL, 체인 금지).
+  - 원형이 아직 없을 때 회화체가 먼저 나오면: 임시로 회화체 패턴에 pending 용법을 만들고, 원형이 생기면 관리자가 연결하면서 용법을 원형으로 합침(패턴 합치기 기능 재사용).
+- JMdict 라이선스: 앱 표시도 CC BY-SA의 공유에 해당. JMdict 기반 한국어 뜻을 보여주는 곳에 CC BY-SA 4.0·출처(EDRDG)·변경 사실(한국어로 옮김) 표시, 약관에 '단어 뜻 데이터는 CC BY-SA 4.0'으로 명시하고 재배포를 막지 않음. 유료 서비스 가능, 앱 코드·문장 번역·문법 설명은 별개(JMdict를 번역·각색하지 않은 경우). 유료화 시점에 법률 확인 권장.
+
+## 19. Codex 최종 정리안 확인 (2026-10-17 20:52) — "G 방식 치명 없음, 아래 4건 보완하면 진행 가능"
+1. 새 용법 생성 위치: 원형에 연결된 회화체에서 새 pending 용법을 발견하면 원형 패턴 아래에 생성(18절 B와 G의 충돌 해소). 소속 검증은 '연결됐으면 원형만, 미연결이면 자기만' 허용.
+2. 확정 판별 상속 범위: 용법·설명은 공유하되 usage_closed·패턴 승인·usage_rule은 실제로 매칭된 패턴 기준. 원형이 승인됐다고 미검수 회화체 패턴까지 확정하지 않음.
+3. 재분석 대상: 원형 용법 revision 변경뿐 아니라 원형 연결·해제·용법 추가·병합도 관련 회화체 문장의 재분석 대상. 변경 전에 시작한 작업이 옛 소속·후보로 결과를 저장하는 것도 막음(세대 번호).
+4. 병합·학습 카드: 회화체와 원형 패턴은 유지하고 용법만 병합. 기존 판정·대안·관리자 정정의 용법 참조도 옮김. 학습 카드 단위는 패턴이 아니라 용법(용법당 1장). 이미 중복 카드가 있으면 복습 이력을 보존하는 병합 규칙 필요(Phase 2).
+
+## 20. 학습 카드 구성 (2026-10-17 21:46)
+- 카드는 두 종류(+한자 카드 기존 유지): 문법 카드 = 용법당 1장(예문으로 만난 활용 형태가 쌓임), 단어 카드 = 단어 뜻(sense)당 1장.
+- 활용 학습은 별도 '활용 카드' 없이 단어 카드에 포함: 단어 카드 뒷면에 동사 그룹·예외 활용 태그와 활용표(규칙 코드 계산)를 보여주고, 복습 문제로 활용형을 물을 수 있음(예: 読む의 て형은?). 그룹별 규칙 복습은 태그 필터(예: 1그룹만, 예외 활용만)로 대신.
+
+## 21. 학습 카드 자동 추가 (2026-10-17 21:59)
+- 사용자 설정 '드래그한 항목 자동으로 카드 추가': 기본값 꺼짐. 켜면 드래그한 문장의 문법(용법)과 단어(뜻)를 카드로 추가. 한자·고유명사는 제외. 꺼져 있으면 사용자가 골라서 추가.
+- 카드 삭제는 실제 삭제가 아니라 '제외(이미 앎)' 상태로 바꿈. 자동 추가는 이 상태인 항목을 건너뜀. 다시 공부하고 싶으면 사용자가 직접 다시 추가.
+
+## 22. 화면 용어 (2026-10-17 22:03)
+- '만난 항목' → 내부·화면 모두 '내 일본어'.
+- '짝 동사' → 내부 용어 '자타 대응 동사'. 화면은 관계를 직접 표시: 자동사 단어에는 "타동사: 開ける", 타동사 단어에는 "자동사: 開く"(라벨은 그 단어의 자동사/타동사 태그로 결정). 칼럼명 pair_form 유지, 스키마 변경 없음.
+- '대상 문법 없음'은 내부 용어 유지, 화면에는 문법 칸 자리에 "문법 요소 없음" 한 줄(칸을 숨기지 않음 — 실패와 구분).
+- 화면 문구 확정: 미검수 → 'AI 생성·미검수' 배지, 예외 활용 → '주의' 배지, 회화체 패턴 → '회화체' 배지, 해석 갈림 → "다른 해석: …", 미확정 → "판단하지 못함", stale → "재분석 중". 확정은 배지 없음.
+
+## 23. Codex 마지막 토론 (2026-10-17 22:15) — "치명 없음, 아래 2건 보완 후 스키마·요구사항 마감 가능"
+1. 단어 뜻(sense)의 고정 식별자: 배열 순번은 JMdict 갱신 시 순서가 바뀌면 다른 뜻에 연결되므로 쓰지 않음. 새 테이블 word_sense(id, word_id FK, jmdict_sense_index NULL, gloss_en json, meaning_ko, meaning_source, meaning_status, created_at, updated_at; UNIQUE(word_id, jmdict_sense_index)). 사전에 없는 전문 용어도 내부 sense 1개를 부여. word.meanings_ko / word.meaning_en / word.meaning_source / word.meaning_status는 word_sense로 이동. sentence_analysis.word_ids + word_senses → sense_ids bigint[] 하나로 대체(문장에 나온 단어 뜻 ID 목록, 단어는 sense에서 유도). 카드(Phase 2)는 word_sense.id를 참조.
+2. 자동 추가·제외 상태: 자동 추가는 선택된 주 용법·주 sense만(대안 해석·미확정 제외). 카드의 제외 상태와 복습 이력은 '내 일본어' 계산 결과와 독립적으로 보관 — 원문 삭제·재분석으로 초기화되지 않고, 용법·단어 병합 후 제외 항목이 다시 자동 추가되지 않도록 병합 시 상태를 승계(Phase 2).
+- 카드 테이블은 Phase 2로 미룸. usage_id·sense_id·kanji 식별자와 병합 시 상태 승계 원칙만 확정.
+
+## 24. JMdict 적재·단어 생성 (2026-10-18 08:09) — 23절 이후 결정, 앞 절과 충돌 시 우선
+- JMdict는 1회 전체 적재(Django 관리 명령) 후 끝. 원본 파일·원본 json 보관 안 함. 재적재 없음(갱신은 범위 밖, 운영 한계로 문서화). 기록은 판본 이름 한 줄(설정값) + 적재 직후 DB 백업. 파일 해시·적재 이력 테이블 없음.
+- 역할: 문장 번역은 LLM이 문장으로 하며 JMdict를 근거로 쓰지 않음. JMdict는 단어 정보 표시, sense 후보 목록, meaning_ko(그 sense의 일반 뜻) 1회 생성 근거로만 사용.
+- word 1행 = JMdict 항목 1개: jmdict_seq UNIQUE(사전에 없으면 NULL), dictionary_form·reading(대표 표시용), forms text[]·readings text[](GIN), is_common(ichi1/news1/spec1 등 흔한 단어, 후보 순서 힌트), reading_restrictions json(re_restr: 읽기→표기 제한), tags text[](단어 전체 태그 + 검색용 sense 태그 합집합).
+- word_sense: tags text[](자/타동사·경어·uk 등 sense 단위, JMdict pos/misc 변환), pair_form(자타 대응 동사, word에서 이동), applies_to json(stagk/stagr: 이 뜻이 적용되는 표기·읽기), sense_origin(jmdict/llm), sense_status(이 뜻 자체의 검수 상태; meaning_source·meaning_status는 한국어 뜻의 출처·검수로 별개). LLM이 만든 뜻은 JMdict 단어 아래에 붙어도 sense 단위로 'AI 생성·미검수' 표시(미검수가 검수로 보이면 안 됨). LLM 뜻을 별도 단어로 떼지 않음(카드 쪼개짐 방지).
+- 제한 정보는 LLM에 뜻 후보를 넘기기 전 후보 거르기와 표기에 맞는 읽기 표시에만 사용.
+- 매칭: 비활용어는 표기+읽기, 활용어는 사전형 표기만(SudachiPy reading_form은 활용형 읽기: 食べ=タベ), 히라가나·가타카나 통일, 가나 표기 단어는 readings에서도 조회, 후보 여럿이면 문장 분석 LLM 호출에서 sense 고를 때 같이 고름(is_common 순서 힌트), 못 찾으면 정규형·표층형 재시도.
+- 새 단어 생성(두 단계): 문장 분석 호출은 못 찾은 토큰의 사전형·읽기만 받음 → 서버가 그 값으로 DB 재조회 → 있으면 기존 sense 재사용 또는 그 항목 아래 pending sense 추가('맞는 뜻 없음' 허용) → 없을 때만 word_gloss 호출로 뜻·태그·한국어 뜻 생성 후 jmdict_seq NULL로 저장. 동시 생성 중복은 DB UNIQUE로 방지. 나중에 같은 항목으로 밝혀지면 표기만으로 자동 병합하지 않고 관리자 검수 병합(문장 분석·카드·제외 상태 참조 승계). 웹 검색 툴은 MVP 분석 흐름에 넣지 않음(관리자 검수 때 확인).
+- 개인 원문(user_sentence)은 서버에 그대로 저장(현행 유지). 문제가 생기면 그때 브라우저 저장 등으로 변경. 공용 번역 저장도 유지(드래그 시에만 제공, 별도 열람 불가).
+- 예문 카드: user_sentence의 개인 원문 + 공용 번역(자리표시자 복원) + user_sentence_source 출처로 구성. LLM 새 생성 불필요. 문장 기록 삭제 시 예문 처리(같이 삭제 vs 카드에 복사)는 Phase 2에서 결정.
+
+## 25. Codex 최종 확인 (2026-10-18 08:21) — "치명 없음, 마감 가능"
+- 사전에 없는 단어(jmdict_seq NULL)의 중복 방지: 부분 UNIQUE (dictionary_form, reading) WHERE jmdict_seq IS NULL. 두 값은 저장 전 정규화(가나 통일), NOT NULL·빈 문자열 금지. 대표 표기는 처음 저장값 고정(별도 중복 판정 칸 없음, 바꿀 일이 생기면 그때 추가). 충돌 시 기존 단어 재사용, 뜻은 별도 판단.
+- 재조회로 기존 단어를 찾은 경우에도 이 문장의 sense는 아직 선택되지 않았으므로, word_gloss 호출에 문장과 기존 sense 후보를 넘겨 선택(맞는 뜻 없음이면 pending sense 추가). 진짜 새 단어면 같은 호출에서 뜻 생성. (24절 '없을 때만 word_gloss' 대체)
+- 벡터 DB(pgvector)는 단어 조회에 쓰지 않음(정확 일치 조회라 일반 인덱스가 맞음). 나중에 중복 패턴·뜻의 병합 후보 추천용으로 검토.
+
+## 26. 최종 마감 토론 반영 (2026-10-18 09:21) — Codex "치명 없음, 6가지 보완 후 마감"
+1. 타입 PostgreSQL 기준 통일: bigint(20)→bigint, int(11)→integer, smallint(6)/tinyint(4)→smallint, longtext→text, datetime→timestamptz, bit(1)→boolean, json→jsonb, char(64) 유지, text[]/bigint[] 유지.
+2. user_sentence.sentence_hash: UNIQUE 아님. sentence_analysis.sentence_hash를 가리키는 FK(여러 사용자·숫자만 다른 원문이 같은 공용 분석 참조). 개인 문장 UNIQUE는 (user_id, original_hash)만.
+3. usage_rule.pattern_id 추가(FK→grammar_pattern): 규칙은 실제 매칭된 패턴의 승인된 규칙만 적용(회화체가 원형 용법을 공유해도 규칙은 패턴별).
+4. 공용 예문(grammar_usage.example_ja, grammar_pattern.test_cases)에는 사용자 원문을 넣지 않음. LLM·관리자가 새로 쓴 예문만(매칭기로 걸리는지 확인 후 저장, 회귀 테스트 겸용). 드래그 원문은 패턴 생성 시 재매칭 검증에만 쓰고 공용에 저장 안 함(14절 '원래 문장을 성공 예문으로 test_cases에' 대체). 사용자 예문은 개인 user_sentence(user_id 범위)에서 계산: 내 문장 → 공용 분석 → span_match/sense_ids. 별도 예문 테이블 없음(카드 대표 예문 고정이 필요해지면 Phase 2에서 연결 칸 추가). 기준: "내가 드래그한 건 나만 본다, 남이 드래그한 건 나한테 안 보인다."
+5. 검증 규칙(저장 트랜잭션에서 검사, 단순 CHECK 가능한 건 CHECK): 0 ≤ start_offset < end_offset, 0 ≤ confidence ≤ 1, 판정 상태별 필수 FK(확정·재사용이면 usage_id 필수 등), variant_of 체인 금지(원형은 variant_of NULL), 원형에 연결된 회화체는 자기 용법 없음, span_match.usage_id는 그 패턴 또는 variant_of 원형 소속.
+6. 인덱스 명시(PostgreSQL은 FK 인덱스 자동 생성 안 함): word.forms GIN, word.readings GIN, word.tags GIN, user_sentence(sentence_hash), span_match(analysis_id), span_match(pattern_id), span_match(usage_id), grammar_pattern(variant_of), word_sense(word_id), sentence_analysis.sense_ids GIN.
+- 관리자 열람: 서버 저장 이상 완전 차단 불가(사용자 감수). 완화: Django admin에 user_sentence 원문 미노출, DB 직접 조회 운영 작업은 admin_action_log 기록, 개인정보 처리방침에 '본인 학습 용도로만 저장, 운영 목적 외 열람 안 함' 명시.
+- [26절 보정] user_sentence.sentence_hash 제거 → analysis_id bigint FK→sentence_analysis.id(PK). 해시는 조인으로 조회, user_sentence(analysis_id) 인덱스. 정규화 변경으로 해시를 재계산해도 user_sentence는 영향 없음.
+- [27절 Codex 마감 확인 2026-10-18 09:45] 치명·중요 없음, 문구 1건만 수정: '정규화 변경에도 user_sentence는 영향 없음'은 틀림. 같은 공용 분석을 공유하던 원문들이 새 규칙에서는 다른 키로 나뉠 수 있으므로, 정규화 변경 시 원문(user_sentence.original_text)별로 새 키를 계산하고 해당 분석이 준비되면 analysis_id를 갱신(재연결). 개인 문장의 ID·중복 기준(user_id, original_hash)은 유지. 추가 테이블·칼럼 없음. → DB 스키마·요구사항 마감.

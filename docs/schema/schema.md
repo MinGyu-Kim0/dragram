@@ -99,7 +99,7 @@
 | usage_closed | 용법 완결 여부 | boolean |  |  | 관리자가 용법이 하나뿐이라고 확인한 패턴. 활용형 조건 검토 필수 |
 | revision | 패턴 판 번호 | integer |  |  | 용법 완결 여부·형태소 조건·용법 구성이 바뀌면 증가. span_match.basis_revision과 조회 시 비교 |
 | show_parts | 구성 문법 표시 여부 | boolean |  |  | 긴 패턴 안의 구성 문법을 화면에서 펼쳐 보일지. 화면 접기 전용, 분석 후보는 항상 보존 |
-| test_cases | 검증 예문 | jsonb |  |  | [{text, should_match}] 성공·실패 예문. 첫 '걸려야 함' 항목은 등록 때 LLM이 새로 쓴 예문(원문을 베꼈으면 거부: 키 텍스트가 같거나 원문의 연속된 일부를 기준 길이 이상 포함). 전부 통과해야 승인·용법 완결 가능 / LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지(매칭기로 확인 후 저장, 회귀 테스트 겸용) |
+| test_cases | 검증 예문 | jsonb |  |  | [{text, should_match}] 성공·실패 예문. 첫 '걸려야 함' 항목은 등록 때 LLM이 새로 쓴 예문(원문을 베꼈으면 거부: 키 텍스트가 같거나, 원문 전체를 포함하거나, 원문의 연속된 일부를 기준 길이 이상 포함). 전부 통과해야 승인·용법 완결 가능 / LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지(매칭기로 확인 후 저장, 회귀 테스트 겸용) |
 | is_active | 활성 여부 | boolean |  |  | 원래 문장 재매칭과 LLM이 새로 쓴 예문 매칭을 통과하면 true. false면 매칭에 쓰지 않음. 반려되면 false |
 | status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. 형태소 조건의 검수 상태(용법 승인과 별개). LLM이 만든 패턴은 pending으로 생성. 원형에 연결된 회화체 패턴의 미검수 여부도 이 칸으로 판단 |
 | created_at | 등록일시 | timestamptz |  |  |  |
@@ -184,7 +184,7 @@
 | usage_id | 확정 용법 ID | bigint | Y | → grammar_usage | 회화체 패턴이 원형에 연결됐으면(variant_of) 원형 용법만, 미연결이면 자기 용법만 허용(서버 검증). usage_closed·usage_rule 확정은 실제 매칭된 패턴 기준 / 그 패턴 또는 variant_of 원형 소속(트랜잭션 검증) |
 | start_offset | 시작 위치 | integer |  |  | 키 텍스트 코드포인트 기준 [start, end). 원문 위치는 서버가 변환 / 0 ≤ start < end (CHECK) |
 | end_offset | 끝 위치 | integer |  |  | 0 ≤ start < end (CHECK) |
-| state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status와 pattern_id의 grammar_pattern.status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌 / 상태별 필수 FK(decided·divergent면 usage_id 필수) |
+| state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status와 pattern_id의 grammar_pattern.status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌. alternatives의 각 usage_id도 따로 검사(pending이면 그 대안에 배지, rejected면 그 대안만 뺌) / 상태별 필수 FK(decided·divergent면 usage_id 필수) |
 | decided_by | 판정 근거 | varchar(30) | Y |  | single_usage / rule / llm / admin |
 | rule_id | 판별 규칙 ID | bigint | Y | → usage_rule | decided_by가 rule일 때만 |
 | basis_revision | 근거 판 번호 | integer | Y |  | single_usage면 grammar_pattern.revision, rule이면 usage_rule.revision |

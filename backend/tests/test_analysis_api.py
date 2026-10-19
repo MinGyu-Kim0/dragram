@@ -194,7 +194,17 @@ def test_unit_and_currency_symbols_next_to_numbers_are_kept(
 
 
 @pytest.mark.parametrize(
-    "sentence", ["五％の人", "￥五百です", "三/五の人", "三.五倍", "零％の人", "零〜五人"]
+    "sentence",
+    [
+        "五％の人",
+        "￥五百です",
+        "三/五の人",
+        "三.五倍",
+        "零％の人",
+        "零〜五人",
+        "一億/二億",
+        "一兆％増",
+    ],
 )
 def test_symbols_next_to_kanji_numerals_are_kept(client, fake_llm, sentence):
     analyze(client, sentence)

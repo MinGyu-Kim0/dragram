@@ -40,7 +40,7 @@ _WRAPPING_PAIRS = {
 # 뜻을 바꾸는 기호. 나머지 기호는 지운다.
 _MEANINGFUL_SYMBOLS = set("!?！？…‥")
 _SIGNS = set("-−－+＋")
-_KANJI_NUMERALS = set("〇零一二三四五六七八九十百千万")
+_KANJI_NUMERALS = set("〇零一二三四五六七八九十百千万億兆")
 # 숫자 바로 뒤의 단위 기호와 바로 앞의 통화 기호. 지우면 50%가 50과 같아진다.
 _UNITS = set("%％‰°℃")
 _CURRENCIES = set("¥￥$＄€£₩")

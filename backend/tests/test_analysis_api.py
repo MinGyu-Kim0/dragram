@@ -363,6 +363,42 @@ def test_word_meaning_quoting_whole_sentence_fails_and_is_not_stored(client, fak
     assert SentenceAnalysis.objects.count() == 0
 
 
+@pytest.mark.parametrize(
+    ("sentence", "translation", "dropped", "kept"),
+    [
+        # 숫자만 있는 토큰. 토큰: 0 3 / 1 人 / 2 で / 3 行く
+        (
+            "3人で行く",
+            "⟨N1⟩명이서 간다",
+            _word(0, "⟨N1⟩", "⟨N1⟩", "⟨N1⟩"),
+            _word(3, "行く", "いく", "가다"),
+        ),
+        # 숫자가 섞인 토큰. LLM이 사전형에 숫자를 지어내면 다른 숫자 문장에 잘못 재사용된다.
+        # 토큰: 0 X1 / 1 2 / 2 を / 3 買う
+        (
+            "X12を買う",
+            "X⟨N1⟩를 산다",
+            _word(0, "X1", "えっくすいち", "X1"),
+            _word(3, "買う", "かう", "사다"),
+        ),
+        # 기호 토큰. 토큰: 0 行く / 1 ！
+        ("行く！", "간다!", _word(1, "！", "！", "느낌표"), _word(0, "行く", "いく", "가다")),
+    ],
+)
+def test_words_on_number_or_symbol_tokens_are_dropped_and_the_rest_is_kept(
+    client, fake_llm, sentence, translation, dropped, kept
+):
+    # 지침을 어긴 단어 하나 때문에 번역·문법까지 버리면 LLM을 다시 불러야 하므로 그 단어만 뺀다.
+    fake_llm.response = {"translation_ko": translation, "words": [dropped, kept]}
+
+    response = analyze(client, sentence)
+
+    assert response.status_code == 200
+    assert [word["lemma"] for word in response.json()["words"]] == [kept["lemma"]]
+    [row] = SentenceAnalysis.objects.values("draft_analysis")
+    assert [word["lemma"] for word in row["draft_analysis"]["words"]] == [kept["lemma"]]
+
+
 def test_cached_sentence_returns_same_words(client, fake_llm):
     fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": [_word()]}
     first = analyze(client, "私は学生です。")

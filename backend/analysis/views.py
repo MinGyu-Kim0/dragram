@@ -122,6 +122,26 @@ def _stored_grammar(grammar, morphs, offsets):
     return stored
 
 
+# 학습할 단어가 아닌 토큰의 품사(문장부호, 공백)
+_NON_WORD_POS = {"補助記号", "空白"}
+
+
+def _vocabulary_words(words, morphs, pieces):
+    """숫자 자리표시자가 든 토큰과 기호·공백 토큰을 고른 단어는 뺀다.
+
+    숫자는 학습할 단어가 아니고, 숫자가 섞인 토큰(X12의 X1)은 LLM이 사전형에 숫자를 지어내면
+    숫자만 다른 문장에 잘못 재사용된다. 지침을 어긴 단어 하나 때문에 번역·문법까지 버리면
+    LLM을 다시 불러야 하므로 실패로 처리하지 않고 그 단어만 뺀다.
+    """
+    kept = []
+    for word in words:
+        begin, end, pos = morphs[word["token"]]
+        if pos in _NON_WORD_POS or "⟨N" in "".join(pieces[begin:end]):
+            continue
+        kept.append(word)
+    return kept
+
+
 def _stored_words(words, morphs, offsets):
     """토큰 ID로 고른 단어 항목을 키 텍스트 구간으로 바꿔 저장할 모양으로 만든다."""
     stored = []
@@ -241,7 +261,9 @@ def analyze(request):
     validated = _validate(result, numbers, len(morphs))
     draft = {
         "grammar": _stored_grammar(validated["grammar"], morphs, offsets),
-        "words": _stored_words(validated["words"], morphs, offsets),
+        "words": _stored_words(
+            _vocabulary_words(validated["words"], morphs, pieces), morphs, offsets
+        ),
     }
     llm_texts = [
         item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")

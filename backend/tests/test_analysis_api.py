@@ -4,6 +4,8 @@ import pytest
 from django.db import connection
 from django.test import Client
 
+from analysis.models import SentenceAnalysis
+
 pytestmark = pytest.mark.django_db
 
 
@@ -111,6 +113,43 @@ def test_translation_missing_placeholder_fails_and_is_not_stored(client, fake_ll
     fake_llm.response = {"translation_ko": "⟨N1⟩명이서 간다."}
     assert analyze(client, "3人で行く").json() == {"translation_ko": "3명이서 간다."}
     assert len(fake_llm.requests) == 2
+
+
+def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
+    fake_llm.response = {"translation_ko": "나는 ⟨N1⟩명이서 간다."}
+
+    analyze(client, "私は3人で行く。")
+
+    [row] = SentenceAnalysis.objects.values()
+    # 원문을 담을 칸이 없고, 번역은 숫자 대신 자리표시자로 저장한다.
+    assert set(row) == {
+        "id",
+        "sentence_hash",
+        "normalize_version",
+        "normalized_length",
+        "status",
+        "translation_ko",
+        "created_at",
+        "updated_at",
+    }
+    assert row["translation_ko"] == "나는 ⟨N1⟩명이서 간다."
+    assert row["status"] == "complete"
+    assert row["normalized_length"] == len("私は⟨N1⟩人で行く")
+
+
+def test_first_saved_analysis_wins_when_same_sentence_is_saved_concurrently(client, fake_llm):
+    # 첫 요청이 LLM 응답을 기다리는 사이에 같은 문장의 다른 요청이 먼저 저장한다.
+    def other_request_saves_first():
+        fake_llm.response = {"translation_ko": "먼저 저장된 번역"}
+        analyze(Client(), "私は学生です。")
+        fake_llm.response = {"translation_ko": "늦게 끝난 번역"}
+
+    fake_llm.before_respond = other_request_saves_first
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.json() == {"translation_ko": "먼저 저장된 번역"}
+    assert SentenceAnalysis.objects.count() == 1
 
 
 @pytest.mark.parametrize(

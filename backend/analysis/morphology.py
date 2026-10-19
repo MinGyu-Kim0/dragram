@@ -19,6 +19,6 @@ def _tokenizer():
     return _local.tokenizer
 
 
-def morpheme_spans(text):
-    """문장을 형태소로 나눠 각 형태소의 [시작, 끝) 코드포인트 위치를 돌려준다."""
-    return [(m.begin(), m.end()) for m in _tokenizer().tokenize(text)]
+def morphemes(text):
+    """문장을 형태소로 나눠 [(시작, 끝, 품사 대분류)]를 돌려준다. 위치는 코드포인트 기준이다."""
+    return [(m.begin(), m.end(), m.part_of_speech()[0]) for m in _tokenizer().tokenize(text)]

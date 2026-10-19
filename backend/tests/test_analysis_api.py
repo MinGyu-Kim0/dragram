@@ -116,6 +116,8 @@ def test_particle_after_number_follows_restored_number(client, fake_llm):
         ("2は？", "⟨N1⟩은요?", "2는요?"),  # 조사 뒤에 요가 붙는다
         ("1は？", "⟨N1⟩는요?", "1은요?"),
         ("1種類", "⟨N1⟩가지", "1가지"),  # 조사가 아닌 말은 그대로
+        ("第2課", "제⟨N1⟩과", "제2과"),  # 원문에서 숫자 뒤가 조사가 아니면 그대로(課)
+        ("2課と3課", "⟨N1⟩과와 ⟨N2⟩과", "2과와 3과"),
     ],
 )
 def test_particle_is_fixed_for_each_number(client, fake_llm, sentence, translation, restored):

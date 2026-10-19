@@ -6,12 +6,13 @@ from rest_framework.response import Response
 
 from analysis import llm
 from analysis.models import SentenceAnalysis
-from analysis.morphology import morpheme_spans
+from analysis.morphology import morphemes
 from analysis.normalize import (
     NORMALIZE_VERSION,
     analysis_text,
     has_all_placeholders,
     key_pieces,
+    number_ends,
     restore_numbers,
 )
 
@@ -20,6 +21,12 @@ logger = logging.getLogger(__name__)
 
 def _analysis_failed():
     return Response({"error": "analysis_failed"}, status=502)
+
+
+def _numbers_before_particle(text, morphs):
+    """원문에서 바로 뒤에 조사(助詞)가 오는 숫자의 자리표시자 번호."""
+    particle_starts = {begin for begin, _, pos in morphs if pos == "助詞"}
+    return {n for n, end in enumerate(number_ends(text), start=1) if end in particle_starts}
 
 
 def _is_text(value):
@@ -58,21 +65,25 @@ def analyze(request):
     pieces, numbers = key_pieces(text_to_analyze)
     key_text = "".join(pieces)
     sentence_hash = hashlib.sha256(key_text.encode()).hexdigest()
-    cached = SentenceAnalysis.objects.filter(sentence_hash=sentence_hash).first()
-    if cached:
-        return Response({"translation_ko": restore_numbers(cached.translation_ko, numbers)})
 
-    # 형태소 분석은 숫자가 그대로인 분석 텍스트로 하고, LLM에는 키 텍스트 기준 표층형을
-    # 보낸다. 원문 숫자는 LLM에 가지 않는다.
-    # 원문은 로그에 남기지 않는다.
+    # 형태소 분석은 숫자가 그대로인 분석 텍스트로 한다. 숫자 뒤 조사 교정에 쓰므로 캐시를
+    # 재사용할 때도 한다. 원문은 로그에 남기지 않는다.
     try:
-        spans = morpheme_spans(text_to_analyze)
+        morphs = morphemes(text_to_analyze)
     except Exception:
         # SudachiPy가 나누지 못하는 입력(49,149바이트 초과 등)
         logger.exception("형태소 분석 실패")
         return _analysis_failed()
+    particle_numbers = _numbers_before_particle(text_to_analyze, morphs)
+
+    cached = SentenceAnalysis.objects.filter(sentence_hash=sentence_hash).first()
+    if cached:
+        translation = restore_numbers(cached.translation_ko, numbers, particle_numbers)
+        return Response({"translation_ko": translation})
+
+    # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
     tokens = [
-        {"id": i, "surface": "".join(pieces[begin:end])} for i, (begin, end) in enumerate(spans)
+        {"id": i, "surface": "".join(pieces[begin:end])} for i, (begin, end, _) in enumerate(morphs)
     ]
     try:
         result = llm.get_client().analyze(key_text, tokens)
@@ -95,4 +106,5 @@ def analyze(request):
             "translation_ko": validated["translation_ko"],
         },
     )
-    return Response({"translation_ko": restore_numbers(saved.translation_ko, numbers)})
+    translation = restore_numbers(saved.translation_ko, numbers, particle_numbers)
+    return Response({"translation_ko": translation})

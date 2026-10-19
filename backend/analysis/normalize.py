@@ -192,12 +192,27 @@ def has_all_placeholders(text, numbers):
     return found == set(range(1, len(numbers) + 1))
 
 
-def restore_numbers(text, numbers):
-    """자리표시자에 원문 숫자를 같은 순서로 넣고, 바로 뒤의 조사를 그 숫자 발음에 맞춘다."""
+def number_ends(analysis):
+    """분석 텍스트에서 숫자열(⟨N1⟩, ⟨N2⟩ … 순서)이 끝나는 위치."""
+    return [match.end() for match in _DIGITS.finditer(analysis)]
+
+
+def restore_numbers(text, numbers, particle_numbers=frozenset()):
+    """자리표시자에 원문 숫자를 같은 순서로 넣는다.
+
+    particle_numbers에 든 자리표시자(원문에서 바로 뒤가 조사인 숫자)는 번역에서 바로 뒤에
+    붙은 조사를 그 숫자 발음에 맞춘다. 원문에서 조사가 아닌 말이 이어지면(第2課) 번역의
+    같은 글자도 조사가 아니므로(제2과) 건드리지 않는다.
+    """
 
     def replace(match):
-        number = numbers[int(match.group(1)) - 1]
+        index = int(match.group(1))
+        number = numbers[index - 1]
         particle = match.group(2) or match.group(3)
-        return number + (particle_for(number, particle) if particle else "")
+        if not particle:
+            return number
+        if index not in particle_numbers:
+            return number + particle
+        return number + particle_for(number, particle)
 
     return _PLACEHOLDER_WITH_PARTICLE.sub(replace, text)

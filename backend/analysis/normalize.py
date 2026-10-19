@@ -72,9 +72,13 @@ def _is_number_symbol(text, i):
 
 
 def _unify_width(text):
-    """2단계: 전각 영숫자는 반각으로, 반각 가나는 전각으로. NFKC 전체는 적용하지 않는다."""
+    """2단계: 전각 영숫자는 반각으로, 반각 가나는 전각으로. NFKC 전체는 적용하지 않는다.
+
+    먼저 NFC(정준 결합)로 결합 문자를 합친다(か + 결합 탁점 → が). NFC는 호환 분해를 하지
+    않아 x² 같은 문자는 그대로다.
+    """
     chars = []
-    for ch in text:
+    for ch in unicodedata.normalize("NFC", text):
         code = ord(ch)
         is_fullwidth_alnum = (
             0xFF10 <= code <= 0xFF19 or 0xFF21 <= code <= 0xFF3A or 0xFF41 <= code <= 0xFF5A

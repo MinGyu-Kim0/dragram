@@ -47,6 +47,7 @@ def test_same_sentence_is_reused_without_llm(client, fake_llm):
         ("I love Tokyoです", "I  love Tokyoです"),  # 영어 단어 사이 공백은 하나로
         ("私は学生です", "私は\u200b学生です"),  # 제로 폭 공백
         ("私は学生です", "\ufeff私は学生です"),  # BOM
+        ("が好き", "か\u3099好き"),  # 결합 문자로 쓴 탁점
     ],
 )
 def test_sentences_differing_only_in_notation_reuse_analysis(client, fake_llm, first, second):

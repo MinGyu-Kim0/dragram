@@ -1,4 +1,7 @@
+import threading
+
 import pytest
+from django.test import Client
 
 
 def analyze(client, text):
@@ -50,6 +53,25 @@ def test_missing_text_is_rejected_without_calling_llm(client, fake_llm, body):
 
     assert response.status_code == 400
     assert fake_llm.requests == []
+
+
+def test_concurrent_requests_all_succeed(fake_llm):
+    # runserver·gunicorn 스레드처럼 여러 요청이 동시에 형태소 분석을 한다.
+    long_sentence = "吾輩は猫である。名前はまだ無い。" * 200
+    statuses = []
+
+    def send_requests():
+        thread_client = Client()
+        for _ in range(10):
+            statuses.append(analyze(thread_client, long_sentence).status_code)
+
+    threads = [threading.Thread(target=send_requests) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert statuses == [200] * 80
 
 
 def test_llm_receives_sentence_and_token_ids(client, fake_llm):

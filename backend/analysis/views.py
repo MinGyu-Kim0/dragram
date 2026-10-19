@@ -1,5 +1,4 @@
 import hashlib
-import logging
 
 from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -18,12 +17,7 @@ from analysis.normalize import (
     restore_numbers,
 )
 from analysis.positions import key_offsets, to_analysis, to_key, to_original, utf16_offsets
-
-logger = logging.getLogger(__name__)
-
-
-def _analysis_failed():
-    return Response({"error": "analysis_failed"}, status=502)
+from errors import AnalysisFailed, TextRequired
 
 
 def _numbers_before_particle(text, morphs):
@@ -74,15 +68,15 @@ def _validate_grammar(grammar, numbers, token_count):
 
 
 def _validate(result, numbers, token_count):
-    """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 None."""
+    """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 AnalysisFailed."""
     if not isinstance(result, dict) or not _is_text(result.get("translation_ko")):
-        return None
+        raise AnalysisFailed("LLM 응답 검증 실패: 번역")
     # 자리표시자가 맞지 않는 번역은 숫자가 틀렸을 수 있어 보여주지도 저장하지도 않는다.
     if not has_all_placeholders(result["translation_ko"], numbers):
-        return None
+        raise AnalysisFailed("LLM 응답 검증 실패: 번역 자리표시자")
     grammar = _validate_grammar(result.get("grammar"), numbers, token_count)
     if grammar is None:
-        return None
+        raise AnalysisFailed("LLM 응답 검증 실패: 문법")
     return {"translation_ko": result["translation_ko"], "grammar": grammar}
 
 
@@ -147,11 +141,11 @@ def _grammar_response(stored, offsets, origins, utf16, restore):
 def analyze(request):
     sentence = request.data.get("text") if isinstance(request.data, dict) else None
     if not _is_text(sentence):
-        return Response({"error": "text_required"}, status=400)
+        raise TextRequired("분석할 문장이 없음")
 
     text_to_analyze, origins = analysis_text(sentence)
     if not text_to_analyze:
-        return Response({"error": "text_required"}, status=400)
+        raise TextRequired("정규화 후 빈 문장")
     pieces, numbers = key_pieces(text_to_analyze)
     key_text = "".join(pieces)
     sentence_hash = hashlib.sha256(key_text.encode()).hexdigest()
@@ -160,10 +154,9 @@ def analyze(request):
     # 재사용할 때도 한다. 원문은 로그에 남기지 않는다.
     try:
         morphs = morphemes(text_to_analyze)
-    except Exception:
+    except Exception as e:
         # SudachiPy가 나누지 못하는 입력(49,149바이트 초과 등)
-        logger.exception("형태소 분석 실패")
-        return _analysis_failed()
+        raise AnalysisFailed("형태소 분석 실패") from e
     particle_numbers = _numbers_before_particle(text_to_analyze, morphs)
 
     offsets = key_offsets(pieces)
@@ -193,19 +186,14 @@ def analyze(request):
     ]
     try:
         result = llm.get_client().analyze(key_text, tokens)
-    except Exception:
-        logger.exception("LLM 호출 실패")
-        return _analysis_failed()
+    except Exception as e:
+        raise AnalysisFailed("LLM 호출 실패") from e
 
     validated = _validate(result, numbers, len(morphs))
-    if validated is None:
-        logger.warning("LLM 응답 검증 실패")
-        return _analysis_failed()
     grammar = _stored_grammar(validated["grammar"], morphs, offsets)
     if _quotes_whole_sentence(grammar, key_text, len(morphs)):
         # 이름·설명은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
-        logger.warning("LLM 문법 설명이 문장 전체를 인용함")
-        return _analysis_failed()
+        raise AnalysisFailed("LLM 문법 설명이 문장 전체를 인용함")
 
     # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
     saved, created = SentenceAnalysis.objects.get_or_create(

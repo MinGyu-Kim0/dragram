@@ -77,3 +77,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # LLM. 실제 호출할 때만 필요하므로 테스트·CI에서는 비어 있어도 된다.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "")
+
+REST_FRAMEWORK = {
+    # API 비즈니스 오류(errors.BusinessError)를 {"error": code}로 응답한다.
+    "EXCEPTION_HANDLER": "errors.handler.handle_exception",
+}

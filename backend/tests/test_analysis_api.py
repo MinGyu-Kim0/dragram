@@ -420,6 +420,19 @@ def test_duplicate_word_for_same_token_keeps_only_the_first(client, fake_llm):
     assert [word["meaning_ko"] for word in response.json()["words"]] == ["학생"]
 
 
+def test_word_meaning_quoting_whole_sentence_with_spaces_fails(client, fake_llm):
+    # 형태소 사이에 공백을 넣어 인용해도 원문을 옮긴 것이다.
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "words": [_word(meaning_ko="私 は 学生 です에서 학생")],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
 def test_katakana_reading_of_loanword_is_kept_as_is(client, fake_llm):
     # 외래어(사전에 없는 새 말 포함)의 가타카나 읽기는 히라가나로 바꾸지 않는다.
     # 토큰: 0 コーヒー / 1 を / 2 飲む

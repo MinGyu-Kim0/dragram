@@ -162,7 +162,9 @@ def _quotes_whole_sentence(texts, key_text, token_count):
     """
     if token_count == 1:
         return False
-    return any(key_text in text for text in texts)
+    # 형태소 사이에 공백을 넣어 인용해도(私 は 学生) 원문을 옮긴 것이다.
+    compact_key = "".join(key_text.split())
+    return any(compact_key in "".join(text.split()) for text in texts)
 
 
 def _grammar_response(stored, offsets, origins, utf16, restore):

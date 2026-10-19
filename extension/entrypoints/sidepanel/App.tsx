@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  getAnalysisRequest,
-  watchAnalysisRequest,
+  receiveAnalysisRequests,
   type AnalysisRequest,
 } from "@/utils/analysis-request";
 import { analyzeSentence, type Analysis } from "@/utils/api";
@@ -16,10 +15,18 @@ function App() {
   const [result, setResult] = useState<Result>();
 
   useEffect(() => {
-    getAnalysisRequest().then((stored) => {
-      if (stored) setRequest((current) => current ?? stored);
+    // 이 패널이 열린 창의 요청만 받는다.
+    let active = true;
+    let stop: (() => void) | undefined;
+    browser.windows.getCurrent().then((window) => {
+      if (active && window.id !== undefined) {
+        stop = receiveAnalysisRequests(window.id, setRequest);
+      }
     });
-    return watchAnalysisRequest(setRequest);
+    return () => {
+      active = false;
+      stop?.();
+    };
   }, []);
 
   useEffect(() => {

@@ -1,5 +1,6 @@
 import hashlib
 import re
+import unicodedata
 
 from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -159,14 +160,24 @@ def _stored_words(words, morphs, offsets):
 def _quotes_whole_sentence(texts, key_text, token_count):
     """LLM이 쓴 글(문법 이름·설명, 단어 사전형·읽기·뜻)이 문장 전체(키 텍스트)를 인용했는가.
 
-    문장이 형태소 하나(です 등)면 그 토큰을 인용하는 것과 같고 원문을 알아볼 정보도 없어
-    허용한다. 토큰이 여럿이면 구간이 문장 전체여도 원문을 옮긴 것이다.
+    기호·공백을 뺀 형태소가 하나뿐인 문장(です, 行く！ 등)이면 그 토큰을 인용하는 것과 같고,
+    단어 하나는 사전 표제어 수준의 공용 정보라 허용한다. 형태소가 여럿이면 구간이 문장
+    전체여도 원문을 옮긴 것이다. token_count는 기호·공백을 뺀 형태소 수다.
     """
-    if token_count == 1:
+    if token_count <= 1:
         return False
-    # 형태소 사이에 공백을 넣어 인용해도(私 は 学生) 원문을 옮긴 것이다.
-    compact_key = "".join(key_text.split())
-    return any(compact_key in "".join(text.split()) for text in texts)
+    # 형태소 사이에 공백·가운데점·보이지 않는 문자를 넣어 인용해도(私・は・学生) 원문을
+    # 옮긴 것이므로, 양쪽에서 문장부호·기호·공백·형식 문자를 지우고 비교한다.
+    compact_key = _letters(key_text)
+    if not compact_key:
+        # 기호만으로 된 문장은 지우면 비어서 모든 글에 "포함"된다. 인용으로 보지 않는다.
+        return False
+    return any(compact_key in _letters(text) for text in texts)
+
+
+def _letters(text):
+    """문장부호·기호·공백·형식 문자(유니코드 P·S·Z·C 분류)를 지운다."""
+    return "".join(ch for ch in text if unicodedata.category(ch)[0] not in "PSZC")
 
 
 def _grammar_response(stored, offsets, origins, utf16, restore):
@@ -279,7 +290,8 @@ def analyze(request):
         item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")
     ]
     llm_texts += [item[field] for item in validated["words"] for field in _WORD_TEXTS]
-    if _quotes_whole_sentence(llm_texts, key_text, len(morphs)):
+    content_tokens = sum(pos not in {"補助記号", "空白"} for _, _, pos in morphs)
+    if _quotes_whole_sentence(llm_texts, key_text, content_tokens):
         # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
         raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
 

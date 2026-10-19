@@ -423,17 +423,36 @@ def test_duplicate_word_for_same_token_keeps_only_the_first(client, fake_llm):
     assert [word["meaning_ko"] for word in response.json()["words"]] == ["학생"]
 
 
-def test_word_meaning_quoting_whole_sentence_with_spaces_fails(client, fake_llm):
-    # 형태소 사이에 공백을 넣어 인용해도 원문을 옮긴 것이다.
+@pytest.mark.parametrize(
+    "meaning",
+    [
+        "私 は 学生 です에서 학생",
+        "私・は・学生・です에서 학생",
+        "私\u200bは学生です에서 학생",
+    ],
+)
+def test_word_meaning_quoting_whole_sentence_with_separators_fails(client, fake_llm, meaning):
+    # 형태소 사이에 공백·가운데점·보이지 않는 문자를 넣어 인용해도 원문을 옮긴 것이다.
     fake_llm.response = {
         "translation_ko": "나는 학생입니다.",
-        "words": [_word(meaning_ko="私 は 学生 です에서 학생")],
+        "words": [_word(meaning_ko=meaning)],
     }
 
     response = analyze(client, "私は学生です。")
 
     assert response.status_code == 502
     assert SentenceAnalysis.objects.count() == 0
+
+
+def test_sentence_of_only_symbols_is_not_treated_as_quoted(client, fake_llm):
+    # 기호를 지우면 빈 문장이 되어도, 모든 글이 그 문장을 인용한 것으로 보지 않는다.
+    # 토큰: 0 ！ / 1 ？
+    fake_llm.response = {"translation_ko": "!?", "grammar": [], "words": []}
+    fake_llm.response["grammar"] = _grammar((0, 1))
+
+    response = analyze(client, "！？")
+
+    assert response.status_code == 200
 
 
 def test_katakana_reading_of_loanword_is_kept_as_is(client, fake_llm):

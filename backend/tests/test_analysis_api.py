@@ -132,6 +132,25 @@ def test_tilde_is_kept_only_in_number_ranges(client, fake_llm, sentence, key_tex
     assert fake_llm.requests[0]["sentence"] == key_text
 
 
+@pytest.mark.parametrize(
+    ("sentence", "key_text", "translation", "restored"),
+    [
+        ("50%増", "⟨N1⟩%増", "⟨N1⟩% 증가", "50% 증가"),  # 숫자 뒤 단위 기호
+        ("36.5℃", "⟨N1⟩.⟨N2⟩℃", "⟨N1⟩.⟨N2⟩℃", "36.5℃"),
+        ("¥500です", "¥⟨N1⟩です", "¥⟨N1⟩입니다", "¥500입니다"),  # 숫자 앞 통화 기호
+    ],
+)
+def test_unit_and_currency_symbols_next_to_numbers_are_kept(
+    client, fake_llm, sentence, key_text, translation, restored
+):
+    fake_llm.response = {"translation_ko": translation}
+
+    response = analyze(client, sentence)
+
+    assert fake_llm.requests[0]["sentence"] == key_text
+    assert response.json() == {"translation_ko": restored}
+
+
 @pytest.mark.parametrize(("sentence", "key_text"), [("-三度", "-三度"), ("+五人", "+五人")])
 def test_sign_before_kanji_numeral_is_kept(client, fake_llm, sentence, key_text):
     analyze(client, sentence)
@@ -146,6 +165,8 @@ def test_sign_before_kanji_numeral_is_kept(client, fake_llm, sentence, key_text)
         ("-3度", "-⟨N1⟩도", "3度"),
         ("10:30", "⟨N1⟩:⟨N2⟩", "1030"),
         ("3〜5人", "⟨N1⟩~⟨N2⟩명", "35人"),
+        ("50%", "⟨N1⟩%", "50"),
+        ("¥500", "¥⟨N1⟩", "500"),
     ],
 )
 def test_numbers_differing_in_symbols_are_analyzed_separately(

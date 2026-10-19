@@ -32,6 +32,9 @@ _WRAPPING_PAIRS = {
 _MEANINGFUL_SYMBOLS = set("!?！？…‥")
 _SIGNS = set("-−－+＋")
 _KANJI_NUMERALS = set("〇一二三四五六七八九十百千万")
+# 숫자 바로 뒤의 단위 기호와 바로 앞의 통화 기호. 지우면 50%가 50과 같아진다.
+_UNITS = set("%％‰°℃")
+_CURRENCIES = set("¥￥$＄€£₩")
 # 숫자 범위로 보려면 물결표 앞 몇 글자 안에 숫자가 있어야 하는가. 3人〜, 10時〜를 잡는다.
 _RANGE_LOOKBEHIND = 3
 
@@ -46,11 +49,16 @@ def _is_number_char(ch):
 
 
 def _is_number_symbol(text, i):
-    """숫자 사이의 기호(1.5, 10:30, 10/18, 3〜5)와 숫자 앞 부호(-3, -三)는 숫자의 뜻을 바꾸므로
+    """숫자 사이의 기호(1.5, 10:30, 10/18, 3〜5), 숫자 앞 부호(-3, -三), 숫자에 붙은 단위·통화
+    기호(50%, ¥500)는 숫자의 뜻을 바꾸므로
     지우지 않는다. 지우면 1.5倍가 15倍가 되어 숫자가 틀리고 15倍와 캐시를 함께 쓴다."""
     before = text[i - 1] if i > 0 else ""
     after = text[i + 1] if i + 1 < len(text) else ""
     if text[i] in _SIGNS and _is_number_char(after):
+        return True
+    if text[i] in _UNITS and _is_digit(before):
+        return True
+    if text[i] in _CURRENCIES and _is_digit(after):
         return True
     return _is_digit(before) and _is_digit(after)
 

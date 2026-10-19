@@ -12,9 +12,22 @@ export interface GrammarItem {
   review_status: "pending" | "approved";
 }
 
+export interface WordItem {
+  // 원문 기준 UTF-16 위치 [start, end). 문장에 나온 그 단어(활용형 포함)의 자리다.
+  start: number;
+  end: number;
+  // 사전형과 그 읽기(食べて → 食べる / たべる), 이 문장에서의 뜻
+  lemma: string;
+  reading: string;
+  meaning_ko: string;
+  // pending은 JMdict 없이 LLM이 만든 뜻이라 아직 검수되지 않았다.
+  review_status: "pending" | "approved";
+}
+
 export interface Analysis {
   translation_ko: string;
   grammar: GrammarItem[];
+  words: WordItem[];
 }
 
 export async function analyzeSentence(text: string): Promise<Analysis> {

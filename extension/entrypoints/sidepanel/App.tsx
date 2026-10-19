@@ -5,6 +5,7 @@ import {
 } from "@/utils/analysis-request";
 import { analyzeSentence, type Analysis } from "@/utils/api";
 import { GrammarCards, HighlightedText } from "./Grammar";
+import { WordList } from "./Words";
 
 // 결과에 회차 ID를 붙여, 지금 요청의 결과만 보인다. 없으면 아직 불러오는 중이다.
 type Result =
@@ -14,6 +15,7 @@ type Result =
 function App() {
   const [request, setRequest] = useState<AnalysisRequest>();
   const [result, setResult] = useState<Result>();
+  const [tab, setTab] = useState<"grammar" | "words">("grammar");
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.
@@ -82,7 +84,36 @@ function App() {
         </section>
       )}
       {request && shown?.status === "done" && (
-        <GrammarCards text={request.text} grammar={shown.analysis.grammar} />
+        <>
+          <div role="tablist" className="tabs">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "grammar"}
+              onClick={() => setTab("grammar")}
+            >
+              문법 {shown.analysis.grammar.length}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "words"}
+              onClick={() => setTab("words")}
+            >
+              단어 {shown.analysis.words.length}
+            </button>
+          </div>
+          <div role="tabpanel">
+            {tab === "grammar" ? (
+              <GrammarCards
+                text={request.text}
+                grammar={shown.analysis.grammar}
+              />
+            ) : (
+              <WordList words={shown.analysis.words} />
+            )}
+          </div>
+        </>
       )}
     </main>
   );

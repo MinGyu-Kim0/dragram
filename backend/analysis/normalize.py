@@ -12,7 +12,7 @@ NORMALIZE_VERSION = 1
 _HALFWIDTH_KANA = re.compile(r"[\uFF61-\uFF9F]+")
 _SPACE = re.compile(r"\s+")
 _LATIN = re.compile(r"[A-Za-z0-9]")
-_TILDE = re.compile(r"[~〜～]")
+_TILDES = set("~〜～")
 _DIGITS = re.compile(r"[0-9]+")
 _PLACEHOLDER = re.compile(r"⟨N(\d+)⟩")
 _WRAPPING_PAIRS = {
@@ -30,6 +30,19 @@ _WRAPPING_PAIRS = {
 }
 # 뜻을 바꾸는 기호. 나머지 기호는 지운다.
 _MEANINGFUL_SYMBOLS = set("!?！？…‥")
+_SIGNS = set("-−－+＋")
+
+
+def _is_digit(ch):
+    return len(ch) == 1 and "0" <= ch <= "9"
+
+
+def _is_number_symbol(text, i):
+    """숫자 사이의 기호(1.5, 10:30, 10/18, 3〜5)와 숫자 앞 부호(-3)는 숫자의 뜻을 바꾸므로
+    지우지 않는다. 지우면 1.5倍가 15倍가 되어 숫자가 틀리고 15倍와 캐시를 함께 쓴다."""
+    before = text[i - 1] if i > 0 else ""
+    after = text[i + 1] if i + 1 < len(text) else ""
+    return _is_digit(after) and (_is_digit(before) or text[i] in _SIGNS)
 
 
 def _unify_width(text):
@@ -57,8 +70,10 @@ def _remove_spaces(text):
 
 
 def _remove_tildes(text):
-    """4단계: 물결표를 지운다."""
-    return _TILDE.sub("", text)
+    """4단계: 물결표를 지운다. 숫자 범위(3〜5)의 물결표는 남긴다."""
+    return "".join(
+        ch for i, ch in enumerate(text) if ch not in _TILDES or _is_number_symbol(text, i)
+    )
 
 
 def _wraps_whole(text, opening, closing):
@@ -88,8 +103,10 @@ def _remove_symbols(text):
     """6단계: 뜻을 바꾸는 기호(！？… 등)만 남기고 나머지 기호를 지운다."""
     return "".join(
         ch
-        for ch in text
-        if ch in _MEANINGFUL_SYMBOLS or unicodedata.category(ch)[0] not in ("P", "S")
+        for i, ch in enumerate(text)
+        if ch in _MEANINGFUL_SYMBOLS
+        or unicodedata.category(ch)[0] not in ("P", "S")
+        or _is_number_symbol(text, i)
     )
 
 

@@ -95,6 +95,47 @@ def test_numbers_are_not_sent_to_llm(client, fake_llm):
     assert [token["surface"] for token in request["tokens"]] == ["⟨N1⟩", "人", "で", "行く"]
 
 
+@pytest.mark.parametrize(
+    ("sentence", "key_text", "translation", "restored"),
+    [
+        ("1.5倍", "⟨N1⟩.⟨N2⟩倍", "⟨N1⟩.⟨N2⟩배", "1.5배"),  # 소수점
+        ("-3度", "-⟨N1⟩度", "-⟨N1⟩도", "-3도"),  # 부호
+        ("10:30に", "⟨N1⟩:⟨N2⟩に", "⟨N1⟩:⟨N2⟩에", "10:30에"),  # 시각
+        ("10/18に", "⟨N1⟩/⟨N2⟩に", "⟨N1⟩/⟨N2⟩에", "10/18에"),  # 날짜
+        ("3〜5人", "⟨N1⟩〜⟨N2⟩人", "⟨N1⟩~⟨N2⟩명", "3~5명"),  # 범위
+    ],
+)
+def test_symbols_inside_numbers_are_kept(
+    client, fake_llm, sentence, key_text, translation, restored
+):
+    fake_llm.response = {"translation_ko": translation}
+
+    response = analyze(client, sentence)
+
+    assert fake_llm.requests[0]["sentence"] == key_text
+    assert response.json() == {"translation_ko": restored}
+
+
+@pytest.mark.parametrize(
+    ("first", "first_translation", "second"),
+    [
+        ("1.5倍", "⟨N1⟩.⟨N2⟩배", "15倍"),
+        ("-3度", "-⟨N1⟩도", "3度"),
+        ("10:30", "⟨N1⟩:⟨N2⟩", "1030"),
+        ("3〜5人", "⟨N1⟩~⟨N2⟩명", "35人"),
+    ],
+)
+def test_numbers_differing_in_symbols_are_analyzed_separately(
+    client, fake_llm, first, first_translation, second
+):
+    fake_llm.response = {"translation_ko": first_translation}
+    assert analyze(client, first).status_code == 200
+
+    analyze(client, second)
+
+    assert len(fake_llm.requests) == 2
+
+
 def test_kanji_numerals_are_kept(client, fake_llm):
     analyze(client, "二枚目の皿")
 

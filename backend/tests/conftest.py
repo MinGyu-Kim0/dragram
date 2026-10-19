@@ -10,9 +10,14 @@ class FakeLLMClient:
         self.response = {"translation_ko": "번역"}
         self.error = None
         self.requests = []
+        # 응답하기 전에 실행할 일. 호출 도중에 다른 요청이 끼어드는 상황을 만든다.
+        self.before_respond = None
 
     def analyze(self, sentence, tokens):
         self.requests.append({"sentence": sentence, "tokens": tokens})
+        if self.before_respond:
+            before_respond, self.before_respond = self.before_respond, None
+            before_respond()
         if self.error:
             raise self.error
         return self.response

@@ -1,10 +1,20 @@
+import hashlib
 import logging
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
 from analysis import llm
-from analysis.morphology import tokenize
+from analysis.models import SentenceAnalysis
+from analysis.morphology import morphemes
+from analysis.normalize import (
+    NORMALIZE_VERSION,
+    analysis_text,
+    has_all_placeholders,
+    key_pieces,
+    number_ends,
+    restore_numbers,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,13 +23,29 @@ def _analysis_failed():
     return Response({"error": "analysis_failed"}, status=502)
 
 
+def _numbers_before_particle(text, morphs):
+    """원문에서 바로 뒤에 조사(助詞)가 오는 숫자의 자리표시자 번호."""
+    particle_starts = {begin for begin, _, pos in morphs if pos == "助詞"}
+    return {n for n, end in enumerate(number_ends(text), start=1) if end in particle_starts}
+
+
 def _is_text(value):
-    return isinstance(value, str) and value.strip() != ""
+    if not isinstance(value, str) or value.strip() == "":
+        return False
+    try:
+        # JSON에는 단독 서로게이트(\ud800 등)가 들어올 수 있지만 UTF-8로는 인코딩할 수 없다.
+        value.encode()
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
-def _validate(result):
-    """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리면 None."""
+def _validate(result, numbers):
+    """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 None."""
     if not isinstance(result, dict) or not _is_text(result.get("translation_ko")):
+        return None
+    # 자리표시자가 맞지 않는 번역은 숫자가 틀렸을 수 있어 보여주지도 저장하지도 않는다.
+    if not has_all_placeholders(result["translation_ko"], numbers):
         return None
     return {"translation_ko": result["translation_ko"]}
 
@@ -33,15 +59,52 @@ def analyze(request):
     if not _is_text(sentence):
         return Response({"error": "text_required"}, status=400)
 
-    # 원문은 로그에 남기지 않는다.
+    text_to_analyze = analysis_text(sentence)
+    if not text_to_analyze:
+        return Response({"error": "text_required"}, status=400)
+    pieces, numbers = key_pieces(text_to_analyze)
+    key_text = "".join(pieces)
+    sentence_hash = hashlib.sha256(key_text.encode()).hexdigest()
+
+    # 형태소 분석은 숫자가 그대로인 분석 텍스트로 한다. 숫자 뒤 조사 교정에 쓰므로 캐시를
+    # 재사용할 때도 한다. 원문은 로그에 남기지 않는다.
     try:
-        result = llm.get_client().analyze(sentence, tokenize(sentence))
+        morphs = morphemes(text_to_analyze)
+    except Exception:
+        # SudachiPy가 나누지 못하는 입력(49,149바이트 초과 등)
+        logger.exception("형태소 분석 실패")
+        return _analysis_failed()
+    particle_numbers = _numbers_before_particle(text_to_analyze, morphs)
+
+    cached = SentenceAnalysis.objects.filter(sentence_hash=sentence_hash).first()
+    if cached:
+        translation = restore_numbers(cached.translation_ko, numbers, particle_numbers)
+        return Response({"translation_ko": translation})
+
+    # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
+    tokens = [
+        {"id": i, "surface": "".join(pieces[begin:end])} for i, (begin, end, _) in enumerate(morphs)
+    ]
+    try:
+        result = llm.get_client().analyze(key_text, tokens)
     except Exception:
         logger.exception("LLM 호출 실패")
         return _analysis_failed()
 
-    analysis = _validate(result)
-    if analysis is None:
+    validated = _validate(result, numbers)
+    if validated is None:
         logger.warning("LLM 응답 검증 실패")
         return _analysis_failed()
-    return Response(analysis)
+
+    # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
+    saved, _ = SentenceAnalysis.objects.get_or_create(
+        sentence_hash=sentence_hash,
+        defaults={
+            "normalize_version": NORMALIZE_VERSION,
+            "normalized_length": len(key_text),
+            "status": SentenceAnalysis.Status.COMPLETE,
+            "translation_ko": validated["translation_ko"],
+        },
+    )
+    translation = restore_numbers(saved.translation_ko, numbers, particle_numbers)
+    return Response({"translation_ko": translation})

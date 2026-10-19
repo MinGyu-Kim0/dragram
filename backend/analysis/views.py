@@ -84,11 +84,14 @@ def _validate_words(words, numbers, token_count, is_vocabulary):
     if not isinstance(words, list):
         return None
     items = []
+    seen = set()
     for item in words:
         if not isinstance(item, dict) or not _is_token_id(item.get("token_id"), token_count):
             return None
-        if not is_vocabulary(item["token_id"]):
+        # 같은 토큰을 다시 고른 항목은 뺀다(토큰마다 이 문장에서의 뜻은 하나다).
+        if not is_vocabulary(item["token_id"]) or item["token_id"] in seen:
             continue
+        seen.add(item["token_id"])
         texts = [item.get(field) for field in _WORD_TEXTS]
         if not all(_is_text(text) for text in texts):
             return None
@@ -135,8 +138,8 @@ def _stored_grammar(grammar, morphs, offsets):
     return stored
 
 
-# 학습할 단어가 아닌 토큰의 품사(문장부호, 공백)
-_NON_WORD_POS = {"補助記号", "空白"}
+# 학습할 단어가 아닌 토큰의 품사(문장부호, 공백, 문법 쪽에서 다루는 조사·조동사)
+_NON_WORD_POS = {"補助記号", "空白", "助詞", "助動詞"}
 
 
 def _stored_words(words, morphs, offsets):
@@ -256,10 +259,12 @@ def analyze(request):
     result = llm.get_client().analyze(key_text, tokens)
 
     def is_vocabulary(token):
-        # 숫자는 학습할 단어가 아니고, 숫자가 섞인 토큰(X12의 X1)은 LLM이 사전형에 숫자를
-        # 지어내면 숫자만 다른 문장에 잘못 재사용된다. 기호·공백도 단어가 아니다.
+        # 숫자는 학습할 단어가 아니고, 숫자열과 겹치는 토큰(X12의 X1, 2)은 LLM이 사전형에
+        # 숫자를 지어내면 숫자만 다른 문장에 잘못 재사용된다. 숫자열은 자리표시자 조각과
+        # 빈 조각(뒤쪽 숫자)으로 이뤄진다.
         begin, end, pos = morphs[token]
-        return pos not in _NON_WORD_POS and "⟨N" not in "".join(pieces[begin:end])
+        overlaps_number = any(piece == "" or "⟨N" in piece for piece in pieces[begin:end])
+        return pos not in _NON_WORD_POS and not overlaps_number
 
     validated = _validate(result, numbers, len(morphs), is_vocabulary)
     draft = {

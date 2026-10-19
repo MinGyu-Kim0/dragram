@@ -388,6 +388,11 @@ def test_word_meaning_quoting_whole_sentence_fails_and_is_not_stored(client, fak
         ),
         # 기호 토큰. 토큰: 0 行く / 1 ！
         ("行く！", "간다!", _word(1, "！", "！", "느낌표"), _word(0, "行く", "いく", "가다")),
+        # 숫자열 뒤쪽 토큰(키 텍스트에서 빈 조각). 토큰: 0 X1 / 1 2 / 2 を / 3 買う
+        ("X12を買う", "X⟨N1⟩를 산다", _word(1, "2", "に", "2"), _word(3, "買う", "かう", "사다")),
+        # 조사·조동사는 단어가 아니라 문법이다. 토큰: 0 私 / 1 は / 2 学生 / 3 です
+        ("私は学生です。", "나는 학생입니다.", _word(1, "は", "は", "주제"), _word(2)),
+        ("私は学生です。", "나는 학생입니다.", _word(3, "です", "です", "이다"), _word(2)),
     ],
 )
 def test_words_on_number_or_symbol_tokens_are_dropped_and_the_rest_is_kept(
@@ -402,6 +407,17 @@ def test_words_on_number_or_symbol_tokens_are_dropped_and_the_rest_is_kept(
     assert [word["lemma"] for word in response.json()["words"]] == [kept["lemma"]]
     [row] = SentenceAnalysis.objects.values("draft_analysis")
     assert [word["lemma"] for word in row["draft_analysis"]["words"]] == [kept["lemma"]]
+
+
+def test_duplicate_word_for_same_token_keeps_only_the_first(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "words": [_word(2, meaning_ko="학생"), _word(2, meaning_ko="생도")],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert [word["meaning_ko"] for word in response.json()["words"]] == ["학생"]
 
 
 def test_katakana_reading_of_loanword_is_kept_as_is(client, fake_llm):

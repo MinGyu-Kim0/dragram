@@ -40,12 +40,19 @@ def _is_digit(ch):
     return len(ch) == 1 and "0" <= ch <= "9"
 
 
+def _is_number_char(ch):
+    """아라비아 숫자 또는 한자 숫자인가."""
+    return _is_digit(ch) or ch in _KANJI_NUMERALS
+
+
 def _is_number_symbol(text, i):
-    """숫자 사이의 기호(1.5, 10:30, 10/18, 3〜5)와 숫자 앞 부호(-3)는 숫자의 뜻을 바꾸므로
+    """숫자 사이의 기호(1.5, 10:30, 10/18, 3〜5)와 숫자 앞 부호(-3, -三)는 숫자의 뜻을 바꾸므로
     지우지 않는다. 지우면 1.5倍가 15倍가 되어 숫자가 틀리고 15倍와 캐시를 함께 쓴다."""
     before = text[i - 1] if i > 0 else ""
     after = text[i + 1] if i + 1 < len(text) else ""
-    return _is_digit(after) and (_is_digit(before) or text[i] in _SIGNS)
+    if text[i] in _SIGNS and _is_number_char(after):
+        return True
+    return _is_digit(before) and _is_digit(after)
 
 
 def _unify_width(text):
@@ -72,10 +79,6 @@ def _remove_spaces(text):
     return _SPACE.sub(replace, text.strip())
 
 
-def _is_range_number(ch):
-    return _is_digit(ch) or ch in _KANJI_NUMERALS
-
-
 def _is_number_range(text, i):
     """물결표가 숫자 범위(3〜5, 3人〜5人, 10時〜12時, 三〜五)를 잇는가.
 
@@ -84,7 +87,7 @@ def _is_number_range(text, i):
     """
     after = text[i + 1] if i + 1 < len(text) else ""
     before = text[max(0, i - _RANGE_LOOKBEHIND) : i]
-    return _is_range_number(after) and any(_is_range_number(ch) for ch in before)
+    return _is_number_char(after) and any(_is_number_char(ch) for ch in before)
 
 
 def _remove_tildes(text):

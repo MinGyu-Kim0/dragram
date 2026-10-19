@@ -132,6 +132,13 @@ def test_tilde_is_kept_only_in_number_ranges(client, fake_llm, sentence, key_tex
     assert fake_llm.requests[0]["sentence"] == key_text
 
 
+@pytest.mark.parametrize(("sentence", "key_text"), [("-三度", "-三度"), ("+五人", "+五人")])
+def test_sign_before_kanji_numeral_is_kept(client, fake_llm, sentence, key_text):
+    analyze(client, sentence)
+
+    assert fake_llm.requests[0]["sentence"] == key_text
+
+
 @pytest.mark.parametrize(
     ("first", "first_translation", "second"),
     [

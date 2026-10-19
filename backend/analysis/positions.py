@@ -4,7 +4,7 @@
 자리표시자(⟨N1⟩), 나머지 숫자는 빈 조각이다. 구간은 모두 반열린 구간 [start, end)이다.
 """
 
-from bisect import bisect_left, bisect_right
+from bisect import bisect_right
 from itertools import accumulate
 
 
@@ -21,11 +21,11 @@ def to_key(offsets, start, end):
 def to_analysis(offsets, start, end):
     """키 텍스트 구간을 분석 텍스트 구간으로 바꾼다.
 
-    자리표시자를 덮는 구간은 숫자열 전체를 덮는다(⟨N1⟩ → 12). 빈 조각이 여러 위치에
-    같은 키 위치를 주므로, 시작은 그 위치에서 시작하는 첫 글자, 끝은 그 위치에서 끝나는
-    마지막 글자로 잡는다.
+    자리표시자를 덮는 구간은 숫자열 전체를 덮는다(⟨N1⟩ → 12). 숫자열의 빈 조각 때문에
+    여러 위치가 같은 키 위치를 가지므로, 시작과 끝 모두 그 위치를 가진 마지막 위치로 잡는다.
+    시작은 빈 조각이 아닌 글자에서, 끝은 숫자열 전체를 지난 뒤에 놓인다(12で의 で → 2가 아닌 で).
     """
-    return bisect_left(offsets, start), bisect_right(offsets, end) - 1
+    return bisect_right(offsets, start) - 1, bisect_right(offsets, end) - 1
 
 
 def utf16_offsets(original):

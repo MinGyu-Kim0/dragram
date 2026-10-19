@@ -165,13 +165,15 @@ def analyze(request):
         return Response(
             {
                 "translation_ko": restore(saved.translation_ko),
-                "grammar": _grammar_response(saved.draft_grammar, offsets, origins, utf16, restore),
+                "grammar": _grammar_response(
+                    saved.draft_analysis["grammar"], offsets, origins, utf16, restore
+                ),
             }
         )
 
-    # 문법을 받기 전에 저장된 행(draft_grammar가 NULL)은 다시 분석한다.
+    # 임시 분석을 받기 전에 저장된 행(draft_analysis가 NULL)은 다시 분석한다.
     cached = SentenceAnalysis.objects.filter(
-        sentence_hash=sentence_hash, draft_grammar__isnull=False
+        sentence_hash=sentence_hash, draft_analysis__isnull=False
     ).first()
     if cached:
         return respond(cached)
@@ -187,6 +189,7 @@ def analyze(request):
     if _quotes_whole_sentence(grammar, key_text, len(morphs)):
         # 이름·설명은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
         raise BusinessError(AnalysisError.FAILED, "LLM 문법 설명이 문장 전체를 인용함")
+    draft = {"grammar": grammar, "words": []}
 
     # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
     saved, created = SentenceAnalysis.objects.get_or_create(
@@ -196,15 +199,15 @@ def analyze(request):
             "normalized_length": len(key_text),
             "status": SentenceAnalysis.Status.COMPLETE,
             "translation_ko": validated["translation_ko"],
-            "draft_grammar": grammar,
+            "draft_analysis": draft,
         },
     )
-    if not created and saved.draft_grammar is None:
-        # 문법을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이 먼저
+    if not created and saved.draft_analysis is None:
+        # 임시 분석을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이 먼저
         # 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
-        SentenceAnalysis.objects.filter(pk=saved.pk, draft_grammar__isnull=True).update(
+        SentenceAnalysis.objects.filter(pk=saved.pk, draft_analysis__isnull=True).update(
             translation_ko=validated["translation_ko"],
-            draft_grammar=grammar,
+            draft_analysis=draft,
             updated_at=timezone.now(),
         )
         saved.refresh_from_db()

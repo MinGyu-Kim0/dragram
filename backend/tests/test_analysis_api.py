@@ -94,6 +94,8 @@ def _grammar(*token_ranges):
         ("3人で行く", [(2, 2)], "３人 で行く", [(3, 4)]),
         # 두 자리 이상 숫자 바로 뒤에서 시작하는 구간. 토큰: 0 3 / 1 で / 2 割る
         ("3で割る", [(1, 1), (0, 1)], "12で割る", [(2, 3), (0, 3)]),
+        # 분해형 한글은 원문 세 글자가 한 글자가 된다. 토큰: 0 한 / 1 は
+        ("한は", [(1, 1)], "한は", [(3, 4)]),
     ],
 )
 def test_reused_grammar_points_at_same_characters_in_each_original(
@@ -220,6 +222,7 @@ def test_same_sentence_is_reused_without_llm(client, fake_llm):
         ("私は学生です", "私は\u200b学生です"),  # 제로 폭 공백
         ("私は学生です", "\ufeff私は学生です"),  # BOM
         ("が好き", "か\u3099好き"),  # 결합 문자로 쓴 탁점
+        ("한국は好き", "한국は好き"),  # 분해형 한글(결합 등급 0)
     ],
 )
 def test_sentences_differing_only_in_notation_reuse_analysis(client, fake_llm, first, second):

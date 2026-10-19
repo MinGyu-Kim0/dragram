@@ -93,10 +93,13 @@ def _unify_width(chars):
     않아 x² 같은 문자는 그대로다. 반각 가나는 뒤따르는 반각 탁점·반탁점과 합쳐야 해서
     (ｶﾞ → ガ) 그 범위에만 NFKC를 쓴다.
     """
-    # 결합 문자와 반각 탁점·반탁점은 앞 글자와 한 묶음으로 바꾼다.
+    # 결합 문자, NFC로 앞 글자와 합쳐지는 글자(결합 등급 0인 한글 자모 등), 반각 탁점·반탁점은
+    # 앞 글자와 한 묶음으로 바꾼다.
     groups = []
     for ch, start, end in chars:
-        if groups and (unicodedata.combining(ch) or ch in "\uff9e\uff9f"):
+        if groups and (
+            unicodedata.combining(ch) or ch in "\uff9e\uff9f" or _composes(groups[-1][0], ch)
+        ):
             text, group_start, _ = groups[-1]
             groups[-1] = (text + ch, group_start, end)
         else:
@@ -108,6 +111,11 @@ def _unify_width(chars):
         text = _HALFWIDTH_KANA.sub(lambda m: unicodedata.normalize("NFKC", m.group()), text)
         result.extend((ch, start, end) for ch in text)
     return result
+
+
+def _composes(text, ch):
+    """ch를 붙이면 NFC가 앞 묶음과 합쳐 글자 수가 늘지 않는가(ᄒ + ᅡ → 하)."""
+    return len(unicodedata.normalize("NFC", text + ch)) <= len(unicodedata.normalize("NFC", text))
 
 
 def _to_halfwidth_alnum(ch):

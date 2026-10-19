@@ -17,7 +17,7 @@ from analysis.normalize import (
     restore_numbers,
 )
 from analysis.positions import key_offsets, to_analysis, to_key, to_original, utf16_offsets
-from errors import AnalysisFailed, TextRequired
+from errors import AnalysisError, BusinessError
 
 
 def _numbers_before_particle(text, morphs):
@@ -68,15 +68,15 @@ def _validate_grammar(grammar, numbers, token_count):
 
 
 def _validate(result, numbers, token_count):
-    """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 AnalysisFailed."""
+    """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 ANALYSIS:FAILED."""
     if not isinstance(result, dict) or not _is_text(result.get("translation_ko")):
-        raise AnalysisFailed("LLM 응답 검증 실패: 번역")
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 번역")
     # 자리표시자가 맞지 않는 번역은 숫자가 틀렸을 수 있어 보여주지도 저장하지도 않는다.
     if not has_all_placeholders(result["translation_ko"], numbers):
-        raise AnalysisFailed("LLM 응답 검증 실패: 번역 자리표시자")
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 번역 자리표시자")
     grammar = _validate_grammar(result.get("grammar"), numbers, token_count)
     if grammar is None:
-        raise AnalysisFailed("LLM 응답 검증 실패: 문법")
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 문법")
     return {"translation_ko": result["translation_ko"], "grammar": grammar}
 
 
@@ -141,11 +141,11 @@ def _grammar_response(stored, offsets, origins, utf16, restore):
 def analyze(request):
     sentence = request.data.get("text") if isinstance(request.data, dict) else None
     if not _is_text(sentence):
-        raise TextRequired("분석할 문장이 없음")
+        raise BusinessError(AnalysisError.TEXT_REQUIRED, "분석할 문장이 없음")
 
     text_to_analyze, origins = analysis_text(sentence)
     if not text_to_analyze:
-        raise TextRequired("정규화 후 빈 문장")
+        raise BusinessError(AnalysisError.TEXT_REQUIRED, "정규화 후 빈 문장")
     pieces, numbers = key_pieces(text_to_analyze)
     key_text = "".join(pieces)
     sentence_hash = hashlib.sha256(key_text.encode()).hexdigest()
@@ -186,7 +186,7 @@ def analyze(request):
     grammar = _stored_grammar(validated["grammar"], morphs, offsets)
     if _quotes_whole_sentence(grammar, key_text, len(morphs)):
         # 이름·설명은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
-        raise AnalysisFailed("LLM 문법 설명이 문장 전체를 인용함")
+        raise BusinessError(AnalysisError.FAILED, "LLM 문법 설명이 문장 전체를 인용함")
 
     # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
     saved, created = SentenceAnalysis.objects.get_or_create(

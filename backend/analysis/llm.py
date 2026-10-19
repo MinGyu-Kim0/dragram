@@ -3,7 +3,7 @@ import json
 from django.conf import settings
 from openai import OpenAI, OpenAIError
 
-from errors import AnalysisFailed
+from errors import AnalysisError, BusinessError
 
 INSTRUCTIONS = """\
 You help a Korean learner of Japanese read one Japanese sentence.
@@ -68,7 +68,7 @@ class OpenAILLMClient:
     def analyze(self, sentence, tokens):
         """구조화된 출력으로 분석을 받는다. 반환값은 검증 전 응답이다.
 
-        SDK 오류(타임아웃·인증 등)와 JSON이 아닌 응답(거절 등)은 AnalysisFailed다.
+        SDK 오류(타임아웃·인증 등)와 JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
         """
         try:
             response = self._client.responses.create(
@@ -85,11 +85,11 @@ class OpenAILLMClient:
                 },
             )
         except OpenAIError as e:
-            raise AnalysisFailed("LLM 호출 실패") from e
+            raise BusinessError(AnalysisError.FAILED, "LLM 호출 실패") from e
         try:
             return json.loads(response.output_text)
         except json.JSONDecodeError as e:
-            raise AnalysisFailed("LLM 응답이 JSON이 아님") from e
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답이 JSON이 아님") from e
 
 
 def get_client():

@@ -4,7 +4,7 @@ import openai
 import pytest
 
 from analysis.llm import OpenAILLMClient
-from errors import AnalysisFailed
+from errors import AnalysisError, BusinessError
 
 
 @pytest.fixture
@@ -28,20 +28,22 @@ def test_structured_output_is_parsed(llm_client, monkeypatch):
     assert llm_client.analyze("文", []) == {"translation_ko": "번역", "grammar": []}
 
 
-def test_openai_error_becomes_analysis_failed(llm_client, monkeypatch):
+def test_openai_error_becomes_analysis_failure(llm_client, monkeypatch):
     # 타임아웃·인증·속도 제한 등 SDK 예외는 모두 OpenAIError를 상속한다.
     def fail(**_):
         raise openai.OpenAIError("timeout")
 
     respond_with(llm_client, monkeypatch, fail)
 
-    with pytest.raises(AnalysisFailed):
+    with pytest.raises(BusinessError) as raised:
         llm_client.analyze("文", [])
+    assert raised.value.error_code == AnalysisError.FAILED
 
 
 @pytest.mark.parametrize("output_text", ["", "not json"])
-def test_output_that_is_not_json_becomes_analysis_failed(llm_client, monkeypatch, output_text):
+def test_output_that_is_not_json_becomes_analysis_failure(llm_client, monkeypatch, output_text):
     respond_with(llm_client, monkeypatch, lambda **_: SimpleNamespace(output_text=output_text))
 
-    with pytest.raises(AnalysisFailed):
+    with pytest.raises(BusinessError) as raised:
         llm_client.analyze("文", [])
+    assert raised.value.error_code == AnalysisError.FAILED

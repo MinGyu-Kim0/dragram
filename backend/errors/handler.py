@@ -14,7 +14,8 @@ def handle_exception(exc, context):
     로그에는 고정 문구와 원인 예외만 남긴다. 원문은 예외에 담지 않으므로 남지 않는다.
     """
     if isinstance(exc, BusinessError):
-        if exc.status >= 500:
-            logger.warning("%s: %s", exc.code, exc, exc_info=exc.__cause__ is not None)
-        return Response({"error": exc.code}, status=exc.status)
+        code, status = exc.error_code.code, exc.error_code.status
+        if status >= 500:
+            logger.warning("%s: %s", code, exc, exc_info=exc.__cause__ is not None)
+        return Response({"error": code}, status=status)
     return exception_handler(exc, context)

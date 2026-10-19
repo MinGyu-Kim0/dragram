@@ -4,7 +4,7 @@ from functools import cache
 from sudachipy import Dictionary, SplitMode
 from sudachipy.errors import SudachiError
 
-from errors import AnalysisFailed
+from errors import AnalysisError, BusinessError
 
 _local = threading.local()
 
@@ -25,10 +25,10 @@ def _tokenizer():
 def morphemes(text):
     """문장을 형태소로 나눠 [(시작, 끝, 품사 대분류)]를 돌려준다. 위치는 코드포인트 기준이다.
 
-    SudachiPy가 나누지 못하는 입력(49,149바이트 초과 등)은 AnalysisFailed다.
+    SudachiPy가 나누지 못하는 입력(49,149바이트 초과 등)은 ANALYSIS:FAILED다.
     """
     try:
         tokens = _tokenizer().tokenize(text)
     except SudachiError as e:
-        raise AnalysisFailed("형태소 분석 실패") from e
+        raise BusinessError(AnalysisError.FAILED, "형태소 분석 실패") from e
     return [(m.begin(), m.end(), m.part_of_speech()[0]) for m in tokens]

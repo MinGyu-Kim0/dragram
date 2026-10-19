@@ -256,6 +256,15 @@ def test_invalid_llm_response_fails_the_sentence(client, fake_llm, llm_response)
     assert response.json() == {"error": "analysis_failed"}
 
 
+def test_sentence_too_long_for_morphology_fails_without_calling_llm(client, fake_llm):
+    # SudachiPy는 49,149바이트를 넘는 입력을 나누지 못한다.
+    response = analyze(client, "あ" * 20000)
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "analysis_failed"}
+    assert fake_llm.requests == []
+
+
 def test_llm_error_fails_the_sentence(client, fake_llm):
     fake_llm.error = RuntimeError("timeout")
 

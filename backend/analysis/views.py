@@ -57,11 +57,16 @@ def analyze(request):
 
     # 형태소 분석은 숫자가 그대로인 분석 텍스트로 하고, LLM에는 키 텍스트 기준 표층형을
     # 보낸다. 원문 숫자는 LLM에 가지 않는다.
-    tokens = [
-        {"id": i, "surface": "".join(pieces[begin:end])}
-        for i, (begin, end) in enumerate(morpheme_spans(text_to_analyze))
-    ]
     # 원문은 로그에 남기지 않는다.
+    try:
+        spans = morpheme_spans(text_to_analyze)
+    except Exception:
+        # SudachiPy가 나누지 못하는 입력(49,149바이트 초과 등)
+        logger.exception("형태소 분석 실패")
+        return _analysis_failed()
+    tokens = [
+        {"id": i, "surface": "".join(pieces[begin:end])} for i, (begin, end) in enumerate(spans)
+    ]
     try:
         result = llm.get_client().analyze(key_text, tokens)
     except Exception:

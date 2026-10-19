@@ -7,6 +7,11 @@ INSTRUCTIONS = """\
 You translate one Japanese sentence into natural Korean for a Korean learner of Japanese.
 You receive the sentence and its tokens, each with an id.
 Return only the Korean translation of the whole sentence in translation_ko.
+
+Numbers in the sentence are replaced with placeholders such as ⟨N1⟩ and ⟨N2⟩.
+Copy every placeholder into translation_ko exactly as written, with the same brackets and number.
+Do not turn a placeholder into digits or words, drop it, or add a placeholder that is not
+in the sentence. Example: "⟨N1⟩人で行く" → "⟨N1⟩명이서 간다".
 """
 
 RESPONSE_SCHEMA = {

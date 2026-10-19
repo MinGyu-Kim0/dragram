@@ -152,11 +152,7 @@ def analyze(request):
 
     # 형태소 분석은 숫자가 그대로인 분석 텍스트로 한다. 숫자 뒤 조사 교정에 쓰므로 캐시를
     # 재사용할 때도 한다. 원문은 로그에 남기지 않는다.
-    try:
-        morphs = morphemes(text_to_analyze)
-    except Exception as e:
-        # SudachiPy가 나누지 못하는 입력(49,149바이트 초과 등)
-        raise AnalysisFailed("형태소 분석 실패") from e
+    morphs = morphemes(text_to_analyze)
     particle_numbers = _numbers_before_particle(text_to_analyze, morphs)
 
     offsets = key_offsets(pieces)

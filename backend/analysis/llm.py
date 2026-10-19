@@ -17,9 +17,17 @@ RESPONSE_SCHEMA = {
 }
 
 
+# 동기 호출이라 요청 스레드와 사이드 패널을 오래 붙잡지 않게 시간 상한을 둔다(NFR-14).
+# 타임아웃 뒤 재시도하면 이미 과금된 요청을 또 보낼 수 있어 재시도하지 않는다.
+TIMEOUT_SECONDS = 30
+MAX_RETRIES = 0
+
+
 class OpenAILLMClient:
     def __init__(self):
-        self._client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        self._client = OpenAI(
+            api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
+        )
 
     def analyze(self, sentence, tokens):
         """구조화된 출력으로 분석을 받는다. 반환값은 검증 전 응답이다."""

@@ -1,4 +1,5 @@
 import hashlib
+import re
 
 from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -69,17 +70,29 @@ def _validate_grammar(grammar, numbers, token_count):
 
 _WORD_TEXTS = ("lemma", "reading", "meaning_ko")
 
+# 읽기는 히라가나·가타카나 블록(장음 ー, 반복 부호 포함)과 숫자 자리표시자로만 쓴다.
+# 외래어(사전에 없는 새 말 포함)는 가타카나 그대로 두므로 히라가나로 바꾸지 않는다.
+_READING = re.compile(r"(?:[\u3041-\u309f\u30a0-\u30ff]|⟨N\d+⟩)+")
 
-def _validate_words(words, numbers, token_count):
-    """LLM이 고른 단어 항목을 검증한다. 하나라도 틀리면 None."""
+
+def _validate_words(words, numbers, token_count, is_vocabulary):
+    """LLM이 고른 단어 항목을 검증한다. 하나라도 틀리면 None.
+
+    학습할 단어가 아닌 토큰(is_vocabulary가 거짓)을 고른 항목은 나머지를 보지 않고 뺀다.
+    지침을 어긴 단어 하나 때문에 번역·문법까지 버리면 같은 문장마다 LLM을 다시 불러야 해서다.
+    """
     if not isinstance(words, list):
         return None
     items = []
     for item in words:
         if not isinstance(item, dict) or not _is_token_id(item.get("token_id"), token_count):
             return None
+        if not is_vocabulary(item["token_id"]):
+            continue
         texts = [item.get(field) for field in _WORD_TEXTS]
         if not all(_is_text(text) for text in texts):
+            return None
+        if not _READING.fullmatch(item["reading"]):
             return None
         # 사전형·뜻도 응답할 때 숫자를 되돌리므로 없는 번호의 자리표시자는 받지 않는다.
         if not all(has_only_known_placeholders(text, numbers) for text in texts):
@@ -88,7 +101,7 @@ def _validate_words(words, numbers, token_count):
     return items
 
 
-def _validate(result, numbers, token_count):
+def _validate(result, numbers, token_count, is_vocabulary):
     """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 ANALYSIS:FAILED."""
     if not isinstance(result, dict) or not _is_text(result.get("translation_ko")):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 번역")
@@ -98,7 +111,7 @@ def _validate(result, numbers, token_count):
     grammar = _validate_grammar(result.get("grammar"), numbers, token_count)
     if grammar is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 문법")
-    words = _validate_words(result.get("words"), numbers, token_count)
+    words = _validate_words(result.get("words"), numbers, token_count, is_vocabulary)
     if words is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 단어")
     return {"translation_ko": result["translation_ko"], "grammar": grammar, "words": words}
@@ -124,22 +137,6 @@ def _stored_grammar(grammar, morphs, offsets):
 
 # 학습할 단어가 아닌 토큰의 품사(문장부호, 공백)
 _NON_WORD_POS = {"補助記号", "空白"}
-
-
-def _vocabulary_words(words, morphs, pieces):
-    """숫자 자리표시자가 든 토큰과 기호·공백 토큰을 고른 단어는 뺀다.
-
-    숫자는 학습할 단어가 아니고, 숫자가 섞인 토큰(X12의 X1)은 LLM이 사전형에 숫자를 지어내면
-    숫자만 다른 문장에 잘못 재사용된다. 지침을 어긴 단어 하나 때문에 번역·문법까지 버리면
-    LLM을 다시 불러야 하므로 실패로 처리하지 않고 그 단어만 뺀다.
-    """
-    kept = []
-    for word in words:
-        begin, end, pos = morphs[word["token"]]
-        if pos in _NON_WORD_POS or "⟨N" in "".join(pieces[begin:end]):
-            continue
-        kept.append(word)
-    return kept
 
 
 def _stored_words(words, morphs, offsets):
@@ -258,12 +255,16 @@ def analyze(request):
     ]
     result = llm.get_client().analyze(key_text, tokens)
 
-    validated = _validate(result, numbers, len(morphs))
+    def is_vocabulary(token):
+        # 숫자는 학습할 단어가 아니고, 숫자가 섞인 토큰(X12의 X1)은 LLM이 사전형에 숫자를
+        # 지어내면 숫자만 다른 문장에 잘못 재사용된다. 기호·공백도 단어가 아니다.
+        begin, end, pos = morphs[token]
+        return pos not in _NON_WORD_POS and "⟨N" not in "".join(pieces[begin:end])
+
+    validated = _validate(result, numbers, len(morphs), is_vocabulary)
     draft = {
         "grammar": _stored_grammar(validated["grammar"], morphs, offsets),
-        "words": _stored_words(
-            _vocabulary_words(validated["words"], morphs, pieces), morphs, offsets
-        ),
+        "words": _stored_words(validated["words"], morphs, offsets),
     }
     llm_texts = [
         item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")

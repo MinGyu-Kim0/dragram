@@ -334,6 +334,11 @@ def _word(token_id=2, lemma="学生", reading="がくせい", meaning_ko="학생
         [_word(lemma="")],
         [_word(reading=" ")],
         [_word(meaning_ko="")],
+        # 읽기는 가나(와 장음)로만 쓴다.
+        [_word(reading="gakusei")],
+        [_word(reading="学生")],
+        [_word(reading="がく生")],
+        [_word(reading="학생")],
         [_word(meaning_ko="⟨N1⟩명")],  # 숫자가 없는 문장의 자리표시자
         [{"token_id": 2, "lemma": "学生", "reading": "がくせい"}],  # 뜻 없음
         ["not an object"],
@@ -397,6 +402,19 @@ def test_words_on_number_or_symbol_tokens_are_dropped_and_the_rest_is_kept(
     assert [word["lemma"] for word in response.json()["words"]] == [kept["lemma"]]
     [row] = SentenceAnalysis.objects.values("draft_analysis")
     assert [word["lemma"] for word in row["draft_analysis"]["words"]] == [kept["lemma"]]
+
+
+def test_katakana_reading_of_loanword_is_kept_as_is(client, fake_llm):
+    # 외래어(사전에 없는 새 말 포함)의 가타카나 읽기는 히라가나로 바꾸지 않는다.
+    # 토큰: 0 コーヒー / 1 を / 2 飲む
+    fake_llm.response = {
+        "translation_ko": "커피를 마신다",
+        "words": [_word(0, "コーヒー", "コーヒー", "커피"), _word(2, "飲む", "のむ", "마시다")],
+    }
+
+    response = analyze(client, "コーヒーを飲む")
+
+    assert [word["reading"] for word in response.json()["words"]] == ["コーヒー", "のむ"]
 
 
 def test_cached_sentence_returns_same_words(client, fake_llm):

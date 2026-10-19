@@ -25,6 +25,9 @@ the like). Particles and auxiliary verbs belong in grammar, not here. Do not lis
 are only a number placeholder or a symbol. For each word give its token id (token_id), its
 dictionary form (lemma, e.g. 食べる for 食べて), the hiragana reading of that dictionary form
 (reading) and a short Korean meaning as used in this sentence (meaning_ko).
+For loanwords, including new ones not in dictionaries, keep the katakana in the reading
+(コーヒー → コーヒー). For a word written in katakana only for emphasis, give its usual
+dictionary form and reading (ヤバい → やばい / やばい). Write readings in kana only.
 
 Numbers in the sentence are replaced with placeholders such as ⟨N1⟩ and ⟨N2⟩.
 Copy every placeholder into translation_ko exactly as written, with the same brackets and number.

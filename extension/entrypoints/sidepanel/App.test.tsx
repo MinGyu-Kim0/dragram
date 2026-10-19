@@ -26,6 +26,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 test("사이드 패널에 앱 이름을 제목으로 보여준다", () => {
@@ -117,5 +118,25 @@ test("패널을 다시 열어도 이미 분석한 요청은 다시 분석하지 
     expect(fakeBrowser.storage.session.get()).resolves.toEqual({}),
   );
   expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("저장소 읽기와 변경 알림이 같은 요청을 함께 전달해도 한 번만 분석한다", async () => {
+  const fetchMock = respondWith(200, { translation_ko: "나는 학생입니다." });
+  // 패널이 저장소를 읽는 사이에 요청이 들어와, 읽기 결과에도 그 요청이 담기는 경우
+  let finishGet: (stored: Record<string, unknown>) => void = () => {};
+  const getSpy = vi
+    .spyOn(fakeBrowser.storage.session, "get")
+    .mockReturnValue(new Promise((resolve) => (finishGet = resolve)) as never);
+  const setSpy = vi.spyOn(fakeBrowser.storage.session, "set");
+  render(<App />);
+  await waitFor(() => expect(getSpy).toHaveBeenCalled());
+
+  await requestAnalysis(panelWindowId, "私は学生です。");
+  await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  // 실제 크롬 저장소처럼 읽을 때마다 새 객체를 돌려준다.
+  finishGet(structuredClone(setSpy.mock.calls[0]![0]));
+
+  expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });

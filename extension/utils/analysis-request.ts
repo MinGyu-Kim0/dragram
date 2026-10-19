@@ -25,10 +25,14 @@ export function receiveAnalysisRequests(
   onRequest: (request: AnalysisRequest) => void,
 ): () => void {
   const key = keyFor(windowId);
-  const take = (request: unknown) => {
-    if (!request) return;
+  // 저장소 읽기와 변경 알림이 같은 요청을 함께 전달할 수 있어 회차 ID로 한 번만 받는다.
+  let lastId: string | undefined;
+  const take = (stored: unknown) => {
+    const request = stored as AnalysisRequest | undefined;
+    if (!request || request.id === lastId) return;
+    lastId = request.id;
     browser.storage.session.remove(key);
-    onRequest(request as AnalysisRequest);
+    onRequest(request);
   };
   const listener = (
     changes: Record<string, { newValue?: unknown }>,

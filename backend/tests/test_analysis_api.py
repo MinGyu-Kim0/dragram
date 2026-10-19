@@ -281,6 +281,16 @@ def test_llm_error_fails_the_sentence(client, fake_llm):
     assert response.json() == {"error": "analysis_failed"}
 
 
+def test_text_with_lone_surrogate_is_rejected_without_calling_llm(client, fake_llm):
+    # JSON에는 들어올 수 있지만 UTF-8로 인코딩할 수 없는 문자
+    response = client.post(
+        "/api/analyses/", '{"text": "\\ud800です"}', content_type="application/json"
+    )
+
+    assert response.status_code == 400
+    assert fake_llm.requests == []
+
+
 @pytest.mark.parametrize(
     "body",
     [{}, {"text": ""}, {"text": "  "}, {"text": 3}, ["私は学生です。"], {"text": "。」"}],

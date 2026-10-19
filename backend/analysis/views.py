@@ -23,7 +23,14 @@ def _analysis_failed():
 
 
 def _is_text(value):
-    return isinstance(value, str) and value.strip() != ""
+    if not isinstance(value, str) or value.strip() == "":
+        return False
+    try:
+        # JSON에는 단독 서로게이트(\ud800 등)가 들어올 수 있지만 UTF-8로는 인코딩할 수 없다.
+        value.encode()
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _validate(result, numbers):

@@ -151,6 +151,13 @@ def test_unit_and_currency_symbols_next_to_numbers_are_kept(
     assert response.json() == {"translation_ko": restored}
 
 
+@pytest.mark.parametrize("sentence", ["五％の人", "￥五百です", "三/五の人", "三.五倍"])
+def test_symbols_next_to_kanji_numerals_are_kept(client, fake_llm, sentence):
+    analyze(client, sentence)
+
+    assert fake_llm.requests[0]["sentence"] == sentence
+
+
 @pytest.mark.parametrize(("sentence", "key_text"), [("-三度", "-三度"), ("+五人", "+五人")])
 def test_sign_before_kanji_numeral_is_kept(client, fake_llm, sentence, key_text):
     analyze(client, sentence)

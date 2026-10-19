@@ -54,13 +54,12 @@ def _is_number_symbol(text, i):
     지우지 않는다. 지우면 1.5倍가 15倍가 되어 숫자가 틀리고 15倍와 캐시를 함께 쓴다."""
     before = text[i - 1] if i > 0 else ""
     after = text[i + 1] if i + 1 < len(text) else ""
-    if text[i] in _SIGNS and _is_number_char(after):
-        return True
-    if text[i] in _UNITS and _is_digit(before):
-        return True
-    if text[i] in _CURRENCIES and _is_digit(after):
-        return True
-    return _is_digit(before) and _is_digit(after)
+    # 숫자는 아라비아 숫자와 한자 숫자를 함께 본다(五％, ￥五百, 三/五).
+    if text[i] in _SIGNS or text[i] in _CURRENCIES:
+        return _is_number_char(after)
+    if text[i] in _UNITS:
+        return _is_number_char(before)
+    return _is_number_char(before) and _is_number_char(after)
 
 
 def _unify_width(text):

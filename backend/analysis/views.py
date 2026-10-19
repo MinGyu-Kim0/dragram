@@ -67,6 +67,27 @@ def _validate_grammar(grammar, numbers, token_count):
     return items
 
 
+_WORD_TEXTS = ("lemma", "reading", "meaning_ko")
+
+
+def _validate_words(words, numbers, token_count):
+    """LLM이 고른 단어 항목을 검증한다. 하나라도 틀리면 None."""
+    if not isinstance(words, list):
+        return None
+    items = []
+    for item in words:
+        if not isinstance(item, dict) or not _is_token_id(item.get("token_id"), token_count):
+            return None
+        texts = [item.get(field) for field in _WORD_TEXTS]
+        if not all(_is_text(text) for text in texts):
+            return None
+        # 사전형·뜻도 응답할 때 숫자를 되돌리므로 없는 번호의 자리표시자는 받지 않는다.
+        if not all(has_only_known_placeholders(text, numbers) for text in texts):
+            return None
+        items.append({"token": item["token_id"], **{field: item[field] for field in _WORD_TEXTS}})
+    return items
+
+
 def _validate(result, numbers, token_count):
     """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 ANALYSIS:FAILED."""
     if not isinstance(result, dict) or not _is_text(result.get("translation_ko")):
@@ -77,7 +98,10 @@ def _validate(result, numbers, token_count):
     grammar = _validate_grammar(result.get("grammar"), numbers, token_count)
     if grammar is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 문법")
-    return {"translation_ko": result["translation_ko"], "grammar": grammar}
+    words = _validate_words(result.get("words"), numbers, token_count)
+    if words is None:
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 단어")
+    return {"translation_ko": result["translation_ko"], "grammar": grammar, "words": words}
 
 
 def _stored_grammar(grammar, morphs, offsets):
@@ -98,17 +122,27 @@ def _stored_grammar(grammar, morphs, offsets):
     return stored
 
 
-def _quotes_whole_sentence(grammar, key_text, token_count):
-    """이름이나 설명이 문장 전체(키 텍스트)를 인용했는가.
+def _stored_words(words, morphs, offsets):
+    """토큰 ID로 고른 단어 항목을 키 텍스트 구간으로 바꿔 저장할 모양으로 만든다."""
+    stored = []
+    for item in words:
+        begin, end, _ = morphs[item["token"]]
+        key_start, key_end = to_key(offsets, begin, end)
+        stored.append(
+            {"start": key_start, "end": key_end, **{field: item[field] for field in _WORD_TEXTS}}
+        )
+    return stored
 
-    문장이 형태소 하나(です 등)면 그 문법 토큰을 인용하는 것과 같고 원문을 알아볼 정보도
-    없어 허용한다. 토큰이 여럿이면 구간이 문장 전체여도 원문을 옮긴 것이다.
+
+def _quotes_whole_sentence(texts, key_text, token_count):
+    """LLM이 쓴 글(문법 이름·설명, 단어 사전형·읽기·뜻)이 문장 전체(키 텍스트)를 인용했는가.
+
+    문장이 형태소 하나(です 등)면 그 토큰을 인용하는 것과 같고 원문을 알아볼 정보도 없어
+    허용한다. 토큰이 여럿이면 구간이 문장 전체여도 원문을 옮긴 것이다.
     """
     if token_count == 1:
         return False
-    return any(
-        key_text in text for item in grammar for text in (item["name"], item["explanation_ko"])
-    )
+    return any(key_text in text for text in texts)
 
 
 def _grammar_response(stored, offsets, origins, utf16, restore):
@@ -132,6 +166,23 @@ def _grammar_response(stored, offsets, origins, utf16, restore):
             }
         )
     return grammar
+
+
+def _words_response(stored, offsets, origins, utf16, restore):
+    """저장된 단어 항목을 이 요청 원문 기준으로 바꾼다(_grammar_response와 같은 방식)."""
+    words = []
+    for item in stored:
+        start, end = to_original(origins, utf16, *to_analysis(offsets, item["start"], item["end"]))
+        words.append(
+            {
+                "start": start,
+                "end": end,
+                **{field: restore(item[field]) for field in _WORD_TEXTS},
+                # JMdict 없이 LLM이 만든 뜻이라 검수 전이다(#10).
+                "review_status": "pending",
+            }
+        )
+    return words
 
 
 # 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
@@ -168,6 +219,9 @@ def analyze(request):
                 "grammar": _grammar_response(
                     saved.draft_analysis["grammar"], offsets, origins, utf16, restore
                 ),
+                "words": _words_response(
+                    saved.draft_analysis["words"], offsets, origins, utf16, restore
+                ),
             }
         )
 
@@ -185,11 +239,17 @@ def analyze(request):
     result = llm.get_client().analyze(key_text, tokens)
 
     validated = _validate(result, numbers, len(morphs))
-    grammar = _stored_grammar(validated["grammar"], morphs, offsets)
-    if _quotes_whole_sentence(grammar, key_text, len(morphs)):
-        # 이름·설명은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
-        raise BusinessError(AnalysisError.FAILED, "LLM 문법 설명이 문장 전체를 인용함")
-    draft = {"grammar": grammar, "words": []}
+    draft = {
+        "grammar": _stored_grammar(validated["grammar"], morphs, offsets),
+        "words": _stored_words(validated["words"], morphs, offsets),
+    }
+    llm_texts = [
+        item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")
+    ]
+    llm_texts += [item[field] for item in validated["words"] for field in _WORD_TEXTS]
+    if _quotes_whole_sentence(llm_texts, key_text, len(morphs)):
+        # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
+        raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
 
     # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
     saved, created = SentenceAnalysis.objects.get_or_create(

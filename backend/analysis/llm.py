@@ -20,6 +20,12 @@ tokens. Never quote the whole sentence or long parts of it. Use only token ids y
 If the sentence has no grammar to learn (for example a title made only of nouns), return an
 empty grammar list.
 
+In words, list the content words a learner may not know (nouns, verbs, adjectives, adverbs and
+the like). Particles and auxiliary verbs belong in grammar, not here. Do not list tokens that
+are only a number placeholder or a symbol. For each word give its token id (token_id), its
+dictionary form (lemma, e.g. 食べる for 食べて), the hiragana reading of that dictionary form
+(reading) and a short Korean meaning as used in this sentence (meaning_ko).
+
 Numbers in the sentence are replaced with placeholders such as ⟨N1⟩ and ⟨N2⟩.
 Copy every placeholder into translation_ko exactly as written, with the same brackets and number.
 Do not turn a placeholder into digits or words, drop it, or add a placeholder that is not
@@ -47,8 +53,22 @@ RESPONSE_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "words": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "token_id": {"type": "integer"},
+                    "lemma": {"type": "string"},
+                    "reading": {"type": "string"},
+                    "meaning_ko": {"type": "string"},
+                },
+                "required": ["token_id", "lemma", "reading", "meaning_ko"],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": ["translation_ko", "grammar"],
+    "required": ["translation_ko", "grammar", "words"],
     "additionalProperties": False,
 }
 

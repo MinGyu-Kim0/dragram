@@ -152,6 +152,38 @@ def test_token_inside_number_at_sentence_end_covers_whole_number(client, fake_ll
     assert (item["start"], item["end"]) == (1, 3)
 
 
+def test_new_sentence_returns_words_at_original_positions(client, fake_llm):
+    # 토큰: 0 私 / 1 は / 2 学生 / 3 です
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "words": [
+            {"token_id": 0, "lemma": "私", "reading": "わたし", "meaning_ko": "나"},
+            {"token_id": 2, "lemma": "学生", "reading": "がくせい", "meaning_ko": "학생"},
+        ],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.json()["words"] == [
+        {
+            "start": 0,
+            "end": 1,
+            "lemma": "私",
+            "reading": "わたし",
+            "meaning_ko": "나",
+            "review_status": "pending",
+        },
+        {
+            "start": 2,
+            "end": 4,
+            "lemma": "学生",
+            "reading": "がくせい",
+            "meaning_ko": "학생",
+            "review_status": "pending",
+        },
+    ]
+
+
 def test_sentence_without_grammar_returns_empty_grammar(client, fake_llm):
     fake_llm.response = {"translation_ko": "도쿄", "grammar": []}
 
@@ -271,11 +303,92 @@ def test_grammar_text_may_quote_sentence_that_is_the_grammar_span_itself(client,
 
 def test_llm_response_without_grammar_fails(client, fake_llm):
     fake_llm.fill_defaults = False
-    fake_llm.response = {"translation_ko": "나는 학생입니다."}
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": []}
 
     response = analyze(client, "私は学生です。")
 
     assert response.status_code == 502
+
+
+def test_llm_response_without_words_fails(client, fake_llm):
+    fake_llm.fill_defaults = False
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "grammar": []}
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
+def _word(token_id=2, lemma="学生", reading="がくせい", meaning_ko="학생"):
+    return {"token_id": token_id, "lemma": lemma, "reading": reading, "meaning_ko": meaning_ko}
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        [_word(token_id=4)],  # 범위 밖
+        [_word(token_id=-1)],
+        [_word(token_id="2")],
+        [_word(token_id=True)],
+        [_word(lemma="")],
+        [_word(reading=" ")],
+        [_word(meaning_ko="")],
+        [_word(meaning_ko="⟨N1⟩명")],  # 숫자가 없는 문장의 자리표시자
+        [{"token_id": 2, "lemma": "学生", "reading": "がくせい"}],  # 뜻 없음
+        ["not an object"],
+        "not a list",
+        None,
+    ],
+)
+def test_invalid_words_fail_the_sentence_and_are_not_stored(client, fake_llm, words):
+    # 토큰은 0~3 네 개다.
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": words}
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
+def test_word_meaning_quoting_whole_sentence_fails_and_is_not_stored(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "words": [_word(meaning_ko="私は学生です에서 학생")],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
+def test_cached_sentence_returns_same_words(client, fake_llm):
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": [_word()]}
+    first = analyze(client, "私は学生です。")
+
+    second = analyze(client, "私は学生です。")
+
+    assert second.json()["words"] == first.json()["words"]
+    assert len(second.json()["words"]) == 1
+    assert len(fake_llm.requests) == 1
+
+
+def test_reused_words_point_at_same_characters_and_restore_numbers(client, fake_llm):
+    # 토큰: 0 3 / 1 人 / 2 で / 3 行く
+    fake_llm.response = {
+        "translation_ko": "⟨N1⟩명이서 간다",
+        "words": [_word(token_id=3, lemma="行く", reading="いく", meaning_ko="가다")]
+        + [_word(token_id=1, lemma="人", reading="にん", meaning_ko="⟨N1⟩명의 명")],
+    }
+    analyze(client, "3人で行く")
+
+    response = analyze(client, "  「12人で行く。」")
+
+    words = response.json()["words"]
+    assert [(word["start"], word["end"]) for word in words] == [(7, 9), (5, 6)]
+    assert words[1]["meaning_ko"] == "12명의 명"
+    assert len(fake_llm.requests) == 1
 
 
 def test_same_sentence_is_reused_without_llm(client, fake_llm):

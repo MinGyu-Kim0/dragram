@@ -4,6 +4,7 @@ import {
   type AnalysisRequest,
 } from "@/utils/analysis-request";
 import { analyzeSentence, type Analysis } from "@/utils/api";
+import { GrammarCards, HighlightedText } from "./Grammar";
 
 // 결과에 회차 ID를 붙여, 지금 요청의 결과만 보인다. 없으면 아직 불러오는 중이다.
 type Result =
@@ -52,7 +53,14 @@ function App() {
       {request && (
         <section className="sentence-card">
           <p lang="ja" className="original">
-            {request.text}
+            {shown?.status === "done" ? (
+              <HighlightedText
+                text={request.text}
+                grammar={shown.analysis.grammar}
+              />
+            ) : (
+              request.text
+            )}
           </p>
           <hr />
           {!shown && (
@@ -72,6 +80,9 @@ function App() {
             <p className="error">분석하지 못했습니다</p>
           )}
         </section>
+      )}
+      {request && shown?.status === "done" && (
+        <GrammarCards text={request.text} grammar={shown.analysis.grammar} />
       )}
     </main>
   );

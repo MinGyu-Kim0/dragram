@@ -5,6 +5,7 @@ from django.db import connection
 from django.test import Client
 
 from analysis.models import SentenceAnalysis
+from errors import AnalysisFailed
 
 pytestmark = pytest.mark.django_db
 
@@ -624,12 +625,22 @@ def test_sentence_too_long_for_morphology_fails_without_calling_llm(client, fake
 
 
 def test_llm_error_fails_the_sentence(client, fake_llm):
-    fake_llm.error = RuntimeError("timeout")
+    # LLM 클라이언트는 타임아웃 등 외부 실패를 AnalysisFailed로 알린다(test_llm_client).
+    fake_llm.error = AnalysisFailed("LLM 호출 실패")
 
     response = analyze(client, "私は学生です。")
 
     assert response.status_code == 502
     assert response.json() == {"error": "analysis_failed"}
+    assert SentenceAnalysis.objects.count() == 0
+
+
+def test_unexpected_error_is_not_hidden_as_analysis_failure(client, fake_llm):
+    # 외부 실패가 아닌 예외(우리 코드의 버그)는 502로 숨기지 않고 그대로 드러낸다.
+    fake_llm.error = TypeError("bug")
+
+    with pytest.raises(TypeError):
+        analyze(client, "私は学生です。")
 
 
 def test_text_with_lone_surrogate_is_rejected_without_calling_llm(client, fake_llm):

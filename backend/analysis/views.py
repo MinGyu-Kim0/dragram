@@ -180,10 +180,7 @@ def analyze(request):
     tokens = [
         {"id": i, "surface": "".join(pieces[begin:end])} for i, (begin, end, _) in enumerate(morphs)
     ]
-    try:
-        result = llm.get_client().analyze(key_text, tokens)
-    except Exception as e:
-        raise AnalysisFailed("LLM 호출 실패") from e
+    result = llm.get_client().analyze(key_text, tokens)
 
     validated = _validate(result, numbers, len(morphs))
     grammar = _stored_grammar(validated["grammar"], morphs, offsets)

@@ -104,15 +104,16 @@ def _stored_grammar(grammar, morphs, offsets):
     return stored
 
 
-def _quotes_whole_sentence(grammar, key_text):
+def _quotes_whole_sentence(grammar, key_text, token_count):
     """이름이나 설명이 문장 전체(키 텍스트)를 인용했는가.
 
-    문법 구간 글자의 인용은 허용하므로, 문장 전체가 곧 그 문법 구간이면 문제 삼지 않는다.
+    문장이 형태소 하나(です 등)면 그 문법 토큰을 인용하는 것과 같고 원문을 알아볼 정보도
+    없어 허용한다. 토큰이 여럿이면 구간이 문장 전체여도 원문을 옮긴 것이다.
     """
+    if token_count == 1:
+        return False
     return any(
-        key_text in text and key_text != key_text[item["start"] : item["end"]]
-        for item in grammar
-        for text in (item["name"], item["explanation_ko"])
+        key_text in text for item in grammar for text in (item["name"], item["explanation_ko"])
     )
 
 
@@ -201,7 +202,7 @@ def analyze(request):
         logger.warning("LLM 응답 검증 실패")
         return _analysis_failed()
     grammar = _stored_grammar(validated["grammar"], morphs, offsets)
-    if _quotes_whole_sentence(grammar, key_text):
+    if _quotes_whole_sentence(grammar, key_text, len(morphs)):
         # 이름·설명은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
         logger.warning("LLM 문법 설명이 문장 전체를 인용함")
         return _analysis_failed()

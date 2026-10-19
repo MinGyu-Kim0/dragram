@@ -228,6 +228,26 @@ def test_grammar_text_quoting_whole_sentence_fails_and_is_not_stored(
     assert SentenceAnalysis.objects.count() == 0
 
 
+def test_grammar_spanning_whole_sentence_may_not_quote_it(client, fake_llm):
+    # 구간이 문장 전체여도 여러 토큰이면 원문을 옮긴 것이다. 토큰: 0 私 / 1 は / 2 学生 / 3 です
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "grammar": [
+            {
+                "start_token_id": 0,
+                "end_token_id": 3,
+                "name": "문장",
+                "explanation_ko": "私は学生です에서 は는 주제",
+            }
+        ],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
 def test_grammar_text_may_quote_sentence_that_is_the_grammar_span_itself(client, fake_llm):
     # 문법 구간이 곧 문장 전체면 그 구간 글자를 인용할 수밖에 없다. 토큰: 0 です
     fake_llm.response = {

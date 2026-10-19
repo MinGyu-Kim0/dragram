@@ -32,6 +32,47 @@ def test_same_sentence_is_reused_without_llm(client, fake_llm):
 
 
 @pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("私は学生です。", "私は学生です"),  # 끝 기호
+        ("私は学生です", "  私は学生です "),  # 앞뒤 공백
+        ("私は学生です", "私は　学生 です"),  # 일본어 사이 공백
+        ("私は学生です", "「私は学生です。」"),  # 문장을 감싼 괄호
+        ("ABCは学生です", "ＡＢＣは学生です"),  # 전각 영숫자
+        ("ガクセイです", "ｶﾞｸｾｲです"),  # 반각 가나
+        ("あれ", "あれ〜"),  # 물결표
+        ("あれ", "あれ~"),
+        ("I love Tokyoです", "I  love Tokyoです"),  # 영어 단어 사이 공백은 하나로
+    ],
+)
+def test_sentences_differing_only_in_notation_reuse_analysis(client, fake_llm, first, second):
+    analyze(client, first)
+
+    response = analyze(client, second)
+
+    assert response.status_code == 200
+    assert len(fake_llm.requests) == 1
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("行こう", "行こう？"),  # 뜻을 바꾸는 기호는 남긴다
+        ("行こう", "行こう！"),
+        ("行こう", "行こう…"),
+        ("I love Tokyoです", "Ilove Tokyoです"),
+        ("x2", "x²"),  # 폭 통일만 한다(NFKC 호환 분해 금지)
+    ],
+)
+def test_sentences_differing_in_meaning_are_analyzed_separately(client, fake_llm, first, second):
+    analyze(client, first)
+
+    analyze(client, second)
+
+    assert len(fake_llm.requests) == 2
+
+
+@pytest.mark.parametrize(
     "llm_response",
     [
         {"translation_ko": ""},
@@ -60,7 +101,8 @@ def test_llm_error_fails_the_sentence(client, fake_llm):
 
 
 @pytest.mark.parametrize(
-    "body", [{}, {"text": ""}, {"text": "  "}, {"text": 3}, ["私は学生です。"]]
+    "body",
+    [{}, {"text": ""}, {"text": "  "}, {"text": 3}, ["私は学生です。"], {"text": "。」"}],
 )
 def test_missing_text_is_rejected_without_calling_llm(client, fake_llm, body):
     response = client.post("/api/analyses/", body, content_type="application/json")
@@ -97,11 +139,11 @@ def test_llm_receives_sentence_and_token_ids(client, fake_llm):
     analyze(client, "私は学生です。")
 
     [request] = fake_llm.requests
-    assert request["sentence"] == "私は学生です。"
+    # LLM에는 정규화한 키 텍스트를 보낸다.
+    assert request["sentence"] == "私は学生です"
     assert request["tokens"] == [
         {"id": 0, "surface": "私"},
         {"id": 1, "surface": "は"},
         {"id": 2, "surface": "学生"},
         {"id": 3, "surface": "です"},
-        {"id": 4, "surface": "。"},
     ]

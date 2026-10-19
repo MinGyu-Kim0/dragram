@@ -7,10 +7,9 @@ from rest_framework.response import Response
 from analysis import llm
 from analysis.models import SentenceAnalysis
 from analysis.morphology import tokenize
+from analysis.normalize import NORMALIZE_VERSION, analysis_text
 
 logger = logging.getLogger(__name__)
-
-NORMALIZE_VERSION = 1
 
 
 def _analysis_failed():
@@ -37,7 +36,9 @@ def analyze(request):
     if not _is_text(sentence):
         return Response({"error": "text_required"}, status=400)
 
-    key_text = sentence
+    key_text = analysis_text(sentence)
+    if not key_text:
+        return Response({"error": "text_required"}, status=400)
     sentence_hash = hashlib.sha256(key_text.encode()).hexdigest()
     cached = SentenceAnalysis.objects.filter(sentence_hash=sentence_hash).first()
     if cached:
@@ -45,7 +46,7 @@ def analyze(request):
 
     # 원문은 로그에 남기지 않는다.
     try:
-        result = llm.get_client().analyze(sentence, tokenize(sentence))
+        result = llm.get_client().analyze(key_text, tokenize(key_text))
     except Exception:
         logger.exception("LLM 호출 실패")
         return _analysis_failed()

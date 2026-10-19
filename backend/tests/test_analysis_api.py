@@ -487,6 +487,33 @@ def test_first_saved_analysis_wins_when_same_sentence_is_saved_concurrently(clie
     assert SentenceAnalysis.objects.count() == 1
 
 
+def test_first_filled_grammar_wins_when_row_without_grammar_is_filled_concurrently(
+    client, fake_llm, monkeypatch
+):
+    # 문법을 받기 전에 저장된 행(draft_grammar NULL)을 두 요청이 함께 다시 분석한다.
+    fake_llm.response = {"translation_ko": "옛 번역"}
+    analyze(client, "私は学生です。")
+    SentenceAnalysis.objects.update(draft_grammar=None)
+
+    # 늦은 요청이 NULL인 행을 읽은 직후, 채우기 전에 다른 요청이 먼저 채운다.
+    get_or_create = SentenceAnalysis.objects.get_or_create
+
+    def other_request_fills_after_read(**kwargs):
+        monkeypatch.setattr(SentenceAnalysis.objects, "get_or_create", get_or_create)
+        result = get_or_create(**kwargs)
+        fake_llm.response = {"translation_ko": "먼저 채운 번역"}
+        analyze(Client(), "私は学生です。")
+        return result
+
+    fake_llm.response = {"translation_ko": "늦게 끝난 번역"}
+    monkeypatch.setattr(SentenceAnalysis.objects, "get_or_create", other_request_fills_after_read)
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.json()["translation_ko"] == "먼저 채운 번역"
+    assert SentenceAnalysis.objects.get().translation_ko == "먼저 채운 번역"
+
+
 @pytest.mark.parametrize(
     "llm_response",
     [

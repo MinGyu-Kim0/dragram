@@ -1,6 +1,7 @@
 import hashlib
 import logging
 
+from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
@@ -200,8 +201,12 @@ def analyze(request):
         },
     )
     if not created and saved.draft_grammar is None:
-        # 문법을 받기 전에 저장된 행이면 이번 결과로 채운다.
-        saved.translation_ko = validated["translation_ko"]
-        saved.draft_grammar = _stored_grammar(validated["grammar"], morphs, offsets)
-        saved.save(update_fields=["translation_ko", "draft_grammar", "updated_at"])
+        # 문법을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이 먼저
+        # 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
+        SentenceAnalysis.objects.filter(pk=saved.pk, draft_grammar__isnull=True).update(
+            translation_ko=validated["translation_ko"],
+            draft_grammar=_stored_grammar(validated["grammar"], morphs, offsets),
+            updated_at=timezone.now(),
+        )
+        saved.refresh_from_db()
     return respond(saved)

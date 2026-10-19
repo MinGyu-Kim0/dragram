@@ -19,6 +19,6 @@ def _tokenizer():
     return _local.tokenizer
 
 
-def tokenize(text):
-    """문장을 형태소로 나누고, LLM이 가리킬 수 있게 순서대로 ID를 매긴다."""
-    return [{"id": i, "surface": m.surface()} for i, m in enumerate(_tokenizer().tokenize(text))]
+def morpheme_spans(text):
+    """문장을 형태소로 나눠 각 형태소의 [시작, 끝) 코드포인트 위치를 돌려준다."""
+    return [(m.begin(), m.end()) for m in _tokenizer().tokenize(text)]

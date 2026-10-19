@@ -72,6 +72,47 @@ def test_sentences_differing_in_meaning_are_analyzed_separately(client, fake_llm
     assert len(fake_llm.requests) == 2
 
 
+def test_sentences_differing_only_in_numbers_reuse_analysis(client, fake_llm):
+    fake_llm.response = {"translation_ko": "⟨N1⟩명이서 ⟨N2⟩시에 간다."}
+    first = analyze(client, "3人で10時に行く。")
+
+    second = analyze(client, "5人で7時に行く。")
+
+    assert first.json() == {"translation_ko": "3명이서 10시에 간다."}
+    assert second.json() == {"translation_ko": "5명이서 7시에 간다."}
+    assert len(fake_llm.requests) == 1
+
+
+def test_numbers_are_not_sent_to_llm(client, fake_llm):
+    fake_llm.response = {"translation_ko": "⟨N1⟩명이서 간다."}
+
+    analyze(client, "３人で行く")
+
+    [request] = fake_llm.requests
+    assert request["sentence"] == "⟨N1⟩人で行く"
+    assert [token["surface"] for token in request["tokens"]] == ["⟨N1⟩", "人", "で", "行く"]
+
+
+def test_kanji_numerals_are_kept(client, fake_llm):
+    analyze(client, "二枚目の皿")
+
+    [request] = fake_llm.requests
+    assert request["sentence"] == "二枚目の皿"
+
+
+@pytest.mark.parametrize("translation", ["세 명이서 간다.", "⟨N2⟩명이서 간다."])
+def test_translation_missing_placeholder_fails_and_is_not_stored(client, fake_llm, translation):
+    fake_llm.response = {"translation_ko": translation}
+
+    response = analyze(client, "3人で行く")
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "analysis_failed"}
+    fake_llm.response = {"translation_ko": "⟨N1⟩명이서 간다."}
+    assert analyze(client, "3人で行く").json() == {"translation_ko": "3명이서 간다."}
+    assert len(fake_llm.requests) == 2
+
+
 @pytest.mark.parametrize(
     "llm_response",
     [

@@ -13,6 +13,8 @@ _HALFWIDTH_KANA = re.compile(r"[\uFF61-\uFF9F]+")
 _SPACE = re.compile(r"\s+")
 _LATIN = re.compile(r"[A-Za-z0-9]")
 _TILDE = re.compile(r"[~〜～]")
+_DIGITS = re.compile(r"[0-9]+")
+_PLACEHOLDER = re.compile(r"⟨N(\d+)⟩")
 _WRAPPING_PAIRS = {
     "「": "」",
     "『": "』",
@@ -97,3 +99,31 @@ def analysis_text(original):
     for step in (_unify_width, _remove_spaces, _remove_tildes, _remove_wrapping, _remove_symbols):
         text = step(text)
     return text
+
+
+def key_pieces(analysis):
+    """7단계: 아라비아 숫자 연속열에 앞에서부터 ⟨N1⟩, ⟨N2⟩…를 매긴다. 한자 숫자는 그대로다.
+
+    분석 텍스트 글자마다 키 텍스트 조각을 돌려준다. 숫자열의 첫 글자는 자리표시자, 나머지
+    숫자는 빈 문자열이다. 이어 붙이면 키 텍스트가 되고, 분석 텍스트 위치로 잘라 붙이면 그
+    구간의 키 텍스트가 된다. 숫자는 번역에 되돌려 넣을 수 있게 따로 돌려준다.
+    """
+    pieces = list(analysis)
+    numbers = []
+    for match in _DIGITS.finditer(analysis):
+        numbers.append(match.group())
+        pieces[match.start()] = f"⟨N{len(numbers)}⟩"
+        for i in range(match.start() + 1, match.end()):
+            pieces[i] = ""
+    return pieces, numbers
+
+
+def has_all_placeholders(text, numbers):
+    """키 텍스트의 자리표시자가 빠짐없이 있고, 없는 번호는 쓰지 않았는가."""
+    found = {int(n) for n in _PLACEHOLDER.findall(text)}
+    return found == set(range(1, len(numbers) + 1))
+
+
+def restore_numbers(text, numbers):
+    """자리표시자에 원문 숫자를 같은 순서로 넣는다."""
+    return _PLACEHOLDER.sub(lambda m: numbers[int(m.group(1)) - 1], text)

@@ -72,6 +72,42 @@ def test_grammar_spanning_tokens_covers_them_all(client, fake_llm):
     assert (item["start"], item["end"]) == (2, 5)
 
 
+def _grammar(*token_ranges):
+    return [
+        {"start_token_id": start, "end_token_id": end, "name": "문법", "explanation_ko": "설명"}
+        for start, end in token_ranges
+    ]
+
+
+@pytest.mark.parametrize(
+    ("first", "token_ranges", "second", "expected"),
+    [
+        # 앞 공백·감싼 괄호와 숫자 자릿수가 다르다. 토큰: 0 3 / 1 人 / 2 で / 3 行く
+        ("3人で行く", [(2, 2), (0, 1)], "  「12人で行く。」", [(6, 7), (3, 6)]),
+        # 지워지는 이모지는 UTF-16으로 두 칸이다. 토큰: 0 私 / 1 は / 2 学生 / 3 です
+        ("私は学生です", [(1, 1)], "😀私は学生です", [(3, 4)]),
+        # 반각 가나는 탁점이 따로 한 글자다. 토큰: 0 ガクセイ / 1 です
+        ("ガクセイです", [(0, 0), (1, 1)], "ｶﾞｸｾｲです", [(0, 5), (5, 7)]),
+        # 결합 문자로 쓴 탁점. 토큰: 0 が / 1 好き
+        ("が好き", [(0, 0)], "か\u3099好き", [(0, 2)]),
+        # 일본어 사이 공백과 전각 숫자. 토큰: 0 3 / 1 人 / 2 で / 3 行く
+        ("3人で行く", [(2, 2)], "３人 で行く", [(3, 4)]),
+    ],
+)
+def test_reused_grammar_points_at_same_characters_in_each_original(
+    client, fake_llm, first, token_ranges, second, expected
+):
+    fake_llm.response = {"translation_ko": "번역 ⟨N1⟩" if "3" in first else "번역"}
+    fake_llm.response["grammar"] = _grammar(*token_ranges)
+    analyze(client, first)
+
+    response = analyze(client, second)
+
+    assert len(fake_llm.requests) == 1
+    grammar = response.json()["grammar"]
+    assert [(item["start"], item["end"]) for item in grammar] == expected
+
+
 def test_sentence_without_grammar_returns_empty_grammar(client, fake_llm):
     fake_llm.response = {"translation_ko": "도쿄", "grammar": []}
 

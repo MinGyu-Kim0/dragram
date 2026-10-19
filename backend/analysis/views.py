@@ -15,7 +15,7 @@ from analysis.normalize import (
     number_ends,
     restore_numbers,
 )
-from analysis.positions import key_offsets, to_analysis, to_key
+from analysis.positions import key_offsets, to_analysis, to_key, to_original, utf16_offsets
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +99,15 @@ def _stored_grammar(grammar, morphs, offsets):
     return stored
 
 
-def _grammar_response(stored, offsets):
-    """저장된 문법 항목의 키 텍스트 구간을 이 요청 원문의 위치로 바꾼다."""
+def _grammar_response(stored, offsets, origins, utf16):
+    """저장된 문법 항목의 키 텍스트 구간을 이 요청 원문의 UTF-16 위치로 바꾼다.
+
+    같은 분석을 표기가 다른 원문(앞 공백, 괄호, 숫자 자릿수 등)이 함께 쓰므로, 요청마다
+    그 원문 기준으로 다시 계산한다.
+    """
     grammar = []
     for item in stored:
-        start, end = to_analysis(offsets, item["start"], item["end"])
+        start, end = to_original(origins, utf16, *to_analysis(offsets, item["start"], item["end"]))
         grammar.append(
             {
                 "start": start,
@@ -126,7 +130,7 @@ def analyze(request):
     if not _is_text(sentence):
         return Response({"error": "text_required"}, status=400)
 
-    text_to_analyze = analysis_text(sentence)
+    text_to_analyze, origins = analysis_text(sentence)
     if not text_to_analyze:
         return Response({"error": "text_required"}, status=400)
     pieces, numbers = key_pieces(text_to_analyze)
@@ -144,12 +148,13 @@ def analyze(request):
     particle_numbers = _numbers_before_particle(text_to_analyze, morphs)
 
     offsets = key_offsets(pieces)
+    utf16 = utf16_offsets(sentence)
 
     def respond(saved):
         return Response(
             {
                 "translation_ko": restore_numbers(saved.translation_ko, numbers, particle_numbers),
-                "grammar": _grammar_response(saved.draft_grammar, offsets),
+                "grammar": _grammar_response(saved.draft_grammar, offsets, origins, utf16),
             }
         )
 

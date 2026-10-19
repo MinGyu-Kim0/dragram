@@ -13,8 +13,10 @@ auxiliary verbs, conjugations and grammatical expressions. Do not list plain con
 For each one, give the ids of its first and last token (start_token_id, end_token_id;
 the same id for a single token), a short Korean name (name) and a Korean explanation of how it
 works in this sentence (explanation_ko). Interpret each grammar point the same way as your
-translation. Use only token ids you received. If the sentence has no grammar to learn
-(for example a title made only of nouns), return an empty grammar list.
+translation. In name and explanation_ko, quote Japanese only from that grammar point's own
+tokens. Never quote the whole sentence or long parts of it. Use only token ids you received.
+If the sentence has no grammar to learn (for example a title made only of nouns), return an
+empty grammar list.
 
 Numbers in the sentence are replaced with placeholders such as ⟨N1⟩ and ⟨N2⟩.
 Copy every placeholder into translation_ko exactly as written, with the same brackets and number.

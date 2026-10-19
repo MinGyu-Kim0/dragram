@@ -104,6 +104,18 @@ def _stored_grammar(grammar, morphs, offsets):
     return stored
 
 
+def _quotes_whole_sentence(grammar, key_text):
+    """이름이나 설명이 문장 전체(키 텍스트)를 인용했는가.
+
+    문법 구간 글자의 인용은 허용하므로, 문장 전체가 곧 그 문법 구간이면 문제 삼지 않는다.
+    """
+    return any(
+        key_text in text and key_text != key_text[item["start"] : item["end"]]
+        for item in grammar
+        for text in (item["name"], item["explanation_ko"])
+    )
+
+
 def _grammar_response(stored, offsets, origins, utf16, restore):
     """저장된 문법 항목의 키 텍스트 구간을 이 요청 원문의 UTF-16 위치로 바꾼다.
 
@@ -188,6 +200,11 @@ def analyze(request):
     if validated is None:
         logger.warning("LLM 응답 검증 실패")
         return _analysis_failed()
+    grammar = _stored_grammar(validated["grammar"], morphs, offsets)
+    if _quotes_whole_sentence(grammar, key_text):
+        # 이름·설명은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
+        logger.warning("LLM 문법 설명이 문장 전체를 인용함")
+        return _analysis_failed()
 
     # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
     saved, created = SentenceAnalysis.objects.get_or_create(
@@ -197,7 +214,7 @@ def analyze(request):
             "normalized_length": len(key_text),
             "status": SentenceAnalysis.Status.COMPLETE,
             "translation_ko": validated["translation_ko"],
-            "draft_grammar": _stored_grammar(validated["grammar"], morphs, offsets),
+            "draft_grammar": grammar,
         },
     )
     if not created and saved.draft_grammar is None:
@@ -205,7 +222,7 @@ def analyze(request):
         # 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
         SentenceAnalysis.objects.filter(pk=saved.pk, draft_grammar__isnull=True).update(
             translation_ko=validated["translation_ko"],
-            draft_grammar=_stored_grammar(validated["grammar"], morphs, offsets),
+            draft_grammar=grammar,
             updated_at=timezone.now(),
         )
         saved.refresh_from_db()

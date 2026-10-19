@@ -187,6 +187,52 @@ def test_invalid_grammar_fails_the_sentence_and_is_not_stored(client, fake_llm, 
     assert SentenceAnalysis.objects.count() == 0
 
 
+@pytest.mark.parametrize(
+    ("sentence", "name", "explanation"),
+    [
+        ("私は学生です。", "주제 は", "私は学生です에서 は는 주제"),
+        ("私は学生です。", "私は学生です의 は", "주제"),
+        # LLM은 숫자 대신 자리표시자가 든 문장을 본다.
+        ("私は3人です。", "주제 は", "私は⟨N1⟩人です에서 は는 주제"),
+    ],
+)
+def test_grammar_text_quoting_whole_sentence_fails_and_is_not_stored(
+    client, fake_llm, sentence, name, explanation
+):
+    # 공용 테이블에 원문이 들어가지 않게, 문장 전체를 인용한 이름·설명은 받지 않는다.
+    fake_llm.response = {
+        "translation_ko": "번역 ⟨N1⟩" if "3" in sentence else "번역",
+        "grammar": [
+            {"start_token_id": 1, "end_token_id": 1, "name": name, "explanation_ko": explanation}
+        ],
+    }
+
+    response = analyze(client, sentence)
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
+def test_grammar_text_may_quote_sentence_that_is_the_grammar_span_itself(client, fake_llm):
+    # 문법 구간이 곧 문장 전체면 그 구간 글자를 인용할 수밖에 없다. 토큰: 0 です
+    fake_llm.response = {
+        "translation_ko": "입니다",
+        "grammar": [
+            {
+                "start_token_id": 0,
+                "end_token_id": 0,
+                "name": "정중 です",
+                "explanation_ko": "です는 정중",
+            }
+        ],
+    }
+
+    response = analyze(client, "です")
+
+    assert response.status_code == 200
+    assert response.json()["grammar"][0]["explanation_ko"] == "です는 정중"
+
+
 def test_llm_response_without_grammar_fails(client, fake_llm):
     fake_llm.fill_defaults = False
     fake_llm.response = {"translation_ko": "나는 학생입니다."}

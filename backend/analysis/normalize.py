@@ -31,6 +31,9 @@ _WRAPPING_PAIRS = {
 # 뜻을 바꾸는 기호. 나머지 기호는 지운다.
 _MEANINGFUL_SYMBOLS = set("!?！？…‥")
 _SIGNS = set("-−－+＋")
+_KANJI_NUMERALS = set("〇一二三四五六七八九十百千万")
+# 숫자 범위로 보려면 물결표 앞 몇 글자 안에 숫자가 있어야 하는가. 3人〜, 10時〜를 잡는다.
+_RANGE_LOOKBEHIND = 3
 
 
 def _is_digit(ch):
@@ -69,10 +72,25 @@ def _remove_spaces(text):
     return _SPACE.sub(replace, text.strip())
 
 
+def _is_range_number(ch):
+    return _is_digit(ch) or ch in _KANJI_NUMERALS
+
+
+def _is_number_range(text, i):
+    """물결표가 숫자 범위(3〜5, 3人〜5人, 10時〜12時, 三〜五)를 잇는가.
+
+    바로 뒤가 숫자이고 앞 RANGE_LOOKBEHIND 글자 안에 숫자가 있으면 범위로 본다.
+    그보다 멀면 늘인 말투(そうだね〜)로 본다.
+    """
+    after = text[i + 1] if i + 1 < len(text) else ""
+    before = text[max(0, i - _RANGE_LOOKBEHIND) : i]
+    return _is_range_number(after) and any(_is_range_number(ch) for ch in before)
+
+
 def _remove_tildes(text):
-    """4단계: 물결표를 지운다. 숫자 범위(3〜5)의 물결표는 남긴다."""
+    """4단계: 물결표를 지운다. 숫자 범위를 잇는 물결표는 뜻이 있어 남긴다."""
     return "".join(
-        ch for i, ch in enumerate(text) if ch not in _TILDES or _is_number_symbol(text, i)
+        ch for i, ch in enumerate(text) if ch not in _TILDES or _is_number_range(text, i)
     )
 
 
@@ -105,6 +123,7 @@ def _remove_symbols(text):
         ch
         for i, ch in enumerate(text)
         if ch in _MEANINGFUL_SYMBOLS
+        or ch in _TILDES  # 4단계를 지나 남은 물결표는 숫자 범위다.
         or unicodedata.category(ch)[0] not in ("P", "S")
         or _is_number_symbol(text, i)
     )

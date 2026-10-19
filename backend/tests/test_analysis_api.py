@@ -117,6 +117,22 @@ def test_symbols_inside_numbers_are_kept(
 
 
 @pytest.mark.parametrize(
+    ("sentence", "key_text"),
+    [
+        ("3人〜5人", "⟨N1⟩人〜⟨N2⟩人"),  # 조수사가 붙은 범위
+        ("10時〜12時", "⟨N1⟩時〜⟨N2⟩時"),
+        ("三〜五人", "三〜五人"),  # 한자 숫자 범위
+        ("そうだね〜3人で", "そうだね⟨N1⟩人で"),  # 앞에 숫자가 없으면 늘인 말투로 본다
+        ("3回だよ〜5人で", "⟨N1⟩回だよ⟨N2⟩人で"),  # 숫자가 앞 3글자보다 멀다
+    ],
+)
+def test_tilde_is_kept_only_in_number_ranges(client, fake_llm, sentence, key_text):
+    analyze(client, sentence)
+
+    assert fake_llm.requests[0]["sentence"] == key_text
+
+
+@pytest.mark.parametrize(
     ("first", "first_translation", "second"),
     [
         ("1.5倍", "⟨N1⟩.⟨N2⟩배", "15倍"),

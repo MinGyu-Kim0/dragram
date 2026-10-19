@@ -14,7 +14,14 @@ def key_offsets(pieces):
 
 
 def to_key(offsets, start, end):
-    """분석 텍스트 구간을 키 텍스트 구간으로 바꾼다."""
+    """분석 텍스트 구간을 키 텍스트 구간으로 바꾼다.
+
+    형태소가 숫자열 가운데에서 나뉘면(X12 → X1 / 2) 뒤 토큰은 빈 조각에서 시작한다.
+    그런 시작은 숫자열 첫 글자(자리표시자)로 당겨 숫자열 전체를 덮게 한다. 가운데에서 끝나는
+    구간은 이미 자리표시자 뒤에서 끝난다.
+    """
+    while start < end and offsets[start] == offsets[start + 1]:
+        start -= 1
     return offsets[start], offsets[end]
 
 

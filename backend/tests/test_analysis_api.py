@@ -94,6 +94,8 @@ def _grammar(*token_ranges):
         ("3人で行く", [(2, 2)], "３人 で行く", [(3, 4)]),
         # 두 자리 이상 숫자 바로 뒤에서 시작하는 구간. 토큰: 0 3 / 1 で / 2 割る
         ("3で割る", [(1, 1), (0, 1)], "12で割る", [(2, 3), (0, 3)]),
+        # 형태소가 숫자열 가운데에서 나뉘면 뒤 토큰도 숫자열 전체를 덮는다. 토큰: 0 X1 / 1 2 / 2 で
+        ("X12で", [(1, 1), (2, 2)], "X345で", [(1, 4), (4, 5)]),
         # 분해형 한글은 원문 세 글자가 한 글자가 된다. 토큰: 0 한 / 1 は
         ("한は", [(1, 1)], "한は", [(3, 4)]),
     ],
@@ -101,7 +103,8 @@ def _grammar(*token_ranges):
 def test_reused_grammar_points_at_same_characters_in_each_original(
     client, fake_llm, first, token_ranges, second, expected
 ):
-    fake_llm.response = {"translation_ko": "번역 ⟨N1⟩" if "3" in first else "번역"}
+    has_number = any(ch.isdigit() for ch in first)
+    fake_llm.response = {"translation_ko": "번역 ⟨N1⟩" if has_number else "번역"}
     fake_llm.response["grammar"] = _grammar(*token_ranges)
     analyze(client, first)
 
@@ -134,6 +137,18 @@ def test_placeholders_in_grammar_text_are_restored_for_each_original(client, fak
     assert item["name"] == "1で의 で"
     assert item["explanation_ko"] == "1로 나눈다는 뜻"
     assert len(fake_llm.requests) == 1
+
+
+def test_token_inside_number_at_sentence_end_covers_whole_number(client, fake_llm):
+    # Sudachi는 X12를 X1 / 2로 나눈다. 뒤 토큰은 키 텍스트에서 빈 조각이다.
+    fake_llm.response = {"translation_ko": "X⟨N1⟩", "grammar": _grammar((1, 1))}
+
+    first = analyze(client, "X12")
+    second = analyze(client, "X12")
+
+    assert first.status_code == second.status_code == 200
+    [item] = second.json()["grammar"]
+    assert (item["start"], item["end"]) == (1, 3)
 
 
 def test_sentence_without_grammar_returns_empty_grammar(client, fake_llm):

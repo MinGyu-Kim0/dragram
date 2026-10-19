@@ -152,6 +152,38 @@ def test_token_inside_number_at_sentence_end_covers_whole_number(client, fake_ll
     assert (item["start"], item["end"]) == (1, 3)
 
 
+def test_new_sentence_returns_words_at_original_positions(client, fake_llm):
+    # 토큰: 0 私 / 1 は / 2 学生 / 3 です
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "words": [
+            {"token_id": 0, "lemma": "私", "reading": "わたし", "meaning_ko": "나"},
+            {"token_id": 2, "lemma": "学生", "reading": "がくせい", "meaning_ko": "학생"},
+        ],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.json()["words"] == [
+        {
+            "start": 0,
+            "end": 1,
+            "lemma": "私",
+            "reading": "わたし",
+            "meaning_ko": "나",
+            "review_status": "pending",
+        },
+        {
+            "start": 2,
+            "end": 4,
+            "lemma": "学生",
+            "reading": "がくせい",
+            "meaning_ko": "학생",
+            "review_status": "pending",
+        },
+    ]
+
+
 def test_sentence_without_grammar_returns_empty_grammar(client, fake_llm):
     fake_llm.response = {"translation_ko": "도쿄", "grammar": []}
 
@@ -271,11 +303,197 @@ def test_grammar_text_may_quote_sentence_that_is_the_grammar_span_itself(client,
 
 def test_llm_response_without_grammar_fails(client, fake_llm):
     fake_llm.fill_defaults = False
-    fake_llm.response = {"translation_ko": "나는 학생입니다."}
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": []}
 
     response = analyze(client, "私は学生です。")
 
     assert response.status_code == 502
+
+
+def test_llm_response_without_words_fails(client, fake_llm):
+    fake_llm.fill_defaults = False
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "grammar": []}
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
+def _word(token_id=2, lemma="学生", reading="がくせい", meaning_ko="학생"):
+    return {"token_id": token_id, "lemma": lemma, "reading": reading, "meaning_ko": meaning_ko}
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        [_word(token_id=4)],  # 범위 밖
+        [_word(token_id=-1)],
+        [_word(token_id="2")],
+        [_word(token_id=True)],
+        [_word(lemma="")],
+        [_word(reading=" ")],
+        [_word(meaning_ko="")],
+        # 읽기는 가나(와 장음)로만 쓴다.
+        [_word(reading="gakusei")],
+        [_word(reading="学生")],
+        [_word(reading="がく生")],
+        [_word(reading="학생")],
+        [_word(reading="・")],  # 가타카나 블록의 문장부호는 가나가 아니다
+        [_word(reading="゠")],
+        [_word(reading="ー")],  # 가나 없이 장음만
+        [_word(meaning_ko="⟨N1⟩명")],  # 숫자가 없는 문장의 자리표시자
+        [{"token_id": 2, "lemma": "学生", "reading": "がくせい"}],  # 뜻 없음
+        ["not an object"],
+        "not a list",
+        None,
+    ],
+)
+def test_invalid_words_fail_the_sentence_and_are_not_stored(client, fake_llm, words):
+    # 토큰은 0~3 네 개다.
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": words}
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
+def test_word_meaning_quoting_whole_sentence_fails_and_is_not_stored(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "words": [_word(meaning_ko="私は学生です에서 학생")],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
+@pytest.mark.parametrize(
+    ("sentence", "translation", "dropped", "kept"),
+    [
+        # 숫자만 있는 토큰. 토큰: 0 3 / 1 人 / 2 で / 3 行く
+        (
+            "3人で行く",
+            "⟨N1⟩명이서 간다",
+            _word(0, "⟨N1⟩", "⟨N1⟩", "⟨N1⟩"),
+            _word(3, "行く", "いく", "가다"),
+        ),
+        # 숫자가 섞인 토큰. LLM이 사전형에 숫자를 지어내면 다른 숫자 문장에 잘못 재사용된다.
+        # 토큰: 0 X1 / 1 2 / 2 を / 3 買う
+        (
+            "X12を買う",
+            "X⟨N1⟩를 산다",
+            _word(0, "X1", "えっくすいち", "X1"),
+            _word(3, "買う", "かう", "사다"),
+        ),
+        # 기호 토큰. 토큰: 0 行く / 1 ！
+        ("行く！", "간다!", _word(1, "！", "！", "느낌표"), _word(0, "行く", "いく", "가다")),
+        # 숫자열 뒤쪽 토큰(키 텍스트에서 빈 조각). 토큰: 0 X1 / 1 2 / 2 を / 3 買う
+        ("X12を買う", "X⟨N1⟩를 산다", _word(1, "2", "に", "2"), _word(3, "買う", "かう", "사다")),
+        # 조사·조동사는 단어가 아니라 문법이다. 토큰: 0 私 / 1 は / 2 学生 / 3 です
+        ("私は学生です。", "나는 학생입니다.", _word(1, "は", "は", "주제"), _word(2)),
+        ("私は学生です。", "나는 학생입니다.", _word(3, "です", "です", "이다"), _word(2)),
+    ],
+)
+def test_words_on_number_or_symbol_tokens_are_dropped_and_the_rest_is_kept(
+    client, fake_llm, sentence, translation, dropped, kept
+):
+    # 지침을 어긴 단어 하나 때문에 번역·문법까지 버리면 LLM을 다시 불러야 하므로 그 단어만 뺀다.
+    fake_llm.response = {"translation_ko": translation, "words": [dropped, kept]}
+
+    response = analyze(client, sentence)
+
+    assert response.status_code == 200
+    assert [word["lemma"] for word in response.json()["words"]] == [kept["lemma"]]
+    [row] = SentenceAnalysis.objects.values("draft_analysis")
+    assert [word["lemma"] for word in row["draft_analysis"]["words"]] == [kept["lemma"]]
+
+
+def test_duplicate_word_for_same_token_keeps_only_the_first(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "words": [_word(2, meaning_ko="학생"), _word(2, meaning_ko="생도")],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert [word["meaning_ko"] for word in response.json()["words"]] == ["학생"]
+
+
+@pytest.mark.parametrize(
+    "meaning",
+    [
+        "私 は 学生 です에서 학생",
+        "私・は・学生・です에서 학생",
+        "私\u200bは学生です에서 학생",
+    ],
+)
+def test_word_meaning_quoting_whole_sentence_with_separators_fails(client, fake_llm, meaning):
+    # 형태소 사이에 공백·가운데점·보이지 않는 문자를 넣어 인용해도 원문을 옮긴 것이다.
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "words": [_word(meaning_ko=meaning)],
+    }
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0
+
+
+def test_sentence_of_only_symbols_is_not_treated_as_quoted(client, fake_llm):
+    # 기호를 지우면 빈 문장이 되어도, 모든 글이 그 문장을 인용한 것으로 보지 않는다.
+    # 토큰: 0 ！ / 1 ？
+    fake_llm.response = {"translation_ko": "!?", "grammar": [], "words": []}
+    fake_llm.response["grammar"] = _grammar((0, 1))
+
+    response = analyze(client, "！？")
+
+    assert response.status_code == 200
+
+
+def test_katakana_reading_of_loanword_is_kept_as_is(client, fake_llm):
+    # 외래어(사전에 없는 새 말 포함)의 가타카나 읽기는 히라가나로 바꾸지 않는다.
+    # 토큰: 0 コーヒー / 1 を / 2 飲む
+    fake_llm.response = {
+        "translation_ko": "커피를 마신다",
+        "words": [_word(0, "コーヒー", "コーヒー", "커피"), _word(2, "飲む", "のむ", "마시다")],
+    }
+
+    response = analyze(client, "コーヒーを飲む")
+
+    assert [word["reading"] for word in response.json()["words"]] == ["コーヒー", "のむ"]
+
+
+def test_cached_sentence_returns_same_words(client, fake_llm):
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": [_word()]}
+    first = analyze(client, "私は学生です。")
+
+    second = analyze(client, "私は学生です。")
+
+    assert second.json()["words"] == first.json()["words"]
+    assert len(second.json()["words"]) == 1
+    assert len(fake_llm.requests) == 1
+
+
+def test_reused_words_point_at_same_characters_and_restore_numbers(client, fake_llm):
+    # 토큰: 0 3 / 1 人 / 2 で / 3 行く
+    fake_llm.response = {
+        "translation_ko": "⟨N1⟩명이서 간다",
+        "words": [_word(token_id=3, lemma="行く", reading="いく", meaning_ko="가다")]
+        + [_word(token_id=1, lemma="人", reading="にん", meaning_ko="⟨N1⟩명의 명")],
+    }
+    analyze(client, "3人で行く")
+
+    response = analyze(client, "  「12人で行く。」")
+
+    words = response.json()["words"]
+    assert [(word["start"], word["end"]) for word in words] == [(7, 9), (5, 6)]
+    assert words[1]["meaning_ko"] == "12명의 명"
+    assert len(fake_llm.requests) == 1
 
 
 def test_same_sentence_is_reused_without_llm(client, fake_llm):
@@ -535,7 +753,7 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
     [row] = SentenceAnalysis.objects.values()
     # 원문을 담을 칸이 없고, 번역은 숫자 대신 자리표시자로 저장한다.
     assert set(row) == {
-        "draft_grammar",
+        "draft_analysis",
         "id",
         "sentence_hash",
         "normalize_version",
@@ -549,9 +767,10 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
     assert row["status"] == "complete"
     assert row["normalized_length"] == len("私は⟨N1⟩人で行く")
     # 문법 항목에는 키 텍스트 위치와 LLM이 쓴 이름·설명만 있다(⟨N1⟩人で = 2~8).
-    assert row["draft_grammar"] == [
-        {"start": 2, "end": 8, "name": "인원 で", "explanation_ko": "설명"}
-    ]
+    assert row["draft_analysis"] == {
+        "grammar": [{"start": 2, "end": 8, "name": "인원 で", "explanation_ko": "설명"}],
+        "words": [],
+    }
 
 
 def test_first_saved_analysis_wins_when_same_sentence_is_saved_concurrently(client, fake_llm):
@@ -572,10 +791,10 @@ def test_first_saved_analysis_wins_when_same_sentence_is_saved_concurrently(clie
 def test_first_filled_grammar_wins_when_row_without_grammar_is_filled_concurrently(
     client, fake_llm, monkeypatch
 ):
-    # 문법을 받기 전에 저장된 행(draft_grammar NULL)을 두 요청이 함께 다시 분석한다.
+    # 임시 분석을 받기 전에 저장된 행(draft_analysis NULL)을 두 요청이 함께 다시 분석한다.
     fake_llm.response = {"translation_ko": "옛 번역"}
     analyze(client, "私は学生です。")
-    SentenceAnalysis.objects.update(draft_grammar=None)
+    SentenceAnalysis.objects.update(draft_analysis=None)
 
     # 늦은 요청이 NULL인 행을 읽은 직후, 채우기 전에 다른 요청이 먼저 채운다.
     get_or_create = SentenceAnalysis.objects.get_or_create

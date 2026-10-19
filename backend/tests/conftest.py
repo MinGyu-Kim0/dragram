@@ -23,7 +23,7 @@ class FakeLLMClient:
         if self.error:
             raise self.error
         if self.fill_defaults and isinstance(self.response, dict):
-            return {"grammar": [], **self.response}
+            return {"grammar": [], "words": [], **self.response}
         return self.response
 
 

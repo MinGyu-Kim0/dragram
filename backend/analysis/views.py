@@ -1,4 +1,6 @@
 import hashlib
+import re
+import unicodedata
 
 from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -67,7 +69,45 @@ def _validate_grammar(grammar, numbers, token_count):
     return items
 
 
-def _validate(result, numbers, token_count):
+_WORD_TEXTS = ("lemma", "reading", "meaning_ko")
+
+# 읽기는 가나(장음 ー, 반복 부호 포함)와 숫자 자리표시자로만 쓰고 가나가 한 글자는 있어야
+# 한다. 가타카나 블록의 문장부호(・ ゠)는 가나가 아니다. 외래어(사전에 없는 새 말 포함)는
+# 가타카나 그대로 두므로 히라가나로 바꾸지 않는다.
+_KANA = "\u3041-\u3096\u309d\u309e\u30a1-\u30fa\u30fd\u30fe\u31f0-\u31ff"
+_READING = re.compile(rf"(?:[{_KANA}\u30fc]|⟨N\d+⟩)*[{_KANA}](?:[{_KANA}\u30fc]|⟨N\d+⟩)*")
+
+
+def _validate_words(words, numbers, token_count, is_vocabulary):
+    """LLM이 고른 단어 항목을 검증한다. 하나라도 틀리면 None.
+
+    학습할 단어가 아닌 토큰(is_vocabulary가 거짓)을 고른 항목은 나머지를 보지 않고 뺀다.
+    지침을 어긴 단어 하나 때문에 번역·문법까지 버리면 같은 문장마다 LLM을 다시 불러야 해서다.
+    """
+    if not isinstance(words, list):
+        return None
+    items = []
+    seen = set()
+    for item in words:
+        if not isinstance(item, dict) or not _is_token_id(item.get("token_id"), token_count):
+            return None
+        # 같은 토큰을 다시 고른 항목은 뺀다(토큰마다 이 문장에서의 뜻은 하나다).
+        if not is_vocabulary(item["token_id"]) or item["token_id"] in seen:
+            continue
+        seen.add(item["token_id"])
+        texts = [item.get(field) for field in _WORD_TEXTS]
+        if not all(_is_text(text) for text in texts):
+            return None
+        if not _READING.fullmatch(item["reading"]):
+            return None
+        # 사전형·뜻도 응답할 때 숫자를 되돌리므로 없는 번호의 자리표시자는 받지 않는다.
+        if not all(has_only_known_placeholders(text, numbers) for text in texts):
+            return None
+        items.append({"token": item["token_id"], **{field: item[field] for field in _WORD_TEXTS}})
+    return items
+
+
+def _validate(result, numbers, token_count, is_vocabulary):
     """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 ANALYSIS:FAILED."""
     if not isinstance(result, dict) or not _is_text(result.get("translation_ko")):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 번역")
@@ -77,7 +117,10 @@ def _validate(result, numbers, token_count):
     grammar = _validate_grammar(result.get("grammar"), numbers, token_count)
     if grammar is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 문법")
-    return {"translation_ko": result["translation_ko"], "grammar": grammar}
+    words = _validate_words(result.get("words"), numbers, token_count, is_vocabulary)
+    if words is None:
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 단어")
+    return {"translation_ko": result["translation_ko"], "grammar": grammar, "words": words}
 
 
 def _stored_grammar(grammar, morphs, offsets):
@@ -98,17 +141,43 @@ def _stored_grammar(grammar, morphs, offsets):
     return stored
 
 
-def _quotes_whole_sentence(grammar, key_text, token_count):
-    """이름이나 설명이 문장 전체(키 텍스트)를 인용했는가.
+# 학습할 단어가 아닌 토큰의 품사(문장부호, 공백, 문법 쪽에서 다루는 조사·조동사)
+_NON_WORD_POS = {"補助記号", "空白", "助詞", "助動詞"}
 
-    문장이 형태소 하나(です 등)면 그 문법 토큰을 인용하는 것과 같고 원문을 알아볼 정보도
-    없어 허용한다. 토큰이 여럿이면 구간이 문장 전체여도 원문을 옮긴 것이다.
+
+def _stored_words(words, morphs, offsets):
+    """토큰 ID로 고른 단어 항목을 키 텍스트 구간으로 바꿔 저장할 모양으로 만든다."""
+    stored = []
+    for item in words:
+        begin, end, _ = morphs[item["token"]]
+        key_start, key_end = to_key(offsets, begin, end)
+        stored.append(
+            {"start": key_start, "end": key_end, **{field: item[field] for field in _WORD_TEXTS}}
+        )
+    return stored
+
+
+def _quotes_whole_sentence(texts, key_text, token_count):
+    """LLM이 쓴 글(문법 이름·설명, 단어 사전형·읽기·뜻)이 문장 전체(키 텍스트)를 인용했는가.
+
+    기호·공백을 뺀 형태소가 하나뿐인 문장(です, 行く！ 등)이면 그 토큰을 인용하는 것과 같고,
+    단어 하나는 사전 표제어 수준의 공용 정보라 허용한다. 형태소가 여럿이면 구간이 문장
+    전체여도 원문을 옮긴 것이다. token_count는 기호·공백을 뺀 형태소 수다.
     """
-    if token_count == 1:
+    if token_count <= 1:
         return False
-    return any(
-        key_text in text for item in grammar for text in (item["name"], item["explanation_ko"])
-    )
+    # 형태소 사이에 공백·가운데점·보이지 않는 문자를 넣어 인용해도(私・は・学生) 원문을
+    # 옮긴 것이므로, 양쪽에서 문장부호·기호·공백·형식 문자를 지우고 비교한다.
+    compact_key = _letters(key_text)
+    if not compact_key:
+        # 기호만으로 된 문장은 지우면 비어서 모든 글에 "포함"된다. 인용으로 보지 않는다.
+        return False
+    return any(compact_key in _letters(text) for text in texts)
+
+
+def _letters(text):
+    """문장부호·기호·공백·형식 문자(유니코드 P·S·Z·C 분류)를 지운다."""
+    return "".join(ch for ch in text if unicodedata.category(ch)[0] not in "PSZC")
 
 
 def _grammar_response(stored, offsets, origins, utf16, restore):
@@ -132,6 +201,23 @@ def _grammar_response(stored, offsets, origins, utf16, restore):
             }
         )
     return grammar
+
+
+def _words_response(stored, offsets, origins, utf16, restore):
+    """저장된 단어 항목을 이 요청 원문 기준으로 바꾼다(_grammar_response와 같은 방식)."""
+    words = []
+    for item in stored:
+        start, end = to_original(origins, utf16, *to_analysis(offsets, item["start"], item["end"]))
+        words.append(
+            {
+                "start": start,
+                "end": end,
+                **{field: restore(item[field]) for field in _WORD_TEXTS},
+                # JMdict 없이 LLM이 만든 뜻이라 검수 전이다(#10).
+                "review_status": "pending",
+            }
+        )
+    return words
 
 
 # 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
@@ -165,13 +251,18 @@ def analyze(request):
         return Response(
             {
                 "translation_ko": restore(saved.translation_ko),
-                "grammar": _grammar_response(saved.draft_grammar, offsets, origins, utf16, restore),
+                "grammar": _grammar_response(
+                    saved.draft_analysis["grammar"], offsets, origins, utf16, restore
+                ),
+                "words": _words_response(
+                    saved.draft_analysis["words"], offsets, origins, utf16, restore
+                ),
             }
         )
 
-    # 문법을 받기 전에 저장된 행(draft_grammar가 NULL)은 다시 분석한다.
+    # 임시 분석을 받기 전에 저장된 행(draft_analysis가 NULL)은 다시 분석한다.
     cached = SentenceAnalysis.objects.filter(
-        sentence_hash=sentence_hash, draft_grammar__isnull=False
+        sentence_hash=sentence_hash, draft_analysis__isnull=False
     ).first()
     if cached:
         return respond(cached)
@@ -182,11 +273,27 @@ def analyze(request):
     ]
     result = llm.get_client().analyze(key_text, tokens)
 
-    validated = _validate(result, numbers, len(morphs))
-    grammar = _stored_grammar(validated["grammar"], morphs, offsets)
-    if _quotes_whole_sentence(grammar, key_text, len(morphs)):
-        # 이름·설명은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
-        raise BusinessError(AnalysisError.FAILED, "LLM 문법 설명이 문장 전체를 인용함")
+    def is_vocabulary(token):
+        # 숫자는 학습할 단어가 아니고, 숫자열과 겹치는 토큰(X12의 X1, 2)은 LLM이 사전형에
+        # 숫자를 지어내면 숫자만 다른 문장에 잘못 재사용된다. 숫자열은 자리표시자 조각과
+        # 빈 조각(뒤쪽 숫자)으로 이뤄진다.
+        begin, end, pos = morphs[token]
+        overlaps_number = any(piece == "" or "⟨N" in piece for piece in pieces[begin:end])
+        return pos not in _NON_WORD_POS and not overlaps_number
+
+    validated = _validate(result, numbers, len(morphs), is_vocabulary)
+    draft = {
+        "grammar": _stored_grammar(validated["grammar"], morphs, offsets),
+        "words": _stored_words(validated["words"], morphs, offsets),
+    }
+    llm_texts = [
+        item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")
+    ]
+    llm_texts += [item[field] for item in validated["words"] for field in _WORD_TEXTS]
+    content_tokens = sum(pos not in {"補助記号", "空白"} for _, _, pos in morphs)
+    if _quotes_whole_sentence(llm_texts, key_text, content_tokens):
+        # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
+        raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
 
     # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
     saved, created = SentenceAnalysis.objects.get_or_create(
@@ -196,15 +303,15 @@ def analyze(request):
             "normalized_length": len(key_text),
             "status": SentenceAnalysis.Status.COMPLETE,
             "translation_ko": validated["translation_ko"],
-            "draft_grammar": grammar,
+            "draft_analysis": draft,
         },
     )
-    if not created and saved.draft_grammar is None:
-        # 문법을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이 먼저
+    if not created and saved.draft_analysis is None:
+        # 임시 분석을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이 먼저
         # 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
-        SentenceAnalysis.objects.filter(pk=saved.pk, draft_grammar__isnull=True).update(
+        SentenceAnalysis.objects.filter(pk=saved.pk, draft_analysis__isnull=True).update(
             translation_ko=validated["translation_ko"],
-            draft_grammar=grammar,
+            draft_analysis=draft,
             updated_at=timezone.now(),
         )
         saved.refresh_from_db()

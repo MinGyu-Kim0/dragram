@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import { requestAnalysis } from "@/utils/analysis-request";
@@ -51,6 +57,7 @@ test("응답이 오면 번역을 보인다", async () => {
   const fetchMock = respondWith(200, {
     translation_ko: "나는 학생입니다.",
     grammar: [],
+    words: [],
   });
   render(<App />);
 
@@ -66,7 +73,11 @@ test("응답이 오면 번역을 보인다", async () => {
 });
 
 test("패널이 열리기 전에 들어온 분석 요청도 보인다", async () => {
-  respondWith(200, { translation_ko: "나는 학생입니다.", grammar: [] });
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [],
+    words: [],
+  });
   await requestAnalysis(panelWindowId, "私は学生です。");
 
   render(<App />);
@@ -99,6 +110,7 @@ test("다른 창의 분석 요청은 받지 않는다", async () => {
   const fetchMock = respondWith(200, {
     translation_ko: "나는 학생입니다.",
     grammar: [],
+    words: [],
   });
   const otherWindow = await fakeBrowser.windows.create({ focused: false });
   render(<App />);
@@ -115,6 +127,7 @@ test("패널을 다시 열어도 이미 분석한 요청은 다시 분석하지 
   const fetchMock = respondWith(200, {
     translation_ko: "나는 학생입니다.",
     grammar: [],
+    words: [],
   });
   const { unmount } = render(<App />);
   await requestAnalysis(panelWindowId, "私は学生です。");
@@ -134,6 +147,7 @@ test("저장소 읽기와 변경 알림이 같은 요청을 함께 전달해도 
   const fetchMock = respondWith(200, {
     translation_ko: "나는 학생입니다.",
     grammar: [],
+    words: [],
   });
   // 패널이 저장소를 읽는 사이에 요청이 들어와, 읽기 결과에도 그 요청이 담기는 경우
   let finishGet: (stored: Record<string, unknown>) => void = () => {};
@@ -168,6 +182,7 @@ test("문법 카드를 원문 순서대로 보이고, 카드마다 'AI 생성·�
     translation_ko: "나는 학생입니다.",
     // 응답 순서와 상관없이 원문 순서대로 보인다.
     grammar: [grammarItem(4, 6, "정중 です"), grammarItem(1, 2, "주제 は")],
+    words: [],
   });
   render(<App />);
 
@@ -187,6 +202,7 @@ test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 같은 �
   respondWith(200, {
     translation_ko: "나는 학생입니다.",
     grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    words: [],
   });
   render(<App />);
 
@@ -207,10 +223,73 @@ test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 같은 �
 });
 
 test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인다", async () => {
-  respondWith(200, { translation_ko: "도쿄", grammar: [] });
+  respondWith(200, { translation_ko: "도쿄", grammar: [], words: [] });
   render(<App />);
 
   await requestAnalysis(panelWindowId, "東京");
 
   expect(await screen.findByText("문법 요소 없음")).toBeInTheDocument();
+});
+
+function wordItem(start: number, end: number, lemma: string, reading: string) {
+  return {
+    start,
+    end,
+    lemma,
+    reading,
+    meaning_ko: `${lemma} 뜻`,
+    review_status: "pending",
+  };
+}
+
+test("탭에 문법과 단어 개수를 보이고, 처음에는 문법 탭을 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    words: [wordItem(2, 4, "学生", "がくせい")],
+  });
+  render(<App />);
+
+  await requestAnalysis(panelWindowId, "私は学生です。");
+
+  const tabs = await screen.findAllByRole("tab");
+  expect(tabs.map((tab) => tab.textContent)).toEqual(["문법 2", "단어 1"]);
+  expect(screen.getByRole("tab", { name: "문법 2" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByRole("heading", { name: "주제 は" })).toBeInTheDocument();
+  expect(screen.queryByText("学生 뜻")).not.toBeInTheDocument();
+});
+
+test("단어 탭에 단어마다 사전형, 읽기, 뜻과 'AI 생성·미검수' 배지를 원문 순서대로 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생으로서 먹고 있다.",
+    grammar: [grammarItem(1, 2, "주제 は")],
+    // 응답 순서와 상관없이 원문 순서대로 보인다.
+    words: [wordItem(5, 7, "食べる", "たべる"), wordItem(0, 1, "私", "わたし")],
+  });
+  render(<App />);
+  await requestAnalysis(panelWindowId, "私は学生で食べている");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
+
+  expect(screen.getByRole("tab", { name: "단어 2" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(
+    screen.queryByRole("heading", { name: "주제 は" }),
+  ).not.toBeInTheDocument();
+  const rows = within(screen.getByRole("list", { name: "단어" })).getAllByRole(
+    "listitem",
+  );
+  expect(
+    rows.map((row) => within(row).getByRole("heading").textContent),
+  ).toEqual(["私", "食べる"]);
+  expect(within(rows[1]!).getByText("たべる")).toBeInTheDocument();
+  expect(within(rows[1]!).getByText("食べる 뜻")).toBeInTheDocument();
+  for (const row of rows) {
+    expect(within(row).getByText("AI 생성·미검수")).toBeInTheDocument();
+  }
 });

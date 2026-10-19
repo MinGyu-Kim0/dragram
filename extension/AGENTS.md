@@ -8,6 +8,7 @@
 
 - 빌드: `npm run build` → `.output/chrome-mv3/`. 크롬 `chrome://extensions`에서 개발자 모드를 켜고 "압축해제된 확장 프로그램 로드"로 이 폴더를 불러온다.
 - 개발 모드: `npm run dev` (파일을 고치면 다시 빌드한다. WSL에서는 브라우저를 자동으로 띄우지 못하므로 위처럼 `.output/chrome-mv3-dev/`를 불러온다. Windows 크롬에서는 `\\wsl.localhost\<배포판>\...\extension\.output\chrome-mv3-dev` 경로로 고른다)
+- 백엔드 주소: 기본은 `http://localhost:8000`(compose 백엔드). 다른 주소로 빌드하려면 셸 환경변수로 준다(`WXT_API_BASE_URL=https://... npm run build`). manifest의 `host_permissions`도 이 값으로 정해진다.
 - 테스트: `npm test` (Vitest + Testing Library, jsdom. `browser.*` API는 WXT의 fake-browser로 대체된다)
 - 린트: `npm run lint` (oxlint)
 - 포맷: `npm run format`, 확인만 할 때 `npm run format:check` (Prettier)

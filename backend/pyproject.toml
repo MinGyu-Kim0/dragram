@@ -7,7 +7,10 @@ dependencies = [
     "django>=5.2,<5.3",
     "djangorestframework>=3.16",
     "gunicorn>=23",
+    "openai>=3.35.1",
     "psycopg[binary]>=3.2",
+    "sudachidict-core>=20261015",
+    "sudachipy>=0.7.0",
 ]
 
 [tool.uv]

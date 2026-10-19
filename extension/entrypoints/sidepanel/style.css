@@ -1,0 +1,84 @@
+/* 토큰은 DESIGN.md 2장. 다크 값 일부가 아직 정해지지 않아 라이트 모드만 맞춘다. */
+:root {
+  --color-bg: #f2f7f3;
+  --color-surface: #ffffff;
+  --color-surface-inset: #e6f0e9;
+  --color-text: #17302a;
+  --color-text-secondary: #33473f;
+  --color-border: #dce7e0;
+  --color-danger-text: #9f1d1d;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+}
+
+main {
+  padding: 0 16px 16px;
+}
+
+h1 {
+  margin: 0;
+  height: 60px;
+  line-height: 60px;
+  font-family: "Jua", "IBM Plex Sans KR", sans-serif;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+[lang="ja"] {
+  font-family: "Zen Maru Gothic", "IBM Plex Sans KR", sans-serif;
+}
+
+.sentence-card {
+  background: var(--color-surface);
+  border-radius: 20px;
+  padding: 20px;
+}
+
+.original {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 2.1;
+}
+
+.sentence-card hr {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  margin: 14px 0;
+}
+
+.translation,
+.error {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.translation {
+  color: var(--color-text-secondary);
+}
+
+.error {
+  color: var(--color-danger-text);
+}
+
+.skeleton {
+  display: grid;
+  gap: 8px;
+}
+
+.skeleton span {
+  display: block;
+  height: 12px;
+  border-radius: 8px;
+  background: var(--color-surface-inset);
+}
+
+.skeleton span:last-child {
+  width: 60%;
+}

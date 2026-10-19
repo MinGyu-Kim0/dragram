@@ -7,6 +7,8 @@
 import re
 import unicodedata
 
+from analysis.particles import particle_for
+
 NORMALIZE_VERSION = 1
 
 _HALFWIDTH_KANA = re.compile(r"[\uFF61-\uFF9F]+")
@@ -15,6 +17,12 @@ _LATIN = re.compile(r"[A-Za-z0-9]")
 _TILDES = set("~〜～")
 _DIGITS = re.compile(r"[0-9]+")
 _PLACEHOLDER = re.compile(r"⟨N(\d+)⟩")
+# 자리표시자와, 바로 뒤에 붙은 조사. 조사 뒤에 한글이 이어지면(⟨N1⟩가지) 조사가 아니라고 본다.
+# (으)로는 뒤에 붙는 조사(로서, 로는, 로부터 등)까지 허용한다.
+_PLACEHOLDER_WITH_PARTICLE = re.compile(
+    r"⟨N(\d+)⟩(?:(은|는|이|가|을|를|과|와)(?![가-힣])"
+    r"|(으로|로)(?=(?:서|써|는|부터|도|만)?(?![가-힣])))?"
+)
 _WRAPPING_PAIRS = {
     "「": "」",
     "『": "』",
@@ -171,5 +179,11 @@ def has_all_placeholders(text, numbers):
 
 
 def restore_numbers(text, numbers):
-    """자리표시자에 원문 숫자를 같은 순서로 넣는다."""
-    return _PLACEHOLDER.sub(lambda m: numbers[int(m.group(1)) - 1], text)
+    """자리표시자에 원문 숫자를 같은 순서로 넣고, 바로 뒤의 조사를 그 숫자 발음에 맞춘다."""
+
+    def replace(match):
+        number = numbers[int(match.group(1)) - 1]
+        particle = match.group(2) or match.group(3)
+        return number + (particle_for(number, particle) if particle else "")
+
+    return _PLACEHOLDER_WITH_PARTICLE.sub(replace, text)

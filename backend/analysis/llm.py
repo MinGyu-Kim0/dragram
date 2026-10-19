@@ -12,6 +12,9 @@ Numbers in the sentence are replaced with placeholders such as ⟨N1⟩ and ⟨N
 Copy every placeholder into translation_ko exactly as written, with the same brackets and number.
 Do not turn a placeholder into digits or words, drop it, or add a placeholder that is not
 in the sentence. Example: "⟨N1⟩人で行く" → "⟨N1⟩명이서 간다".
+The same translation is reused for sentences that differ only in their numbers, so keep
+number notation exactly as in the sentence. Do not turn "⟨N1⟩:⟨N2⟩", "⟨N1⟩/⟨N2⟩" or
+"⟨N1⟩.⟨N2⟩" into words such as 시/분, 월/일 or 대: "⟨N1⟩:⟨N2⟩です" → "⟨N1⟩:⟨N2⟩입니다".
 """
 
 RESPONSE_SCHEMA = {

@@ -8,6 +8,8 @@ class FakeLLMClient:
 
     def __init__(self):
         self.response = {"translation_ko": "번역"}
+        # 테스트가 정하지 않은 칸은 기본값으로 채운다. 칸이 빠진 응답을 시험할 때만 끈다.
+        self.fill_defaults = True
         self.error = None
         self.requests = []
         # 응답하기 전에 실행할 일. 호출 도중에 다른 요청이 끼어드는 상황을 만든다.
@@ -20,6 +22,8 @@ class FakeLLMClient:
             before_respond()
         if self.error:
             raise self.error
+        if self.fill_defaults and isinstance(self.response, dict):
+            return {"grammar": [], **self.response}
         return self.response
 
 

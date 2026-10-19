@@ -2,8 +2,19 @@
 export const API_BASE_URL =
   import.meta.env.WXT_API_BASE_URL ?? "http://localhost:8000";
 
+export interface GrammarItem {
+  // 원문(보낸 문장) 기준 UTF-16 위치 [start, end). 자바스크립트 문자열 위치와 같다.
+  start: number;
+  end: number;
+  name: string;
+  explanation_ko: string;
+  // pending은 LLM이 썼고 아직 검수되지 않은 문법이다.
+  review_status: "pending" | "approved";
+}
+
 export interface Analysis {
   translation_ko: string;
+  grammar: GrammarItem[];
 }
 
 export async function analyzeSentence(text: string): Promise<Analysis> {

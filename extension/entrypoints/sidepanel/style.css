@@ -7,6 +7,18 @@
   --color-text-secondary: #33473f;
   --color-border: #dce7e0;
   --color-danger-text: #9f1d1d;
+  --color-warn-bg: #fff1d0;
+  --color-warn-text: #6b4100;
+  --color-text-muted: #5a6b63;
+  /* 형광펜 4색: 칩 배경 / 칩 글자. 라이트 본문 형광펜은 칩 배경과 같다. */
+  --color-highlight-0: #ddf27a;
+  --color-highlight-0-text: #3d4a00;
+  --color-highlight-1: #bde3ff;
+  --color-highlight-1-text: #0f4a78;
+  --color-highlight-2: #ffd6a8;
+  --color-highlight-2-text: #7a3e00;
+  --color-highlight-3: #f7c8e0;
+  --color-highlight-3-text: #7a1f4f;
 }
 
 body {
@@ -81,4 +93,89 @@ h1 {
 
 .skeleton span:last-child {
   width: 60%;
+}
+
+/* 원문 형광펜: 아래쪽 절반만 칠한다. */
+.original mark {
+  color: inherit;
+  background: linear-gradient(transparent 46%, var(--highlight) 46%);
+  border-radius: 3px 3px 7px 7px;
+  padding: 0 2px;
+}
+
+.highlight-0 {
+  --highlight: var(--color-highlight-0);
+  --highlight-text: var(--color-highlight-0-text);
+}
+
+.highlight-1 {
+  --highlight: var(--color-highlight-1);
+  --highlight-text: var(--color-highlight-1-text);
+}
+
+.highlight-2 {
+  --highlight: var(--color-highlight-2);
+  --highlight-text: var(--color-highlight-2-text);
+}
+
+.highlight-3 {
+  --highlight: var(--color-highlight-3);
+  --highlight-text: var(--color-highlight-3-text);
+}
+
+.grammar-cards {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.grammar-card {
+  background: var(--color-surface);
+  border-radius: 20px;
+  padding: 14px 16px;
+}
+
+.grammar-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grammar-chip {
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 15px;
+  font-weight: 700;
+  background: var(--highlight);
+  color: var(--highlight-text);
+}
+
+.grammar-card h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.badge-warn {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+
+.grammar-explanation {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.no-grammar {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
 }

@@ -4,9 +4,19 @@ from django.conf import settings
 from openai import OpenAI
 
 INSTRUCTIONS = """\
-You translate one Japanese sentence into natural Korean for a Korean learner of Japanese.
+You help a Korean learner of Japanese read one Japanese sentence.
 You receive the sentence and its tokens, each with an id.
-Return only the Korean translation of the whole sentence in translation_ko.
+Return the Korean translation of the whole sentence in translation_ko.
+
+In grammar, list the grammar points a learner needs to understand this sentence: particles,
+auxiliary verbs, conjugations and grammatical expressions. Do not list plain content words.
+For each one, give the ids of its first and last token (start_token_id, end_token_id;
+the same id for a single token), a short Korean name (name) and a Korean explanation of how it
+works in this sentence (explanation_ko). Interpret each grammar point the same way as your
+translation. In name and explanation_ko, quote Japanese only from that grammar point's own
+tokens. Never quote the whole sentence or long parts of it. Use only token ids you received.
+If the sentence has no grammar to learn (for example a title made only of nouns), return an
+empty grammar list.
 
 Numbers in the sentence are replaced with placeholders such as ⟨N1⟩ and ⟨N2⟩.
 Copy every placeholder into translation_ko exactly as written, with the same brackets and number.
@@ -19,8 +29,24 @@ number notation exactly as in the sentence. Do not turn "⟨N1⟩:⟨N2⟩", "�
 
 RESPONSE_SCHEMA = {
     "type": "object",
-    "properties": {"translation_ko": {"type": "string"}},
-    "required": ["translation_ko"],
+    "properties": {
+        "translation_ko": {"type": "string"},
+        "grammar": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "start_token_id": {"type": "integer"},
+                    "end_token_id": {"type": "integer"},
+                    "name": {"type": "string"},
+                    "explanation_ko": {"type": "string"},
+                },
+                "required": ["start_token_id", "end_token_id", "name", "explanation_ko"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["translation_ko", "grammar"],
     "additionalProperties": False,
 }
 

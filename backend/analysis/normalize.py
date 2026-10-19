@@ -236,6 +236,12 @@ def has_all_placeholders(text, numbers):
     return found == set(range(1, len(numbers) + 1))
 
 
+def has_only_known_placeholders(text, numbers):
+    """키 텍스트에 있는 번호의 자리표시자만 썼는가(하나도 없어도 된다)."""
+    found = {int(n) for n in _PLACEHOLDER.findall(text)}
+    return found <= set(range(1, len(numbers) + 1))
+
+
 def number_ends(analysis):
     """분석 텍스트에서 숫자열(⟨N1⟩, ⟨N2⟩ … 순서)이 끝나는 위치."""
     return [match.end() for match in _DIGITS.finditer(analysis)]

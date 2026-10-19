@@ -11,6 +11,7 @@ from analysis.normalize import (
     NORMALIZE_VERSION,
     analysis_text,
     has_all_placeholders,
+    has_only_known_placeholders,
     key_pieces,
     number_ends,
     restore_numbers,
@@ -46,7 +47,7 @@ def _is_token_id(value, token_count):
     return type(value) is int and 0 <= value < token_count
 
 
-def _validate_grammar(grammar, token_count):
+def _validate_grammar(grammar, numbers, token_count):
     """LLM이 고른 문법 항목을 검증한다. 하나라도 틀리면 None."""
     if not isinstance(grammar, list):
         return None
@@ -62,6 +63,9 @@ def _validate_grammar(grammar, token_count):
         name, explanation = item.get("name"), item.get("explanation_ko")
         if not (_is_text(name) and _is_text(explanation)):
             return None
+        # 이름·설명도 응답할 때 숫자를 되돌리므로 없는 번호의 자리표시자는 받지 않는다.
+        if not all(has_only_known_placeholders(t, numbers) for t in (name, explanation)):
+            return None
         items.append(
             {"start_token": start, "end_token": end, "name": name, "explanation_ko": explanation}
         )
@@ -75,7 +79,7 @@ def _validate(result, numbers, token_count):
     # 자리표시자가 맞지 않는 번역은 숫자가 틀렸을 수 있어 보여주지도 저장하지도 않는다.
     if not has_all_placeholders(result["translation_ko"], numbers):
         return None
-    grammar = _validate_grammar(result.get("grammar"), token_count)
+    grammar = _validate_grammar(result.get("grammar"), numbers, token_count)
     if grammar is None:
         return None
     return {"translation_ko": result["translation_ko"], "grammar": grammar}
@@ -99,11 +103,12 @@ def _stored_grammar(grammar, morphs, offsets):
     return stored
 
 
-def _grammar_response(stored, offsets, origins, utf16):
+def _grammar_response(stored, offsets, origins, utf16, restore):
     """저장된 문법 항목의 키 텍스트 구간을 이 요청 원문의 UTF-16 위치로 바꾼다.
 
     같은 분석을 표기가 다른 원문(앞 공백, 괄호, 숫자 자릿수 등)이 함께 쓰므로, 요청마다
-    그 원문 기준으로 다시 계산한다.
+    그 원문 기준으로 다시 계산한다. 이름·설명의 자리표시자도 번역처럼 이 원문의 숫자로
+    되돌린다(restore).
     """
     grammar = []
     for item in stored:
@@ -112,8 +117,8 @@ def _grammar_response(stored, offsets, origins, utf16):
             {
                 "start": start,
                 "end": end,
-                "name": item["name"],
-                "explanation_ko": item["explanation_ko"],
+                "name": restore(item["name"]),
+                "explanation_ko": restore(item["explanation_ko"]),
                 # 이 단위의 문법은 모두 LLM이 썼고 아직 아무도 검수하지 않았다.
                 "review_status": "pending",
             }
@@ -150,11 +155,14 @@ def analyze(request):
     offsets = key_offsets(pieces)
     utf16 = utf16_offsets(sentence)
 
+    def restore(text):
+        return restore_numbers(text, numbers, particle_numbers)
+
     def respond(saved):
         return Response(
             {
-                "translation_ko": restore_numbers(saved.translation_ko, numbers, particle_numbers),
-                "grammar": _grammar_response(saved.draft_grammar, offsets, origins, utf16),
+                "translation_ko": restore(saved.translation_ko),
+                "grammar": _grammar_response(saved.draft_grammar, offsets, origins, utf16, restore),
             }
         )
 

@@ -110,6 +110,30 @@ def test_reused_grammar_points_at_same_characters_in_each_original(
     assert [(item["start"], item["end"]) for item in grammar] == expected
 
 
+def test_placeholders_in_grammar_text_are_restored_for_each_original(client, fake_llm):
+    # 토큰: 0 3 / 1 で / 2 割る. LLM은 숫자 대신 자리표시자를 본다.
+    fake_llm.response = {
+        "translation_ko": "⟨N1⟩으로 나눈다",
+        "grammar": [
+            {
+                "start_token_id": 1,
+                "end_token_id": 1,
+                "name": "⟨N1⟩で의 で",
+                "explanation_ko": "⟨N1⟩으로 나눈다는 뜻",
+            }
+        ],
+    }
+    analyze(client, "3で割る")
+
+    response = analyze(client, "1で割る")
+
+    [item] = response.json()["grammar"]
+    # 번역과 같은 규칙으로 숫자를 되돌리고 뒤따르는 조사를 고친다(일 → 로).
+    assert item["name"] == "1で의 で"
+    assert item["explanation_ko"] == "1로 나눈다는 뜻"
+    assert len(fake_llm.requests) == 1
+
+
 def test_sentence_without_grammar_returns_empty_grammar(client, fake_llm):
     fake_llm.response = {"translation_ko": "도쿄", "grammar": []}
 
@@ -143,6 +167,9 @@ def test_cached_sentence_returns_same_grammar(client, fake_llm):
         [{"start_token_id": 1, "end_token_id": 1, "name": "이름", "explanation_ko": " "}],
         [{"start_token_id": "1", "end_token_id": 1, "name": "이름", "explanation_ko": "설명"}],
         [{"start_token_id": True, "end_token_id": 1, "name": "이름", "explanation_ko": "설명"}],
+        # 숫자가 없는 문장에 없는 자리표시자를 쓴 이름·설명
+        [{"start_token_id": 1, "end_token_id": 1, "name": "⟨N1⟩", "explanation_ko": "설명"}],
+        [{"start_token_id": 1, "end_token_id": 1, "name": "이름", "explanation_ko": "⟨N0⟩"}],
         ["not an object"],
         "not a list",
         None,

@@ -17,6 +17,10 @@ class SentenceAnalysis(models.Model):
     status = models.CharField(max_length=30, choices=Status.choices)
     # 스키마가 NULL을 허용한다(자리표시자가 보존된 번역만 저장). 빈 문자열과 구분한다.
     translation_ko = models.TextField(null=True)  # noqa: DJ001
+    # 테스트 단계 임시 칼럼(design-decisions 28절 12). LLM이 쓴 문법 항목
+    # [{start, end, name, explanation_ko}]. 위치는 키 텍스트 코드포인트 기준 [start, end).
+    # NULL은 문법을 받기 전에 저장된 행이라 다시 분석한다.
+    draft_grammar = models.JSONField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

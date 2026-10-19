@@ -15,6 +15,7 @@ from analysis.normalize import (
     number_ends,
     restore_numbers,
 )
+from analysis.positions import key_offsets, to_analysis, to_key
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +41,80 @@ def _is_text(value):
     return True
 
 
-def _validate(result, numbers):
+def _is_token_id(value, token_count):
+    # bool은 int의 하위 타입이라 따로 거른다.
+    return type(value) is int and 0 <= value < token_count
+
+
+def _validate_grammar(grammar, token_count):
+    """LLM이 고른 문법 항목을 검증한다. 하나라도 틀리면 None."""
+    if not isinstance(grammar, list):
+        return None
+    items = []
+    for item in grammar:
+        if not isinstance(item, dict):
+            return None
+        start, end = item.get("start_token_id"), item.get("end_token_id")
+        if not (_is_token_id(start, token_count) and _is_token_id(end, token_count)):
+            return None
+        if start > end:
+            return None
+        name, explanation = item.get("name"), item.get("explanation_ko")
+        if not (_is_text(name) and _is_text(explanation)):
+            return None
+        items.append(
+            {"start_token": start, "end_token": end, "name": name, "explanation_ko": explanation}
+        )
+    return items
+
+
+def _validate(result, numbers, token_count):
     """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 None."""
     if not isinstance(result, dict) or not _is_text(result.get("translation_ko")):
         return None
     # 자리표시자가 맞지 않는 번역은 숫자가 틀렸을 수 있어 보여주지도 저장하지도 않는다.
     if not has_all_placeholders(result["translation_ko"], numbers):
         return None
-    return {"translation_ko": result["translation_ko"]}
+    grammar = _validate_grammar(result.get("grammar"), token_count)
+    if grammar is None:
+        return None
+    return {"translation_ko": result["translation_ko"], "grammar": grammar}
+
+
+def _stored_grammar(grammar, morphs, offsets):
+    """토큰 ID로 고른 문법 항목을 키 텍스트 구간으로 바꿔 저장할 모양으로 만든다."""
+    stored = []
+    for item in grammar:
+        begin = morphs[item["start_token"]][0]
+        end = morphs[item["end_token"]][1]
+        key_start, key_end = to_key(offsets, begin, end)
+        stored.append(
+            {
+                "start": key_start,
+                "end": key_end,
+                "name": item["name"],
+                "explanation_ko": item["explanation_ko"],
+            }
+        )
+    return stored
+
+
+def _grammar_response(stored, offsets):
+    """저장된 문법 항목의 키 텍스트 구간을 이 요청 원문의 위치로 바꾼다."""
+    grammar = []
+    for item in stored:
+        start, end = to_analysis(offsets, item["start"], item["end"])
+        grammar.append(
+            {
+                "start": start,
+                "end": end,
+                "name": item["name"],
+                "explanation_ko": item["explanation_ko"],
+                # 이 단위의 문법은 모두 LLM이 썼고 아직 아무도 검수하지 않았다.
+                "review_status": "pending",
+            }
+        )
+    return grammar
 
 
 # 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
@@ -76,10 +143,22 @@ def analyze(request):
         return _analysis_failed()
     particle_numbers = _numbers_before_particle(text_to_analyze, morphs)
 
-    cached = SentenceAnalysis.objects.filter(sentence_hash=sentence_hash).first()
+    offsets = key_offsets(pieces)
+
+    def respond(saved):
+        return Response(
+            {
+                "translation_ko": restore_numbers(saved.translation_ko, numbers, particle_numbers),
+                "grammar": _grammar_response(saved.draft_grammar, offsets),
+            }
+        )
+
+    # 문법을 받기 전에 저장된 행(draft_grammar가 NULL)은 다시 분석한다.
+    cached = SentenceAnalysis.objects.filter(
+        sentence_hash=sentence_hash, draft_grammar__isnull=False
+    ).first()
     if cached:
-        translation = restore_numbers(cached.translation_ko, numbers, particle_numbers)
-        return Response({"translation_ko": translation})
+        return respond(cached)
 
     # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
     tokens = [
@@ -91,20 +170,25 @@ def analyze(request):
         logger.exception("LLM 호출 실패")
         return _analysis_failed()
 
-    validated = _validate(result, numbers)
+    validated = _validate(result, numbers, len(morphs))
     if validated is None:
         logger.warning("LLM 응답 검증 실패")
         return _analysis_failed()
 
     # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
-    saved, _ = SentenceAnalysis.objects.get_or_create(
+    saved, created = SentenceAnalysis.objects.get_or_create(
         sentence_hash=sentence_hash,
         defaults={
             "normalize_version": NORMALIZE_VERSION,
             "normalized_length": len(key_text),
             "status": SentenceAnalysis.Status.COMPLETE,
             "translation_ko": validated["translation_ko"],
+            "draft_grammar": _stored_grammar(validated["grammar"], morphs, offsets),
         },
     )
-    translation = restore_numbers(saved.translation_ko, numbers, particle_numbers)
-    return Response({"translation_ko": translation})
+    if not created and saved.draft_grammar is None:
+        # 문법을 받기 전에 저장된 행이면 이번 결과로 채운다.
+        saved.translation_ko = validated["translation_ko"]
+        saved.draft_grammar = _stored_grammar(validated["grammar"], morphs, offsets)
+        saved.save(update_fields=["translation_ko", "draft_grammar", "updated_at"])
+    return respond(saved)

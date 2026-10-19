@@ -84,7 +84,12 @@ def _unify_width(text):
 
 
 def _remove_spaces(text):
-    """3단계: 일본어 문자 사이 공백은 지우고, 영어 단어 사이는 공백 하나만 남긴다."""
+    """3단계: 일본어 문자 사이 공백은 지우고, 영어 단어 사이는 공백 하나만 남긴다.
+
+    제로 폭 공백(U+200B)·BOM 같은 보이지 않는 형식 문자(Cf)도 지운다. 웹 문장에 섞여 들어와
+    화면에서는 같은 문장의 해시를 가르기 때문이다.
+    """
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
 
     def replace(match):
         before = match.string[match.start() - 1 : match.start()]

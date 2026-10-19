@@ -45,6 +45,8 @@ def test_same_sentence_is_reused_without_llm(client, fake_llm):
         ("あれ", "あれ〜"),  # 물결표
         ("あれ", "あれ~"),
         ("I love Tokyoです", "I  love Tokyoです"),  # 영어 단어 사이 공백은 하나로
+        ("私は学生です", "私は\u200b学生です"),  # 제로 폭 공백
+        ("私は学生です", "\ufeff私は学生です"),  # BOM
     ],
 )
 def test_sentences_differing_only_in_notation_reuse_analysis(client, fake_llm, first, second):
@@ -331,7 +333,15 @@ def test_text_with_lone_surrogate_is_rejected_without_calling_llm(client, fake_l
 
 @pytest.mark.parametrize(
     "body",
-    [{}, {"text": ""}, {"text": "  "}, {"text": 3}, ["私は学生です。"], {"text": "。」"}],
+    [
+        {},
+        {"text": ""},
+        {"text": "  "},
+        {"text": 3},
+        ["私は学生です。"],
+        {"text": "。」"},
+        {"text": "\u200b"},
+    ],
 )
 def test_missing_text_is_rejected_without_calling_llm(client, fake_llm, body):
     response = client.post("/api/analyses/", body, content_type="application/json")

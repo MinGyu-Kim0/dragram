@@ -95,12 +95,16 @@ def _remove_spaces(text):
 
 
 def _is_number_range(text, i):
-    """물결표가 숫자 범위(3〜5, 3人〜5人, 10時〜12時, 三〜五)를 잇는가.
+    """물결표가 숫자 범위(3〜5, 3人〜5人, 10時〜12時, 三〜五, -5〜-3)를 잇는가.
 
     바로 뒤가 숫자이고 앞 RANGE_LOOKBEHIND 글자 안에 숫자가 있으면 범위로 본다.
+    끝점 앞의 부호·통화 기호(-5〜-3, ¥300〜¥500)는 건너뛰고 본다.
     그보다 멀면 늘인 말투(そうだね〜)로 본다.
     """
-    after = text[i + 1] if i + 1 < len(text) else ""
+    j = i + 1
+    while j < len(text) and (text[j] in _SIGNS or text[j] in _CURRENCIES):
+        j += 1
+    after = text[j] if j < len(text) else ""
     before = text[max(0, i - _RANGE_LOOKBEHIND) : i]
     return _is_number_char(after) and any(_is_number_char(ch) for ch in before)
 

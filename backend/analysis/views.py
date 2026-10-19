@@ -1,12 +1,16 @@
+import hashlib
 import logging
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
 from analysis import llm
+from analysis.models import SentenceAnalysis
 from analysis.morphology import tokenize
 
 logger = logging.getLogger(__name__)
+
+NORMALIZE_VERSION = 1
 
 
 def _analysis_failed():
@@ -33,6 +37,12 @@ def analyze(request):
     if not _is_text(sentence):
         return Response({"error": "text_required"}, status=400)
 
+    key_text = sentence
+    sentence_hash = hashlib.sha256(key_text.encode()).hexdigest()
+    cached = SentenceAnalysis.objects.filter(sentence_hash=sentence_hash).first()
+    if cached:
+        return Response({"translation_ko": cached.translation_ko})
+
     # 원문은 로그에 남기지 않는다.
     try:
         result = llm.get_client().analyze(sentence, tokenize(sentence))
@@ -44,4 +54,15 @@ def analyze(request):
     if analysis is None:
         logger.warning("LLM 응답 검증 실패")
         return _analysis_failed()
-    return Response(analysis)
+
+    # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
+    saved, _ = SentenceAnalysis.objects.get_or_create(
+        sentence_hash=sentence_hash,
+        defaults={
+            "normalize_version": NORMALIZE_VERSION,
+            "normalized_length": len(key_text),
+            "status": SentenceAnalysis.Status.COMPLETE,
+            "translation_ko": analysis["translation_ko"],
+        },
+    )
+    return Response({"translation_ko": saved.translation_ko})

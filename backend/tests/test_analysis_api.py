@@ -1,7 +1,10 @@
 import threading
 
 import pytest
+from django.db import connection
 from django.test import Client
+
+pytestmark = pytest.mark.django_db
 
 
 def analyze(client, text):
@@ -15,6 +18,17 @@ def test_new_sentence_returns_translation(client, fake_llm):
 
     assert response.status_code == 200
     assert response.json() == {"translation_ko": "나는 학생입니다."}
+
+
+def test_same_sentence_is_reused_without_llm(client, fake_llm):
+    fake_llm.response = {"translation_ko": "나는 학생입니다."}
+    analyze(client, "私は学生です。")
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 200
+    assert response.json() == {"translation_ko": "나는 학생입니다."}
+    assert len(fake_llm.requests) == 1
 
 
 @pytest.mark.parametrize(
@@ -55,6 +69,7 @@ def test_missing_text_is_rejected_without_calling_llm(client, fake_llm, body):
     assert fake_llm.requests == []
 
 
+@pytest.mark.django_db(transaction=True)
 def test_concurrent_requests_all_succeed(fake_llm):
     # runserver·gunicorn 스레드처럼 여러 요청이 동시에 형태소 분석을 한다.
     long_sentence = "吾輩は猫である。名前はまだ無い。" * 200
@@ -62,8 +77,12 @@ def test_concurrent_requests_all_succeed(fake_llm):
 
     def send_requests():
         thread_client = Client()
-        for _ in range(10):
-            statuses.append(analyze(thread_client, long_sentence).status_code)
+        try:
+            for _ in range(10):
+                statuses.append(analyze(thread_client, long_sentence).status_code)
+        finally:
+            # 스레드가 연 DB 연결을 닫아야 테스트 DB를 지울 수 있다.
+            connection.close()
 
     threads = [threading.Thread(target=send_requests) for _ in range(8)]
     for thread in threads:

@@ -339,6 +339,9 @@ def _word(token_id=2, lemma="学生", reading="がくせい", meaning_ko="학생
         [_word(reading="学生")],
         [_word(reading="がく生")],
         [_word(reading="학생")],
+        [_word(reading="・")],  # 가타카나 블록의 문장부호는 가나가 아니다
+        [_word(reading="゠")],
+        [_word(reading="ー")],  # 가나 없이 장음만
         [_word(meaning_ko="⟨N1⟩명")],  # 숫자가 없는 문장의 자리표시자
         [{"token_id": 2, "lemma": "学生", "reading": "がくせい"}],  # 뜻 없음
         ["not an object"],

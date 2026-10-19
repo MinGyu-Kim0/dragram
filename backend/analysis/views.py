@@ -70,9 +70,11 @@ def _validate_grammar(grammar, numbers, token_count):
 
 _WORD_TEXTS = ("lemma", "reading", "meaning_ko")
 
-# 읽기는 히라가나·가타카나 블록(장음 ー, 반복 부호 포함)과 숫자 자리표시자로만 쓴다.
-# 외래어(사전에 없는 새 말 포함)는 가타카나 그대로 두므로 히라가나로 바꾸지 않는다.
-_READING = re.compile(r"(?:[\u3041-\u309f\u30a0-\u30ff]|⟨N\d+⟩)+")
+# 읽기는 가나(장음 ー, 반복 부호 포함)와 숫자 자리표시자로만 쓰고 가나가 한 글자는 있어야
+# 한다. 가타카나 블록의 문장부호(・ ゠)는 가나가 아니다. 외래어(사전에 없는 새 말 포함)는
+# 가타카나 그대로 두므로 히라가나로 바꾸지 않는다.
+_KANA = "\u3041-\u3096\u309d\u309e\u30a1-\u30fa\u30fd\u30fe\u31f0-\u31ff"
+_READING = re.compile(rf"(?:[{_KANA}\u30fc]|⟨N\d+⟩)*[{_KANA}](?:[{_KANA}\u30fc]|⟨N\d+⟩)*")
 
 
 def _validate_words(words, numbers, token_count, is_vocabulary):

@@ -21,6 +21,40 @@ function respondWith(status: number, body: unknown) {
   return fetchMock;
 }
 
+// 문장들을 분석 요청으로 넣는다. 드래그 범위는 문장 전체로 둔다.
+function send(windowId: number, ...texts: string[]) {
+  return requestAnalysis(
+    windowId,
+    texts.map((text) => ({ text, selection: { start: 0, end: text.length } })),
+  );
+}
+
+// 문장마다 다른 응답을 준다. 정하지 않은 문장은 응답하지 않는다(분석 중으로 남는다).
+function respondPerSentence(
+  responses: Record<string, () => Promise<Response> | Response>,
+) {
+  const fetchMock = vi.fn((_url: string, init: RequestInit) => {
+    const { text } = JSON.parse(init.body as string) as { text: string };
+    const respond = responses[text];
+    return respond
+      ? Promise.resolve(respond())
+      : new Promise<Response>(() => {});
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function json(status: number, body: unknown) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function analysis(translation: string) {
+  return { translation_ko: translation, grammar: [], words: [] };
+}
+
 // 사이드 패널이 열린 창
 let panelWindowId: number;
 
@@ -45,7 +79,7 @@ test("분석 요청을 받으면 원문을 보이고, 응답 전에는 번역 �
   vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
   render(<App />);
 
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
 
   expect(await screen.findByText("私は学生です。")).toBeInTheDocument();
   expect(
@@ -61,7 +95,7 @@ test("응답이 오면 번역을 보인다", async () => {
   });
   render(<App />);
 
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
 
   expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
   expect(
@@ -78,7 +112,7 @@ test("패널이 열리기 전에 들어온 분석 요청도 보인다", async ()
     grammar: [],
     words: [],
   });
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
 
   render(<App />);
 
@@ -89,7 +123,7 @@ test("실패 응답이면 '분석하지 못했습니다'를 보인다", async ()
   respondWith(502, { error: "analysis_failed" });
   render(<App />);
 
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
 
   expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
 });
@@ -101,7 +135,7 @@ test("서버에 연결하지 못하면 '분석하지 못했습니다'를 보인�
   );
   render(<App />);
 
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
 
   expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
 });
@@ -115,8 +149,8 @@ test("다른 창의 분석 요청은 받지 않는다", async () => {
   const otherWindow = await fakeBrowser.windows.create({ focused: false });
   render(<App />);
 
-  await requestAnalysis(otherWindow!.id!, "私は学生です。");
-  await requestAnalysis(panelWindowId, "猫が好きです。");
+  await send(otherWindow!.id!, "私は学生です。");
+  await send(panelWindowId, "猫が好きです。");
 
   expect(await screen.findByText("猫が好きです。")).toBeInTheDocument();
   expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
@@ -130,7 +164,7 @@ test("패널을 다시 열어도 이미 분석한 요청은 다시 분석하지 
     words: [],
   });
   const { unmount } = render(<App />);
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
   await screen.findByText("나는 학생입니다.");
   unmount();
 
@@ -158,7 +192,7 @@ test("저장소 읽기와 변경 알림이 같은 요청을 함께 전달해도 
   render(<App />);
   await waitFor(() => expect(getSpy).toHaveBeenCalled());
 
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
   await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   // 실제 크롬 저장소처럼 읽을 때마다 새 객체를 돌려준다.
   finishGet(structuredClone(setSpy.mock.calls[0]![0]));
@@ -186,7 +220,7 @@ test("문법 카드를 원문 순서대로 보이고, 카드마다 'AI 생성·�
   });
   render(<App />);
 
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
 
   const cards = await screen.findAllByRole("listitem");
   expect(
@@ -206,7 +240,7 @@ test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 같은 �
   });
   render(<App />);
 
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
 
   await screen.findAllByRole("listitem");
   const marks = document.querySelectorAll(".original mark");
@@ -226,7 +260,7 @@ test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인�
   respondWith(200, { translation_ko: "도쿄", grammar: [], words: [] });
   render(<App />);
 
-  await requestAnalysis(panelWindowId, "東京");
+  await send(panelWindowId, "東京");
 
   expect(await screen.findByText("문법 요소 없음")).toBeInTheDocument();
 });
@@ -250,7 +284,7 @@ test("탭에 문법과 단어 개수를 보이고, 처음에는 문법 탭을 �
   });
   render(<App />);
 
-  await requestAnalysis(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "私は学生です。");
 
   const tabs = await screen.findAllByRole("tab");
   expect(tabs.map((tab) => tab.textContent)).toEqual(["문법 2", "단어 1"]);
@@ -270,7 +304,7 @@ test("단어 탭에 단어마다 사전형, 읽기, 뜻과 'AI 생성·미검수
     words: [wordItem(5, 7, "食べる", "たべる"), wordItem(0, 1, "私", "わたし")],
   });
   render(<App />);
-  await requestAnalysis(panelWindowId, "私は学生で食べている");
+  await send(panelWindowId, "私は学生で食べている");
 
   fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
 
@@ -292,4 +326,130 @@ test("단어 탭에 단어마다 사전형, 읽기, 뜻과 'AI 생성·미검수
   for (const row of rows) {
     expect(within(row).getByText("AI 생성·미검수")).toBeInTheDocument();
   }
+});
+
+test("여러 문장이면 문장마다 한 페이지씩 보이고, 이전·다음으로 넘긴다", async () => {
+  respondPerSentence({
+    "私は学生です。": () => json(200, analysis("나는 학생입니다.")),
+    "猫が好きです。": () => json(200, analysis("고양이를 좋아합니다.")),
+  });
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。", "猫が好きです。");
+
+  expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
+  expect(screen.getByText("1 / 2")).toBeInTheDocument();
+  expect(screen.queryByText("猫が好きです。")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "이전 문장" })).toBeDisabled();
+
+  fireEvent.click(screen.getByRole("button", { name: "다음 문장" }));
+
+  expect(screen.getByText("2 / 2")).toBeInTheDocument();
+  expect(screen.getByText("고양이를 좋아합니다.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "다음 문장" })).toBeDisabled();
+});
+
+test("한 문장이 실패해도 다른 문장 결과가 보인다", async () => {
+  respondPerSentence({
+    "私は学生です。": () => json(502, { error: "ANALYSIS:FAILED" }),
+    "猫が好きです。": () => json(200, analysis("고양이를 좋아합니다.")),
+  });
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。", "猫が好きです。");
+
+  expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "다음 문장" }));
+  expect(await screen.findByText("고양이를 좋아합니다.")).toBeInTheDocument();
+});
+
+test("이전 회차의 늦은 응답이 현재 결과를 바꾸지 않는다", async () => {
+  let finishOld: (response: Response) => void = () => {};
+  respondPerSentence({
+    // 이전 회차의 첫 문장과 이번 회차의 첫 문장이 같은 글자여도 회차가 다르다.
+    "私は学生です。": () =>
+      new Promise<Response>((resolve) => (finishOld = resolve)),
+    "猫が好きです。": () => json(200, analysis("고양이를 좋아합니다.")),
+  });
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+  await send(panelWindowId, "猫が好きです。");
+  expect(await screen.findByText("고양이를 좋아합니다.")).toBeInTheDocument();
+  finishOld(json(200, analysis("늦게 온 번역")));
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(screen.queryByText("늦게 온 번역")).not.toBeInTheDocument();
+  expect(screen.getByText("고양이를 좋아합니다.")).toBeInTheDocument();
+});
+
+test("서버에는 문장 분석 요청을 동시에 5개까지만 보내고, 끝나는 대로 다음 문장을 보낸다", async () => {
+  let finishFirst: (response: Response) => void = () => {};
+  const fetchMock = respondPerSentence({
+    "一。": () => new Promise<Response>((resolve) => (finishFirst = resolve)),
+  });
+  render(<App />);
+
+  await send(
+    panelWindowId,
+    "一。",
+    "二。",
+    "三。",
+    "四。",
+    "五。",
+    "六。",
+    "七。",
+  );
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+  finishFirst(json(200, analysis("하나.")));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
+});
+
+test("새 회차가 와도 이전 회차의 진행 중인 요청까지 세어 5개를 넘기지 않고, 이전 회차의 남은 문장은 보내지 않는다", async () => {
+  let finishFirst: (response: Response) => void = () => {};
+  const fetchMock = respondPerSentence({
+    "一。": () => new Promise<Response>((resolve) => (finishFirst = resolve)),
+  });
+  render(<App />);
+  // 5개는 진행 중, 六·七은 아직 보내지 않은 채 다음 회차가 온다.
+  await send(
+    panelWindowId,
+    "一。",
+    "二。",
+    "三。",
+    "四。",
+    "五。",
+    "六。",
+    "七。",
+  );
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+
+  await send(panelWindowId, "猫です。");
+  // 새 회차가 패널에 들어온 뒤에도 이전 회차의 5개가 끝나지 않아 새 요청을 보내지 않는다.
+  expect(await screen.findByText("猫です。")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(5);
+
+  finishFirst(json(200, analysis("하나.")));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
+  const sentTexts = fetchMock.mock.calls.map(
+    ([, init]) => (JSON.parse(init.body as string) as { text: string }).text,
+  );
+  expect(sentTexts.at(-1)).toBe("猫です。");
+  expect(sentTexts).not.toContain("六。");
+});
+
+test("한 회차에 같은 문장이 반복되면 한 번만 분석하고 결과를 함께 보인다", async () => {
+  const fetchMock = respondPerSentence({
+    "猫です。": () => json(200, analysis("고양이입니다.")),
+  });
+  render(<App />);
+
+  await send(panelWindowId, "猫です。", "猫です。");
+
+  expect(await screen.findByText("고양이입니다.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "다음 문장" }));
+  expect(await screen.findByText("고양이입니다.")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

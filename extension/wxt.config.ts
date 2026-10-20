@@ -8,7 +8,14 @@ export default defineConfig({
   modules: ["@wxt-dev/module-react"],
   manifest: {
     name: "Dragram",
-    permissions: ["sidePanel", "contextMenus", "storage"],
+    // scripting·activeTab: 우클릭한 탭에만, 메뉴를 누른 그때 문장 추출 스크립트를 주입한다.
+    permissions: [
+      "sidePanel",
+      "contextMenus",
+      "storage",
+      "scripting",
+      "activeTab",
+    ],
     host_permissions: [`${new URL(apiBaseUrl).origin}/*`],
     action: {},
   },

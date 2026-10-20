@@ -1,3 +1,5 @@
+import type { ExtractedSentence } from "./extract-sentences";
+
 // 백그라운드가 넣은 분석 요청을 사이드 패널이 읽는다. 패널이 막 열려 메시지를 놓치지 않도록
 // 메시지 대신 세션 저장소를 거친다. 창마다 키를 따로 두어 그 창의 패널만 요청을 받고,
 // 패널은 요청을 꺼내면서 지워 다시 열 때 같은 요청을 또 분석하지 않는다.
@@ -8,14 +10,15 @@ function keyFor(windowId: number): string {
 export interface AnalysisRequest {
   // 분석 회차. 같은 문장을 다시 골라도 새 요청으로 본다.
   id: string;
-  text: string;
+  // 드래그한 범위를 넓힌 문장들(문장 추출 결과). 문장마다 따로 분석한다.
+  sentences: ExtractedSentence[];
 }
 
 export async function requestAnalysis(
   windowId: number,
-  text: string,
+  sentences: ExtractedSentence[],
 ): Promise<void> {
-  const request: AnalysisRequest = { id: crypto.randomUUID(), text };
+  const request: AnalysisRequest = { id: crypto.randomUUID(), sentences };
   await browser.storage.session.set({ [keyFor(windowId)]: request });
 }
 

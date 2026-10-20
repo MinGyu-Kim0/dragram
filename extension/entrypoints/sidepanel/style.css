@@ -109,9 +109,8 @@ h1 {
 
 /* 드래그 범위: 형광펜 위에 따로 얹는 층. 시작·끝에 텍스트 선택 핸들(원 + 막대)을 붙인다.
    시작 핸들은 원이 위, 끝 핸들은 원이 아래다. */
-.drag-range::before,
-.drag-range::after {
-  content: "";
+.drag-handle-start,
+.drag-handle-end {
   display: inline-block;
   width: 8px;
   height: 1.4em;
@@ -127,11 +126,11 @@ h1 {
       center / 2px 100% no-repeat;
 }
 
-.drag-range::before {
+.drag-handle-start {
   --handle-y: 4px;
 }
 
-.drag-range::after {
+.drag-handle-end {
   --handle-y: calc(100% - 4px);
 }
 

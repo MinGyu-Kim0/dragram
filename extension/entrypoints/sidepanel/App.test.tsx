@@ -266,7 +266,21 @@ function sendSelected(
   return requestAnalysis(windowId, [{ text, selection: { start, end } }]);
 }
 
-test("원문에 실제로 드래그한 범위를 형광펜과 따로 표시한다", async () => {
+// 원문에서 드래그 핸들 자리를 [ ]로 바꿔 읽는다.
+function originalWithHandles(): string {
+  const original = document
+    .querySelector(".original")!
+    .cloneNode(true) as Element;
+  original
+    .querySelectorAll(".drag-handle-start")
+    .forEach((handle) => handle.replaceWith("["));
+  original
+    .querySelectorAll(".drag-handle-end")
+    .forEach((handle) => handle.replaceWith("]"));
+  return original.textContent!;
+}
+
+test("원문에 실제로 드래그한 범위의 시작과 끝에 핸들을 붙인다", async () => {
   respondWith(200, {
     translation_ko: "나는 학생입니다.",
     grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
@@ -278,12 +292,28 @@ test("원문에 실제로 드래그한 범위를 형광펜과 따로 표시한�
   await sendSelected(panelWindowId, "私は学生です。", 1, 4);
 
   await screen.findAllByRole("listitem");
-  const original = document.querySelector(".original")!;
-  expect(original.querySelector(".drag-range")!.textContent).toBe("は学生");
-  expect(original.textContent).toBe("私は学生です。");
-  // 형광펜은 드래그 범위와 상관없이 문법 구간 그대로다.
-  const marks = original.querySelectorAll("mark");
-  expect([...marks].map((mark) => mark.textContent)).toEqual(["は", "です"]);
+  expect(originalWithHandles()).toBe("私[は学生]です。");
+  // 핸들은 글자가 아니다.
+  expect(document.querySelector(".original")!.textContent).toBe(
+    "私は学生です。",
+  );
+});
+
+test("드래그 범위가 문법 구간 안에서 시작·끝나도 형광펜을 쪼개지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "학생입니다.",
+    grammar: [grammarItem(0, 2, "명사 学生"), grammarItem(2, 4, "정중 です")],
+    words: [],
+  });
+  render(<App />);
+
+  // 生で만 골랐다. 두 형광펜 모두 안에서 경계가 생긴다.
+  await sendSelected(panelWindowId, "学生です。", 1, 3);
+
+  await screen.findAllByRole("listitem");
+  const marks = document.querySelectorAll(".original mark");
+  expect([...marks].map((mark) => mark.textContent)).toEqual(["学生", "です"]);
+  expect(originalWithHandles()).toBe("学[生で]す。");
 });
 
 test("응답 전에도 원문에 드래그 범위를 표시한다", async () => {
@@ -293,9 +323,7 @@ test("응답 전에도 원문에 드래그 범위를 표시한다", async () => 
   await sendSelected(panelWindowId, "私は学生です。", 2, 4);
 
   await screen.findByRole("status", { name: "번역을 불러오는 중" });
-  expect(document.querySelector(".original .drag-range")!.textContent).toBe(
-    "学生",
-  );
+  expect(originalWithHandles()).toBe("私は[学生]です。");
 });
 
 test("드래그 범위와 겹친 문법 카드를 먼저 보이고 '드래그한 부분'을 붙인다", async () => {

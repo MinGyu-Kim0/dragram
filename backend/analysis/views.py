@@ -461,16 +461,20 @@ def analyze(request):
         return to_key(offsets, morphs[start_token].begin, morphs[end_token].end)
 
     def prepare(validated):
-        """새 구문마다 형태소 조건을 만든다. 패턴 생성 규칙을 어겼거나 이 응답에서 이미 나온
-        조건이면 None이다. 판정할 후보 구간도 함께 둔다.
+        """새 구문마다 형태소 조건을 만든다. 패턴 생성 규칙을 어겼거나, 이 응답에서 이미 나온
+        조건이거나, 같은 자리에서 이미 판정한 후보 구간의 패턴이면 None이다. 판정할 후보 구간도
+        함께 둔다.
         """
         seen = set()
+        judged = {(span.pattern.morpheme_key, span.start_token) for span in spans}
         new_patterns = []
         for proposal in validated["new_patterns"]:
             conditions = _new_pattern_conditions(proposal["tokens"], morphs, overlaps_number)
             if conditions is not None:
                 key = patterns.morpheme_key(conditions)
-                conditions = None if key in seen else conditions
+                start = proposal["tokens"][0][0]
+                if key in seen or (key, start) in judged:
+                    conditions = None
                 seen.add(key)
             new_patterns.append({**proposal, "conditions": conditions, "existing": None})
         return {**validated, "new_patterns": new_patterns, "span_list": spans}
@@ -592,13 +596,8 @@ def analyze(request):
             patterns.raise_pattern_set_version()
         SpanMatch.objects.bulk_create(rows)
 
-    def save(validated, final=False):
-        """검증한 결과를 공용 캐시에 저장하고 저장된 행을 돌려준다.
-
-        저장하는 사이 다른 요청이 같은 조건의 패턴을 먼저 등록했으면, 저장을 되돌리고 그 패턴의
-        용법 목록으로 다시 물은 뒤 한 번만 다시 저장한다.
-        """
-        draft = {"words": _stored_words(validated["words"], morphs, offsets)}
+    def reject_quotes(validated):
+        """LLM이 쓴 글이 문장 전체를 인용했으면 ANALYSIS:FAILED다."""
         llm_texts = [
             item[field] for item in validated["new_patterns"] for field in _NEW_PATTERN_TEXTS
         ]
@@ -612,6 +611,16 @@ def analyze(request):
         if _quotes_whole_sentence(llm_texts, key_text, content_tokens):
             # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
             raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
+
+    def save(validated, final=False):
+        """검증한 결과를 공용 캐시에 저장하고 저장된 행을 돌려준다.
+
+        저장하는 사이 다른 요청이 같은 조건의 패턴을 먼저 등록했으면, 저장을 되돌리고 그 패턴의
+        용법 목록으로 다시 물은 뒤 한 번만 다시 저장한다.
+        """
+        # 다시 물어 받은 새 용법도 공용 테이블에 들어가므로 다시 본다.
+        reject_quotes(validated)
+        draft = {"words": _stored_words(validated["words"], morphs, offsets)}
 
         # 분석 행과 구간·새 패턴을 함께 저장한다. 다른 요청이 먼저 저장한 문장이면 그 결과를
         # 쓰고, 이번 결과의 구간·패턴은 저장하지 않는다.
@@ -668,6 +677,8 @@ def analyze(request):
         validated = _validate(result, numbers, len(morphs), is_vocabulary, spans)
         if not translation_sent:
             yield translation_event(validated["translation_ko"])
+        # 거부될 응답이면 다시 묻지 않는다.
+        reject_quotes(validated)
         # 다시 묻기는 번역을 보낸 뒤, 저장 트랜잭션 밖에서 한다.
         yield analysis_event(save(ask_again(prepare(validated))))
 

@@ -626,3 +626,34 @@ def test_new_usage_with_rejected_example_is_added_without_example(client, fake_l
     analyze(client, "知っていながら")
 
     assert GrammarUsage.objects.get(name="역접").example_ja is None
+
+
+def test_new_grammar_same_as_judged_span_is_not_asked_again(client, fake_llm):
+    register_teiru(client, fake_llm)
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる
+    # 이미 후보 구간으로 판정한 ている를 새 구문으로도 낸다.
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "spans": [span_answer(0, "usage", 1)],
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
+    }
+
+    response = analyze(client, "彼が来ている")
+
+    assert fake_llm.rejudge_requests == []
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+
+
+def test_response_quoting_the_sentence_fails_before_asking_again(client, fake_llm):
+    register_teiru(client, fake_llm, example_ja="走っている")
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "new_patterns": [
+            new_pattern((3, "lemma"), (4, "lemma"), explanation_ko="彼が来ている에서 진행")
+        ],
+    }
+
+    response = analyze(client, "彼が来ている")
+
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
+    assert fake_llm.rejudge_requests == []

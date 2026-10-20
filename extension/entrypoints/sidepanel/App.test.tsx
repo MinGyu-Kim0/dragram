@@ -256,6 +256,171 @@ test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 같은 �
   expect(marks[1]!.className).toContain("highlight-1");
 });
 
+// 문장 하나를 드래그 범위와 함께 분석 요청으로 넣는다.
+function sendSelected(
+  windowId: number,
+  text: string,
+  start: number,
+  end: number,
+) {
+  return requestAnalysis(windowId, [{ text, selection: { start, end } }]);
+}
+
+// 원문에서 드래그 핸들 자리를 [ ]로 바꿔 읽는다.
+function originalWithHandles(): string {
+  const original = document
+    .querySelector(".original")!
+    .cloneNode(true) as Element;
+  original
+    .querySelectorAll(".drag-handle-start")
+    .forEach((handle) => handle.replaceWith("["));
+  original
+    .querySelectorAll(".drag-handle-end")
+    .forEach((handle) => handle.replaceWith("]"));
+  return original.textContent!;
+}
+
+test("원문에 실제로 드래그한 범위의 시작과 끝에 핸들을 붙인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    words: [],
+  });
+  render(<App />);
+
+  // 学生で까지 고르지 않고 は学生만 골랐다.
+  await sendSelected(panelWindowId, "私は学生です。", 1, 4);
+
+  await screen.findAllByRole("listitem");
+  expect(originalWithHandles()).toBe("私[は学生]です。");
+  // 핸들은 글자가 아니다.
+  expect(document.querySelector(".original")!.textContent).toBe(
+    "私は学生です。",
+  );
+});
+
+test("드래그 범위가 문법 구간 안에서 시작·끝나도 형광펜을 쪼개지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "학생입니다.",
+    grammar: [grammarItem(0, 2, "명사 学生"), grammarItem(2, 4, "정중 です")],
+    words: [],
+  });
+  render(<App />);
+
+  // 生で만 골랐다. 두 형광펜 모두 안에서 경계가 생긴다.
+  await sendSelected(panelWindowId, "学生です。", 1, 3);
+
+  await screen.findAllByRole("listitem");
+  const marks = document.querySelectorAll(".original mark");
+  expect([...marks].map((mark) => mark.textContent)).toEqual(["学生", "です"]);
+  expect(originalWithHandles()).toBe("学[生で]す。");
+});
+
+test("응답 전에도 원문에 드래그 범위를 표시한다", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+  render(<App />);
+
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+
+  await screen.findByRole("status", { name: "번역을 불러오는 중" });
+  expect(originalWithHandles()).toBe("私は[学生]です。");
+});
+
+test("원문 카드의 버튼으로 드래그 핸들을 끄고 다시 켤 수 있다", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+  render(<App />);
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+  const toggle = await screen.findByRole("button", { name: "드래그 표시" });
+  expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+  fireEvent.click(toggle);
+
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(originalWithHandles()).toBe("私は学生です。");
+
+  fireEvent.click(toggle);
+
+  expect(originalWithHandles()).toBe("私は[学生]です。");
+});
+
+test("끈 드래그 핸들은 패널을 다시 열어도 꺼져 있다", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+  const { unmount } = render(<App />);
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+  fireEvent.click(await screen.findByRole("button", { name: "드래그 표시" }));
+  unmount();
+
+  render(<App />);
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+
+  const toggle = await screen.findByRole("button", { name: "드래그 표시" });
+  await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
+  expect(originalWithHandles()).toBe("私は学生です。");
+});
+
+test("드래그 핸들을 꺼도 드래그한 부분의 카드 표시는 그대로다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    words: [],
+  });
+  render(<App />);
+  await sendSelected(panelWindowId, "私は学生です。", 4, 6);
+
+  fireEvent.click(await screen.findByRole("button", { name: "드래그 표시" }));
+
+  const cards = await screen.findAllByRole("listitem");
+  expect(within(cards[0]!).getByText("드래그한 부분")).toBeInTheDocument();
+});
+
+test("드래그 범위와 겹친 문법 카드를 먼저 보이고 '드래그한 부분'을 붙인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [
+      grammarItem(0, 1, "1인칭 私"),
+      grammarItem(1, 2, "주제 は"),
+      grammarItem(4, 6, "정중 です"),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  // 学生です만 골랐다. 정중 です만 겹친다.
+  await sendSelected(panelWindowId, "私は学生です。", 2, 6);
+
+  const cards = await screen.findAllByRole("listitem");
+  expect(
+    cards.map((card) => within(card).getByRole("heading").textContent),
+  ).toEqual(["정중 です", "1인칭 私", "주제 は"]);
+  expect(within(cards[0]!).getByText("드래그한 부분")).toBeInTheDocument();
+  expect(cards[0]!.className).toContain("dragged");
+  for (const card of cards.slice(1)) {
+    expect(within(card).queryByText("드래그한 부분")).not.toBeInTheDocument();
+    expect(card.className).not.toContain("dragged");
+  }
+  // 카드 순서가 바뀌어도 칩 색은 원문의 형광펜 색과 같다.
+  expect(within(cards[0]!).getByText("です").className).toContain(
+    "highlight-2",
+  );
+});
+
+test("드래그 범위의 끝에 닿기만 하는 문법 카드는 겹친 것으로 보지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    words: [],
+  });
+  render(<App />);
+
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+
+  const cards = await screen.findAllByRole("listitem");
+  expect(screen.queryByText("드래그한 부분")).not.toBeInTheDocument();
+  expect(
+    cards.map((card) => within(card).getByRole("heading").textContent),
+  ).toEqual(["주제 は", "정중 です"]);
+});
+
 test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인다", async () => {
   respondWith(200, { translation_ko: "도쿄", grammar: [], words: [] });
   render(<App />);
@@ -452,4 +617,34 @@ test("한 회차에 같은 문장이 반복되면 한 번만 분석하고 결과
   fireEvent.click(screen.getByRole("button", { name: "다음 문장" }));
   expect(await screen.findByText("고양이입니다.")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("단어 탭에서도 드래그 범위와 겹친 단어를 먼저 보이고 '드래그한 부분'을 붙인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생으로서 먹고 있다.",
+    grammar: [],
+    words: [
+      wordItem(0, 1, "私", "わたし"),
+      wordItem(2, 4, "学生", "がくせい"),
+      wordItem(5, 7, "食べる", "たべる"),
+    ],
+  });
+  render(<App />);
+  // 生で食만 골랐다. 学生과 食べる가 겹친다.
+  await sendSelected(panelWindowId, "私は学生で食べている", 3, 6);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 3" }));
+
+  const rows = within(screen.getByRole("list", { name: "단어" })).getAllByRole(
+    "listitem",
+  );
+  expect(
+    rows.map((row) => within(row).getByRole("heading").textContent),
+  ).toEqual(["学生", "食べる", "私"]);
+  for (const row of rows.slice(0, 2)) {
+    expect(within(row).getByText("드래그한 부분")).toBeInTheDocument();
+    expect(row.className).toContain("dragged");
+  }
+  expect(within(rows[2]!).queryByText("드래그한 부분")).not.toBeInTheDocument();
+  expect(rows[2]!.className).not.toContain("dragged");
 });

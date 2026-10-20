@@ -4,6 +4,7 @@ import {
   type AnalysisRequest,
 } from "@/utils/analysis-request";
 import { analyzeSentence, type Analysis } from "@/utils/api";
+import { loadShowDragHandles, saveShowDragHandles } from "@/utils/drag-handles";
 import { createLimiter } from "@/utils/limiter";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 
@@ -28,6 +29,8 @@ function App() {
   const [results, setResults] = useState<Results>();
   const [page, setPage] = useState<Page>();
   const [tab, setTab] = useState<ResultTab>("grammar");
+  // 저장된 값을 읽기 전에는 undefined다. 그 전에 사용자가 고르면 고른 값을 쓴다.
+  const [showHandles, setShowHandles] = useState<boolean>();
   // 패널 하나에서 모든 회차가 함께 쓰는 동시 요청 한도
   const [limiter] = useState(() => createLimiter(MAX_CONCURRENT_REQUESTS));
 
@@ -45,6 +48,18 @@ function App() {
       stop?.();
     };
   }, []);
+
+  useEffect(() => {
+    loadShowDragHandles().then((show) =>
+      setShowHandles((current) => current ?? show),
+    );
+  }, []);
+
+  const toggleHandles = () => {
+    const show = !(showHandles ?? true);
+    setShowHandles(show);
+    saveShowDragHandles(show);
+  };
 
   useEffect(() => {
     if (!request) return;
@@ -119,6 +134,9 @@ function App() {
       {sentence && (
         <SentenceView
           text={sentence.text}
+          selection={sentence.selection}
+          showHandles={showHandles ?? true}
+          onToggleHandles={toggleHandles}
           result={result}
           tab={tab}
           onTabChange={setTab}

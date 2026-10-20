@@ -1,4 +1,5 @@
 import type { Analysis } from "@/utils/api";
+import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
 import { WordList } from "./Words";
 
@@ -11,11 +12,17 @@ export type ResultTab = "grammar" | "words";
 // 문장 한 페이지: 원문 카드(원문, 번역) → 문법·단어 탭 → 탭 내용
 export function SentenceView({
   text,
+  selection,
+  showHandles,
+  onToggleHandles,
   result,
   tab,
   onTabChange,
 }: {
   text: string;
+  selection: DragRange;
+  showHandles: boolean;
+  onToggleHandles: () => void;
   result: SentenceResult | undefined;
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
@@ -23,12 +30,20 @@ export function SentenceView({
   return (
     <>
       <section className="sentence-card">
+        <button
+          type="button"
+          className="handle-toggle"
+          aria-pressed={showHandles}
+          onClick={onToggleHandles}
+        >
+          드래그 표시
+        </button>
         <p lang="ja" className="original">
-          {result?.status === "done" ? (
-            <HighlightedText text={text} grammar={result.analysis.grammar} />
-          ) : (
-            text
-          )}
+          <HighlightedText
+            text={text}
+            grammar={result?.status === "done" ? result.analysis.grammar : []}
+            dragHandles={showHandles ? selection : undefined}
+          />
         </p>
         <hr />
         {!result && (
@@ -70,9 +85,13 @@ export function SentenceView({
           </div>
           <div role="tabpanel">
             {tab === "grammar" ? (
-              <GrammarCards text={text} grammar={result.analysis.grammar} />
+              <GrammarCards
+                text={text}
+                grammar={result.analysis.grammar}
+                selection={selection}
+              />
             ) : (
-              <WordList words={result.analysis.words} />
+              <WordList words={result.analysis.words} selection={selection} />
             )}
           </div>
         </>

@@ -108,7 +108,8 @@ def test_first_filled_grammar_wins_when_row_without_grammar_is_filled_concurrent
     assert SentenceAnalysis.objects.get().translation_ko == "먼저 채운 번역"
 
 
-@pytest.mark.django_db(transaction=True)
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
 def test_concurrent_requests_all_succeed(fake_llm):
     # runserver·gunicorn 스레드처럼 여러 요청이 동시에 형태소 분석을 한다.
     long_sentence = "吾輩は猫である。名前はまだ無い。" * 200

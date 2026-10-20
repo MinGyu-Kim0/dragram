@@ -222,3 +222,17 @@ def test_reused_words_point_at_same_characters_and_restore_numbers(client, fake_
     assert [(word["start"], word["end"]) for word in words] == [(7, 9), (5, 6)]
     assert words[1]["meaning_ko"] == "12명의 명"
     assert len(fake_llm.requests) == 1
+
+
+def test_reading_with_number_placeholder_fails(client, fake_llm):
+    # 숫자와 겹치는 토큰은 단어에서 빠지므로, 다른 단어의 읽기에 자리표시자가 들어갈 일은 없다.
+    # 토큰: 0 3 / 1 人 / 2 で / 3 行く
+    fake_llm.response = {
+        "translation_ko": "⟨N1⟩명이서 간다",
+        "words": [word_item(3, "行く", "い⟨N1⟩く", "가다")],
+    }
+
+    response = analyze(client, "3人で行く")
+
+    assert response.status_code == 502
+    assert SentenceAnalysis.objects.count() == 0

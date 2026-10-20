@@ -34,9 +34,9 @@ def test_ruby_positions_follow_original_with_leading_space_and_number(client, fa
 
 def test_ruby_positions_are_utf16(client, fake_llm):
     # 𠮷은 UTF-16에서 두 칸이다. 읽기가 가나가 아닌(사전에 없는) 형태소에는 루비를 달지 않는다.
-    response = analyze(client, "𠮷野家")
+    response = analyze(client, "𠮷は食べる")
 
-    assert response.json()["ruby"] == [{"start": 2, "end": 4, "reading": "のえ"}]
+    assert response.json()["ruby"] == [{"start": 3, "end": 4, "reading": "た"}]
 
 
 def test_kana_inside_word_stays_under_ruby(client, fake_llm):

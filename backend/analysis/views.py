@@ -222,6 +222,15 @@ def _words_response(stored, offsets, origins, utf16, restore):
     return words
 
 
+def _ruby_response(pieces, origins, utf16):
+    """분석 텍스트 기준 루비 조각을 이 요청 원문의 UTF-16 위치로 바꾼다."""
+    ruby = []
+    for start, end, reading in pieces:
+        start, end = to_original(origins, utf16, start, end)
+        ruby.append({"start": start, "end": end, "reading": reading})
+    return ruby
+
+
 # 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
 @api_view(["POST"])
 @authentication_classes([])
@@ -250,10 +259,7 @@ def analyze(request):
         return restore_numbers(text, numbers, particle_numbers)
 
     # 루비는 SudachiPy 읽기라 LLM·캐시와 상관없이 요청마다 이 원문 기준으로 계산한다.
-    ruby = []
-    for start, end, reading in ruby_pieces(text_to_analyze, morphs):
-        start, end = to_original(origins, utf16, start, end)
-        ruby.append({"start": start, "end": end, "reading": reading})
+    ruby = _ruby_response(ruby_pieces(text_to_analyze, morphs), origins, utf16)
 
     def respond(saved):
         return Response(

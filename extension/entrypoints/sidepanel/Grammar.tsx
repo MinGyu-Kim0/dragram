@@ -31,6 +31,7 @@ export function HighlightedText({
   dragHandles: DragRange | undefined;
 }) {
   const sorted = sortGrammar(grammar);
+  const sortedRuby = [...ruby].sort((a, b) => a.start - b.start);
   const bounds = [
     ...new Set([
       0,
@@ -43,7 +44,7 @@ export function HighlightedText({
     <>
       {bounds.slice(0, -1).map((start, i) => {
         const end = bounds[i + 1]!;
-        const segment = withRuby(text, start, end, ruby, dragHandles);
+        const segment = withRuby(text, start, end, sortedRuby, dragHandles);
         const index = sorted.findIndex(
           (item) => item.start <= start && end <= item.end,
         );
@@ -58,7 +59,7 @@ export function HighlightedText({
   );
 }
 
-// 원문 [start, end)에 그 안에 다 들어가는 루비를 단다. 나머지 글자에는 드래그 핸들을
+// 원문 [start, end)에 그 안에 다 들어가는 루비(원문 순서)를 단다. 나머지 글자에는 드래그 핸들을
 // 제자리에 끼워 넣고, 핸들이 루비 단어 안에 걸리면 단어 바깥(시작은 앞, 끝은 뒤)에 붙인다.
 function withRuby(
   text: string,
@@ -69,18 +70,18 @@ function withRuby(
 ): ReactNode[] {
   const nodes: ReactNode[] = [];
   let at = start;
-  for (const piece of [...ruby].sort((a, b) => a.start - b.start)) {
+  for (const piece of ruby) {
     if (piece.start < at || end < piece.end) continue;
     nodes.push(...withHandles(text, at, piece.start, handles));
     const [startHere, endHere] = handlesIn(piece.start, piece.end, handles);
-    if (startHere) nodes.push(handle("start"));
+    if (startHere) nodes.push(handleMark("start"));
     nodes.push(
       <ruby key={`ruby-${piece.start}`}>
         {text.slice(piece.start, piece.end)}
         <rt>{piece.reading}</rt>
       </ruby>,
     );
-    if (endHere) nodes.push(handle("end"));
+    if (endHere) nodes.push(handleMark("end"));
     at = piece.end;
   }
   nodes.push(...withHandles(text, at, end, handles));
@@ -101,7 +102,8 @@ function handlesIn(
   ];
 }
 
-function handle(kind: "start" | "end") {
+// 드래그 핸들 요소 하나(글자 없음)
+function handleMark(kind: "start" | "end") {
   return (
     <span key={kind} aria-hidden="true" className={`drag-handle-${kind}`} />
   );
@@ -118,11 +120,11 @@ function withHandles(
   const nodes: ReactNode[] = [];
   let at = start;
   if (startHere) {
-    nodes.push(text.slice(at, handles!.start), handle("start"));
+    nodes.push(text.slice(at, handles!.start), handleMark("start"));
     at = handles!.start;
   }
   if (endHere) {
-    nodes.push(text.slice(at, handles!.end), handle("end"));
+    nodes.push(text.slice(at, handles!.end), handleMark("end"));
     at = handles!.end;
   }
   nodes.push(text.slice(at, end));

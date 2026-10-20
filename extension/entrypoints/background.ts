@@ -1,4 +1,5 @@
 import { requestAnalysis } from "@/utils/analysis-request";
+import { sentencesFromPage } from "@/utils/page-sentences";
 
 const ANALYZE_MENU_ID = "analyze-selection";
 
@@ -16,12 +17,13 @@ export default defineBackground(() => {
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
     if (info.menuItemId !== ANALYZE_MENU_ID || !info.selectionText) return;
-    if (tab?.windowId === undefined) return;
+    if (tab?.windowId === undefined || tab.id === undefined) return;
     // 크롬은 사용자 동작 안에서만 패널을 열 수 있으므로 다른 비동기 작업보다 먼저 연다.
     browser.sidePanel.open({ windowId: tab.windowId });
-    const text = info.selectionText;
-    requestAnalysis(tab.windowId, [
-      { text, selection: { start: 0, end: text.length } },
-    ]);
+    // 고른 범위를 문장으로 넓히고 루비 읽기를 뺀 문장 목록을 패널에 넘긴다(#16).
+    const windowId = tab.windowId;
+    sentencesFromPage(tab.id, info.frameId ?? 0, info.selectionText).then(
+      (sentences) => requestAnalysis(windowId, sentences),
+    );
   });
 });

@@ -7,15 +7,16 @@ design-decisions 28절 14.
 
 import re
 
-# 한자(CJK 통합 한자와 확장, 호환 한자). 々·〆·ヶ는 한자와 함께 있을 때만 루비 안에 들어간다.
-_KANJI = re.compile("[㐀-䶿一-鿿豈-﫿\U00020000-\U0003134f]")
+# 한자(CJK 통합 한자와 확장, 호환 한자)와 한자 숫자 〇(U+3007, 통합 한자 블록 밖).
+# 々·〆·ヶ는 한자와 함께 있을 때만 루비 안에 들어간다.
+_KANJI = re.compile("[\u3007\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f]")
 # 읽기로 받는 글자: 히라가나와 장음
-_HIRAGANA_READING = re.compile("[ぁ-ゖゝゞー]+")
+_HIRAGANA_READING = re.compile("[\u3041-\u3096\u309d\u309e\u30fc]+")
 
 
 def _to_hiragana(text):
     """가타카나(ァ-ヶ 범위)를 히라가나로 바꾼다. 나머지 글자는 그대로다."""
-    return "".join(chr(ord(ch) - 0x60) if "ァ" <= ch <= "ヶ" else ch for ch in text)
+    return "".join(chr(ord(ch) - 0x60) if "\u30a1" <= ch <= "\u30f6" else ch for ch in text)
 
 
 def ruby_pieces(text, morphs):

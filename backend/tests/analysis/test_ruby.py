@@ -53,3 +53,10 @@ def test_reused_analysis_computes_ruby_for_this_original(client, fake_llm):
 
     assert len(fake_llm.requests) == 1
     assert response.json()["ruby"] == [{"start": 2, "end": 3, "reading": "た"}]
+
+
+def test_kanji_zero_gets_ruby(client, fake_llm):
+    # 〇(U+3007)은 CJK 통합 한자 블록 밖에 있지만 한자 숫자다.
+    response = analyze(client, "〇")
+
+    assert response.json()["ruby"] == [{"start": 0, "end": 1, "reading": "れい"}]

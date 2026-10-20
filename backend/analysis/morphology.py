@@ -1,5 +1,6 @@
 import threading
 from functools import cache
+from typing import NamedTuple
 
 from sudachipy import Dictionary, SplitMode
 from sudachipy.errors import SudachiError
@@ -22,8 +23,18 @@ def _tokenizer():
     return _local.tokenizer
 
 
+class Morpheme(NamedTuple):
+    # 위치는 코드포인트 기준 [begin, end)
+    begin: int
+    end: int
+    # 품사 대분류(名詞, 助詞 등)
+    pos: str
+    # SudachiPy 추정 읽기(가타카나). 사전에 없는 말은 표기 그대로일 수 있다.
+    reading: str
+
+
 def morphemes(text):
-    """문장을 형태소로 나눠 [(시작, 끝, 품사 대분류)]를 돌려준다. 위치는 코드포인트 기준이다.
+    """문장을 형태소(Morpheme)로 나눈다.
 
     SudachiPy가 나누지 못하는 입력(49,149바이트 초과 등)은 ANALYSIS:FAILED다.
     """
@@ -33,4 +44,8 @@ def morphemes(text):
         raise BusinessError(AnalysisError.FAILED, "형태소 분석 실패") from e
     # SudachiPy는 입력을 내부에서 바꿔(… → ...) 길이 0인 형태소를 덧붙이기도 한다. 원문에
     # 대응하는 글자가 없어 구간을 만들 수 없으므로 뺀다.
-    return [(m.begin(), m.end(), m.part_of_speech()[0]) for m in tokens if m.begin() < m.end()]
+    return [
+        Morpheme(m.begin(), m.end(), m.part_of_speech()[0], m.reading_form())
+        for m in tokens
+        if m.begin() < m.end()
+    ]

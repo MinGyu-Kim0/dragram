@@ -14,17 +14,24 @@ class FakeLLMClient:
         self.requests = []
         # 응답하기 전에 실행할 일. 호출 도중에 다른 요청이 끼어드는 상황을 만든다.
         self.before_respond = None
+        self.result_given = False
 
-    def analyze(self, sentence, tokens):
+    def analyze_stream(self, sentence, tokens):
+        """실제 클라이언트처럼 번역이 문자열이면 먼저 넘기고, 이어서 응답 전체를 넘긴다."""
         self.requests.append({"sentence": sentence, "tokens": tokens})
         if self.before_respond:
             before_respond, self.before_respond = self.before_respond, None
             before_respond()
         if self.error:
             raise self.error
-        if self.fill_defaults and isinstance(self.response, dict):
-            return {"grammar": [], "words": [], **self.response}
-        return self.response
+        response = self.response
+        if self.fill_defaults and isinstance(response, dict):
+            response = {"grammar": [], "words": [], **response}
+        if isinstance(response, dict) and isinstance(response.get("translation_ko"), str):
+            yield "translation", response["translation_ko"]
+        # 번역을 넘긴 뒤 응답 전체를 넘기기 전까지를 테스트가 볼 수 있게 표시한다.
+        self.result_given = True
+        yield "result", response
 
 
 @pytest.fixture

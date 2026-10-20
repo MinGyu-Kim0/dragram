@@ -14,8 +14,12 @@ def handle_exception(exc, context):
     로그에는 고정 문구와 원인 예외만 남긴다. 원문은 예외에 담지 않으므로 남지 않는다.
     """
     if isinstance(exc, BusinessError):
-        code, status = exc.error_code.code, exc.error_code.status
-        if status >= 500:
-            logger.warning("%s: %s", code, exc, exc_info=exc.__cause__ is not None)
-        return Response({"error": code}, status=status)
+        log_business_error(exc)
+        return Response({"error": exc.error_code.code}, status=exc.error_code.status)
     return exception_handler(exc, context)
+
+
+def log_business_error(exc):
+    """5xx 비즈니스 오류를 남긴다. 스트림 도중의 오류처럼 핸들러를 거치지 않을 때도 쓴다."""
+    if exc.error_code.status >= 500:
+        logger.warning("%s: %s", exc.error_code.code, exc, exc_info=exc.__cause__ is not None)

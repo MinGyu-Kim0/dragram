@@ -1,5 +1,6 @@
 import json
 import re
+from contextlib import closing
 
 from django.conf import settings
 from openai import OpenAI, OpenAIError
@@ -108,7 +109,8 @@ class TranslationFirst:
             raise BusinessError(AnalysisError.FAILED, "LLM 응답이 JSON이 아님") from e
 
 
-# 동기 호출이라 요청 스레드와 사이드 패널을 오래 붙잡지 않게 시간 상한을 둔다(NFR-14).
+# 요청 스레드와 사이드 패널을 오래 붙잡지 않게 시간 상한을 둔다(NFR-14). 스트림에서는 연결과
+# 조각 사이 대기마다 적용된다.
 # 타임아웃 뒤 재시도하면 이미 과금된 요청을 또 보낼 수 있어 재시도하지 않는다.
 TIMEOUT_SECONDS = 30
 MAX_RETRIES = 0
@@ -120,13 +122,16 @@ class OpenAILLMClient:
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
         )
 
-    def analyze(self, sentence, tokens):
-        """구조화된 출력으로 분석을 받는다. 반환값은 검증 전 응답이다.
+    def analyze_stream(self, sentence, tokens):
+        """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을 먼저 넘기고,
+        다 받으면 ("result", 검증 전 응답)을 넘긴다.
 
-        SDK 오류(타임아웃·인증 등)와 JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
+        SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, JSON이 아닌 응답(거절 등)은
+        ANALYSIS:FAILED다.
         """
+        parser = TranslationFirst()
         try:
-            response = self._client.responses.create(
+            stream = self._client.responses.create(
                 model=settings.OPENAI_MODEL,
                 instructions=INSTRUCTIONS,
                 input=json.dumps({"sentence": sentence, "tokens": tokens}, ensure_ascii=False),
@@ -138,13 +143,24 @@ class OpenAILLMClient:
                         "strict": True,
                     }
                 },
+                stream=True,
             )
+            # 사이드 패널이 연결을 끊어 중간에 멈춰도 OpenAI 연결을 닫는다.
+            with closing(stream):
+                for event in stream:
+                    if event.type in _FAILED_EVENTS:
+                        raise BusinessError(AnalysisError.FAILED, f"LLM 스트림 실패: {event.type}")
+                    if event.type == "response.output_text.delta":
+                        translation = parser.feed(event.delta)
+                        if translation is not None:
+                            yield "translation", translation
         except OpenAIError as e:
             raise BusinessError(AnalysisError.FAILED, "LLM 호출 실패") from e
-        try:
-            return json.loads(response.output_text)
-        except json.JSONDecodeError as e:
-            raise BusinessError(AnalysisError.FAILED, "LLM 응답이 JSON이 아님") from e
+        yield "result", parser.result()
+
+
+# 스트림이 실패했거나 끝까지 쓰지 못했음을 알리는 이벤트
+_FAILED_EVENTS = {"error", "response.failed", "response.incomplete"}
 
 
 def get_client():

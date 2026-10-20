@@ -14,18 +14,35 @@ def llm_client(settings):
     return OpenAILLMClient()
 
 
-def respond_with(llm_client, monkeypatch, create):
+def stream_with(llm_client, monkeypatch, create):
     monkeypatch.setattr(llm_client._client.responses, "create", create)
 
 
-def test_structured_output_is_parsed(llm_client, monkeypatch):
-    respond_with(
+def deltas(*texts):
+    """SDK 스트림 이벤트 대신 쓰는 출력 텍스트 조각 이벤트들"""
+    return [SimpleNamespace(type="response.output_text.delta", delta=text) for text in texts]
+
+
+def stream_of(events):
+    """SDK 스트림처럼 close가 있는 이벤트 스트림"""
+    yield from events
+
+
+def test_stream_gives_translation_first_and_then_the_whole_result(llm_client, monkeypatch):
+    stream_with(
         llm_client,
         monkeypatch,
-        lambda **_: SimpleNamespace(output_text='{"translation_ko": "번역", "grammar": []}'),
+        lambda **kwargs: (
+            stream_of(deltas('{"translation_ko": "번역"', ', "grammar": []}'))
+            if kwargs.get("stream")
+            else None
+        ),
     )
 
-    assert llm_client.analyze("文", []) == {"translation_ko": "번역", "grammar": []}
+    assert list(llm_client.analyze_stream("文", [])) == [
+        ("translation", "번역"),
+        ("result", {"translation_ko": "번역", "grammar": []}),
+    ]
 
 
 def test_openai_error_becomes_analysis_failure(llm_client, monkeypatch):
@@ -33,19 +50,48 @@ def test_openai_error_becomes_analysis_failure(llm_client, monkeypatch):
     def fail(**_):
         raise openai.OpenAIError("timeout")
 
-    respond_with(llm_client, monkeypatch, fail)
+    stream_with(llm_client, monkeypatch, fail)
 
     with pytest.raises(BusinessError) as raised:
-        llm_client.analyze("文", [])
+        list(llm_client.analyze_stream("文", []))
+    assert raised.value.error_code == AnalysisError.FAILED
+
+
+def test_openai_error_in_the_middle_of_the_stream_becomes_analysis_failure(llm_client, monkeypatch):
+    def events():
+        yield from deltas('{"translation_ko": "번역"')
+        raise openai.OpenAIError("connection reset")
+
+    stream_with(llm_client, monkeypatch, lambda **_: events())
+
+    stream = llm_client.analyze_stream("文", [])
+    assert next(stream) == ("translation", "번역")
+    with pytest.raises(BusinessError) as raised:
+        next(stream)
+    assert raised.value.error_code == AnalysisError.FAILED
+
+
+@pytest.mark.parametrize("event_type", ["error", "response.failed", "response.incomplete"])
+def test_failed_stream_event_becomes_analysis_failure(llm_client, monkeypatch, event_type):
+    stream_with(
+        llm_client,
+        monkeypatch,
+        lambda **_: stream_of(
+            [*deltas('{"translation_ko": "번역"'), SimpleNamespace(type=event_type)]
+        ),
+    )
+
+    with pytest.raises(BusinessError) as raised:
+        list(llm_client.analyze_stream("文", []))
     assert raised.value.error_code == AnalysisError.FAILED
 
 
 @pytest.mark.parametrize("output_text", ["", "not json"])
 def test_output_that_is_not_json_becomes_analysis_failure(llm_client, monkeypatch, output_text):
-    respond_with(llm_client, monkeypatch, lambda **_: SimpleNamespace(output_text=output_text))
+    stream_with(llm_client, monkeypatch, lambda **_: stream_of(deltas(output_text)))
 
     with pytest.raises(BusinessError) as raised:
-        llm_client.analyze("文", [])
+        list(llm_client.analyze_stream("文", []))
     assert raised.value.error_code == AnalysisError.FAILED
 
 

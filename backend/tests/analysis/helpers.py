@@ -1,7 +1,49 @@
 """분석 API 테스트 도우미."""
 
+import json
+
+
+class Analyzed:
+    """분석 API 응답. 줄 단위 JSON 스트림이면 이벤트를 모두 읽어 둔다.
+
+    json()은 이벤트를 예전 한 번 응답 모양으로 합친다. error 이벤트가 있으면
+    {"error": 코드}다. 스트림을 열기 전에 난 실패는 상태 코드와 JSON 본문 그대로다.
+    """
+
+    def __init__(self, response):
+        self.response = response
+        self.status_code = response.status_code
+        body = (
+            b"".join(response.streaming_content) if response.streaming else response.content
+        ).decode()
+        if response["Content-Type"] == "application/x-ndjson":
+            self.events = [json.loads(line) for line in body.splitlines()]
+            self._json = None
+        else:
+            self.events = None
+            self._json = json.loads(body)
+
+    def json(self):
+        if self.events is None:
+            return self._json
+        for event in self.events:
+            if event["type"] == "error":
+                return {"error": event["error"]}
+        merged = {}
+        for event in self.events:
+            merged.update({key: value for key, value in event.items() if key != "type"})
+        return merged
+
+    def types(self):
+        return [event["type"] for event in self.events]
+
 
 def analyze(client, text):
+    return Analyzed(post(client, text))
+
+
+def post(client, text):
+    """응답을 읽지 않고 돌려준다. 스트림을 조금씩 읽는 테스트에 쓴다."""
     return client.post("/api/analyses/", {"text": text}, content_type="application/json")
 
 

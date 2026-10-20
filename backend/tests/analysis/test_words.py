@@ -46,7 +46,7 @@ def test_llm_response_without_words_fails(client, fake_llm):
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
 
 
@@ -81,7 +81,7 @@ def test_invalid_words_fail_the_sentence_and_are_not_stored(client, fake_llm, wo
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
 
 
@@ -93,7 +93,7 @@ def test_word_meaning_quoting_whole_sentence_fails_and_is_not_stored(client, fak
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
 
 
@@ -176,7 +176,7 @@ def test_word_meaning_quoting_whole_sentence_with_separators_fails(client, fake_
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
 
 
@@ -234,5 +234,5 @@ def test_reading_with_number_placeholder_fails(client, fake_llm):
 
     response = analyze(client, "3人で行く")
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0

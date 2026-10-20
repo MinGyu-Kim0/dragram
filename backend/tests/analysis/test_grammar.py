@@ -177,7 +177,7 @@ def test_invalid_grammar_fails_the_sentence_and_is_not_stored(client, fake_llm, 
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
 
 
@@ -203,7 +203,7 @@ def test_grammar_text_quoting_whole_sentence_fails_and_is_not_stored(
 
     response = analyze(client, sentence)
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
 
 
@@ -223,7 +223,7 @@ def test_grammar_spanning_whole_sentence_may_not_quote_it(client, fake_llm):
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
 
 
@@ -253,7 +253,7 @@ def test_llm_response_without_grammar_fails(client, fake_llm):
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
 
 
 def test_sentence_of_only_symbols_is_not_treated_as_quoted(client, fake_llm):

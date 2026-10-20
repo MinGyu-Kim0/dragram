@@ -66,22 +66,29 @@ export async function analyzeSentence(
   });
   if (!response.ok || !response.body) throw new AnalysisFailed();
   let translation: Translation | undefined;
-  for await (const event of ndjsonEvents(response.body)) {
-    if (event.type === "translation") {
-      translation = { translation_ko: event.translation_ko, ruby: event.ruby };
-      onTranslation(translation);
-    } else if (event.type === "analysis") {
-      return {
-        translation_ko: event.translation_ko,
-        grammar: event.grammar,
-        words: event.words,
-        ruby: translation?.ruby ?? [],
-      };
-    } else {
-      break;
+  try {
+    for await (const event of ndjsonEvents(response.body)) {
+      if (event.type === "translation") {
+        translation = {
+          translation_ko: event.translation_ko,
+          ruby: event.ruby,
+        };
+        onTranslation(translation);
+      } else if (event.type === "analysis") {
+        return {
+          translation_ko: event.translation_ko,
+          grammar: event.grammar,
+          words: event.words,
+          ruby: translation?.ruby ?? [],
+        };
+      } else {
+        break;
+      }
     }
+  } catch {
+    // 연결이 끊기거나 줄이 JSON이 아니어도 이미 받은 번역은 남긴다.
   }
-  // error 이벤트를 받았거나 analysis 전에 스트림이 끝났다.
+  // error 이벤트를 받았거나, analysis 전에 스트림이 끝났거나 끊겼다.
   throw new AnalysisFailed(translation);
 }
 

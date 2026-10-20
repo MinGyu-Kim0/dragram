@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { analyzeSentence } from "./api";
+import { AnalysisFailed, analyzeSentence } from "./api";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -45,4 +45,38 @@ test("줄과 글자가 조각 경계에서 잘려 와도 이벤트를 읽는다"
 
   expect(translations).toEqual(["학생"]);
   expect(analysis.translation_ko).toBe("학생");
+});
+
+test("번역을 받은 뒤 스트림이 끊기면 받은 번역과 함께 실패한다", async () => {
+  const line = JSON.stringify({
+    type: "translation",
+    translation_ko: "학생",
+    ruby: [],
+  });
+  let sent = false;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response(
+        // 첫 조각을 읽힌 다음 읽기에서 연결이 끊긴다. 오류를 바로 내면 읽지 않은
+        // 조각까지 버려지므로 읽을 때마다 하나씩 준다.
+        new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (sent) {
+              controller.error(new TypeError("network error"));
+            } else {
+              sent = true;
+              controller.enqueue(new TextEncoder().encode(line + "\n"));
+            }
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+      ),
+    ),
+  );
+
+  const failure = await analyzeSentence("学生", () => {}).catch((e) => e);
+
+  expect(failure).toBeInstanceOf(AnalysisFailed);
+  expect(failure.translation).toEqual({ translation_ko: "학생", ruby: [] });
 });

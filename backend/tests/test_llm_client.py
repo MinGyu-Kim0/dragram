@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import openai
 import pytest
 
-from analysis.llm import OpenAILLMClient, TranslationFirst
+from analysis.llm import OpenAILLMClient, TranslationFirstParser
 from errors import AnalysisError, BusinessError
 
 
@@ -107,7 +107,7 @@ def feed_all(parser, chunks):
 
 
 def test_translation_comes_out_as_soon_as_its_string_closes():
-    parser = TranslationFirst()
+    parser = TranslationFirstParser()
     chunks = ['{"transla', 'tion_ko": "나는 ', '학생입니다."', ', "grammar": [', "]}"]
 
     assert feed_all(parser, chunks) == (2, "나는 학생입니다.")
@@ -115,7 +115,7 @@ def test_translation_comes_out_as_soon_as_its_string_closes():
 
 
 def test_escaped_quote_does_not_end_the_translation_early():
-    parser = TranslationFirst()
+    parser = TranslationFirstParser()
     # 조각이 이스케이프 가운데(\ 와 ")에서 끊긴다.
     chunks = ['{"translation_ko": "그는 \\', '"간다\\"', ' \\u3042"', ', "words": []}']
 
@@ -123,9 +123,17 @@ def test_escaped_quote_does_not_end_the_translation_early():
 
 
 def test_result_that_is_not_json_becomes_analysis_failure():
-    parser = TranslationFirst()
+    parser = TranslationFirstParser()
     parser.feed('{"translation_ko": "번역", "gram')
 
     with pytest.raises(BusinessError) as raised:
         parser.result()
+    assert raised.value.error_code == AnalysisError.FAILED
+
+
+def test_translation_with_invalid_escape_becomes_analysis_failure():
+    parser = TranslationFirstParser()
+
+    with pytest.raises(BusinessError) as raised:
+        parser.feed('{"translation_ko": "잘못된 \\x 이스케이프"')
     assert raised.value.error_code == AnalysisError.FAILED

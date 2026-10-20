@@ -83,7 +83,7 @@ RESPONSE_SCHEMA = {
 _TRANSLATION_HEAD = re.compile(r'\A\s*\{\s*"translation_ko"\s*:\s*("(?:[^"\\]|\\.)*")')
 
 
-class TranslationFirst:
+class TranslationFirstParser:
     """구조화 출력 JSON 조각을 이어 받아, translation_ko가 끝나는 대로 먼저 꺼낸다."""
 
     def __init__(self):
@@ -99,7 +99,11 @@ class TranslationFirst:
         if not head:
             return None
         self._translation_found = True
-        return json.loads(head.group(1))
+        try:
+            return json.loads(head.group(1))
+        except json.JSONDecodeError as e:
+            # 정규식은 JSON이 허용하지 않는 이스케이프(\x 등)도 지나보낸다.
+            raise BusinessError(AnalysisError.FAILED, "LLM 번역이 JSON 문자열이 아님") from e
 
     def result(self):
         """다 받은 응답. JSON이 아니면(거절, 끊긴 응답 등) ANALYSIS:FAILED다."""
@@ -116,6 +120,10 @@ TIMEOUT_SECONDS = 30
 MAX_RETRIES = 0
 
 
+# 스트림이 실패했거나 끝까지 쓰지 못했음을 알리는 이벤트
+_FAILED_EVENTS = {"error", "response.failed", "response.incomplete"}
+
+
 class OpenAILLMClient:
     def __init__(self):
         self._client = OpenAI(
@@ -129,7 +137,7 @@ class OpenAILLMClient:
         SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, JSON이 아닌 응답(거절 등)은
         ANALYSIS:FAILED다.
         """
-        parser = TranslationFirst()
+        parser = TranslationFirstParser()
         try:
             stream = self._client.responses.create(
                 model=settings.OPENAI_MODEL,
@@ -157,10 +165,6 @@ class OpenAILLMClient:
         except OpenAIError as e:
             raise BusinessError(AnalysisError.FAILED, "LLM 호출 실패") from e
         yield "result", parser.result()
-
-
-# 스트림이 실패했거나 끝까지 쓰지 못했음을 알리는 이벤트
-_FAILED_EVENTS = {"error", "response.failed", "response.incomplete"}
 
 
 def get_client():

@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from contextlib import closing
 
 from django.conf import settings
@@ -117,6 +118,9 @@ class TranslationFirstParser:
 # 조각 사이 대기마다 적용된다.
 # 타임아웃 뒤 재시도하면 이미 과금된 요청을 또 보낼 수 있어 재시도하지 않는다.
 TIMEOUT_SECONDS = 30
+# 조각이 계속 오면 위 상한에 걸리지 않으므로 스트림 전체에도 상한을 둔다. 운영 Gunicorn
+# 작업자 타임아웃(Dockerfile)은 이 상한과 조각 대기 상한을 더한 것보다 길어야 한다.
+STREAM_DEADLINE_SECONDS = 60
 MAX_RETRIES = 0
 
 
@@ -134,10 +138,11 @@ class OpenAILLMClient:
         """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을 먼저 넘기고,
         다 받으면 ("result", 검증 전 응답)을 넘긴다.
 
-        SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, JSON이 아닌 응답(거절 등)은
-        ANALYSIS:FAILED다.
+        SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
+        응답(거절 등)은 ANALYSIS:FAILED다.
         """
         parser = TranslationFirstParser()
+        deadline = time.monotonic() + STREAM_DEADLINE_SECONDS
         try:
             stream = self._client.responses.create(
                 model=settings.OPENAI_MODEL,
@@ -156,6 +161,8 @@ class OpenAILLMClient:
             # 사이드 패널이 연결을 끊어 중간에 멈춰도 OpenAI 연결을 닫는다.
             with closing(stream):
                 for event in stream:
+                    if time.monotonic() > deadline:
+                        raise BusinessError(AnalysisError.FAILED, "LLM 스트림 전체 시간 초과")
                     if event.type in _FAILED_EVENTS:
                         raise BusinessError(AnalysisError.FAILED, f"LLM 스트림 실패: {event.type}")
                     if event.type == "response.output_text.delta":

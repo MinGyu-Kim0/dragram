@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import openai
 import pytest
 
+from analysis import llm
 from analysis.llm import OpenAILLMClient, TranslationFirstParser
 from errors import AnalysisError, BusinessError
 
@@ -136,4 +137,21 @@ def test_translation_with_invalid_escape_becomes_analysis_failure():
 
     with pytest.raises(BusinessError) as raised:
         parser.feed('{"translation_ko": "잘못된 \\x 이스케이프"')
+    assert raised.value.error_code == AnalysisError.FAILED
+
+
+def test_stream_longer_than_the_total_deadline_becomes_analysis_failure(llm_client, monkeypatch):
+    # 조각이 계속 와서 조각 사이 타임아웃에는 걸리지 않아도 전체 시간 상한에서 멈춘다.
+    now = iter(range(0, 1000, 25))
+    monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
+    stream_with(
+        llm_client,
+        monkeypatch,
+        lambda **_: stream_of(deltas('{"translation_ko": "번역"', *[" "] * 10, "}")),
+    )
+
+    stream = llm_client.analyze_stream("文", [])
+    assert next(stream) == ("translation", "번역")
+    with pytest.raises(BusinessError) as raised:
+        next(stream)
     assert raised.value.error_code == AnalysisError.FAILED

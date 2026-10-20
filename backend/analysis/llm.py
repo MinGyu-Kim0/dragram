@@ -19,9 +19,11 @@ For each span give its span_id and a verdict:
 - "usage": one candidate explains the span with the same reading as your translation. Give its
   candidate_id.
 - "not_applicable": there is no grammar to learn at that place (for example の inside a name).
-- "unfound": the span has grammar to learn but no candidate explains it.
-Use null for candidate_id unless the verdict is "usage". Use only candidate ids given for
-that span.
+- "unfound": the span has grammar to learn but no candidate explains it. Give new_usage: the
+  usage that explains it, which will be added to the same pattern, with usage_name,
+  explanation_ko and example_ja written as described for new_patterns below.
+Use null for candidate_id unless the verdict is "usage", and null for new_usage unless the
+verdict is "unfound". Use only candidate ids given for that span.
 
 In new_patterns, list grammar points of the sentence that no span explains: particles,
 auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
@@ -75,8 +77,23 @@ RESPONSE_SCHEMA = {
                     "span_id": {"type": "integer"},
                     "verdict": {"type": "string", "enum": list(SPAN_VERDICTS)},
                     "candidate_id": {"type": ["integer", "null"]},
+                    "new_usage": {
+                        "anyOf": [
+                            {
+                                "type": "object",
+                                "properties": {
+                                    "usage_name": {"type": "string"},
+                                    "explanation_ko": {"type": "string"},
+                                    "example_ja": {"type": "string"},
+                                },
+                                "required": ["usage_name", "explanation_ko", "example_ja"],
+                                "additionalProperties": False,
+                            },
+                            {"type": "null"},
+                        ]
+                    },
                 },
-                "required": ["span_id", "verdict", "candidate_id"],
+                "required": ["span_id", "verdict", "candidate_id", "new_usage"],
                 "additionalProperties": False,
             },
         },

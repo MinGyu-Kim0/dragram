@@ -52,7 +52,8 @@ def _is_token_id(value, token_count):
 def _validate_span_answers(answers, spans):
     """LLM이 후보 구간마다 낸 판정을 검증한다. 하나라도 틀리거나 빠지면 None.
 
-    구간마다 (판정 상태, 고른 용법)을 돌려준다. 용법은 그 구간에 준 후보 안에서만 고를 수 있다.
+    구간마다 (판정 상태, 고른 용법, 새 용법)을 돌려준다. 용법은 그 구간에 준 후보 안에서만 고를
+    수 있다. 미발견이면 그 패턴 아래 더할 새 용법(이름·설명·예문)이 있어야 한다.
     """
     if not isinstance(answers, list):
         return None
@@ -70,11 +71,14 @@ def _validate_span_answers(answers, spans):
             usage = dict(spans[span_id].candidates).get(candidate_id)
             if type(candidate_id) is not int or usage is None:
                 return None
-            judged[span_id] = (SpanMatch.State.DECIDED, usage)
+            judged[span_id] = (SpanMatch.State.DECIDED, usage, None)
         elif verdict == "not_applicable":
-            judged[span_id] = (SpanMatch.State.NOT_APPLICABLE, None)
+            judged[span_id] = (SpanMatch.State.NOT_APPLICABLE, None, None)
         elif verdict == "unfound":
-            judged[span_id] = (SpanMatch.State.UNFOUND, None)
+            new_usage = item.get("new_usage")
+            if not isinstance(new_usage, dict) or not _are_new_texts(new_usage, ("usage_name",)):
+                return None
+            judged[span_id] = (SpanMatch.State.UNFOUND, None, new_usage)
         else:
             return None
     if len(judged) != len(spans):
@@ -86,6 +90,18 @@ def _validate_span_answers(answers, spans):
 _NEW_PATTERN_TEXTS = ("pattern_name", "usage_name", "explanation_ko")
 # grammar_pattern.name·grammar_usage.name 칸 길이. 넘으면 저장할 때 DB 오류가 난다.
 _NAME_LENGTH = 255
+
+
+def _are_new_texts(item, names):
+    """새 패턴·용법의 이름(names)·설명·예문을 검증한다."""
+    if not all(_is_text(item.get(field)) for field in (*names, "explanation_ko", "example_ja")):
+        return False
+    # 용법은 모든 문장이 함께 써서 이 문장의 숫자로 되돌릴 수 없으므로 자리표시자를 받지 않는다.
+    if not all(
+        has_only_known_placeholders(item[field], ()) for field in (*names, "explanation_ko")
+    ):
+        return False
+    return all(len(item[field]) <= _NAME_LENGTH for field in names)
 
 
 def _validate_new_patterns(items, token_count):
@@ -107,15 +123,9 @@ def _validate_new_patterns(items, token_count):
                 return None
             if token.get("fix") not in llm.TOKEN_FIXES:
                 return None
+        if not _are_new_texts(item, ("pattern_name", "usage_name")):
+            return None
         fields = (*_NEW_PATTERN_TEXTS, "example_ja")
-        if not all(_is_text(item.get(field)) for field in fields):
-            return None
-        # 용법은 모든 문장이 함께 써서 이 문장의 숫자로 되돌릴 수 없으므로 자리표시자를 받지
-        # 않는다.
-        if not all(has_only_known_placeholders(item[field], ()) for field in _NEW_PATTERN_TEXTS):
-            return None
-        if len(item["pattern_name"]) > _NAME_LENGTH or len(item["usage_name"]) > _NAME_LENGTH:
-            return None
         proposals.append(
             {
                 "tokens": [(token["token_id"], token["fix"]) for token in tokens],
@@ -448,8 +458,18 @@ def analyze(request):
         보이지 않는다.
         """
         rows = []
-        for span, (state, usage) in zip(spans, validated["spans"], strict=True):
+        for span, (state, usage, new_usage) in zip(spans, validated["spans"], strict=True):
             start, end = key_span(span.start_token, span.end_token)
+            if new_usage is not None:
+                # 기존 용법으로 설명되지 않는 구간이라 같은 패턴 아래 새 용법을 더한다.
+                example = _checked_example(
+                    new_usage["example_ja"], span.conditions, key_text, content_tokens
+                )
+                usage = patterns.add_usage(
+                    span.pattern, new_usage["usage_name"], new_usage["explanation_ko"], example
+                )
+                if usage is not None:
+                    state = SpanMatch.State.DECIDED
             rows.append(
                 SpanMatch(
                     analysis=saved,
@@ -510,6 +530,12 @@ def analyze(request):
         draft = {"words": _stored_words(validated["words"], morphs, offsets)}
         llm_texts = [
             item[field] for item in validated["new_patterns"] for field in _NEW_PATTERN_TEXTS
+        ]
+        llm_texts += [
+            new_usage[field]
+            for _, _, new_usage in validated["spans"]
+            if new_usage is not None
+            for field in ("usage_name", "explanation_ko")
         ]
         llm_texts += [item[field] for item in validated["words"] for field in _WORD_TEXTS]
         if _quotes_whole_sentence(llm_texts, key_text, content_tokens):

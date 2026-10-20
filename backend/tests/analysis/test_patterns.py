@@ -11,7 +11,7 @@ from analysis.models import (
     SentenceAnalysis,
     SpanMatch,
 )
-from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -78,7 +78,7 @@ def test_same_grammar_in_another_sentence_is_offered_as_candidate_and_reused(cli
     assert GrammarPattern.objects.count() == 1
 
 
-@pytest.mark.parametrize(("verdict", "candidate_id"), [("not_applicable", None), ("unfound", None)])
+@pytest.mark.parametrize(("verdict", "candidate_id"), [("not_applicable", None)])
 def test_span_without_chosen_usage_is_not_shown(client, fake_llm, verdict, candidate_id):
     register_teiru(client, fake_llm)
     fake_llm.response = {
@@ -409,3 +409,106 @@ def test_other_voiced_auxiliaries_after_sound_change_match_unvoiced_patterns(
     analyze(client, sentence)
 
     assert len(fake_llm.requests[1]["spans"]) == 1
+
+
+def register_nagara(client, fake_llm):
+    # 토큰: 0 歩き / 1 ながら
+    fake_llm.response = {
+        "translation_ko": "걸으면서",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                pattern_name="ながら",
+                usage_name="동시 동작",
+                explanation_ko="두 동작을 함께 한다",
+                example_ja="音楽を聞きながら歩く",
+            )
+        ],
+    }
+    analyze(client, "歩きながら")
+
+
+def test_unfound_span_adds_new_usage_under_the_same_pattern(client, fake_llm):
+    register_nagara(client, fake_llm)
+    # 토큰: 0 知っ / 1 て / 2 い / 3 ながら. 동시 동작으로는 설명되지 않는 역접
+    fake_llm.response = {
+        "translation_ko": "알면서도",
+        "spans": [span_answer(0, "unfound", new_usage=new_usage())],
+    }
+
+    response = analyze(client, "知っていながら")
+
+    assert response.json()["grammar"] == [
+        {
+            "start": 4,
+            "end": 7,
+            "name": "역접",
+            "explanation_ko": "앞 내용과 반대되는 뒤 내용을 잇는다",
+            "review_status": "pending",
+        }
+    ]
+    assert GrammarPattern.objects.count() == 1
+    usage = GrammarUsage.objects.get(name="역접")
+    assert (usage.status, usage.origin, usage.example_ja) == ("pending", "llm", "狭いながら快適だ")
+    assert usage.pattern == GrammarPattern.objects.get()
+
+    # 다음 문장에는 두 용법이 모두 후보로 간다.
+    analyze(client, "食べながら")
+    candidates = fake_llm.requests[-1]["spans"][0]["candidates"]
+    assert [c["name"] for c in candidates] == ["동시 동작", "역접"]
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        "not an object",
+        new_usage(usage_name=""),
+        new_usage(explanation_ko=" "),
+        new_usage(example_ja=None),
+        new_usage(usage_name="⟨N1⟩"),
+        new_usage(explanation_ko="⟨N1⟩번"),
+        new_usage(usage_name="역" * 256),
+        # 문장 전체를 인용한 설명
+        new_usage(explanation_ko="知っていながら에서 역접"),
+    ],
+)
+def test_invalid_new_usage_fails_and_nothing_is_stored(client, fake_llm, usage):
+    register_nagara(client, fake_llm)
+    fake_llm.response = {
+        "translation_ko": "알면서도",
+        "spans": [span_answer(0, "unfound", new_usage=usage)],
+    }
+
+    response = analyze(client, "知っていながら")
+
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
+    assert GrammarUsage.objects.count() == 1
+    assert SentenceAnalysis.objects.count() == 1
+
+
+def test_new_usage_with_existing_name_is_not_added(client, fake_llm):
+    register_nagara(client, fake_llm)
+    fake_llm.response = {
+        "translation_ko": "알면서도",
+        "spans": [span_answer(0, "unfound", new_usage=new_usage(usage_name="동시 동작"))],
+    }
+
+    response = analyze(client, "知っていながら")
+
+    assert response.json()["grammar"] == []
+    assert GrammarUsage.objects.count() == 1
+    assert SpanMatch.objects.filter(state="unfound").count() == 1
+
+
+@pytest.mark.parametrize("example_ja", ["知っていながら", "彼は知っていながら黙った", "狭い部屋だ"])
+def test_new_usage_with_rejected_example_is_added_without_example(client, fake_llm, example_ja):
+    register_nagara(client, fake_llm)
+    fake_llm.response = {
+        "translation_ko": "알면서도",
+        "spans": [span_answer(0, "unfound", new_usage=new_usage(example_ja=example_ja))],
+    }
+
+    analyze(client, "知っていながら")
+
+    assert GrammarUsage.objects.get(name="역접").example_ja is None

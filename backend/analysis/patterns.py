@@ -7,6 +7,7 @@
 import hashlib
 from typing import NamedTuple
 
+from django.db import IntegrityError, transaction
 from django.db.models import F, Prefetch
 from django.utils import timezone
 
@@ -62,6 +63,7 @@ class Span(NamedTuple):
     """등록된 패턴에 걸린 구간. candidates는 (후보 ID, 용법)이다."""
 
     pattern: GrammarPattern
+    conditions: list
     start_token: int
     end_token: int
     candidates: list
@@ -91,7 +93,7 @@ def candidate_spans(morphs):
         for start in match_starts(conditions, morphs):
             candidates = [(next_id + i, usage) for i, usage in enumerate(usages)]
             next_id += len(usages)
-            spans.append(Span(pattern, start, start + len(conditions) - 1, candidates))
+            spans.append(Span(pattern, conditions, start, start + len(conditions) - 1, candidates))
     return spans
 
 
@@ -131,3 +133,23 @@ def raise_pattern_set_version():
     PatternSetVersion.objects.filter(id=1).update(
         version=F("version") + 1, updated_at=timezone.now()
     )
+
+
+def add_usage(pattern, name, explanation_ko, example_ja):
+    """기존 패턴 아래 새 용법을 미검수로 더한다. 같은 이름의 용법이 이미 있으면 None.
+
+    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 연다.
+    """
+    try:
+        # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
+        with transaction.atomic():
+            return GrammarUsage.objects.create(
+                pattern=pattern,
+                name=name,
+                explanation_ko=explanation_ko,
+                example_ja=example_ja,
+                status=ReviewStatus.PENDING,
+                origin=GrammarUsage.Origin.LLM,
+            )
+    except IntegrityError:
+        return None

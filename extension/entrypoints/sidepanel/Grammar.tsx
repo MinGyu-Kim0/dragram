@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import type { GrammarItem } from "@/utils/api";
+import type { GrammarItem, RubyItem } from "@/utils/api";
 import { draggedFirst, type DragRange } from "./drag-range";
 
 // 형광펜은 4색을 돌아가며 쓴다(DESIGN.md 형광펜). 원문 형광펜과 카드 칩이 같은 색이다.
@@ -17,15 +17,17 @@ function sortGrammar(grammar: GrammarItem[]): GrammarItem[] {
 // 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다
 // (겹침 표시 방식은 DESIGN.md 7장에서 아직 정하지 않았다).
 // 실제로 드래그한 범위는 형광펜과 다른 층으로, 시작·끝 자리에 핸들만 끼워 넣는다(DESIGN.md).
-// 핸들을 끄면 dragHandles가 undefined다.
+// 핸들을 끄면 dragHandles가 undefined다. 루비는 형광펜 안에 단다(끄면 빈 목록).
 // 형광펜을 범위 경계에서 쪼개면 조각마다 여백과 모서리가 생기므로 형광펜 안에 넣는다.
 export function HighlightedText({
   text,
   grammar,
+  ruby,
   dragHandles,
 }: {
   text: string;
   grammar: GrammarItem[];
+  ruby: RubyItem[];
   dragHandles: DragRange | undefined;
 }) {
   const sorted = sortGrammar(grammar);
@@ -41,9 +43,7 @@ export function HighlightedText({
     <>
       {bounds.slice(0, -1).map((start, i) => {
         const end = bounds[i + 1]!;
-        const segment = dragHandles
-          ? withHandles(text, start, end, dragHandles)
-          : text.slice(start, end);
+        const segment = withRuby(text, start, end, ruby, dragHandles);
         const index = sorted.findIndex(
           (item) => item.start <= start && end <= item.end,
         );
@@ -58,30 +58,72 @@ export function HighlightedText({
   );
 }
 
-// 원문 [start, end) 글자에 드래그 핸들을 끼워 넣는다. 시작 핸들은 범위 첫 글자가 있는
-// 조각에, 끝 핸들은 범위 마지막 글자가 있는 조각에 붙는다. 빈 범위에는 붙이지 않는다.
+// 원문 [start, end)에 그 안에 다 들어가는 루비를 단다. 나머지 글자에는 드래그 핸들을
+// 제자리에 끼워 넣고, 핸들이 루비 단어 안에 걸리면 단어 바깥(시작은 앞, 끝은 뒤)에 붙인다.
+function withRuby(
+  text: string,
+  start: number,
+  end: number,
+  ruby: RubyItem[],
+  handles: DragRange | undefined,
+): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let at = start;
+  for (const piece of [...ruby].sort((a, b) => a.start - b.start)) {
+    if (piece.start < at || end < piece.end) continue;
+    nodes.push(...withHandles(text, at, piece.start, handles));
+    const [startHere, endHere] = handlesIn(piece.start, piece.end, handles);
+    if (startHere) nodes.push(handle("start"));
+    nodes.push(
+      <ruby key={`ruby-${piece.start}`}>
+        {text.slice(piece.start, piece.end)}
+        <rt>{piece.reading}</rt>
+      </ruby>,
+    );
+    if (endHere) nodes.push(handle("end"));
+    at = piece.end;
+  }
+  nodes.push(...withHandles(text, at, end, handles));
+  return nodes;
+}
+
+// 원문 [start, end)에 시작·끝 핸들이 들어가는가. 시작 핸들은 범위 첫 글자가 있는 곳에,
+// 끝 핸들은 범위 마지막 글자가 있는 곳에 들어간다. 빈 범위에는 핸들이 없다.
+function handlesIn(
+  start: number,
+  end: number,
+  handles: DragRange | undefined,
+): [boolean, boolean] {
+  if (!handles || handles.start >= handles.end) return [false, false];
+  return [
+    start <= handles.start && handles.start < end,
+    start < handles.end && handles.end <= end,
+  ];
+}
+
+function handle(kind: "start" | "end") {
+  return (
+    <span key={kind} aria-hidden="true" className={`drag-handle-${kind}`} />
+  );
+}
+
+// 원문 [start, end) 글자의 핸들 자리에 핸들을 끼워 넣는다.
 function withHandles(
   text: string,
   start: number,
   end: number,
-  selection: DragRange,
+  handles: DragRange | undefined,
 ): ReactNode[] {
-  if (selection.start >= selection.end) return [text.slice(start, end)];
+  const [startHere, endHere] = handlesIn(start, end, handles);
   const nodes: ReactNode[] = [];
   let at = start;
-  if (start <= selection.start && selection.start < end) {
-    nodes.push(text.slice(at, selection.start));
-    nodes.push(
-      <span key="start" aria-hidden="true" className="drag-handle-start" />,
-    );
-    at = selection.start;
+  if (startHere) {
+    nodes.push(text.slice(at, handles!.start), handle("start"));
+    at = handles!.start;
   }
-  if (start < selection.end && selection.end <= end) {
-    nodes.push(text.slice(at, selection.end));
-    nodes.push(
-      <span key="end" aria-hidden="true" className="drag-handle-end" />,
-    );
-    at = selection.end;
+  if (endHere) {
+    nodes.push(text.slice(at, handles!.end), handle("end"));
+    at = handles!.end;
   }
   nodes.push(text.slice(at, end));
   return nodes.filter((node) => node !== "");

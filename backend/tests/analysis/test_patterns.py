@@ -279,6 +279,20 @@ def test_example_may_contain_sentence_of_single_token(client, fake_llm):
     assert GrammarPattern.objects.get().is_active
 
 
+@pytest.mark.parametrize("example_ja", ["です", "です。", "「です」"])
+def test_example_same_as_sentence_of_single_token_is_rejected(client, fake_llm, example_ja):
+    # 형태소가 하나여도 원문 그대로인 예문은 새로 쓴 문장이 아니다. 토큰: 0 です
+    fake_llm.response = {
+        "translation_ko": "입니다",
+        "new_patterns": [new_pattern((0, "lemma"), pattern_name="です", example_ja=example_ja)],
+    }
+
+    analyze(client, "です")
+
+    assert not GrammarPattern.objects.get().is_active
+    assert GrammarUsage.objects.get().example_ja is None
+
+
 def test_pattern_conditions_follow_lemma_rules(client, fake_llm):
     # 토큰: 0 食べ / 1 たら. 조동사는 원형(た), 내용어는 정규형, 활용형은 form일 때만 둔다.
     fake_llm.response = {

@@ -221,8 +221,12 @@ def _checked_example(example, conditions, key_text, content_tokens):
     if not text:
         return None
     pieces, _ = key_pieces(text)
-    # 원문 키 텍스트 전체를 포함하면 베낀 것이다(문장 인용과 같은 비교).
-    if _quotes_whole_sentence(["".join(pieces)], key_text, content_tokens):
+    example_key = "".join(pieces)
+    # 원문 키 텍스트와 같거나 전체를 포함하면 베낀 것이다(문장 인용과 같은 비교). 형태소가
+    # 하나뿐인 원문은 포함만 허용하고, 원문 그대로인 예문은 형태소 수와 상관없이 거부한다.
+    if _letters(example_key) == _letters(key_text):
+        return None
+    if _quotes_whole_sentence([example_key], key_text, content_tokens):
         return None
     if not patterns.match_starts(conditions, morphemes(text)):
         return None

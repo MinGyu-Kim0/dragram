@@ -4,8 +4,8 @@ from django.db import models
 class SentenceAnalysis(models.Model):
     """공용 문장 분석. 원문은 저장하지 않고 키 텍스트 해시로만 찾는다(docs/schema/schema.md).
 
-    테스트 단계용으로 필요한 칼럼만 둔다. 본 구현을 시작할 때 마이그레이션을 다시 만든다
-    (design-decisions 28절 12).
+    지금 쓰는 칼럼만 둔다. 나머지 칼럼은 쓰는 티켓에서 일반 마이그레이션으로 더한다
+    (design-decisions 32절 7).
     """
 
     class Status(models.TextChoices):

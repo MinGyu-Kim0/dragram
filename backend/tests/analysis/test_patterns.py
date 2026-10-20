@@ -297,7 +297,7 @@ def test_same_pattern_proposed_twice_in_one_sentence_is_registered_once_and_show
     # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる (lemma 고정이라 い와 いる는 같은 居る)
     fake_llm.response = {
         "translation_ko": "번역",
-        "new_patterns": [TEIRU, new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
+        "new_patterns": [TEIRU, new_pattern((3, "lemma"), (4, "lemma"))],
     }
 
     response = analyze(client, "走っていている")
@@ -305,12 +305,58 @@ def test_same_pattern_proposed_twice_in_one_sentence_is_registered_once_and_show
     assert GrammarPattern.objects.count() == 1
     assert GrammarUsage.objects.count() == 1
     assert fake_llm.rejudge_requests == []
-    # 두 자리 모두 처음 등록한 용법으로 보인다.
+    # 용법 이름이 같으므로 두 자리 모두 처음 등록한 용법으로 보인다.
     grammar = response.json()["grammar"]
     assert [(item["start"], item["end"], item["name"]) for item in grammar] == [
         (2, 4, "진행"),
         (4, 7, "진행"),
     ]
+
+
+def test_same_pattern_with_different_usages_in_one_sentence_keeps_both_usages(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる. 같은 조건이 다른 용법으로 두 번 나온다.
+    fake_llm.response = {
+        "translation_ko": "번역",
+        "new_patterns": [
+            TEIRU,
+            new_pattern(
+                (3, "lemma"),
+                (4, "lemma"),
+                usage_name="결과 상태",
+                explanation_ko="동작의 결과가 남아 있다",
+                example_ja="窓が開いている",
+            ),
+        ],
+    }
+
+    response = analyze(client, "走っていている")
+
+    assert GrammarPattern.objects.count() == 1
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행", "결과 상태"]
+    assert GrammarUsage.objects.count() == 2
+
+
+def test_same_new_grammar_proposed_twice_at_same_place_is_one_span(client, fake_llm):
+    fake_llm.response = {"translation_ko": "달리고 있다", "new_patterns": [TEIRU, TEIRU]}
+
+    response = analyze(client, "走っている")
+
+    assert len(response.json()["grammar"]) == 1
+    assert SpanMatch.objects.count() == 1
+    assert GrammarUsage.objects.count() == 1
+
+
+def test_existing_grammar_proposed_twice_at_same_place_is_asked_once(client, fake_llm):
+    register_teiru(client, fake_llm, example_ja="走っている")
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる
+    teiru = new_pattern((3, "lemma"), (4, "lemma"))
+    fake_llm.response = {"translation_ko": "그가 와 있다", "new_patterns": [teiru, teiru]}
+    fake_llm.rejudge_response = {"spans": [span_answer(0, "usage", 1)]}
+
+    response = analyze(client, "彼が来ている")
+
+    assert len(fake_llm.rejudge_requests[0]["spans"]) == 1
+    assert len(response.json()["grammar"]) == 1
 
 
 def test_sentence_saved_by_another_request_is_not_asked_again(client, fake_llm):

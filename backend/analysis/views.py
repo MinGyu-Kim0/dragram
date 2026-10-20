@@ -461,18 +461,20 @@ def analyze(request):
         return to_key(offsets, morphs[start_token].begin, morphs[end_token].end)
 
     def prepare(validated):
-        """새 구문마다 형태소 조건을 만든다. 패턴 생성 규칙을 어겼거나, 같은 자리에서 이미 판정한
-        후보 구간의 패턴이면 None이다. 판정할 후보 구간도 함께 둔다.
+        """새 구문마다 형태소 조건을 만든다. 패턴 생성 규칙을 어겼으면 None이다. 같은 자리에서
+        이미 판정한 후보 구간이나 앞서 낸 새 구문과 패턴이 같은 제안은 같은 구간이므로 뺀다.
+        판정할 후보 구간도 함께 둔다.
         """
-        judged = {(span.pattern.morpheme_key, span.start_token) for span in spans}
+        # morpheme_key가 같으면 토큰 수도 같으므로 (key, 시작 토큰)이 같으면 같은 구간이다.
+        placed = {(span.pattern.morpheme_key, span.start_token) for span in spans}
         new_patterns = []
         for proposal in validated["new_patterns"]:
             conditions = _new_pattern_conditions(proposal["tokens"], morphs, overlaps_number)
             if conditions is not None:
-                key = patterns.morpheme_key(conditions)
-                start = proposal["tokens"][0][0]
-                if (key, start) in judged:
-                    conditions = None
+                place = (patterns.morpheme_key(conditions), proposal["tokens"][0][0])
+                if place in placed:
+                    continue
+                placed.add(place)
             new_patterns.append({**proposal, "conditions": conditions, "existing": None})
         return {**validated, "new_patterns": new_patterns, "span_list": spans}
 
@@ -578,14 +580,25 @@ def analyze(request):
             return patterns.morpheme_key(conditions) if conditions is not None else ""
 
         activated = False
-        # 같은 조건이 이 응답에서 두 번 나오면 한 번만 등록하고 두 자리 모두 그 패턴·용법을 쓴다.
+        # 같은 조건이 이 응답에서 두 번 나오면 패턴은 한 번만 등록한다. 뒤 자리는 용법 이름이
+        # 같으면 그 용법을 함께 쓰고, 다르면 같은 패턴 아래 새 용법으로 더한다. 이 패턴은 이번
+        # 트랜잭션에서 만들어 다른 요청이 용법을 더할 수 없으므로 순서를 맞출 필요가 없다.
         registered = {}
         for proposal in sorted(validated["new_patterns"], key=order):
             ids = [token for token, _ in proposal["tokens"]]
             start, end = key_span(min(ids), max(ids))
             pattern, usage = proposal["existing"], None
             if order(proposal) in registered:
-                pattern, usage = registered[order(proposal)]
+                pattern, usages = registered[order(proposal)]
+                name = proposal["usage_name"]
+                if name not in usages and usages:
+                    example = _checked_example(
+                        proposal["example_ja"], proposal["conditions"], key_text, content_tokens
+                    )
+                    usages[name] = patterns.add_usage(
+                        pattern, name, proposal["explanation_ko"], example
+                    )
+                usage = usages.get(name)
             elif pattern is None and proposal["conditions"] is not None:
                 example = _checked_example(
                     proposal["example_ja"], proposal["conditions"], key_text, content_tokens
@@ -599,7 +612,10 @@ def analyze(request):
                 )
                 if usage is None and not final:
                     raise _PatternTaken
-                registered[order(proposal)] = (pattern, usage)
+                registered[order(proposal)] = (
+                    pattern,
+                    {proposal["usage_name"]: usage} if usage else {},
+                )
                 activated |= usage is not None and pattern.is_active
             rows.append(
                 SpanMatch(

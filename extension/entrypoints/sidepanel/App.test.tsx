@@ -326,6 +326,53 @@ test("응답 전에도 원문에 드래그 범위를 표시한다", async () => 
   expect(originalWithHandles()).toBe("私は[学生]です。");
 });
 
+test("원문 카드의 버튼으로 드래그 핸들을 끄고 다시 켤 수 있다", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+  render(<App />);
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+  const toggle = await screen.findByRole("button", { name: "드래그 표시" });
+  expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+  fireEvent.click(toggle);
+
+  expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(originalWithHandles()).toBe("私は学生です。");
+
+  fireEvent.click(toggle);
+
+  expect(originalWithHandles()).toBe("私は[学生]です。");
+});
+
+test("끈 드래그 핸들은 패널을 다시 열어도 꺼져 있다", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+  const { unmount } = render(<App />);
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+  fireEvent.click(await screen.findByRole("button", { name: "드래그 표시" }));
+  unmount();
+
+  render(<App />);
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+
+  const toggle = await screen.findByRole("button", { name: "드래그 표시" });
+  await waitFor(() => expect(toggle).toHaveAttribute("aria-pressed", "false"));
+  expect(originalWithHandles()).toBe("私は学生です。");
+});
+
+test("드래그 핸들을 꺼도 드래그한 부분의 카드 표시는 그대로다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    words: [],
+  });
+  render(<App />);
+  await sendSelected(panelWindowId, "私は学生です。", 4, 6);
+
+  fireEvent.click(await screen.findByRole("button", { name: "드래그 표시" }));
+
+  const cards = await screen.findAllByRole("listitem");
+  expect(within(cards[0]!).getByText("드래그한 부분")).toBeInTheDocument();
+});
+
 test("드래그 범위와 겹친 문법 카드를 먼저 보이고 '드래그한 부분'을 붙인다", async () => {
   respondWith(200, {
     translation_ko: "나는 학생입니다.",

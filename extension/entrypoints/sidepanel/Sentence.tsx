@@ -13,12 +13,16 @@ export type ResultTab = "grammar" | "words";
 export function SentenceView({
   text,
   selection,
+  showHandles,
+  onToggleHandles,
   result,
   tab,
   onTabChange,
 }: {
   text: string;
   selection: DragRange;
+  showHandles: boolean;
+  onToggleHandles: () => void;
   result: SentenceResult | undefined;
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
@@ -26,11 +30,19 @@ export function SentenceView({
   return (
     <>
       <section className="sentence-card">
+        <button
+          type="button"
+          className="handle-toggle"
+          aria-pressed={showHandles}
+          onClick={onToggleHandles}
+        >
+          드래그 표시
+        </button>
         <p lang="ja" className="original">
           <HighlightedText
             text={text}
             grammar={result?.status === "done" ? result.analysis.grammar : []}
-            selection={selection}
+            dragHandles={showHandles ? selection : undefined}
           />
         </p>
         <hr />

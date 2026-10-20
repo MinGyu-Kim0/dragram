@@ -17,15 +17,16 @@ function sortGrammar(grammar: GrammarItem[]): GrammarItem[] {
 // 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다
 // (겹침 표시 방식은 DESIGN.md 7장에서 아직 정하지 않았다).
 // 실제로 드래그한 범위는 형광펜과 다른 층으로, 시작·끝 자리에 핸들만 끼워 넣는다(DESIGN.md).
+// 핸들을 끄면 dragHandles가 undefined다.
 // 형광펜을 범위 경계에서 쪼개면 조각마다 여백과 모서리가 생기므로 형광펜 안에 넣는다.
 export function HighlightedText({
   text,
   grammar,
-  selection,
+  dragHandles,
 }: {
   text: string;
   grammar: GrammarItem[];
-  selection: DragRange;
+  dragHandles: DragRange | undefined;
 }) {
   const sorted = sortGrammar(grammar);
   const bounds = [
@@ -40,7 +41,9 @@ export function HighlightedText({
     <>
       {bounds.slice(0, -1).map((start, i) => {
         const end = bounds[i + 1]!;
-        const segment = withHandles(text, start, end, selection);
+        const segment = dragHandles
+          ? withHandles(text, start, end, dragHandles)
+          : text.slice(start, end);
         const index = sorted.findIndex(
           (item) => item.start <= start && end <= item.end,
         );

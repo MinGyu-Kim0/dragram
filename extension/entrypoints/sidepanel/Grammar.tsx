@@ -73,20 +73,40 @@ export function HighlightedText({
   );
 }
 
+function overlaps(item: GrammarItem, selection: DragRange): boolean {
+  return item.start < selection.end && selection.start < item.end;
+}
+
+// 드래그 범위와 겹치는 카드를 먼저, 나머지를 그 뒤에 둔다. 각 묶음 안은 원문 순서이고,
+// 칩 색은 카드 순서가 아니라 원문 순서로 매겨 형광펜과 맞춘다.
 export function GrammarCards({
   text,
   grammar,
+  selection,
 }: {
   text: string;
   grammar: GrammarItem[];
+  selection: DragRange;
 }) {
   if (grammar.length === 0) {
     return <p className="no-grammar">문법 요소 없음</p>;
   }
+  const cards = sortGrammar(grammar).map((item, index) => ({
+    item,
+    index,
+    dragged: overlaps(item, selection),
+  }));
+  const ordered = [
+    ...cards.filter((card) => card.dragged),
+    ...cards.filter((card) => !card.dragged),
+  ];
   return (
     <ul className="grammar-cards" aria-label="문법">
-      {sortGrammar(grammar).map((item, index) => (
-        <li key={`${item.start}-${item.end}-${index}`} className="grammar-card">
+      {ordered.map(({ item, index, dragged }) => (
+        <li
+          key={`${item.start}-${item.end}-${index}`}
+          className={dragged ? "grammar-card dragged" : "grammar-card"}
+        >
           <div className="grammar-card-head">
             <span lang="ja" className={`grammar-chip ${highlightClass(index)}`}>
               {text.slice(item.start, item.end)}
@@ -94,6 +114,9 @@ export function GrammarCards({
             <h3>{item.name}</h3>
             {item.review_status === "pending" && (
               <span className="badge-warn">AI 생성·미검수</span>
+            )}
+            {dragged && (
+              <span className="grammar-card-meta">드래그한 부분</span>
             )}
           </div>
           <p className="grammar-explanation">{item.explanation_ko}</p>

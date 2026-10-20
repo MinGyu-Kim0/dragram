@@ -72,7 +72,11 @@ export function SentenceView({
           </div>
           <div role="tabpanel">
             {tab === "grammar" ? (
-              <GrammarCards text={text} grammar={result.analysis.grammar} />
+              <GrammarCards
+                text={text}
+                grammar={result.analysis.grammar}
+                selection={selection}
+              />
             ) : (
               <WordList words={result.analysis.words} />
             )}

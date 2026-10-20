@@ -298,6 +298,54 @@ test("응답 전에도 원문에 드래그 범위를 표시한다", async () => 
   );
 });
 
+test("드래그 범위와 겹친 문법 카드를 먼저 보이고 '드래그한 부분'을 붙인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [
+      grammarItem(0, 1, "1인칭 私"),
+      grammarItem(1, 2, "주제 は"),
+      grammarItem(4, 6, "정중 です"),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  // 学生です만 골랐다. 정중 です만 겹친다.
+  await sendSelected(panelWindowId, "私は学生です。", 2, 6);
+
+  const cards = await screen.findAllByRole("listitem");
+  expect(
+    cards.map((card) => within(card).getByRole("heading").textContent),
+  ).toEqual(["정중 です", "1인칭 私", "주제 は"]);
+  expect(within(cards[0]!).getByText("드래그한 부분")).toBeInTheDocument();
+  expect(cards[0]!.className).toContain("dragged");
+  for (const card of cards.slice(1)) {
+    expect(within(card).queryByText("드래그한 부분")).not.toBeInTheDocument();
+    expect(card.className).not.toContain("dragged");
+  }
+  // 카드 순서가 바뀌어도 칩 색은 원문의 형광펜 색과 같다.
+  expect(within(cards[0]!).getByText("です").className).toContain(
+    "highlight-2",
+  );
+});
+
+test("드래그 범위의 끝에 닿기만 하는 문법 카드는 겹친 것으로 보지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    words: [],
+  });
+  render(<App />);
+
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+
+  const cards = await screen.findAllByRole("listitem");
+  expect(screen.queryByText("드래그한 부분")).not.toBeInTheDocument();
+  expect(
+    cards.map((card) => within(card).getByRole("heading").textContent),
+  ).toEqual(["주제 は", "정중 です"]);
+});
+
 test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인다", async () => {
   respondWith(200, { translation_ko: "도쿄", grammar: [], words: [] });
   render(<App />);

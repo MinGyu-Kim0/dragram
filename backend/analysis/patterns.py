@@ -128,18 +128,19 @@ def span_of(pattern, start, next_id):
     return Span(pattern, conditions, start, start + len(conditions) - 1, _numbered(usages, next_id))
 
 
-def register(conditions, pattern_name, usage_name, explanation_ko, example_ja):
+def register(conditions, pattern_name, usage_name, explanation_ko, example_ja, test_example):
     """새 패턴과 용법을 미검수로 등록한다. 같은 morpheme_key가 이미 있으면 (그 패턴, None).
 
-    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 예문이 있어야 활성화한다.
-    활성화했으면 호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다.
+    example_ja는 이 용법이 쓴 예문, test_example은 같은 조건의 제안 중 검사를 통과한 예문이다
+    (첫 test_cases 항목). 없으면 None이고, test_example이 있어야 활성화한다. 활성화했으면
+    호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다.
     """
     pattern, created = GrammarPattern.objects.get_or_create(
         morpheme_key=morpheme_key(conditions),
         defaults={
             "name": pattern_name,
-            "test_cases": [{"text": example_ja, "should_match": True}] if example_ja else [],
-            "is_active": example_ja is not None,
+            "test_cases": [{"text": test_example, "should_match": True}] if test_example else [],
+            "is_active": test_example is not None,
             "status": ReviewStatus.PENDING,
         },
     )

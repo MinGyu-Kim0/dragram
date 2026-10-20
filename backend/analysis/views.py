@@ -584,7 +584,20 @@ def analyze(request):
         # 같으면 그 용법을 함께 쓰고, 다르면 같은 패턴 아래 새 용법으로 더한다. 이 패턴은 이번
         # 트랜잭션에서 만들어 다른 요청이 용법을 더할 수 없으므로 순서를 맞출 필요가 없다.
         registered = {}
-        for proposal in sorted(validated["new_patterns"], key=order):
+        proposals = sorted(validated["new_patterns"], key=order)
+        # 예문 검사는 제안마다 한 번만 한다. 같은 조건의 제안 중 통과한 첫 예문이 패턴의
+        # 활성화 근거가 된다(용법 예문은 그 용법이 쓴 예문만 쓴다).
+        examples = [
+            _checked_example(p["example_ja"], p["conditions"], key_text, content_tokens)
+            if p["existing"] is None and p["conditions"] is not None
+            else None
+            for p in proposals
+        ]
+        test_examples = {}
+        for proposal, example in zip(proposals, examples, strict=True):
+            if example is not None:
+                test_examples.setdefault(order(proposal), example)
+        for proposal, example in zip(proposals, examples, strict=True):
             ids = [token for token, _ in proposal["tokens"]]
             start, end = key_span(min(ids), max(ids))
             pattern, usage = proposal["existing"], None
@@ -592,23 +605,18 @@ def analyze(request):
                 pattern, usages = registered[order(proposal)]
                 name = proposal["usage_name"]
                 if name not in usages and usages:
-                    example = _checked_example(
-                        proposal["example_ja"], proposal["conditions"], key_text, content_tokens
-                    )
                     usages[name] = patterns.add_usage(
                         pattern, name, proposal["explanation_ko"], example
                     )
                 usage = usages.get(name)
             elif pattern is None and proposal["conditions"] is not None:
-                example = _checked_example(
-                    proposal["example_ja"], proposal["conditions"], key_text, content_tokens
-                )
                 pattern, usage = patterns.register(
                     proposal["conditions"],
                     proposal["pattern_name"],
                     proposal["usage_name"],
                     proposal["explanation_ko"],
                     example,
+                    test_examples.get(order(proposal)),
                 )
                 if usage is None and not final:
                     raise _PatternTaken

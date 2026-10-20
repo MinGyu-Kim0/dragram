@@ -359,6 +359,35 @@ def test_existing_grammar_proposed_twice_at_same_place_is_asked_once(client, fak
     assert len(response.json()["grammar"]) == 1
 
 
+def test_pattern_is_activated_by_valid_example_of_later_same_proposal(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる. 첫 제안의 예문은 원문을 베꼈고 뒤 제안은 통과한다.
+    fake_llm.response = {
+        "translation_ko": "번역",
+        "new_patterns": [
+            new_pattern((1, "lemma"), (2, "lemma"), example_ja="走っていている"),
+            new_pattern(
+                (3, "lemma"),
+                (4, "lemma"),
+                usage_name="결과 상태",
+                explanation_ko="동작의 결과가 남아 있다",
+                example_ja="窓が開いている",
+            ),
+        ],
+    }
+
+    analyze(client, "走っていている")
+
+    pattern = GrammarPattern.objects.get()
+    assert pattern.is_active
+    assert pattern.test_cases == [{"text": "窓が開いている", "should_match": True}]
+    assert PatternSetVersion.objects.get().version == 1
+    # 용법 예문은 그 용법이 쓴 예문만 쓴다.
+    assert dict(GrammarUsage.objects.values_list("name", "example_ja")) == {
+        "진행": None,
+        "결과 상태": "窓が開いている",
+    }
+
+
 def test_sentence_saved_by_another_request_is_not_asked_again(client, fake_llm):
     # 첫 LLM 호출을 기다리는 사이 같은 문장의 다른 요청이 ている를 등록하며 분석을 저장한다.
     def other_request_saves_first():

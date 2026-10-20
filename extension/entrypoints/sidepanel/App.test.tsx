@@ -384,16 +384,72 @@ test("이전 회차의 늦은 응답이 현재 결과를 바꾸지 않는다", a
   expect(screen.getByText("고양이를 좋아합니다.")).toBeInTheDocument();
 });
 
-test("서버에는 문장 분석 요청을 동시에 3개까지만 보내고, 끝나는 대로 다음 문장을 보낸다", async () => {
+test("서버에는 문장 분석 요청을 동시에 5개까지만 보내고, 끝나는 대로 다음 문장을 보낸다", async () => {
   let finishFirst: (response: Response) => void = () => {};
   const fetchMock = respondPerSentence({
     "一。": () => new Promise<Response>((resolve) => (finishFirst = resolve)),
   });
   render(<App />);
 
-  await send(panelWindowId, "一。", "二。", "三。", "四。", "五。");
+  await send(
+    panelWindowId,
+    "一。",
+    "二。",
+    "三。",
+    "四。",
+    "五。",
+    "六。",
+    "七。",
+  );
 
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
   finishFirst(json(200, analysis("하나.")));
-  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
+});
+
+test("새 회차가 와도 이전 회차의 진행 중인 요청까지 세어 5개를 넘기지 않고, 이전 회차의 남은 문장은 보내지 않는다", async () => {
+  let finishFirst: (response: Response) => void = () => {};
+  const fetchMock = respondPerSentence({
+    "一。": () => new Promise<Response>((resolve) => (finishFirst = resolve)),
+  });
+  render(<App />);
+  // 5개는 진행 중, 六·七은 아직 보내지 않은 채 다음 회차가 온다.
+  await send(
+    panelWindowId,
+    "一。",
+    "二。",
+    "三。",
+    "四。",
+    "五。",
+    "六。",
+    "七。",
+  );
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+
+  await send(panelWindowId, "猫です。");
+  // 새 회차가 패널에 들어온 뒤에도 이전 회차의 5개가 끝나지 않아 새 요청을 보내지 않는다.
+  expect(await screen.findByText("猫です。")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(5);
+
+  finishFirst(json(200, analysis("하나.")));
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
+  const sentTexts = fetchMock.mock.calls.map(
+    ([, init]) => (JSON.parse(init.body as string) as { text: string }).text,
+  );
+  expect(sentTexts.at(-1)).toBe("猫です。");
+  expect(sentTexts).not.toContain("六。");
+});
+
+test("한 회차에 같은 문장이 반복되면 한 번만 분석하고 결과를 함께 보인다", async () => {
+  const fetchMock = respondPerSentence({
+    "猫です。": () => json(200, analysis("고양이입니다.")),
+  });
+  render(<App />);
+
+  await send(panelWindowId, "猫です。", "猫です。");
+
+  expect(await screen.findByText("고양이입니다.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "다음 문장" }));
+  expect(await screen.findByText("고양이입니다.")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

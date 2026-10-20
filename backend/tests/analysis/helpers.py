@@ -47,12 +47,26 @@ def post(client, text):
     return client.post("/api/analyses/", {"text": text}, content_type="application/json")
 
 
-def grammar_items(*token_ranges):
-    return [
-        {"start_token_id": start, "end_token_id": end, "name": "문법", "explanation_ko": "설명"}
-        for start, end in token_ranges
-    ]
-
-
 def word_item(token_id=2, lemma="学生", reading="がくせい", meaning_ko="학생"):
     return {"token_id": token_id, "lemma": lemma, "reading": reading, "meaning_ko": meaning_ko}
+
+
+def new_pattern(
+    *tokens,
+    pattern_name="ている",
+    usage_name="진행",
+    explanation_ko="동작이 이어지고 있음을 나타낸다",
+    example_ja="雨が降っている",
+):
+    """새 구문 제안. tokens는 (토큰 ID, 표시) 쌍이다."""
+    return {
+        "tokens": [{"token_id": token_id, "fix": fix} for token_id, fix in tokens],
+        "pattern_name": pattern_name,
+        "usage_name": usage_name,
+        "explanation_ko": explanation_ko,
+        "example_ja": example_ja,
+    }
+
+
+def span_answer(span_id, verdict="usage", candidate_id=None):
+    return {"span_id": span_id, "verdict": verdict, "candidate_id": candidate_id}

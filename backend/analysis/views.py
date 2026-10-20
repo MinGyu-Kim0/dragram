@@ -4,12 +4,13 @@ import re
 import unicodedata
 from itertools import chain
 
+from django.db import transaction
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
-from analysis import llm
-from analysis.models import SentenceAnalysis
+from analysis import llm, patterns
+from analysis.models import ReviewStatus, SentenceAnalysis, SpanMatch
 from analysis.morphology import morphemes
 from analysis.normalize import (
     NORMALIZE_VERSION,
@@ -48,29 +49,80 @@ def _is_token_id(value, token_count):
     return type(value) is int and 0 <= value < token_count
 
 
-def _validate_grammar(grammar, numbers, token_count):
-    """LLM이 고른 문법 항목을 검증한다. 하나라도 틀리면 None."""
-    if not isinstance(grammar, list):
+def _validate_span_answers(answers, spans):
+    """LLM이 후보 구간마다 낸 판정을 검증한다. 하나라도 틀리거나 빠지면 None.
+
+    구간마다 (판정 상태, 고른 용법)을 돌려준다. 용법은 그 구간에 준 후보 안에서만 고를 수 있다.
+    """
+    if not isinstance(answers, list):
         return None
-    items = []
-    for item in grammar:
+    judged = {}
+    for item in answers:
         if not isinstance(item, dict):
             return None
-        start, end = item.get("start_token_id"), item.get("end_token_id")
-        if not (_is_token_id(start, token_count) and _is_token_id(end, token_count)):
+        span_id = item.get("span_id")
+        # 구간 ID도 서버가 0부터 매긴 번호라 토큰 ID와 같은 방식으로 본다.
+        if not _is_token_id(span_id, len(spans)) or span_id in judged:
             return None
-        if start > end:
+        verdict, candidate_id = item.get("verdict"), item.get("candidate_id")
+        if verdict == "usage":
+            # bool은 int의 하위 타입이고 True == 1이라 따로 거른다.
+            usage = dict(spans[span_id].candidates).get(candidate_id)
+            if type(candidate_id) is not int or usage is None:
+                return None
+            judged[span_id] = (SpanMatch.State.DECIDED, usage)
+        elif verdict == "not_applicable":
+            judged[span_id] = (SpanMatch.State.NOT_APPLICABLE, None)
+        elif verdict == "unfound":
+            judged[span_id] = (SpanMatch.State.UNFOUND, None)
+        else:
             return None
-        name, explanation = item.get("name"), item.get("explanation_ko")
-        if not (_is_text(name) and _is_text(explanation)):
+    if len(judged) != len(spans):
+        return None
+    return [judged[span_id] for span_id in range(len(spans))]
+
+
+# 새 구문 제안에서 공용 패턴·용법에 들어가는 글
+_NEW_PATTERN_TEXTS = ("pattern_name", "usage_name", "explanation_ko")
+# grammar_pattern.name·grammar_usage.name 칸 길이. 넘으면 저장할 때 DB 오류가 난다.
+_NAME_LENGTH = 255
+
+
+def _validate_new_patterns(items, token_count):
+    """LLM이 제안한 새 구문의 형식을 검증한다. 하나라도 틀리면 None.
+
+    패턴 생성 규칙(빈틈, 처음·끝 아무거나, 재매칭)은 저장할 때 보고, 어긴 제안만 뺀다.
+    """
+    if not isinstance(items, list):
+        return None
+    proposals = []
+    for item in items:
+        if not isinstance(item, dict):
             return None
-        # 이름·설명도 응답할 때 숫자를 되돌리므로 없는 번호의 자리표시자는 받지 않는다.
-        if not all(has_only_known_placeholders(t, numbers) for t in (name, explanation)):
+        tokens = item.get("tokens")
+        if not isinstance(tokens, list) or not tokens:
             return None
-        items.append(
-            {"start_token": start, "end_token": end, "name": name, "explanation_ko": explanation}
+        for token in tokens:
+            if not isinstance(token, dict) or not _is_token_id(token.get("token_id"), token_count):
+                return None
+            if token.get("fix") not in llm.TOKEN_FIXES:
+                return None
+        fields = (*_NEW_PATTERN_TEXTS, "example_ja")
+        if not all(_is_text(item.get(field)) for field in fields):
+            return None
+        # 용법은 모든 문장이 함께 써서 이 문장의 숫자로 되돌릴 수 없으므로 자리표시자를 받지
+        # 않는다.
+        if not all(has_only_known_placeholders(item[field], ()) for field in _NEW_PATTERN_TEXTS):
+            return None
+        if len(item["pattern_name"]) > _NAME_LENGTH or len(item["usage_name"]) > _NAME_LENGTH:
+            return None
+        proposals.append(
+            {
+                "tokens": [(token["token_id"], token["fix"]) for token in tokens],
+                **{field: item[field] for field in fields},
+            }
         )
-    return items
+    return proposals
 
 
 _WORD_TEXTS = ("lemma", "reading", "meaning_ko")
@@ -120,36 +172,61 @@ def _validate_translation(translation, numbers):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 번역 자리표시자")
 
 
-def _validate(result, numbers, token_count, is_vocabulary):
+def _validate(result, numbers, token_count, is_vocabulary, spans):
     """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 ANALYSIS:FAILED."""
     if not isinstance(result, dict):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 객체 아님")
     _validate_translation(result.get("translation_ko"), numbers)
-    grammar = _validate_grammar(result.get("grammar"), numbers, token_count)
-    if grammar is None:
-        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 문법")
+    span_answers = _validate_span_answers(result.get("spans"), spans)
+    if span_answers is None:
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 후보 구간")
+    new_patterns = _validate_new_patterns(result.get("new_patterns"), token_count)
+    if new_patterns is None:
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 새 구문")
     words = _validate_words(result.get("words"), numbers, token_count, is_vocabulary)
     if words is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 단어")
-    return {"translation_ko": result["translation_ko"], "grammar": grammar, "words": words}
+    return {
+        "translation_ko": result["translation_ko"],
+        "spans": span_answers,
+        "new_patterns": new_patterns,
+        "words": words,
+    }
 
 
-def _stored_grammar(grammar, morphs, offsets):
-    """토큰 ID로 고른 문법 항목을 키 텍스트 구간으로 바꿔 저장할 모양으로 만든다."""
-    stored = []
-    for item in grammar:
-        begin = morphs[item["start_token"]].begin
-        end = morphs[item["end_token"]].end
-        key_start, key_end = to_key(offsets, begin, end)
-        stored.append(
-            {
-                "start": key_start,
-                "end": key_end,
-                "name": item["name"],
-                "explanation_ko": item["explanation_ko"],
-            }
-        )
-    return stored
+def _new_pattern_conditions(tokens, morphs, overlaps_number):
+    """새 구문의 토큰 표시로 형태소 조건을 만든다. 패턴 생성 규칙에 어긋나면 None."""
+    ids = [token for token, _ in tokens]
+    # 패턴은 연속한 토큰만 다루므로 처음부터 끝까지 빠짐없이 차례로 표시해야 한다.
+    if ids != list(range(ids[0], ids[0] + len(ids))):
+        return None
+    if tokens[0][1] == "any" or tokens[-1][1] == "any":
+        return None
+    # 숫자 토큰의 lemma는 원문 숫자다. 고정하면 공용 패턴에 원문 숫자가 들어가고, 숫자만 다른
+    # 문장(키 텍스트가 같다)에는 걸리지 않는다.
+    if any(fix != "any" and overlaps_number(token) for token, fix in tokens):
+        return None
+    conditions = [patterns.condition(morphs[token], fix) for token, fix in tokens]
+    # 만든 패턴이 원래 문장의 그 자리에 다시 걸려야 저장한다.
+    if not patterns.matches_at(conditions, morphs, ids[0]):
+        return None
+    return conditions
+
+
+def _checked_example(example, conditions, key_text, content_tokens):
+    """새 예문이 패턴에 걸리고 원문을 베끼지 않았으면 그 예문, 아니면 None."""
+    if not has_only_known_placeholders(example, ()):
+        return None
+    text, _ = analysis_text(example)
+    if not text:
+        return None
+    pieces, _ = key_pieces(text)
+    # 원문 키 텍스트 전체를 포함하면 베낀 것이다(문장 인용과 같은 비교).
+    if _quotes_whole_sentence(["".join(pieces)], key_text, content_tokens):
+        return None
+    if not patterns.match_starts(conditions, morphemes(text)):
+        return None
+    return example
 
 
 # 학습할 단어가 아닌 토큰의 품사(문장부호, 공백, 문법 쪽에서 다루는 조사·조동사)
@@ -192,31 +269,44 @@ def _letters(text):
     return "".join(ch for ch in text if unicodedata.category(ch)[0] not in "PSZC")
 
 
-def _grammar_response(stored, offsets, origins, utf16, restore):
-    """저장된 문법 항목의 키 텍스트 구간을 이 요청 원문의 UTF-16 위치로 바꾼다.
+def _grammar_response(analysis, offsets, origins, utf16):
+    """용법이 정해진 구간을 이 요청 원문의 UTF-16 위치와 용법의 이름·설명으로 보인다.
 
     같은 분석을 표기가 다른 원문(앞 공백, 괄호, 숫자 자릿수 등)이 함께 쓰므로, 요청마다
-    그 원문 기준으로 다시 계산한다. 이름·설명의 자리표시자도 번역처럼 이 원문의 숫자로
-    되돌린다(restore).
+    그 원문 기준으로 다시 계산한다. 검수 상태는 저장하지 않고 볼 때마다 정한다(ADR 0003):
+    고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴 중 하나라도 반려됐으면 빼고, 미검수면
+    'AI 생성·미검수'다.
     """
+    spans = (
+        analysis.span_matches.filter(state=SpanMatch.State.DECIDED)
+        .select_related("pattern", "usage__pattern")
+        .order_by("start_offset", "end_offset", "id")
+    )
     grammar = []
-    for item in stored:
-        start, end = to_original(origins, utf16, *to_analysis(offsets, item["start"], item["end"]))
+    for span in spans:
+        statuses = {span.usage.status, span.usage.pattern.status, span.pattern.status}
+        if ReviewStatus.REJECTED in statuses:
+            continue
+        start, end = to_original(
+            origins, utf16, *to_analysis(offsets, span.start_offset, span.end_offset)
+        )
         grammar.append(
             {
                 "start": start,
                 "end": end,
-                "name": restore(item["name"]),
-                "explanation_ko": restore(item["explanation_ko"]),
-                # 이 단위의 문법은 모두 LLM이 썼고 아직 아무도 검수하지 않았다.
-                "review_status": "pending",
+                "name": span.usage.name,
+                "explanation_ko": span.usage.explanation_ko,
+                "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
             }
         )
     return grammar
 
 
 def _words_response(stored, offsets, origins, utf16, restore):
-    """저장된 단어 항목을 이 요청 원문 기준으로 바꾼다(_grammar_response와 같은 방식)."""
+    """저장된 단어 항목의 키 텍스트 구간을 이 요청 원문의 UTF-16 위치로 바꾼다.
+
+    사전형·뜻의 자리표시자도 번역처럼 이 원문의 숫자로 되돌린다(restore).
+    """
     words = []
     for item in stored:
         start, end = to_original(origins, utf16, *to_analysis(offsets, item["start"], item["end"]))
@@ -300,9 +390,7 @@ def analyze(request):
         return {
             "type": "analysis",
             "translation_ko": restore(saved.translation_ko),
-            "grammar": _grammar_response(
-                saved.draft_analysis["grammar"], offsets, origins, utf16, restore
-            ),
+            "grammar": _grammar_response(saved, offsets, origins, utf16),
             "words": _words_response(
                 saved.draft_analysis["words"], offsets, origins, utf16, restore
             ),
@@ -320,49 +408,139 @@ def analyze(request):
     # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
     tokens = [{"id": i, "surface": "".join(pieces[m.begin : m.end])} for i, m in enumerate(morphs)]
 
+    def overlaps_number(token):
+        # 숫자열은 자리표시자 조각과 빈 조각(뒤쪽 숫자)으로 이뤄진다.
+        m = morphs[token]
+        return any(piece == "" or "⟨N" in piece for piece in pieces[m.begin : m.end])
+
     def is_vocabulary(token):
         # 숫자는 학습할 단어가 아니고, 숫자열과 겹치는 토큰(X12의 X1, 2)은 LLM이 사전형에
-        # 숫자를 지어내면 숫자만 다른 문장에 잘못 재사용된다. 숫자열은 자리표시자 조각과
-        # 빈 조각(뒤쪽 숫자)으로 이뤄진다.
-        m = morphs[token]
-        overlaps_number = any(piece == "" or "⟨N" in piece for piece in pieces[m.begin : m.end])
-        return m.pos not in _NON_WORD_POS and not overlaps_number
+        # 숫자를 지어내면 숫자만 다른 문장에 잘못 재사용된다.
+        return morphs[token].pos not in _NON_WORD_POS and not overlaps_number(token)
+
+    # 등록된 패턴에 걸린 구간과 후보 용법. LLM은 서버가 매긴 구간·후보 ID로만 답한다.
+    spans = patterns.candidate_spans(morphs)
+    llm_spans = [
+        {
+            "span_id": span_id,
+            "start_token_id": span.start_token,
+            "end_token_id": span.end_token,
+            "candidates": [
+                {"candidate_id": candidate_id, "name": u.name, "explanation_ko": u.explanation_ko}
+                for candidate_id, u in span.candidates
+            ],
+        }
+        for span_id, span in enumerate(spans)
+    ]
+    content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
+
+    def key_span(start_token, end_token):
+        return to_key(offsets, morphs[start_token].begin, morphs[end_token].end)
+
+    def span_matches(saved, validated):
+        """판정한 후보 구간과 새 구문을 구간 매칭으로 만든다. 새 구문은 이때 등록한다.
+
+        패턴 생성 규칙을 어긴 새 구문이나 이미 있는 패턴(다시 묻기는 #36)은 미발견으로 남겨
+        보이지 않는다.
+        """
+        rows = []
+        for span, (state, usage) in zip(spans, validated["spans"], strict=True):
+            start, end = key_span(span.start_token, span.end_token)
+            rows.append(
+                SpanMatch(
+                    analysis=saved,
+                    pattern=span.pattern,
+                    usage=usage,
+                    start_offset=start,
+                    end_offset=end,
+                    state=state,
+                    decided_by=SpanMatch.DecidedBy.LLM,
+                    candidates=[
+                        {"candidate_id": candidate_id, "usage_id": u.id}
+                        for candidate_id, u in span.candidates
+                    ],
+                )
+            )
+        # 동시 요청이 같은 패턴들을 서로 다른 순서로 등록하면 morpheme_key 유일성 대기가
+        # 엇갈려 교착이 나므로, 등록은 morpheme_key 순서로 한다.
+        proposals = []
+        for proposal in validated["new_patterns"]:
+            conditions = _new_pattern_conditions(proposal["tokens"], morphs, overlaps_number)
+            key = patterns.morpheme_key(conditions) if conditions is not None else ""
+            proposals.append((key, proposal, conditions))
+        activated = False
+        for _, proposal, conditions in sorted(proposals, key=lambda item: item[0]):
+            ids = [token for token, _ in proposal["tokens"]]
+            start, end = key_span(min(ids), max(ids))
+            pattern, usage = None, None
+            if conditions is not None:
+                example = _checked_example(
+                    proposal["example_ja"], conditions, key_text, content_tokens
+                )
+                pattern, usage = patterns.register(
+                    conditions,
+                    proposal["pattern_name"],
+                    proposal["usage_name"],
+                    proposal["explanation_ko"],
+                    example,
+                )
+                activated |= usage is not None and pattern.is_active
+            rows.append(
+                SpanMatch(
+                    analysis=saved,
+                    pattern=pattern,
+                    usage=usage,
+                    start_offset=start,
+                    end_offset=end,
+                    state=SpanMatch.State.DECIDED if usage else SpanMatch.State.UNFOUND,
+                    decided_by=SpanMatch.DecidedBy.LLM,
+                )
+            )
+        if activated:
+            # 버전 행은 등록을 모두 마친 뒤 마지막에 잠근다(잠근 채 다른 패턴을 기다리지 않게).
+            patterns.raise_pattern_set_version()
+        SpanMatch.objects.bulk_create(rows)
 
     def save(validated):
         """검증한 결과를 공용 캐시에 저장하고 저장된 행을 돌려준다."""
-        draft = {
-            "grammar": _stored_grammar(validated["grammar"], morphs, offsets),
-            "words": _stored_words(validated["words"], morphs, offsets),
-        }
+        draft = {"words": _stored_words(validated["words"], morphs, offsets)}
         llm_texts = [
-            item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")
+            item[field] for item in validated["new_patterns"] for field in _NEW_PATTERN_TEXTS
         ]
         llm_texts += [item[field] for item in validated["words"] for field in _WORD_TEXTS]
-        content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
         if _quotes_whole_sentence(llm_texts, key_text, content_tokens):
             # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
             raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
 
-        # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
-        saved, created = SentenceAnalysis.objects.get_or_create(
-            sentence_hash=sentence_hash,
-            defaults={
-                "normalize_version": NORMALIZE_VERSION,
-                "normalized_length": len(key_text),
-                "status": SentenceAnalysis.Status.COMPLETE,
-                "translation_ko": validated["translation_ko"],
-                "draft_analysis": draft,
-            },
-        )
-        if not created and saved.draft_analysis is None:
-            # 임시 분석을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이 먼저
-            # 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
-            SentenceAnalysis.objects.filter(pk=saved.pk, draft_analysis__isnull=True).update(
-                translation_ko=validated["translation_ko"],
-                draft_analysis=draft,
-                updated_at=timezone.now(),
+        # 분석 행과 구간·새 패턴을 함께 저장한다. 다른 요청이 먼저 저장한 문장이면 그 결과를
+        # 쓰고, 이번 결과의 구간·패턴은 저장하지 않는다.
+        with transaction.atomic():
+            saved, created = SentenceAnalysis.objects.get_or_create(
+                sentence_hash=sentence_hash,
+                defaults={
+                    "normalize_version": NORMALIZE_VERSION,
+                    "normalized_length": len(key_text),
+                    "status": SentenceAnalysis.Status.COMPLETE,
+                    "translation_ko": validated["translation_ko"],
+                    "draft_analysis": draft,
+                },
             )
-            saved.refresh_from_db()
+            if not created:
+                if saved.draft_analysis is not None:
+                    return saved
+                # 임시 분석을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이
+                # 먼저 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
+                filled = SentenceAnalysis.objects.filter(
+                    pk=saved.pk, draft_analysis__isnull=True
+                ).update(
+                    translation_ko=validated["translation_ko"],
+                    draft_analysis=draft,
+                    updated_at=timezone.now(),
+                )
+                saved.refresh_from_db()
+                if not filled:
+                    return saved
+            span_matches(saved, validated)
         return saved
 
     def analyze_and_save():
@@ -371,14 +549,14 @@ def analyze(request):
         """
         translation_sent = False
         result = None
-        for kind, value in llm.get_client().analyze_stream(key_text, tokens):
+        for kind, value in llm.get_client().analyze_stream(key_text, tokens, llm_spans):
             if kind == "translation":
                 _validate_translation(value, numbers)
                 translation_sent = True
                 yield translation_event(value)
             else:
                 result = value
-        validated = _validate(result, numbers, len(morphs), is_vocabulary)
+        validated = _validate(result, numbers, len(morphs), is_vocabulary, spans)
         if not translation_sent:
             yield translation_event(validated["translation_ko"])
         yield analysis_event(save(validated))

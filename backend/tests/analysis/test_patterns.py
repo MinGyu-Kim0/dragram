@@ -291,18 +291,51 @@ def test_sentence_without_existing_pattern_is_not_asked_again(client, fake_llm):
     assert fake_llm.rejudge_requests == []
 
 
-def test_same_pattern_proposed_twice_in_one_sentence_is_registered_once(client, fake_llm):
-    # 토큰: 0 走っ / 1 て / 2 いる / 3 て / 4 いる (같은 조건이 두 번)
+def test_same_pattern_proposed_twice_in_one_sentence_is_registered_once_and_shown_twice(
+    client, fake_llm
+):
+    # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる (lemma 고정이라 い와 いる는 같은 居る)
     fake_llm.response = {
         "translation_ko": "번역",
         "new_patterns": [TEIRU, new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
     }
 
-    analyze(client, "走っていている")
+    response = analyze(client, "走っていている")
 
     assert GrammarPattern.objects.count() == 1
     assert GrammarUsage.objects.count() == 1
     assert fake_llm.rejudge_requests == []
+    # 두 자리 모두 처음 등록한 용법으로 보인다.
+    grammar = response.json()["grammar"]
+    assert [(item["start"], item["end"], item["name"]) for item in grammar] == [
+        (2, 4, "진행"),
+        (4, 7, "진행"),
+    ]
+
+
+def test_sentence_saved_by_another_request_is_not_asked_again(client, fake_llm):
+    # 첫 LLM 호출을 기다리는 사이 같은 문장의 다른 요청이 ている를 등록하며 분석을 저장한다.
+    def other_request_saves_first():
+        mine = fake_llm.response
+        fake_llm.response = {
+            "translation_ko": "먼저 저장된 번역",
+            "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"))],
+        }
+        analyze(Client(), "彼が来ている")
+        fake_llm.response = mine
+
+    fake_llm.before_respond = other_request_saves_first
+    fake_llm.response = {
+        "translation_ko": "늦게 끝난 번역",
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
+    }
+
+    response = analyze(client, "彼が来ている")
+
+    # 이미 저장된 결과를 쓰므로 유료 재질문을 보내지 않는다.
+    assert fake_llm.rejudge_requests == []
+    assert response.json()["translation_ko"] == "먼저 저장된 번역"
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
 
 
 # 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.

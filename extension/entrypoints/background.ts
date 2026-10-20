@@ -19,6 +19,9 @@ export default defineBackground(() => {
     if (tab?.windowId === undefined) return;
     // 크롬은 사용자 동작 안에서만 패널을 열 수 있으므로 다른 비동기 작업보다 먼저 연다.
     browser.sidePanel.open({ windowId: tab.windowId });
-    requestAnalysis(tab.windowId, info.selectionText);
+    const text = info.selectionText;
+    requestAnalysis(tab.windowId, [
+      { text, selection: { start: 0, end: text.length } },
+    ]);
   });
 });

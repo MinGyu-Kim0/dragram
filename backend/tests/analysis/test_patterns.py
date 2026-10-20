@@ -170,6 +170,9 @@ def test_invalid_span_answer_fails_and_nothing_is_stored(client, fake_llm, answe
         new_pattern((1, "lemma"), (2, "lemma"), explanation_ko="⟨N1⟩개"),
         new_pattern((1, "lemma"), (2, "lemma"), pattern_name="⟨N1⟩"),
         new_pattern((1, "lemma"), (2, "lemma"), example_ja=""),
+        # 칸 길이(255자)를 넘는 이름
+        new_pattern((1, "lemma"), (2, "lemma"), pattern_name="て" * 256),
+        new_pattern((1, "lemma"), (2, "lemma"), usage_name="진" * 256),
         # 문장 전체를 인용한 설명
         new_pattern((1, "lemma"), (2, "lemma"), explanation_ko="走っている에서 진행"),
         "not an object",

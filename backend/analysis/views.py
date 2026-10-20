@@ -84,6 +84,8 @@ def _validate_span_answers(answers, spans):
 
 # 새 구문 제안에서 공용 패턴·용법에 들어가는 글
 _NEW_PATTERN_TEXTS = ("pattern_name", "usage_name", "explanation_ko")
+# grammar_pattern.name·grammar_usage.name 칸 길이. 넘으면 저장할 때 DB 오류가 난다.
+_NAME_LENGTH = 255
 
 
 def _validate_new_patterns(items, token_count):
@@ -111,6 +113,8 @@ def _validate_new_patterns(items, token_count):
         # 용법은 모든 문장이 함께 써서 이 문장의 숫자로 되돌릴 수 없으므로 자리표시자를 받지
         # 않는다.
         if not all(has_only_known_placeholders(item[field], ()) for field in _NEW_PATTERN_TEXTS):
+            return None
+        if len(item["pattern_name"]) > _NAME_LENGTH or len(item["usage_name"]) > _NAME_LENGTH:
             return None
         proposals.append(
             {
@@ -457,11 +461,18 @@ def analyze(request):
                     ],
                 )
             )
+        # 동시 요청이 같은 패턴들을 서로 다른 순서로 등록하면 morpheme_key 유일성 대기가
+        # 엇갈려 교착이 나므로, 등록은 morpheme_key 순서로 한다.
+        proposals = []
         for proposal in validated["new_patterns"]:
+            conditions = _new_pattern_conditions(proposal["tokens"], morphs, overlaps_number)
+            key = patterns.morpheme_key(conditions) if conditions is not None else ""
+            proposals.append((key, proposal, conditions))
+        activated = False
+        for _, proposal, conditions in sorted(proposals, key=lambda item: item[0]):
             ids = [token for token, _ in proposal["tokens"]]
             start, end = key_span(min(ids), max(ids))
             pattern, usage = None, None
-            conditions = _new_pattern_conditions(proposal["tokens"], morphs, overlaps_number)
             if conditions is not None:
                 example = _checked_example(
                     proposal["example_ja"], conditions, key_text, content_tokens
@@ -473,6 +484,7 @@ def analyze(request):
                     proposal["explanation_ko"],
                     example,
                 )
+                activated |= usage is not None and pattern.is_active
             rows.append(
                 SpanMatch(
                     analysis=saved,
@@ -484,6 +496,9 @@ def analyze(request):
                     decided_by=SpanMatch.DecidedBy.LLM,
                 )
             )
+        if activated:
+            # 버전 행은 등록을 모두 마친 뒤 마지막에 잠근다(잠근 채 다른 패턴을 기다리지 않게).
+            patterns.raise_pattern_set_version()
         SpanMatch.objects.bulk_create(rows)
 
     def save(validated):

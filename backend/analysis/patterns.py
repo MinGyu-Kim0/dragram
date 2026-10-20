@@ -98,8 +98,8 @@ def candidate_spans(morphs):
 def register(conditions, pattern_name, usage_name, explanation_ko, example_ja):
     """새 패턴과 용법을 미검수로 등록한다. 같은 morpheme_key가 이미 있으면 (그 패턴, None).
 
-    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 예문이 있어야 활성화하며,
-    활성화하면 같은 트랜잭션에서 패턴 세트 버전을 올린다. 호출하는 쪽이 트랜잭션을 연다.
+    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 예문이 있어야 활성화한다.
+    활성화했으면 호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다.
     """
     pattern, created = GrammarPattern.objects.get_or_create(
         morpheme_key=morpheme_key(conditions),
@@ -123,9 +123,11 @@ def register(conditions, pattern_name, usage_name, explanation_ko, example_ja):
         status=ReviewStatus.PENDING,
         origin=GrammarUsage.Origin.LLM,
     )
-    if pattern.is_active:
-        # UPDATE가 행을 잠그므로 동시에 올려도 하나씩 오른다.
-        PatternSetVersion.objects.filter(id=1).update(
-            version=F("version") + 1, updated_at=timezone.now()
-        )
     return pattern, usage
+
+
+def raise_pattern_set_version():
+    """패턴 세트 버전을 1 올린다. UPDATE가 행을 잠그므로 동시에 올려도 하나씩 오른다."""
+    PatternSetVersion.objects.filter(id=1).update(
+        version=F("version") + 1, updated_at=timezone.now()
+    )

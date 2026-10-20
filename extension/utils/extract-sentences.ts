@@ -95,9 +95,12 @@ function collectText(root: Element): { text: string; entries: TextEntry[] } {
 
   const visit = (node: Node) => {
     if (node instanceof Text) {
+      const style = node.parentElement && getComputedStyle(node.parentElement);
+      // visibility: hidden은 자리는 남기고 글자를 숨긴다. 보이지 않는 글자는 문장에 넣지 않는다.
+      // visibility는 상속되므로 글자를 직접 감싼 요소의 값만 보면 된다.
+      if (style && style.visibility !== "visible") return;
       const keepsNewlines =
-        node.parentElement !== null &&
-        PRESERVED_NEWLINES.has(getComputedStyle(node.parentElement).whiteSpace);
+        style !== null && PRESERVED_NEWLINES.has(style.whiteSpace);
       entries.push({ node, start: text.length });
       text += keepsNewlines
         ? node.data.replace(/\r/g, BREAK)
@@ -168,10 +171,15 @@ function splitSentences(text: string): [number, number][] {
       depth += 1;
     } else if (CLOSING_QUOTES.includes(ch)) {
       depth = Math.max(0, depth - 1);
+      // 겹친 인용(「『…。』」)은 닫는 괄호 묶음 앞의 글자를 본다.
+      let before = i - 1;
+      while (before > start && CLOSING_QUOTES.includes(text[before]!)) {
+        before -= 1;
+      }
       const endsQuotedSentence =
         depth === 0 &&
         quoteOpensSentence &&
-        SENTENCE_ENDS.includes(text[i - 1] ?? "");
+        SENTENCE_ENDS.includes(text[before] ?? "");
       if (endsQuotedSentence) {
         const end = skip(text, i + 1, CLOSING_QUOTES);
         push(start, end);

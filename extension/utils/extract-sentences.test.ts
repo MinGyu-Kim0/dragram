@@ -160,3 +160,24 @@ test("문장 앞뒤 공백은 빼고, 드래그 범위도 그 기준으로 맞�
     { text: "私は学生です。", selection: { start: 2, end: 4 } },
   ]);
 });
+
+test("인용이 겹친 대사(「『…。』」)도 닫는 괄호 묶음 뒤에서 문장을 끝낸다", () => {
+  const range = select("<p>「『行く。』」次だ。</p>", "行く", "次");
+
+  expect(extractSentences(range).map((sentence) => sentence.text)).toEqual([
+    "「『行く。』」",
+    "次だ。",
+  ]);
+});
+
+test("visibility로 숨긴 글자는 빼고, 그 안에서 다시 보이게 한 글자는 남긴다", () => {
+  const range = select(
+    '<p>今日は<span style="visibility: hidden">秘密。<b style="visibility: visible">本当に</b></span>晴れです。</p>',
+    "晴れ",
+    "晴れ",
+  );
+
+  expect(extractSentences(range)).toEqual([
+    { text: "今日は本当に晴れです。", selection: { start: 6, end: 8 } },
+  ]);
+});

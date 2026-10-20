@@ -42,7 +42,7 @@ def test_new_sentence_returns_words_at_original_positions(client, fake_llm):
 
 def test_llm_response_without_words_fails(client, fake_llm):
     fake_llm.fill_defaults = False
-    fake_llm.response = {"translation_ko": "나는 학생입니다.", "grammar": []}
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "spans": [], "new_patterns": []}
 
     response = analyze(client, "私は学生です。")
 

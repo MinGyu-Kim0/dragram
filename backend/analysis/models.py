@@ -74,6 +74,9 @@ class PatternMorpheme(models.Model):
             models.UniqueConstraint(fields=["pattern", "seq"], name="pattern_morpheme_seq_unique")
         ]
 
+    def __str__(self):
+        return f"{self.pattern_id}#{self.seq}"
+
 
 class GrammarUsage(models.Model):
     """용법. 설명은 용법마다 하나이고 모든 문장이 함께 쓴다(문장 기준 해설 없음)."""
@@ -144,6 +147,9 @@ class SpanMatch(models.Model):
             ),
         ]
 
+    def __str__(self):
+        return f"{self.analysis_id} [{self.start_offset}, {self.end_offset}) {self.state}"
+
 
 class PatternSetVersion(models.Model):
     """현재 패턴 세트 버전. 항상 id = 1인 한 행이다."""
@@ -157,3 +163,6 @@ class PatternSetVersion(models.Model):
         constraints = [
             models.CheckConstraint(condition=models.Q(id=1), name="pattern_set_version_single_row")
         ]
+
+    def __str__(self):
+        return str(self.version)

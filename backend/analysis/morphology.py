@@ -31,6 +31,21 @@ class Morpheme(NamedTuple):
     pos: str
     # SudachiPy 추정 읽기(가타카나). 사전에 없는 말은 표기 그대로일 수 있다.
     reading: str
+    # 패턴 조건에 쓰는 표제어. 조사·조동사는 원형(축약형 보존), 내용어는 정규형(표기 통일)
+    lemma: str
+    # 품사 중분류와 활용형. 없으면(*) None
+    pos2: str | None
+    conjugation_form: str | None
+
+
+_FUNCTION_POS = {"助詞", "助動詞"}
+
+
+def _morpheme(m):
+    pos = m.part_of_speech()
+    lemma = m.dictionary_form() if pos[0] in _FUNCTION_POS else m.normalized_form()
+    pos2, conjugation_form = (None if value == "*" else value for value in (pos[1], pos[5]))
+    return Morpheme(m.begin(), m.end(), pos[0], m.reading_form(), lemma, pos2, conjugation_form)
 
 
 def morphemes(text):
@@ -44,8 +59,4 @@ def morphemes(text):
         raise BusinessError(AnalysisError.FAILED, "형태소 분석 실패") from e
     # SudachiPy는 입력을 내부에서 바꿔(… → ...) 길이 0인 형태소를 덧붙이기도 한다. 원문에
     # 대응하는 글자가 없어 구간을 만들 수 없으므로 뺀다.
-    return [
-        Morpheme(m.begin(), m.end(), m.part_of_speech()[0], m.reading_form())
-        for m in tokens
-        if m.begin() < m.end()
-    ]
+    return [_morpheme(m) for m in tokens if m.begin() < m.end()]

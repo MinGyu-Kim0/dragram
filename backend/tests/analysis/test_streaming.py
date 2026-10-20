@@ -6,7 +6,7 @@ import pytest
 
 from analysis.models import SentenceAnalysis
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, grammar_items, post
+from tests.analysis.helpers import analyze, new_pattern, post
 
 pytestmark = pytest.mark.django_db
 
@@ -14,7 +14,11 @@ pytestmark = pytest.mark.django_db
 def test_translation_is_sent_before_grammar_and_words(client, fake_llm):
     fake_llm.response = {
         "translation_ko": "먹는다",
-        "grammar": grammar_items((0, 0)),
+        "new_patterns": [
+            new_pattern(
+                (0, "lemma"), pattern_name="食べる", usage_name="문법", example_ja="パンを食べる"
+            )
+        ],
         "words": [{"token_id": 0, "lemma": "食べる", "reading": "たべる", "meaning_ko": "먹다"}],
     }
 
@@ -62,7 +66,11 @@ def test_llm_error_before_translation_keeps_the_error_status(client, fake_llm):
 def test_grammar_that_fails_validation_keeps_the_sent_translation_and_saves_nothing(
     client, fake_llm
 ):
-    fake_llm.response = {"translation_ko": "나는 학생입니다.", "grammar": grammar_items((0, 9))}
+    # 범위 밖 토큰 ID
+    fake_llm.response = {
+        "translation_ko": "나는 학생입니다.",
+        "new_patterns": [new_pattern((0, "lemma"), (9, "lemma"))],
+    }
 
     response = analyze(client, "私は学生です。")
 

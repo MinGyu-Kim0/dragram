@@ -10,18 +10,35 @@ from errors import AnalysisError, BusinessError
 
 INSTRUCTIONS = """\
 You help a Korean learner of Japanese read one Japanese sentence.
-You receive the sentence and its tokens, each with an id.
+You receive the sentence, its tokens, each with an id, and spans.
 Return the Korean translation of the whole sentence in translation_ko.
 
-In grammar, list the grammar points a learner needs to understand this sentence: particles,
-auxiliary verbs, conjugations and grammatical expressions. Do not list plain content words.
-For each one, give the ids of its first and last token (start_token_id, end_token_id;
-the same id for a single token), a short Korean name (name) and a Korean explanation of how it
-works in this sentence (explanation_ko). Interpret each grammar point the same way as your
-translation. In name and explanation_ko, quote Japanese only from that grammar point's own
-tokens. Never quote the whole sentence or long parts of it. Use only token ids you received.
-If the sentence has no grammar to learn (for example a title made only of nouns), return an
-empty grammar list.
+In spans, answer every span you received. A span is a run of tokens (start_token_id to
+end_token_id) that matched a registered grammar pattern, with candidate usages of that pattern.
+For each span give its span_id and a verdict:
+- "usage": one candidate explains the span with the same reading as your translation. Give its
+  candidate_id.
+- "not_applicable": there is no grammar to learn at that place (for example の inside a name).
+- "unfound": the span has grammar to learn but no candidate explains it.
+Use null for candidate_id unless the verdict is "usage". Use only candidate ids given for
+that span.
+
+In new_patterns, list grammar points of the sentence that no span explains: particles,
+auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
+content words or grammar that a span already explains. For each one:
+- tokens: every token of the grammar point in order, from its first to its last token with no
+  gap, each with a mark (fix). "lemma" means the same word in any conjugation, "form" means the
+  same word in the same conjugated form, "any" means any single token. The first and last
+  tokens cannot be "any".
+- pattern_name: a short name of the pattern, such as ている or 名詞+で.
+- usage_name: a short Korean name of this usage, such as 진행.
+- explanation_ko: a Korean explanation of the usage in general, so that it fits every sentence
+  with this usage. Do not explain this sentence or its content.
+- example_ja: a new short Japanese example sentence with the same grammar and usage. Write a
+  sentence of your own. Do not reuse this sentence or its words.
+In pattern_name, usage_name and explanation_ko, quote Japanese only from that grammar point's
+own tokens. Never quote the whole sentence or long parts of it. Do not write number
+placeholders (⟨N1⟩) there. If the sentence has no new grammar to learn, return an empty list.
 
 In words, list the content words a learner may not know (nouns, verbs, adjectives, adverbs and
 the like). Particles and auxiliary verbs belong in grammar, not here. Do not list tokens that
@@ -41,21 +58,57 @@ number notation exactly as in the sentence. Do not turn "⟨N1⟩:⟨N2⟩", "�
 "⟨N1⟩.⟨N2⟩" into words such as 시/분, 월/일 or 대: "⟨N1⟩:⟨N2⟩です" → "⟨N1⟩:⟨N2⟩입니다".
 """
 
+# 후보 구간 판정. usage는 후보 하나를 고른 것(decided)이다.
+SPAN_VERDICTS = ("usage", "not_applicable", "unfound")
+# 새 구문 토큰 표시: lemma 고정 / 활용형도 고정 / 아무거나
+TOKEN_FIXES = ("lemma", "form", "any")
+
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
         "translation_ko": {"type": "string"},
-        "grammar": {
+        "spans": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
-                    "start_token_id": {"type": "integer"},
-                    "end_token_id": {"type": "integer"},
-                    "name": {"type": "string"},
-                    "explanation_ko": {"type": "string"},
+                    "span_id": {"type": "integer"},
+                    "verdict": {"type": "string", "enum": list(SPAN_VERDICTS)},
+                    "candidate_id": {"type": ["integer", "null"]},
                 },
-                "required": ["start_token_id", "end_token_id", "name", "explanation_ko"],
+                "required": ["span_id", "verdict", "candidate_id"],
+                "additionalProperties": False,
+            },
+        },
+        "new_patterns": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "tokens": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "token_id": {"type": "integer"},
+                                "fix": {"type": "string", "enum": list(TOKEN_FIXES)},
+                            },
+                            "required": ["token_id", "fix"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "pattern_name": {"type": "string"},
+                    "usage_name": {"type": "string"},
+                    "explanation_ko": {"type": "string"},
+                    "example_ja": {"type": "string"},
+                },
+                "required": [
+                    "tokens",
+                    "pattern_name",
+                    "usage_name",
+                    "explanation_ko",
+                    "example_ja",
+                ],
                 "additionalProperties": False,
             },
         },
@@ -74,7 +127,7 @@ RESPONSE_SCHEMA = {
             },
         },
     },
-    "required": ["translation_ko", "grammar", "words"],
+    "required": ["translation_ko", "spans", "new_patterns", "words"],
     "additionalProperties": False,
 }
 
@@ -134,9 +187,10 @@ class OpenAILLMClient:
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
         )
 
-    def analyze_stream(self, sentence, tokens):
+    def analyze_stream(self, sentence, tokens, spans):
         """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을 먼저 넘기고,
-        다 받으면 ("result", 검증 전 응답)을 넘긴다.
+        다 받으면 ("result", 검증 전 응답)을 넘긴다. spans는 등록된 패턴에 걸린 구간과 그 후보
+        용법이다.
 
         SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
         응답(거절 등)은 ANALYSIS:FAILED다.
@@ -147,7 +201,9 @@ class OpenAILLMClient:
             stream = self._client.responses.create(
                 model=settings.OPENAI_MODEL,
                 instructions=INSTRUCTIONS,
-                input=json.dumps({"sentence": sentence, "tokens": tokens}, ensure_ascii=False),
+                input=json.dumps(
+                    {"sentence": sentence, "tokens": tokens, "spans": spans}, ensure_ascii=False
+                ),
                 text={
                     "format": {
                         "type": "json_schema",

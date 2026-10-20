@@ -16,9 +16,9 @@ class FakeLLMClient:
         self.before_respond = None
         self.result_given = False
 
-    def analyze_stream(self, sentence, tokens):
+    def analyze_stream(self, sentence, tokens, spans):
         """실제 클라이언트처럼 번역이 문자열이면 먼저 넘기고, 이어서 응답 전체를 넘긴다."""
-        self.requests.append({"sentence": sentence, "tokens": tokens})
+        self.requests.append({"sentence": sentence, "tokens": tokens, "spans": spans})
         if self.before_respond:
             before_respond, self.before_respond = self.before_respond, None
             before_respond()
@@ -26,7 +26,7 @@ class FakeLLMClient:
             raise self.error
         response = self.response
         if self.fill_defaults and isinstance(response, dict):
-            response = {"grammar": [], "words": [], **response}
+            response = {"spans": [], "new_patterns": [], "words": [], **response}
         if isinstance(response, dict) and isinstance(response.get("translation_ko"), str):
             yield "translation", response["translation_ko"]
         # 번역을 넘긴 뒤 응답 전체를 넘기기 전까지를 테스트가 볼 수 있게 표시한다.

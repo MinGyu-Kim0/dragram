@@ -265,3 +265,13 @@ def test_sentence_of_only_symbols_is_not_treated_as_quoted(client, fake_llm):
     response = analyze(client, "！？")
 
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize("sentence", ["えっ…", "そう‥"])
+def test_symbols_split_into_empty_tokens_are_not_offered_as_tokens(client, fake_llm, sentence):
+    # Sudachi는 …를 ...로 바꿔 길이 0인 토큰을 덧붙인다. 그런 토큰을 고르면 구간이 비어
+    # 원문 위치로 바꾸지 못하고, 저장된 결과 때문에 같은 문장이 계속 실패했다.
+    fake_llm.response = {"translation_ko": "어…", "grammar": []}
+    analyze(client, sentence)
+
+    assert all(token["surface"] for token in fake_llm.requests[0]["tokens"])

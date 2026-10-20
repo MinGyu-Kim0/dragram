@@ -31,4 +31,6 @@ def morphemes(text):
         tokens = _tokenizer().tokenize(text)
     except SudachiError as e:
         raise BusinessError(AnalysisError.FAILED, "형태소 분석 실패") from e
-    return [(m.begin(), m.end(), m.part_of_speech()[0]) for m in tokens]
+    # SudachiPy는 입력을 내부에서 바꿔(… → ...) 길이 0인 형태소를 덧붙이기도 한다. 원문에
+    # 대응하는 글자가 없어 구간을 만들 수 없으므로 뺀다.
+    return [(m.begin(), m.end(), m.part_of_speech()[0]) for m in tokens if m.begin() < m.end()]

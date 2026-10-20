@@ -69,32 +69,63 @@ class Span(NamedTuple):
     candidates: list
 
 
-def candidate_spans(morphs):
-    """활성 패턴을 형태소열에 대조해 구간마다 반려되지 않은 용법을 후보로 붙인다.
-
-    후보 ID는 이 요청에서 서버가 1부터 매긴다. LLM은 이 ID로만 용법을 고른다.
-    """
-    patterns = GrammarPattern.objects.filter(is_active=True).prefetch_related(
+def _with_candidates(patterns):
+    """패턴마다 형태소 조건(seq 순서)과 반려되지 않은 용법(등록 순서)을 함께 읽는다."""
+    return patterns.prefetch_related(
         Prefetch("morphemes", queryset=PatternMorpheme.objects.order_by("seq")),
         Prefetch(
             "usages",
             queryset=GrammarUsage.objects.exclude(status=ReviewStatus.REJECTED).order_by("id"),
         ),
-    )
+    ).order_by("id")
+
+
+def _conditions(pattern):
+    return [Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in pattern.morphemes.all()]
+
+
+def _numbered(usages, next_id):
+    return [(next_id + i, usage) for i, usage in enumerate(usages)]
+
+
+def candidate_spans(morphs):
+    """활성 패턴을 형태소열에 대조해 구간마다 반려되지 않은 용법을 후보로 붙인다.
+
+    후보 ID는 이 요청에서 서버가 1부터 매긴다. LLM은 이 ID로만 용법을 고른다.
+    """
     spans = []
     next_id = 1
-    for pattern in patterns.order_by("id"):
+    for pattern in _with_candidates(GrammarPattern.objects.filter(is_active=True)):
         usages = list(pattern.usages.all())
         if not usages:
             continue
-        conditions = [
-            Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in pattern.morphemes.all()
-        ]
+        conditions = _conditions(pattern)
         for start in match_starts(conditions, morphs):
-            candidates = [(next_id + i, usage) for i, usage in enumerate(usages)]
+            spans.append(
+                Span(
+                    pattern,
+                    conditions,
+                    start,
+                    start + len(conditions) - 1,
+                    _numbered(usages, next_id),
+                )
+            )
             next_id += len(usages)
-            spans.append(Span(pattern, conditions, start, start + len(conditions) - 1, candidates))
     return spans
+
+
+def existing_patterns(conditions_list):
+    """형태소 조건마다 같은 morpheme_key로 이미 있는 패턴(후보 용법을 함께 읽음). 없으면 없음."""
+    keys = {morpheme_key(conditions) for conditions in conditions_list}
+    found = _with_candidates(GrammarPattern.objects.filter(morpheme_key__in=keys))
+    return {pattern.morpheme_key: pattern for pattern in found}
+
+
+def span_of(pattern, start, next_id):
+    """이미 있는 패턴을 start 토큰에서 시작하는 구간으로 다시 물을 때의 구간과 후보."""
+    conditions = _conditions(pattern)
+    usages = list(pattern.usages.all())
+    return Span(pattern, conditions, start, start + len(conditions) - 1, _numbered(usages, next_id))
 
 
 def register(conditions, pattern_name, usage_name, explanation_ko, example_ja):

@@ -1,7 +1,12 @@
 """분석 API: 문법 패턴 등록과 매칭 재사용(#35)."""
 
-import pytest
+import threading
 
+import pytest
+from django.db import connection
+from django.test import Client
+
+from analysis import patterns
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -214,19 +219,128 @@ def test_new_grammar_breaking_pattern_rules_is_not_registered(client, fake_llm, 
     assert SpanMatch.objects.get().state == "unfound"
 
 
-def test_new_grammar_with_existing_pattern_is_not_registered_again(client, fake_llm):
-    # 예문이 없어 비활성이라 매칭에 쓰이지 않던 패턴과 같은 조건을 다시 제안한다.
+def propose_teiru_again(client, fake_llm, rejudge_answers):
+    """예문이 없어 비활성이던 ている와 같은 조건을 다른 문장에서 다시 제안한다."""
     register_teiru(client, fake_llm, example_ja="走っている")
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる
     fake_llm.response = {
         "translation_ko": "그가 와 있다",
         "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
     }
+    fake_llm.rejudge_response = {"spans": rejudge_answers}
+    return analyze(client, "彼が来ている")
 
-    response = analyze(client, "彼が来ている")
 
-    assert response.json()["grammar"] == []
+def test_new_grammar_with_existing_pattern_is_asked_again_with_its_usages(client, fake_llm):
+    response = propose_teiru_again(client, fake_llm, [span_answer(0, "usage", 1)])
+
+    # 새 용법(결과)은 버리고, 기존 용법 목록으로 한 번 더 묻는다. 번역도 함께 준다.
+    [rejudge] = fake_llm.rejudge_requests
+    assert rejudge["sentence"] == "彼が来ている"
+    assert rejudge["translation_ko"] == "그가 와 있다"
+    assert rejudge["spans"] == [
+        {
+            "span_id": 0,
+            "start_token_id": 3,
+            "end_token_id": 4,
+            "candidates": [
+                {
+                    "candidate_id": 1,
+                    "name": "진행",
+                    "explanation_ko": "동작이 이어지고 있음을 나타낸다",
+                }
+            ],
+        }
+    ]
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert GrammarPattern.objects.count() == 1
     assert GrammarUsage.objects.count() == 1
-    assert SpanMatch.objects.filter(state="unfound").get().pattern == GrammarPattern.objects.get()
+
+
+def test_asked_again_span_may_add_new_usage_to_existing_pattern(client, fake_llm):
+    usage = new_usage(
+        usage_name="결과 상태",
+        explanation_ko="동작의 결과가 남아 있다",
+        example_ja="窓が開いている",
+    )
+
+    response = propose_teiru_again(client, fake_llm, [span_answer(0, "unfound", new_usage=usage)])
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["결과 상태"]
+    assert GrammarPattern.objects.count() == 1
+    assert list(GrammarUsage.objects.order_by("id").values_list("name", flat=True)) == [
+        "진행",
+        "결과 상태",
+    ]
+
+
+@pytest.mark.parametrize(
+    "answers",
+    [[], [span_answer(0, "usage", 2)], [span_answer(0, "unfound")], "not a list"],
+)
+def test_invalid_answer_when_asked_again_fails_and_nothing_is_stored(client, fake_llm, answers):
+    response = propose_teiru_again(client, fake_llm, answers)
+
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
+    assert SentenceAnalysis.objects.count() == 1
+
+
+def test_sentence_without_existing_pattern_is_not_asked_again(client, fake_llm):
+    register_teiru(client, fake_llm)
+
+    assert fake_llm.rejudge_requests == []
+
+
+def test_same_pattern_proposed_twice_in_one_sentence_is_registered_once(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 いる / 3 て / 4 いる (같은 조건이 두 번)
+    fake_llm.response = {
+        "translation_ko": "번역",
+        "new_patterns": [TEIRU, new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
+    }
+
+    analyze(client, "走っていている")
+
+    assert GrammarPattern.objects.count() == 1
+    assert GrammarUsage.objects.count() == 1
+    assert fake_llm.rejudge_requests == []
+
+
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_pattern_created_concurrently_is_asked_again_with_its_usages(fake_llm, monkeypatch):
+    # 같은 조건의 패턴이 없다고 확인한 뒤, 등록하기 직전에 다른 요청이 먼저 등록하고 커밋한다.
+    register = patterns.register
+
+    def other_request_registers_first(*args):
+        monkeypatch.setattr(patterns, "register", register)
+        saved_response = fake_llm.response
+
+        def other_request():
+            try:
+                register_teiru(Client(), fake_llm)
+            finally:
+                connection.close()
+
+        thread = threading.Thread(target=other_request)
+        thread.start()
+        thread.join()
+        fake_llm.response = saved_response
+        return register(*args)
+
+    monkeypatch.setattr(patterns, "register", other_request_registers_first)
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
+    }
+    fake_llm.rejudge_response = {"spans": [span_answer(0, "usage", 1)]}
+
+    response = analyze(Client(), "彼が来ている")
+
+    assert len(fake_llm.rejudge_requests) == 1
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert GrammarPattern.objects.count() == 1
+    assert GrammarUsage.objects.count() == 1
 
 
 @pytest.mark.parametrize(

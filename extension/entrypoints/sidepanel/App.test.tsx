@@ -543,3 +543,33 @@ test("한 회차에 같은 문장이 반복되면 한 번만 분석하고 결과
   expect(await screen.findByText("고양이입니다.")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
+
+test("단어 탭에서도 드래그 범위와 겹친 단어를 먼저 보이고 '드래그한 부분'을 붙인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생으로서 먹고 있다.",
+    grammar: [],
+    words: [
+      wordItem(0, 1, "私", "わたし"),
+      wordItem(2, 4, "学生", "がくせい"),
+      wordItem(5, 7, "食べる", "たべる"),
+    ],
+  });
+  render(<App />);
+  // 生で食만 골랐다. 学生과 食べる가 겹친다.
+  await sendSelected(panelWindowId, "私は学生で食べている", 3, 6);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 3" }));
+
+  const rows = within(screen.getByRole("list", { name: "단어" })).getAllByRole(
+    "listitem",
+  );
+  expect(
+    rows.map((row) => within(row).getByRole("heading").textContent),
+  ).toEqual(["学生", "食べる", "私"]);
+  for (const row of rows.slice(0, 2)) {
+    expect(within(row).getByText("드래그한 부분")).toBeInTheDocument();
+    expect(row.className).toContain("dragged");
+  }
+  expect(within(rows[2]!).queryByText("드래그한 부분")).not.toBeInTheDocument();
+  expect(rows[2]!.className).not.toContain("dragged");
+});

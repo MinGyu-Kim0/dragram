@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
 import type { GrammarItem } from "@/utils/api";
-
-// 문장 안에서 실제로 드래그한 범위. 원문 기준 UTF-16 위치 [start, end)
-export interface DragRange {
-  start: number;
-  end: number;
-}
+import { draggedFirst, type DragRange } from "./drag-range";
 
 // 형광펜은 4색을 돌아가며 쓴다(DESIGN.md 형광펜). 원문 형광펜과 카드 칩이 같은 색이다.
 const HIGHLIGHT_COLORS = 4;
@@ -73,10 +68,6 @@ export function HighlightedText({
   );
 }
 
-function overlaps(item: GrammarItem, selection: DragRange): boolean {
-  return item.start < selection.end && selection.start < item.end;
-}
-
 // 드래그 범위와 겹치는 카드를 먼저, 나머지를 그 뒤에 둔다. 각 묶음 안은 원문 순서이고,
 // 칩 색은 카드 순서가 아니라 원문 순서로 매겨 형광펜과 맞춘다.
 export function GrammarCards({
@@ -91,33 +82,30 @@ export function GrammarCards({
   if (grammar.length === 0) {
     return <p className="no-grammar">문법 요소 없음</p>;
   }
-  const cards = sortGrammar(grammar).map((item, index) => ({
-    item,
-    index,
-    dragged: overlaps(item, selection),
-  }));
-  const ordered = [
-    ...cards.filter((card) => card.dragged),
-    ...cards.filter((card) => !card.dragged),
-  ];
+  const ordered = draggedFirst(
+    // 칩 색 번호는 원문 순서로 미리 매긴다.
+    sortGrammar(grammar).map((item, index) => ({ ...item, index })),
+    selection,
+  );
   return (
     <ul className="grammar-cards" aria-label="문법">
-      {ordered.map(({ item, index, dragged }) => (
+      {ordered.map(({ item, dragged }) => (
         <li
-          key={`${item.start}-${item.end}-${index}`}
+          key={`${item.start}-${item.end}-${item.index}`}
           className={dragged ? "grammar-card dragged" : "grammar-card"}
         >
           <div className="grammar-card-head">
-            <span lang="ja" className={`grammar-chip ${highlightClass(index)}`}>
+            <span
+              lang="ja"
+              className={`grammar-chip ${highlightClass(item.index)}`}
+            >
               {text.slice(item.start, item.end)}
             </span>
             <h3>{item.name}</h3>
             {item.review_status === "pending" && (
               <span className="badge-warn">AI 생성·미검수</span>
             )}
-            {dragged && (
-              <span className="grammar-card-meta">드래그한 부분</span>
-            )}
+            {dragged && <span className="drag-meta">드래그한 부분</span>}
           </div>
           <p className="grammar-explanation">{item.explanation_ko}</p>
         </li>

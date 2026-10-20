@@ -1,5 +1,6 @@
 import type { Analysis } from "@/utils/api";
-import { GrammarCards, HighlightedText, type DragRange } from "./Grammar";
+import type { DragRange } from "./drag-range";
+import { GrammarCards, HighlightedText } from "./Grammar";
 import { WordList } from "./Words";
 
 // 문장 하나의 분석 결과. 없으면 아직 분석 중이다.
@@ -78,7 +79,7 @@ export function SentenceView({
                 selection={selection}
               />
             ) : (
-              <WordList words={result.analysis.words} />
+              <WordList words={result.analysis.words} selection={selection} />
             )}
           </div>
         </>

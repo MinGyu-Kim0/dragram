@@ -19,12 +19,13 @@ from analysis.normalize import (
     restore_numbers,
 )
 from analysis.positions import key_offsets, to_analysis, to_key, to_original, utf16_offsets
+from analysis.ruby import ruby_pieces
 from errors import AnalysisError, BusinessError
 
 
 def _numbers_before_particle(text, morphs):
     """원문에서 바로 뒤에 조사(助詞)가 오는 숫자의 자리표시자 번호."""
-    particle_starts = {begin for begin, _, pos in morphs if pos == "助詞"}
+    particle_starts = {m.begin for m in morphs if m.pos == "助詞"}
     return {n for n, end in enumerate(number_ends(text), start=1) if end in particle_starts}
 
 
@@ -127,8 +128,8 @@ def _stored_grammar(grammar, morphs, offsets):
     """토큰 ID로 고른 문법 항목을 키 텍스트 구간으로 바꿔 저장할 모양으로 만든다."""
     stored = []
     for item in grammar:
-        begin = morphs[item["start_token"]][0]
-        end = morphs[item["end_token"]][1]
+        begin = morphs[item["start_token"]].begin
+        end = morphs[item["end_token"]].end
         key_start, key_end = to_key(offsets, begin, end)
         stored.append(
             {
@@ -149,7 +150,8 @@ def _stored_words(words, morphs, offsets):
     """토큰 ID로 고른 단어 항목을 키 텍스트 구간으로 바꿔 저장할 모양으로 만든다."""
     stored = []
     for item in words:
-        begin, end, _ = morphs[item["token"]]
+        morph = morphs[item["token"]]
+        begin, end = morph.begin, morph.end
         key_start, key_end = to_key(offsets, begin, end)
         stored.append(
             {"start": key_start, "end": key_end, **{field: item[field] for field in _WORD_TEXTS}}
@@ -220,6 +222,15 @@ def _words_response(stored, offsets, origins, utf16, restore):
     return words
 
 
+def _ruby_response(pieces, origins, utf16):
+    """분석 텍스트 기준 루비 조각을 이 요청 원문의 UTF-16 위치로 바꾼다."""
+    ruby = []
+    for start, end, reading in pieces:
+        start, end = to_original(origins, utf16, start, end)
+        ruby.append({"start": start, "end": end, "reading": reading})
+    return ruby
+
+
 # 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
 @api_view(["POST"])
 @authentication_classes([])
@@ -247,6 +258,9 @@ def analyze(request):
     def restore(text):
         return restore_numbers(text, numbers, particle_numbers)
 
+    # 루비는 SudachiPy 읽기라 LLM·캐시와 상관없이 요청마다 이 원문 기준으로 계산한다.
+    ruby = _ruby_response(ruby_pieces(text_to_analyze, morphs), origins, utf16)
+
     def respond(saved):
         return Response(
             {
@@ -257,6 +271,7 @@ def analyze(request):
                 "words": _words_response(
                     saved.draft_analysis["words"], offsets, origins, utf16, restore
                 ),
+                "ruby": ruby,
             }
         )
 
@@ -268,18 +283,16 @@ def analyze(request):
         return respond(cached)
 
     # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
-    tokens = [
-        {"id": i, "surface": "".join(pieces[begin:end])} for i, (begin, end, _) in enumerate(morphs)
-    ]
+    tokens = [{"id": i, "surface": "".join(pieces[m.begin : m.end])} for i, m in enumerate(morphs)]
     result = llm.get_client().analyze(key_text, tokens)
 
     def is_vocabulary(token):
         # 숫자는 학습할 단어가 아니고, 숫자열과 겹치는 토큰(X12의 X1, 2)은 LLM이 사전형에
         # 숫자를 지어내면 숫자만 다른 문장에 잘못 재사용된다. 숫자열은 자리표시자 조각과
         # 빈 조각(뒤쪽 숫자)으로 이뤄진다.
-        begin, end, pos = morphs[token]
-        overlaps_number = any(piece == "" or "⟨N" in piece for piece in pieces[begin:end])
-        return pos not in _NON_WORD_POS and not overlaps_number
+        m = morphs[token]
+        overlaps_number = any(piece == "" or "⟨N" in piece for piece in pieces[m.begin : m.end])
+        return m.pos not in _NON_WORD_POS and not overlaps_number
 
     validated = _validate(result, numbers, len(morphs), is_vocabulary)
     draft = {
@@ -290,7 +303,7 @@ def analyze(request):
         item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")
     ]
     llm_texts += [item[field] for item in validated["words"] for field in _WORD_TEXTS]
-    content_tokens = sum(pos not in {"補助記号", "空白"} for _, _, pos in morphs)
+    content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
     if _quotes_whole_sentence(llm_texts, key_text, content_tokens):
         # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
         raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")

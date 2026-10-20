@@ -15,6 +15,8 @@ export function SentenceView({
   selection,
   showHandles,
   onToggleHandles,
+  showRuby,
+  onToggleRuby,
   result,
   tab,
   onTabChange,
@@ -23,6 +25,8 @@ export function SentenceView({
   selection: DragRange;
   showHandles: boolean;
   onToggleHandles: () => void;
+  showRuby: boolean;
+  onToggleRuby: () => void;
   result: SentenceResult | undefined;
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
@@ -30,18 +34,25 @@ export function SentenceView({
   return (
     <>
       <section className="sentence-card">
-        <button
-          type="button"
-          className="handle-toggle"
-          aria-pressed={showHandles}
-          onClick={onToggleHandles}
-        >
-          드래그 표시
-        </button>
+        <div className="display-toggles">
+          <button type="button" aria-pressed={showRuby} onClick={onToggleRuby}>
+            루비
+          </button>
+          <button
+            type="button"
+            aria-pressed={showHandles}
+            onClick={onToggleHandles}
+          >
+            드래그 표시
+          </button>
+        </div>
         <p lang="ja" className="original">
           <HighlightedText
             text={text}
             grammar={result?.status === "done" ? result.analysis.grammar : []}
+            ruby={
+              showRuby && result?.status === "done" ? result.analysis.ruby : []
+            }
             dragHandles={showHandles ? selection : undefined}
           />
         </p>

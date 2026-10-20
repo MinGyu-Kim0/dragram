@@ -10,13 +10,8 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 import { requestAnalysis } from "@/utils/analysis-request";
 import App from "./App";
 
-function respondWith(status: number, body: unknown) {
-  const fetchMock = vi.fn().mockResolvedValue(
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "Content-Type": "application/json" },
-    }),
-  );
+function respondWith(status: number, body: object) {
+  const fetchMock = vi.fn().mockResolvedValue(json(status, body));
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -44,8 +39,10 @@ function respondPerSentence(
   return fetchMock;
 }
 
-function json(status: number, body: unknown) {
-  return new Response(JSON.stringify(body), {
+// 성공 응답에서 테스트가 정하지 않은 루비는 빈 목록으로 채운다.
+function json(status: number, body: object) {
+  const filled = status === 200 ? { ruby: [], ...body } : body;
+  return new Response(JSON.stringify(filled), {
     status,
     headers: { "Content-Type": "application/json" },
   });
@@ -271,6 +268,7 @@ function originalWithHandles(): string {
   const original = document
     .querySelector(".original")!
     .cloneNode(true) as Element;
+  original.querySelectorAll("rt").forEach((rt) => rt.remove());
   original
     .querySelectorAll(".drag-handle-start")
     .forEach((handle) => handle.replaceWith("["));
@@ -647,4 +645,91 @@ test("단어 탭에서도 드래그 범위와 겹친 단어를 먼저 보이고 
   }
   expect(within(rows[2]!).queryByText("드래그한 부분")).not.toBeInTheDocument();
   expect(rows[2]!.className).not.toContain("dragged");
+});
+
+function rubyItem(start: number, end: number, reading: string) {
+  return { start, end, reading };
+}
+
+// 원문에 달린 루비를 [밑글자, 읽기]로 읽는다.
+function rubies(): [string, string][] {
+  return [...document.querySelectorAll(".original ruby")].map((ruby) => {
+    const rt = ruby.querySelector("rt")!.textContent!;
+    return [ruby.textContent!.slice(0, -rt.length), rt];
+  });
+}
+
+test("원문 한자 위에 루비를 기본으로 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(2, 4, "명사 学生")],
+    words: [],
+    ruby: [rubyItem(0, 1, "わたし"), rubyItem(2, 4, "がくせい")],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。");
+
+  await screen.findByText("나는 학생입니다.");
+  expect(rubies()).toEqual([
+    ["私", "わたし"],
+    ["学生", "がくせい"],
+  ]);
+  expect(screen.getByRole("button", { name: "루비" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  // 형광펜 안에도 루비를 단다.
+  expect(document.querySelector(".original mark ruby")).not.toBeNull();
+});
+
+test("루비 버튼을 끄면 루비가 사라지고, 끈 값은 패널을 다시 열어도 유지된다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [],
+    words: [],
+    ruby: [rubyItem(0, 1, "わたし")],
+  });
+  const { unmount } = render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  await screen.findByText("나는 학생입니다.");
+
+  fireEvent.click(screen.getByRole("button", { name: "루비" }));
+
+  expect(rubies()).toEqual([]);
+  expect(document.querySelector(".original")!.textContent).toBe(
+    "私は学生です。",
+  );
+
+  unmount();
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [],
+    words: [],
+    ruby: [rubyItem(0, 1, "わたし")],
+  });
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  await screen.findByText("나는 학생입니다.");
+  await waitFor(() => expect(rubies()).toEqual([]));
+});
+
+test("드래그 핸들이 루비 단어 안에 걸리면 단어 바깥에 붙인다", async () => {
+  respondWith(200, {
+    translation_ko: "중간선거까지",
+    grammar: [],
+    words: [],
+    ruby: [rubyItem(0, 2, "ちゅうかん"), rubyItem(2, 4, "せんきょ")],
+  });
+  render(<App />);
+
+  // 間選만 골랐다. 시작은 中間 안, 끝은 選挙 안이다.
+  await sendSelected(panelWindowId, "中間選挙まで", 1, 3);
+
+  await screen.findByText("중간선거까지");
+  expect(rubies()).toEqual([
+    ["中間", "ちゅうかん"],
+    ["選挙", "せんきょ"],
+  ]);
+  expect(originalWithHandles()).toBe("[中間選挙]まで");
 });

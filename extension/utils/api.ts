@@ -24,10 +24,19 @@ export interface WordItem {
   review_status: "pending" | "approved";
 }
 
+export interface RubyItem {
+  // 원문 기준 UTF-16 위치 [start, end). 한자 부분만 덮는다(食べる → 食).
+  start: number;
+  end: number;
+  // SudachiPy 추정 읽기(히라가나)
+  reading: string;
+}
+
 export interface Analysis {
   translation_ko: string;
   grammar: GrammarItem[];
   words: WordItem[];
+  ruby: RubyItem[];
 }
 
 export async function analyzeSentence(text: string): Promise<Analysis> {

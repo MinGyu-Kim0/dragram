@@ -256,6 +256,48 @@ test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 같은 �
   expect(marks[1]!.className).toContain("highlight-1");
 });
 
+// 문장 하나를 드래그 범위와 함께 분석 요청으로 넣는다.
+function sendSelected(
+  windowId: number,
+  text: string,
+  start: number,
+  end: number,
+) {
+  return requestAnalysis(windowId, [{ text, selection: { start, end } }]);
+}
+
+test("원문에 실제로 드래그한 범위를 형광펜과 따로 표시한다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    words: [],
+  });
+  render(<App />);
+
+  // 学生で까지 고르지 않고 は学生만 골랐다.
+  await sendSelected(panelWindowId, "私は学生です。", 1, 4);
+
+  await screen.findAllByRole("listitem");
+  const original = document.querySelector(".original")!;
+  expect(original.querySelector(".drag-range")!.textContent).toBe("は学生");
+  expect(original.textContent).toBe("私は学生です。");
+  // 형광펜은 드래그 범위와 상관없이 문법 구간 그대로다.
+  const marks = original.querySelectorAll("mark");
+  expect([...marks].map((mark) => mark.textContent)).toEqual(["は", "です"]);
+});
+
+test("응답 전에도 원문에 드래그 범위를 표시한다", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockReturnValue(new Promise(() => {})));
+  render(<App />);
+
+  await sendSelected(panelWindowId, "私は学生です。", 2, 4);
+
+  await screen.findByRole("status", { name: "번역을 불러오는 중" });
+  expect(document.querySelector(".original .drag-range")!.textContent).toBe(
+    "学生",
+  );
+});
+
 test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인다", async () => {
   respondWith(200, { translation_ko: "도쿄", grammar: [], words: [] });
   render(<App />);

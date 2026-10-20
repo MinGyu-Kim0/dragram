@@ -119,6 +119,7 @@ function App() {
       {sentence && (
         <SentenceView
           text={sentence.text}
+          selection={sentence.selection}
           result={result}
           tab={tab}
           onTabChange={setTab}

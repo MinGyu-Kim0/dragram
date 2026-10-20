@@ -1,4 +1,11 @@
+import type { ReactNode } from "react";
 import type { GrammarItem } from "@/utils/api";
+
+// 문장 안에서 실제로 드래그한 범위. 원문 기준 UTF-16 위치 [start, end)
+export interface DragRange {
+  start: number;
+  end: number;
+}
 
 // 형광펜은 4색을 돌아가며 쓴다(DESIGN.md 형광펜). 원문 형광펜과 카드 칩이 같은 색이다.
 const HIGHLIGHT_COLORS = 4;
@@ -14,37 +21,54 @@ function sortGrammar(grammar: GrammarItem[]): GrammarItem[] {
 
 // 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다
 // (겹침 표시 방식은 DESIGN.md 7장에서 아직 정하지 않았다).
+// 실제로 드래그한 범위는 형광펜과 다른 층으로 감싸 시작·끝에 핸들을 붙인다(DESIGN.md).
 export function HighlightedText({
   text,
   grammar,
+  selection,
 }: {
   text: string;
   grammar: GrammarItem[];
+  selection: DragRange;
 }) {
   const sorted = sortGrammar(grammar);
   const bounds = [
     ...new Set([
       0,
       text.length,
+      selection.start,
+      selection.end,
       ...sorted.flatMap((item) => [item.start, item.end]),
     ]),
   ].sort((a, b) => a - b);
 
+  const before: ReactNode[] = [];
+  const inside: ReactNode[] = [];
+  const after: ReactNode[] = [];
+  bounds.slice(0, -1).forEach((start, i) => {
+    const end = bounds[i + 1]!;
+    const segment = text.slice(start, end);
+    const index = sorted.findIndex(
+      (item) => item.start <= start && end <= item.end,
+    );
+    const node =
+      index === -1 ? (
+        segment
+      ) : (
+        <mark key={start} className={`highlight ${highlightClass(index)}`}>
+          {segment}
+        </mark>
+      );
+    if (end <= selection.start) before.push(node);
+    else if (start < selection.end) inside.push(node);
+    else after.push(node);
+  });
+
   return (
     <>
-      {bounds.slice(0, -1).map((start, i) => {
-        const end = bounds[i + 1]!;
-        const segment = text.slice(start, end);
-        const index = sorted.findIndex(
-          (item) => item.start <= start && end <= item.end,
-        );
-        if (index === -1) return segment;
-        return (
-          <mark key={start} className={`highlight ${highlightClass(index)}`}>
-            {segment}
-          </mark>
-        );
-      })}
+      {before}
+      {inside.length > 0 && <span className="drag-range">{inside}</span>}
+      {after}
     </>
   );
 }

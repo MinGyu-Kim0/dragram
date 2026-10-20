@@ -1,5 +1,5 @@
 import type { Analysis } from "@/utils/api";
-import { GrammarCards, HighlightedText } from "./Grammar";
+import { GrammarCards, HighlightedText, type DragRange } from "./Grammar";
 import { WordList } from "./Words";
 
 // 문장 하나의 분석 결과. 없으면 아직 분석 중이다.
@@ -11,11 +11,13 @@ export type ResultTab = "grammar" | "words";
 // 문장 한 페이지: 원문 카드(원문, 번역) → 문법·단어 탭 → 탭 내용
 export function SentenceView({
   text,
+  selection,
   result,
   tab,
   onTabChange,
 }: {
   text: string;
+  selection: DragRange;
   result: SentenceResult | undefined;
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
@@ -24,11 +26,11 @@ export function SentenceView({
     <>
       <section className="sentence-card">
         <p lang="ja" className="original">
-          {result?.status === "done" ? (
-            <HighlightedText text={text} grammar={result.analysis.grammar} />
-          ) : (
-            text
-          )}
+          <HighlightedText
+            text={text}
+            grammar={result?.status === "done" ? result.analysis.grammar : []}
+            selection={selection}
+          />
         </p>
         <hr />
         {!result && (

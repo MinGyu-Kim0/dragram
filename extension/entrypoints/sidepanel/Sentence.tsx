@@ -1,11 +1,20 @@
-import type { Analysis } from "@/utils/api";
+import type { Analysis, Translation } from "@/utils/api";
 import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
 import { WordList } from "./Words";
 
-// 문장 하나의 분석 결과. 없으면 아직 분석 중이다.
+// 문장 하나의 분석 결과. 없으면 아직 번역도 오지 않았다. translated는 번역만 와서
+// 문법·단어를 기다리는 중이다. failed에 번역이 있으면 번역 뒤 문법·단어에서 실패했다.
 export type SentenceResult =
-  { status: "done"; analysis: Analysis } | { status: "failed" };
+  | { status: "translated"; translation: Translation }
+  | { status: "done"; analysis: Analysis }
+  | { status: "failed"; translation?: Translation };
+
+// 지금 보일 번역과 루비
+function translationOf(result: SentenceResult | undefined) {
+  if (result?.status === "done") return result.analysis;
+  return result?.translation;
+}
 
 export type ResultTab = "grammar" | "words";
 
@@ -31,6 +40,7 @@ export function SentenceView({
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
 }) {
+  const translation = translationOf(result);
   return (
     <>
       <section className="sentence-card">
@@ -50,9 +60,7 @@ export function SentenceView({
           <HighlightedText
             text={text}
             grammar={result?.status === "done" ? result.analysis.grammar : []}
-            ruby={
-              showRuby && result?.status === "done" ? result.analysis.ruby : []
-            }
+            ruby={showRuby && translation ? translation.ruby : []}
             dragHandles={showHandles ? selection : undefined}
           />
         </p>
@@ -67,13 +75,26 @@ export function SentenceView({
             <span />
           </div>
         )}
-        {result?.status === "done" && (
-          <p className="translation">{result.analysis.translation_ko}</p>
+        {translation && (
+          <p className="translation">{translation.translation_ko}</p>
         )}
-        {result?.status === "failed" && (
+        {result?.status === "failed" && !translation && (
           <p className="error">분석하지 못했습니다</p>
         )}
       </section>
+      {result?.status === "translated" && (
+        <div
+          role="status"
+          aria-label="문법·단어를 불러오는 중"
+          className="skeleton below-card"
+        >
+          <span />
+          <span />
+        </div>
+      )}
+      {result?.status === "failed" && translation && (
+        <p className="error below-card">문법·단어를 분석하지 못했습니다</p>
+      )}
       {result?.status === "done" && (
         <>
           <div role="tablist" className="tabs">

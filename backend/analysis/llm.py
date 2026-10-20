@@ -1,4 +1,5 @@
 import json
+import re
 
 from django.conf import settings
 from openai import OpenAI, OpenAIError
@@ -74,6 +75,37 @@ RESPONSE_SCHEMA = {
     "required": ["translation_ko", "grammar", "words"],
     "additionalProperties": False,
 }
+
+
+# 스트림 맨 앞의 translation_ko 문자열(닫는 따옴표까지). 구조화 출력은 스키마의 속성 순서대로
+# 쓰므로 번역이 맨 앞에 온다. 이스케이프(\" 등)는 한 덩어리로 건너뛴다.
+_TRANSLATION_HEAD = re.compile(r'\A\s*\{\s*"translation_ko"\s*:\s*("(?:[^"\\]|\\.)*")')
+
+
+class TranslationFirst:
+    """구조화 출력 JSON 조각을 이어 받아, translation_ko가 끝나는 대로 먼저 꺼낸다."""
+
+    def __init__(self):
+        self._text = ""
+        self._translation_found = False
+
+    def feed(self, delta):
+        """조각을 더한다. 번역 문자열이 이번에 처음 닫혔으면 그 값을, 아니면 None을 돌려준다."""
+        self._text += delta
+        if self._translation_found:
+            return None
+        head = _TRANSLATION_HEAD.match(self._text)
+        if not head:
+            return None
+        self._translation_found = True
+        return json.loads(head.group(1))
+
+    def result(self):
+        """다 받은 응답. JSON이 아니면(거절, 끊긴 응답 등) ANALYSIS:FAILED다."""
+        try:
+            return json.loads(self._text)
+        except json.JSONDecodeError as e:
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답이 JSON이 아님") from e
 
 
 # 동기 호출이라 요청 스레드와 사이드 패널을 오래 붙잡지 않게 시간 상한을 둔다(NFR-14).

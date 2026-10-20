@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import openai
 import pytest
 
-from analysis.llm import OpenAILLMClient
+from analysis.llm import OpenAILLMClient, TranslationFirst
 from errors import AnalysisError, BusinessError
 
 
@@ -46,4 +46,40 @@ def test_output_that_is_not_json_becomes_analysis_failure(llm_client, monkeypatc
 
     with pytest.raises(BusinessError) as raised:
         llm_client.analyze("文", [])
+    assert raised.value.error_code == AnalysisError.FAILED
+
+
+def feed_all(parser, chunks):
+    """조각을 차례로 넣고, 번역이 처음 나온 조각 번호와 번역을 돌려준다."""
+    found = None
+    for i, chunk in enumerate(chunks):
+        translation = parser.feed(chunk)
+        if translation is not None:
+            assert found is None, "번역은 한 번만 나온다"
+            found = (i, translation)
+    return found
+
+
+def test_translation_comes_out_as_soon_as_its_string_closes():
+    parser = TranslationFirst()
+    chunks = ['{"transla', 'tion_ko": "나는 ', '학생입니다."', ', "grammar": [', "]}"]
+
+    assert feed_all(parser, chunks) == (2, "나는 학생입니다.")
+    assert parser.result() == {"translation_ko": "나는 학생입니다.", "grammar": []}
+
+
+def test_escaped_quote_does_not_end_the_translation_early():
+    parser = TranslationFirst()
+    # 조각이 이스케이프 가운데(\ 와 ")에서 끊긴다.
+    chunks = ['{"translation_ko": "그는 \\', '"간다\\"', ' \\u3042"', ', "words": []}']
+
+    assert feed_all(parser, chunks) == (2, '그는 "간다" あ')
+
+
+def test_result_that_is_not_json_becomes_analysis_failure():
+    parser = TranslationFirst()
+    parser.feed('{"translation_ko": "번역", "gram')
+
+    with pytest.raises(BusinessError) as raised:
+        parser.result()
     assert raised.value.error_code == AnalysisError.FAILED

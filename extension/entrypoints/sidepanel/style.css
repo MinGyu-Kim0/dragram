@@ -108,6 +108,11 @@ h1 {
   color: var(--color-danger-text);
 }
 
+/* 원문 카드 아래(탭 자리)의 대기·실패 표시 */
+.below-card {
+  margin-top: 14px;
+}
+
 .skeleton {
   display: grid;
   gap: 8px;

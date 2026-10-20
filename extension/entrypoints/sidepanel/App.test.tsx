@@ -11,7 +11,10 @@ import { requestAnalysis } from "@/utils/analysis-request";
 import App from "./App";
 
 function respondWith(status: number, body: object) {
-  const fetchMock = vi.fn().mockResolvedValue(json(status, body));
+  // 응답 본문은 한 번만 읽을 수 있어 요청마다 새로 만든다.
+  const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
+    Promise.resolve(json(status, body)),
+  );
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
 }
@@ -39,13 +42,60 @@ function respondPerSentence(
   return fetchMock;
 }
 
-// 성공 응답에서 테스트가 정하지 않은 루비는 빈 목록으로 채운다.
+interface AnalysisBody {
+  translation_ko: string;
+  grammar: unknown[];
+  words: unknown[];
+  ruby?: unknown[];
+}
+
+// 성공 응답은 서버처럼 줄 단위 JSON 이벤트 두 줄(번역 → 문법·단어)로 한 번에 준다.
+// 테스트가 정하지 않은 루비는 빈 목록으로 채운다. 실패 응답은 JSON 본문 그대로다.
 function json(status: number, body: object) {
-  const filled = status === 200 ? { ruby: [], ...body } : body;
-  return new Response(JSON.stringify(filled), {
-    status,
-    headers: { "Content-Type": "application/json" },
+  if (status !== 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  const { ruby = [], ...result } = body as AnalysisBody;
+  return ndjson([
+    { type: "translation", translation_ko: result.translation_ko, ruby },
+    { type: "analysis", ...result },
+  ]);
+}
+
+function ndjson(events: object[]) {
+  return new Response(
+    events.map((event) => JSON.stringify(event) + "\n").join(""),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/x-ndjson" },
+    },
+  );
+}
+
+// 이벤트를 테스트가 정한 때에 한 줄씩 흘려보내는 응답
+function streamed() {
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({
+    start(c) {
+      controller = c;
+    },
   });
+  const encoder = new TextEncoder();
+  return {
+    response: new Response(body, {
+      status: 200,
+      headers: { "Content-Type": "application/x-ndjson" },
+    }),
+    push(event: object) {
+      controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+    },
+    end() {
+      controller.close();
+    },
+  };
 }
 
 function analysis(translation: string) {
@@ -100,7 +150,7 @@ test("응답이 오면 번역을 보인다", async () => {
   ).not.toBeInTheDocument();
   const [url, init] = fetchMock.mock.calls[0]!;
   expect(url).toMatch(/\/api\/analyses\/$/);
-  expect(JSON.parse(init.body)).toEqual({ text: "私は学生です。" });
+  expect(JSON.parse(init.body as string)).toEqual({ text: "私は学生です。" });
 });
 
 test("패널이 열리기 전에 들어온 분석 요청도 보인다", async () => {
@@ -732,4 +782,77 @@ test("드래그 핸들이 루비 단어 안에 걸리면 단어 바깥에 붙인
     ["選挙", "せんきょ"],
   ]);
   expect(originalWithHandles()).toBe("[中間選挙]まで");
+});
+
+test("번역이 오면 먼저 보이고, 문법·단어 탭은 이어서 채운다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+
+  stream.push({
+    type: "translation",
+    translation_ko: "나는 학생입니다.",
+    ruby: [rubyItem(0, 1, "わたし")],
+  });
+
+  expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
+  expect(rubies()).toEqual([["私", "わたし"]]);
+  expect(
+    screen.getByRole("status", { name: "문법·단어를 불러오는 중" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+
+  stream.push({
+    type: "analysis",
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は")],
+    words: [],
+  });
+  stream.end();
+
+  expect(
+    await screen.findByRole("tab", { name: "문법 1" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("status", { name: "문법·단어를 불러오는 중" }),
+  ).not.toBeInTheDocument();
+  expect(rubies()).toEqual([["私", "わたし"]]);
+});
+
+test("번역 뒤에 문법·단어가 실패하면 번역은 그대로 두고 문법·단어 실패를 보인다", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        ndjson([
+          { type: "translation", translation_ko: "나는 학생입니다.", ruby: [] },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]),
+      ),
+    ),
+  );
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。");
+
+  expect(
+    await screen.findByText("문법·단어를 분석하지 못했습니다"),
+  ).toBeInTheDocument();
+  expect(screen.getByText("나는 학생입니다.")).toBeInTheDocument();
+  expect(screen.queryByText("분석하지 못했습니다")).not.toBeInTheDocument();
+});
+
+test("번역 전에 실패하면 '분석하지 못했습니다'를 보인다", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(ndjson([{ type: "error", error: "ANALYSIS:FAILED" }])),
+    ),
+  );
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。");
+
+  expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
 });

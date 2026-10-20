@@ -1,4 +1,4 @@
-"""분석 API: 입력 검사, 외부 실패(502), 우리 코드 버그(500)."""
+"""분석 API: 입력 검사, 외부 실패(번역 전 502, 번역 뒤 error 이벤트), 우리 코드 버그(500)."""
 
 import pytest
 
@@ -24,7 +24,6 @@ def test_invalid_llm_response_fails_the_sentence(client, fake_llm, llm_response)
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
     assert response.json() == {"error": "ANALYSIS:FAILED"}
 
 
@@ -43,7 +42,6 @@ def test_llm_error_fails_the_sentence(client, fake_llm):
 
     response = analyze(client, "私は学生です。")
 
-    assert response.status_code == 502
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
 

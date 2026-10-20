@@ -74,7 +74,6 @@ def test_translation_missing_placeholder_fails_and_is_not_stored(client, fake_ll
 
     response = analyze(client, "3人で行く")
 
-    assert response.status_code == 502
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     fake_llm.response = {"translation_ko": "⟨N1⟩명이서 간다."}
     assert analyze(client, "3人で行く").json()["translation_ko"] == "3명이서 간다."

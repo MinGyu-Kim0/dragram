@@ -1,10 +1,12 @@
 import hashlib
+import json
 import re
 import unicodedata
+from itertools import chain
 
+from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
-from rest_framework.response import Response
 
 from analysis import llm
 from analysis.models import SentenceAnalysis
@@ -21,6 +23,7 @@ from analysis.normalize import (
 from analysis.positions import key_offsets, to_analysis, to_key, to_original, utf16_offsets
 from analysis.ruby import ruby_pieces
 from errors import AnalysisError, BusinessError
+from errors.handler import log_business_error
 
 
 def _numbers_before_particle(text, morphs):
@@ -108,13 +111,20 @@ def _validate_words(words, numbers, token_count, is_vocabulary):
     return items
 
 
-def _validate(result, numbers, token_count, is_vocabulary):
-    """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 ANALYSIS:FAILED."""
-    if not isinstance(result, dict) or not _is_text(result.get("translation_ko")):
+def _validate_translation(translation, numbers):
+    """번역을 검증한다. 문법·단어보다 먼저 보내므로 따로 검증한다."""
+    if not _is_text(translation):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 번역")
     # 자리표시자가 맞지 않는 번역은 숫자가 틀렸을 수 있어 보여주지도 저장하지도 않는다.
-    if not has_all_placeholders(result["translation_ko"], numbers):
+    if not has_all_placeholders(translation, numbers):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 번역 자리표시자")
+
+
+def _validate(result, numbers, token_count, is_vocabulary):
+    """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 ANALYSIS:FAILED."""
+    if not isinstance(result, dict):
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 객체 아님")
+    _validate_translation(result.get("translation_ko"), numbers)
     grammar = _validate_grammar(result.get("grammar"), numbers, token_count)
     if grammar is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 문법")
@@ -231,6 +241,27 @@ def _ruby_response(pieces, origins, utf16):
     return ruby
 
 
+# 응답은 줄 단위 JSON(한 줄에 이벤트 하나)이다(#27).
+# translation(번역, 루비) → analysis(번역, 문법, 단어) 순서다. 번역 전의 실패는 다른 API
+# 오류처럼 상태 코드로, 번역을 보낸 뒤의 실패는 error 이벤트로 알린다.
+_NDJSON = "application/x-ndjson"
+
+
+def _ndjson(event):
+    return json.dumps(event, ensure_ascii=False) + "\n"
+
+
+def _errors_as_event(events):
+    """응답을 시작한 뒤의 BusinessError는 상태 코드를 바꿀 수 없어 error 이벤트로 알린다.
+    이미 보낸 번역은 사이드 패널에 그대로 남는다.
+    """
+    try:
+        yield from events
+    except BusinessError as e:
+        log_business_error(e)
+        yield {"type": "error", "error": e.error_code.code}
+
+
 # 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
 @api_view(["POST"])
 @authentication_classes([])
@@ -261,30 +292,33 @@ def analyze(request):
     # 루비는 SudachiPy 읽기라 LLM·캐시와 상관없이 요청마다 이 원문 기준으로 계산한다.
     ruby = _ruby_response(ruby_pieces(text_to_analyze, morphs), origins, utf16)
 
-    def respond(saved):
-        return Response(
-            {
-                "translation_ko": restore(saved.translation_ko),
-                "grammar": _grammar_response(
-                    saved.draft_analysis["grammar"], offsets, origins, utf16, restore
-                ),
-                "words": _words_response(
-                    saved.draft_analysis["words"], offsets, origins, utf16, restore
-                ),
-                "ruby": ruby,
-            }
-        )
+    def translation_event(translation):
+        return {"type": "translation", "translation_ko": restore(translation), "ruby": ruby}
+
+    def analysis_event(saved):
+        # 동시에 저장된 다른 요청의 결과를 쓸 수 있어, 문법·단어와 짝인 번역을 함께 싣는다.
+        return {
+            "type": "analysis",
+            "translation_ko": restore(saved.translation_ko),
+            "grammar": _grammar_response(
+                saved.draft_analysis["grammar"], offsets, origins, utf16, restore
+            ),
+            "words": _words_response(
+                saved.draft_analysis["words"], offsets, origins, utf16, restore
+            ),
+        }
 
     # 임시 분석을 받기 전에 저장된 행(draft_analysis가 NULL)은 다시 분석한다.
     cached = SentenceAnalysis.objects.filter(
         sentence_hash=sentence_hash, draft_analysis__isnull=False
     ).first()
     if cached:
-        return respond(cached)
+        # 이미 다 있으니 한 번에 보낸다.
+        events = [translation_event(cached.translation_ko), analysis_event(cached)]
+        return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
 
     # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
     tokens = [{"id": i, "surface": "".join(pieces[m.begin : m.end])} for i, m in enumerate(morphs)]
-    result = llm.get_client().analyze(key_text, tokens)
 
     def is_vocabulary(token):
         # 숫자는 학습할 단어가 아니고, 숫자열과 겹치는 토큰(X12의 X1, 2)은 LLM이 사전형에
@@ -294,38 +328,65 @@ def analyze(request):
         overlaps_number = any(piece == "" or "⟨N" in piece for piece in pieces[m.begin : m.end])
         return m.pos not in _NON_WORD_POS and not overlaps_number
 
-    validated = _validate(result, numbers, len(morphs), is_vocabulary)
-    draft = {
-        "grammar": _stored_grammar(validated["grammar"], morphs, offsets),
-        "words": _stored_words(validated["words"], morphs, offsets),
-    }
-    llm_texts = [
-        item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")
-    ]
-    llm_texts += [item[field] for item in validated["words"] for field in _WORD_TEXTS]
-    content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
-    if _quotes_whole_sentence(llm_texts, key_text, content_tokens):
-        # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
-        raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
+    def save(validated):
+        """검증한 결과를 공용 캐시에 저장하고 저장된 행을 돌려준다."""
+        draft = {
+            "grammar": _stored_grammar(validated["grammar"], morphs, offsets),
+            "words": _stored_words(validated["words"], morphs, offsets),
+        }
+        llm_texts = [
+            item[field] for item in validated["grammar"] for field in ("name", "explanation_ko")
+        ]
+        llm_texts += [item[field] for item in validated["words"] for field in _WORD_TEXTS]
+        content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
+        if _quotes_whole_sentence(llm_texts, key_text, content_tokens):
+            # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
+            raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
 
-    # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
-    saved, created = SentenceAnalysis.objects.get_or_create(
-        sentence_hash=sentence_hash,
-        defaults={
-            "normalize_version": NORMALIZE_VERSION,
-            "normalized_length": len(key_text),
-            "status": SentenceAnalysis.Status.COMPLETE,
-            "translation_ko": validated["translation_ko"],
-            "draft_analysis": draft,
-        },
-    )
-    if not created and saved.draft_analysis is None:
-        # 임시 분석을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이 먼저
-        # 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
-        SentenceAnalysis.objects.filter(pk=saved.pk, draft_analysis__isnull=True).update(
-            translation_ko=validated["translation_ko"],
-            draft_analysis=draft,
-            updated_at=timezone.now(),
+        # 같은 문장이 동시에 저장되면 먼저 들어간 행을 쓴다.
+        saved, created = SentenceAnalysis.objects.get_or_create(
+            sentence_hash=sentence_hash,
+            defaults={
+                "normalize_version": NORMALIZE_VERSION,
+                "normalized_length": len(key_text),
+                "status": SentenceAnalysis.Status.COMPLETE,
+                "translation_ko": validated["translation_ko"],
+                "draft_analysis": draft,
+            },
         )
-        saved.refresh_from_db()
-    return respond(saved)
+        if not created and saved.draft_analysis is None:
+            # 임시 분석을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이 먼저
+            # 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
+            SentenceAnalysis.objects.filter(pk=saved.pk, draft_analysis__isnull=True).update(
+                translation_ko=validated["translation_ko"],
+                draft_analysis=draft,
+                updated_at=timezone.now(),
+            )
+            saved.refresh_from_db()
+        return saved
+
+    def analyze_and_save():
+        """LLM 결과를 나오는 대로 낸다. 번역을 검증해 먼저 내고, 문법·단어까지 검증해 저장한
+        뒤 이어 낸다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
+        """
+        translation_sent = False
+        result = None
+        for kind, value in llm.get_client().analyze_stream(key_text, tokens):
+            if kind == "translation":
+                _validate_translation(value, numbers)
+                translation_sent = True
+                yield translation_event(value)
+            else:
+                result = value
+        validated = _validate(result, numbers, len(morphs), is_vocabulary)
+        if not translation_sent:
+            yield translation_event(validated["translation_ko"])
+        yield analysis_event(save(validated))
+
+    events = analyze_and_save()
+    # 첫 이벤트(번역)까지는 응답을 시작하기 전이라, 그 전에 실패하면 다른 API 오류처럼
+    # 오류 핸들러가 상태 코드로 알린다.
+    first = next(events)
+    return StreamingHttpResponse(
+        map(_ndjson, _errors_as_event(chain([first], events))), content_type=_NDJSON
+    )

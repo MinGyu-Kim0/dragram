@@ -3,7 +3,7 @@ import {
   receiveAnalysisRequests,
   type AnalysisRequest,
 } from "@/utils/analysis-request";
-import { analyzeSentence, type Analysis } from "@/utils/api";
+import { AnalysisFailed, analyzeSentence } from "@/utils/api";
 import { createLimiter } from "@/utils/limiter";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 import { usePreference } from "./use-preference";
@@ -51,8 +51,9 @@ function App() {
 
   useEffect(() => {
     if (!request) return;
-    // 모든 문장을 바로 분석하되 동시 요청 한도 안에서 보낸다. 같은 문장은 한 번만 분석하고
-    // 결과를 함께 쓴다. 새 요청이 오면 이전 요청의 늦은 응답은 버리고 남은 문장도 보내지 않는다.
+    // 모든 문장을 바로 분석하되 동시 요청 한도 안에서 보낸다. 번역이 오면 먼저 보이고
+    // 문법·단어가 오면 채운다. 같은 문장은 한 번만 분석하고 결과를 함께 쓴다.
+    // 새 요청이 오면 이전 요청의 늦은 응답은 버리고 남은 문장도 보내지 않는다.
     let current = true;
     const requestId = request.id;
     const save = (index: number, result: SentenceResult) => {
@@ -65,20 +66,31 @@ function App() {
         },
       }));
     };
-    const byText = new Map<string, Promise<Analysis>>();
+    // 같은 문장은 한 번만 분석하고, 그 문장이 나온 모든 페이지에 결과를 넣는다.
+    const indicesByText = new Map<string, number[]>();
     request.sentences.forEach(({ text }, index) => {
-      let analysis = byText.get(text);
-      if (!analysis) {
-        analysis = limiter.schedule(
-          () => analyzeSentence(text),
+      indicesByText.set(text, [...(indicesByText.get(text) ?? []), index]);
+    });
+    indicesByText.forEach((indices, text) => {
+      const saveAll = (result: SentenceResult) =>
+        indices.forEach((index) => save(index, result));
+      limiter
+        .schedule(
+          () =>
+            analyzeSentence(text, (translation) =>
+              saveAll({ status: "translated", translation }),
+            ),
           () => !current,
+        )
+        .then(
+          (analysis) => saveAll({ status: "done", analysis }),
+          (error: unknown) =>
+            saveAll({
+              status: "failed",
+              translation:
+                error instanceof AnalysisFailed ? error.translation : undefined,
+            }),
         );
-        byText.set(text, analysis);
-      }
-      analysis.then(
-        (result) => save(index, { status: "done", analysis: result }),
-        () => save(index, { status: "failed" }),
-      );
     });
     return () => {
       current = false;

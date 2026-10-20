@@ -1,4 +1,7 @@
 import json
+import re
+import time
+from contextlib import closing
 
 from django.conf import settings
 from openai import OpenAI, OpenAIError
@@ -76,10 +79,53 @@ RESPONSE_SCHEMA = {
 }
 
 
-# 동기 호출이라 요청 스레드와 사이드 패널을 오래 붙잡지 않게 시간 상한을 둔다(NFR-14).
+# 스트림 맨 앞의 translation_ko 문자열(닫는 따옴표까지). 구조화 출력은 스키마의 속성 순서대로
+# 쓰므로 번역이 맨 앞에 온다. 이스케이프(\" 등)는 한 덩어리로 건너뛴다.
+_TRANSLATION_HEAD = re.compile(r'\A\s*\{\s*"translation_ko"\s*:\s*("(?:[^"\\]|\\.)*")')
+
+
+class TranslationFirstParser:
+    """구조화 출력 JSON 조각을 이어 받아, translation_ko가 끝나는 대로 먼저 꺼낸다."""
+
+    def __init__(self):
+        self._text = ""
+        self._translation_found = False
+
+    def feed(self, delta):
+        """조각을 더한다. 번역 문자열이 이번에 처음 닫혔으면 그 값을, 아니면 None을 돌려준다."""
+        self._text += delta
+        if self._translation_found:
+            return None
+        head = _TRANSLATION_HEAD.match(self._text)
+        if not head:
+            return None
+        self._translation_found = True
+        try:
+            return json.loads(head.group(1))
+        except json.JSONDecodeError as e:
+            # 정규식은 JSON이 허용하지 않는 이스케이프(\x 등)도 지나보낸다.
+            raise BusinessError(AnalysisError.FAILED, "LLM 번역이 JSON 문자열이 아님") from e
+
+    def result(self):
+        """다 받은 응답. JSON이 아니면(거절, 끊긴 응답 등) ANALYSIS:FAILED다."""
+        try:
+            return json.loads(self._text)
+        except json.JSONDecodeError as e:
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답이 JSON이 아님") from e
+
+
+# 요청 스레드와 사이드 패널을 오래 붙잡지 않게 시간 상한을 둔다(NFR-14). 스트림에서는 연결과
+# 조각 사이 대기마다 적용된다.
 # 타임아웃 뒤 재시도하면 이미 과금된 요청을 또 보낼 수 있어 재시도하지 않는다.
 TIMEOUT_SECONDS = 30
+# 조각이 계속 오면 위 상한에 걸리지 않으므로 스트림 전체에도 상한을 둔다. 운영 Gunicorn
+# 작업자 타임아웃(Dockerfile)은 이 상한과 조각 대기 상한을 더한 것보다 길어야 한다.
+STREAM_DEADLINE_SECONDS = 60
 MAX_RETRIES = 0
+
+
+# 스트림이 실패했거나 끝까지 쓰지 못했음을 알리는 이벤트
+_FAILED_EVENTS = {"error", "response.failed", "response.incomplete"}
 
 
 class OpenAILLMClient:
@@ -88,13 +134,17 @@ class OpenAILLMClient:
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
         )
 
-    def analyze(self, sentence, tokens):
-        """구조화된 출력으로 분석을 받는다. 반환값은 검증 전 응답이다.
+    def analyze_stream(self, sentence, tokens):
+        """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을 먼저 넘기고,
+        다 받으면 ("result", 검증 전 응답)을 넘긴다.
 
-        SDK 오류(타임아웃·인증 등)와 JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
+        SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
+        응답(거절 등)은 ANALYSIS:FAILED다.
         """
+        parser = TranslationFirstParser()
+        deadline = time.monotonic() + STREAM_DEADLINE_SECONDS
         try:
-            response = self._client.responses.create(
+            stream = self._client.responses.create(
                 model=settings.OPENAI_MODEL,
                 instructions=INSTRUCTIONS,
                 input=json.dumps({"sentence": sentence, "tokens": tokens}, ensure_ascii=False),
@@ -106,13 +156,22 @@ class OpenAILLMClient:
                         "strict": True,
                     }
                 },
+                stream=True,
             )
+            # 사이드 패널이 연결을 끊어 중간에 멈춰도 OpenAI 연결을 닫는다.
+            with closing(stream):
+                for event in stream:
+                    if time.monotonic() > deadline:
+                        raise BusinessError(AnalysisError.FAILED, "LLM 스트림 전체 시간 초과")
+                    if event.type in _FAILED_EVENTS:
+                        raise BusinessError(AnalysisError.FAILED, f"LLM 스트림 실패: {event.type}")
+                    if event.type == "response.output_text.delta":
+                        translation = parser.feed(event.delta)
+                        if translation is not None:
+                            yield "translation", translation
         except OpenAIError as e:
             raise BusinessError(AnalysisError.FAILED, "LLM 호출 실패") from e
-        try:
-            return json.loads(response.output_text)
-        except json.JSONDecodeError as e:
-            raise BusinessError(AnalysisError.FAILED, "LLM 응답이 JSON이 아님") from e
+        yield "result", parser.result()
 
 
 def get_client():

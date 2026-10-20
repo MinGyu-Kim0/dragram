@@ -23,4 +23,7 @@ COPY . .
 RUN useradd --system app
 USER app
 EXPOSE 8000
-CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000"]
+# 분석 응답은 LLM 스트림이 끝날 때까지 작업자를 잡는다(analysis/llm.py STREAM_DEADLINE_SECONDS).
+# 기본 30초 타임아웃이면 그 전에 작업자가 죽으므로, 상한(60초)에 마지막 조각 대기(30초)를
+# 더한 것보다 길게 둔다.
+CMD ["gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--timeout", "120"]

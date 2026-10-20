@@ -342,3 +342,70 @@ def test_any_token_matches_exactly_one_token(client, fake_llm):
 
     assert len(fake_llm.requests[1]["spans"]) == 1
     assert fake_llm.requests[2]["spans"] == []
+
+
+@pytest.mark.parametrize(
+    ("sentence", "matches"),
+    [
+        # 1그룹 동사 음편형(撥音便·イ音便) 뒤의 で는 て로 본다.
+        ("本を読んでしまう", True),
+        ("泳いでしまう", True),
+        ("食べてしまう", True),
+        # ない 뒤의 で는 그대로 で라 별개다.
+        ("遊ばないでしまう", False),
+    ],
+)
+def test_voiced_function_word_after_sound_change_matches_unvoiced_pattern(
+    client, fake_llm, sentence, matches
+):
+    # 토큰: 0 書い / 1 て / 2 しまう
+    fake_llm.response = {
+        "translation_ko": "써 버린다",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                (2, "lemma"),
+                pattern_name="てしまう",
+                usage_name="완료",
+                example_ja="全部食べてしまう",
+            )
+        ],
+    }
+    analyze(client, "書いてしまう")
+
+    analyze(client, sentence)
+
+    assert len(fake_llm.requests[1]["spans"]) == (1 if matches else 0)
+
+
+@pytest.mark.parametrize(
+    ("sentence", "registered_from", "proposal"),
+    [
+        # だ·だら → た(가정형). 토큰: 0 読ん / 1 だら
+        (
+            "読んだら",
+            "食べたら",
+            new_pattern((1, "form"), pattern_name="たら", example_ja="雨が降ったら"),
+        ),
+        # でる → てる, じゃう → ちゃう. 토큰: 0 食べ / 1 てる
+        (
+            "読んでる",
+            "食べてる",
+            new_pattern((1, "lemma"), pattern_name="てる", example_ja="本を見てる"),
+        ),
+        (
+            "読んじゃう",
+            "食べちゃう",
+            new_pattern((1, "lemma"), pattern_name="ちゃう", example_ja="全部見ちゃう"),
+        ),
+    ],
+)
+def test_other_voiced_auxiliaries_after_sound_change_match_unvoiced_patterns(
+    client, fake_llm, sentence, registered_from, proposal
+):
+    fake_llm.response = {"translation_ko": "번역", "new_patterns": [proposal]}
+    analyze(client, registered_from)
+
+    analyze(client, sentence)
+
+    assert len(fake_llm.requests[1]["spans"]) == 1

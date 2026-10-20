@@ -1,4 +1,4 @@
-"""분석 API: 입력 검사, 외부 실패(스트림 전 502, 스트림 중 error 이벤트), 우리 코드 버그(500)."""
+"""분석 API: 입력 검사, 외부 실패(번역 전 502, 번역 뒤 error 이벤트), 우리 코드 버그(500)."""
 
 import pytest
 
@@ -31,7 +31,7 @@ def test_sentence_too_long_for_morphology_fails_without_calling_llm(client, fake
     # SudachiPy는 49,149바이트를 넘는 입력을 나누지 못한다.
     response = analyze(client, "あ" * 20000)
 
-    assert response.status_code == 502  # 스트림을 열기 전에 실패한다
+    assert response.status_code == 502
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert fake_llm.requests == []
 

@@ -5,6 +5,7 @@ import json
 import pytest
 
 from analysis.models import SentenceAnalysis
+from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, grammar_items, post
 
 pytestmark = pytest.mark.django_db
@@ -37,14 +38,25 @@ def test_translation_is_sent_before_grammar_and_words(client, fake_llm):
     assert list(lines) == []
 
 
-def test_translation_that_fails_validation_sends_only_an_error(client, fake_llm):
+def test_failure_before_translation_keeps_the_error_status(client, fake_llm):
+    # 응답을 시작하기 전이라 다른 API 오류처럼 상태 코드로 알린다.
     # 숫자 자리표시자가 빠진 번역
     fake_llm.response = {"translation_ko": "셋이서 간다."}
 
     response = analyze(client, "3人で行く")
 
-    assert response.events == [{"type": "error", "error": "ANALYSIS:FAILED"}]
+    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert SentenceAnalysis.objects.count() == 0
+
+
+def test_llm_error_before_translation_keeps_the_error_status(client, fake_llm):
+    fake_llm.error = BusinessError(AnalysisError.FAILED, "LLM 호출 실패")
+
+    response = analyze(client, "私は学生です。")
+
+    assert response.status_code == 502
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
 
 
 def test_grammar_that_fails_validation_keeps_the_sent_translation_and_saves_nothing(

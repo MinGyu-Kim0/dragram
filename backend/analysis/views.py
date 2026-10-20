@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from itertools import chain
 
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
@@ -241,12 +242,24 @@ def _ruby_response(pieces, origins, utf16):
 
 
 # 응답은 줄 단위 JSON(한 줄에 이벤트 하나)이다(#27).
-# translation(번역, 루비) → analysis(번역, 문법, 단어) 순서이고, 실패하면 error다.
+# translation(번역, 루비) → analysis(번역, 문법, 단어) 순서다. 번역 전의 실패는 다른 API
+# 오류처럼 상태 코드로, 번역을 보낸 뒤의 실패는 error 이벤트로 알린다.
 _NDJSON = "application/x-ndjson"
 
 
 def _ndjson(event):
     return json.dumps(event, ensure_ascii=False) + "\n"
+
+
+def _errors_as_event(events):
+    """응답을 시작한 뒤의 BusinessError는 상태 코드를 바꿀 수 없어 error 이벤트로 알린다.
+    이미 보낸 번역은 사이드 패널에 그대로 남는다.
+    """
+    try:
+        yield from events
+    except BusinessError as e:
+        log_business_error(e)
+        yield {"type": "error", "error": e.error_code.code}
 
 
 # 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
@@ -353,27 +366,27 @@ def analyze(request):
         return saved
 
     def analyze_and_save():
-        """LLM 결과를 나오는 대로 보낸다. 번역을 검증해 먼저 보내고, 문법·단어까지 검증해
-        저장한 뒤 이어 보낸다. 번역을 보낸 뒤 실패해도 번역은 그대로 두고 error를 보낸다.
-        어느 단계에서 실패해도 저장하지 않는다.
+        """LLM 결과를 나오는 대로 낸다. 번역을 검증해 먼저 내고, 문법·단어까지 검증해 저장한
+        뒤 이어 낸다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
         """
-        try:
-            translation_sent = False
-            result = None
-            for kind, value in llm.get_client().analyze_stream(key_text, tokens):
-                if kind == "translation":
-                    _validate_translation(value, numbers)
-                    translation_sent = True
-                    yield translation_event(value)
-                else:
-                    result = value
-            validated = _validate(result, numbers, len(morphs), is_vocabulary)
-            if not translation_sent:
-                yield translation_event(validated["translation_ko"])
-            yield analysis_event(save(validated))
-        except BusinessError as e:
-            # 응답은 이미 시작했으므로 오류 핸들러 대신 이벤트로 알린다.
-            log_business_error(e)
-            yield {"type": "error", "error": e.error_code.code}
+        translation_sent = False
+        result = None
+        for kind, value in llm.get_client().analyze_stream(key_text, tokens):
+            if kind == "translation":
+                _validate_translation(value, numbers)
+                translation_sent = True
+                yield translation_event(value)
+            else:
+                result = value
+        validated = _validate(result, numbers, len(morphs), is_vocabulary)
+        if not translation_sent:
+            yield translation_event(validated["translation_ko"])
+        yield analysis_event(save(validated))
 
-    return StreamingHttpResponse(map(_ndjson, analyze_and_save()), content_type=_NDJSON)
+    events = analyze_and_save()
+    # 첫 이벤트(번역)까지는 응답을 시작하기 전이라, 그 전에 실패하면 다른 API 오류처럼
+    # 오류 핸들러가 상태 코드로 알린다.
+    first = next(events)
+    return StreamingHttpResponse(
+        map(_ndjson, _errors_as_event(chain([first], events))), content_type=_NDJSON
+    )

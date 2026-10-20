@@ -17,4 +17,5 @@ DB가 필요 없는 명령은 `backend/`에서 바로 실행한다.
 - 설정값은 `config/settings.py`에서 환경 변수로 읽는다. 비밀값을 코드나 `compose.yaml`에 쓰지 않는다(`compose.yaml`의 값은 개발 전용).
 - DB는 PostgreSQL만 쓴다. SQLite로 대신하지 않는다.
 - API 오류 응답은 `raise BusinessError(<도메인>Error.<이름>, "로그용 사유")`로 만든다. 뷰에서 오류 `Response`를 직접 만들지 않는다. 오류 코드는 `errors/<도메인>.py`에 `error_domain("<도메인>", {"<이름>": 상태 코드})`로 정의한다. 코드(`ANALYSIS:FAILED`)와 상태 코드는 클라이언트와의 약속이다. 사유는 로그에만 남고 응답에는 나가지 않으며, 원문을 담지 않는다. `errors/`는 도메인 모듈을 import하지 않는다.
+- 스트리밍 응답(분석 API의 줄 단위 JSON)을 이미 시작한 뒤에는 상태 코드를 바꿀 수 없다. 그 뒤의 `BusinessError`만 `{"type": "error", "error": 코드}` 이벤트로 보내고, `errors.handler.log_business_error`로 핸들러와 같은 로그를 남긴다. 응답을 시작하기 전의 실패는 위 규칙대로 핸들러가 상태 코드로 응답한다.
 - 외부 라이브러리 경계(SudachiPy, OpenAI 등)에서는 그 라이브러리의 예외만 잡아 `BusinessError`로 바꾼다. `except Exception`으로 우리 코드의 버그를 숨기지 않는다.

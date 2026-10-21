@@ -194,9 +194,9 @@
 | start_offset | 시작 위치 | integer |  |  | 키 텍스트 코드포인트 기준 [start, end). 원문 위치는 서버가 변환 / 0 ≤ start < end (CHECK) |
 | end_offset | 끝 위치 | integer |  |  | 0 ≤ start < end (CHECK) |
 | state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status, 그 용법이 속한 패턴(grammar_usage.pattern_id, 회화체 구간이면 원형)의 status, pattern_id(실제 매칭된 패턴)의 status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌. alternatives의 각 usage_id도 그 용법과 소속 패턴을 따로 검사(pending이면 그 대안에 배지, rejected면 그 대안만 뺌) / 상태별 필수 FK(decided·divergent면 usage_id 필수) |
-| decided_by | 판정 근거 | varchar(30) | Y |  | single_usage / rule / llm / admin |
+| decided_by | 판정 근거 | varchar(30) | Y |  | single_usage / rule / llm / admin. 지금 구현은 single_usage(승인된 용법 완결 패턴의 단일 후보, #39)와 llm만 씀 |
 | rule_id | 판별 규칙 ID | bigint | Y | → usage_rule | decided_by가 rule일 때만 |
-| basis_revision | 근거 판 번호 | integer | Y |  | single_usage면 grammar_pattern.revision, rule이면 usage_rule.revision |
+| basis_revision | 근거 판 번호 | integer | Y |  | single_usage면 grammar_pattern.revision, rule이면 usage_rule.revision. 판 번호를 두기 전까지(지금 구현, #39) 칼럼을 만들지 않고, 다시 판정은 is_stale(design-decisions 35절)에 맡김 |
 | usage_revision | 용법 판 번호 | integer | Y |  | 판정 당시 grammar_usage.revision. 바뀌면 재검토 |
 | candidates | 후보 용법 목록 | jsonb | Y |  | 서버가 부여한 후보 ID [{candidate_id, usage_id}]. 해석 갈림의 대안은 alternatives |
 | alternatives | 대안 해석 | jsonb | Y |  | 해석 갈림일 때만 [{usage_id, translation_ko}]. 주 용법은 usage_id(번역과 같은 해석) |

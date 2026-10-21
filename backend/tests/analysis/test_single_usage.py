@@ -5,7 +5,7 @@ import pytest
 from analysis import review
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern
+from tests.analysis.helpers import analyze, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -76,7 +76,7 @@ def test_span_that_is_not_settled_is_still_asked(client, fake_llm, unready):
     request = fake_llm.requests[-1]
     assert [span["start_token_id"] for span in request["spans"]] == [3]
     assert request["decided_spans"] == []
-    assert response.types()[0] == "translation"
+    assert response.events[0]["grammar"] == []
 
 
 def test_proposal_at_a_decided_span_is_dropped_without_asking_again(client, fake_llm):
@@ -102,3 +102,57 @@ def test_llm_failure_after_the_decided_spans_saves_nothing(client, fake_llm):
 
     assert response.types() == ["grammar", "error"]
     assert SentenceAnalysis.objects.count() == before
+
+
+def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fake_llm):
+    # 미검수 ている(후보 1개)
+    register_teiru(client, fake_llm)
+    fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "usage", 1)]}
+
+    response = analyze(client, KITEIRU)
+
+    assert response.types() == ["grammar", "translation", "analysis"]
+    assert response.events[0] == {
+        "type": "grammar",
+        "grammar": [],
+        "checking": [{"start": 3, "end": 6, "candidates": [{"name": "진행"}]}],
+    }
+
+
+def test_decided_and_checking_spans_are_sent_together(client, fake_llm):
+    pattern = closed_teiru(client, fake_llm)
+    # 토큰: 0 歩き / 1 ながら. 미검수 ながら(후보 1개)
+    fake_llm.response = {
+        "translation_ko": "걸으면서",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                pattern_name="ながら",
+                usage_name="동시 동작",
+                example_ja="音楽を聞きながら歩く",
+            )
+        ],
+    }
+    analyze(client, "歩きながら")
+    assert GrammarPattern.objects.exclude(pk=pattern.pk).count() == 1
+    # 후보 ID는 패턴 등록 순서로 매긴다(ている 1, ながら 2).
+    fake_llm.response = {
+        "translation_ko": "걸으면서 와 있다",
+        "spans": [span_answer(0, "usage", 2)],
+    }
+
+    # 토큰: 0 歩き / 1 ながら / 2 来 / 3 て / 4 いる
+    response = analyze(client, "歩きながら来ている")
+
+    assert response.types() == ["grammar", "translation", "analysis"]
+    first = response.events[0]
+    assert [item["name"] for item in first["grammar"]] == ["진행"]
+    assert first["checking"] == [{"start": 2, "end": 5, "candidates": [{"name": "동시 동작"}]}]
+
+
+def test_sentence_without_matched_spans_starts_with_the_translation(client, fake_llm):
+    fake_llm.response = {"translation_ko": "비가 온다"}
+
+    response = analyze(client, "雨が降る")
+
+    assert response.types() == ["translation", "analysis"]

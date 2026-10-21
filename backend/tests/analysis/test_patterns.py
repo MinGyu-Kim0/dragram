@@ -1130,3 +1130,25 @@ def test_copied_example_of_new_usage_with_existing_name_is_not_rewritten(client,
     analyze(client, "昨日図書館で本を読みながら")
 
     assert fake_llm.rewrite_requests == []
+
+
+@pytest.mark.parametrize(
+    "example_ja",
+    [
+        # 짧은 예문으로 받으므로 길이 상한(200자)을 넘으면 쓰지 않는다.
+        "あ" * 200 + "雨が降っている",
+        # 형태소 분석 한도(49,149바이트)를 넘는 예문도 분석을 실패시키지 않는다.
+        "あ" * 17000 + "雨が降っている",
+    ],
+)
+def test_too_long_example_is_not_used_and_keeps_the_analysis(client, fake_llm, example_ja):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [new_pattern((6, "lemma"), (7, "lemma"), example_ja=example_ja)],
+    }
+
+    response = analyze(client, LIBRARY)
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert not GrammarPattern.objects.get().is_active
+    assert fake_llm.rewrite_requests == []

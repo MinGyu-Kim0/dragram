@@ -252,13 +252,16 @@ def _copies_part(example_key, key_text, fixed_spans):
 
 # 새 예문 검사 결과. 원문을 베껴 거부된 예문만 다시 쓰게 한다.
 _EXAMPLE_OK, _EXAMPLE_COPIED, _EXAMPLE_UNUSABLE = "ok", "copied", "unusable"
+# 새 예문은 짧은 문장으로 받는다. 이보다 길면 쓰지 않는다. 형태소 분석 한도(49,149바이트)보다
+# 훨씬 짧아 분석이 실패하지 않고, 부분 복사 검사도 원문 길이 × 이 길이 안에서 끝난다.
+_EXAMPLE_MAX_LENGTH = 200
 
 
 def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans):
     """새 예문을 검사한다. 패턴에 걸리지 않는 등 원문과 상관없이 쓸 수 없으면 unusable, 그렇지
     않은데 원문을 베꼈으면 copied(다시 쓰게 함), 쓸 수 있으면 ok다.
     """
-    if not has_only_known_placeholders(example, ()):
+    if len(example) > _EXAMPLE_MAX_LENGTH or not has_only_known_placeholders(example, ()):
         return _EXAMPLE_UNUSABLE
     text, _ = analysis_text(example)
     if not text:
@@ -626,12 +629,7 @@ def analyze(request):
             log_business_error(e)
             return
         for (holder, _, _, conditions, fixed), text in zip(copied, rewritten, strict=True):
-            try:
-                verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed)
-            except BusinessError as e:
-                # 형태소 분석 한도를 넘는 등 다시 쓴 예문을 검사하지 못하면 그 예문만 버린다.
-                log_business_error(e)
-                continue
+            verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed)
             if verdict == _EXAMPLE_OK:
                 holder["checked_example"] = text
 

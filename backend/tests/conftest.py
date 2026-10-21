@@ -24,9 +24,11 @@ class FakeLLMClient:
         self.rewrite_response = None
         self.rewrite_error = None
 
-    def analyze_stream(self, sentence, tokens, spans):
+    def analyze_stream(self, sentence, tokens, spans, decided_spans):
         """실제 클라이언트처럼 번역이 문자열이면 먼저 넘기고, 이어서 응답 전체를 넘긴다."""
-        self.requests.append({"sentence": sentence, "tokens": tokens, "spans": spans})
+        self.requests.append(
+            {"sentence": sentence, "tokens": tokens, "spans": spans, "decided_spans": decided_spans}
+        )
         if self.before_respond:
             before_respond, self.before_respond = self.before_respond, None
             before_respond()

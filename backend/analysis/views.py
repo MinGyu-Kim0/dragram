@@ -384,22 +384,40 @@ def _grammar_response(analysis, offsets, origins, utf16):
     )
     grammar = []
     for span in spans:
-        statuses = {span.usage.status, span.usage.pattern.status, span.pattern.status}
-        if ReviewStatus.REJECTED in statuses:
-            continue
-        start, end = to_original(
-            origins, utf16, *to_analysis(offsets, span.start_offset, span.end_offset)
+        item = _grammar_item(
+            span.pattern, span.usage, span.start_offset, span.end_offset, offsets, origins, utf16
         )
-        grammar.append(
-            {
-                "start": start,
-                "end": end,
-                "name": span.usage.name,
-                "explanation_ko": span.usage.explanation_ko,
-                "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
-            }
-        )
+        if item is not None:
+            grammar.append(item)
     return grammar
+
+
+def _grammar_item(pattern, usage, start_offset, end_offset, offsets, origins, utf16):
+    """용법이 정해진 구간 하나를 응답 항목으로 만든다. 반려됐으면 None(ADR 0003)."""
+    statuses = {usage.status, usage.pattern.status, pattern.status}
+    if ReviewStatus.REJECTED in statuses:
+        return None
+    start, end = to_original(origins, utf16, *to_analysis(offsets, start_offset, end_offset))
+    return {
+        "start": start,
+        "end": end,
+        "name": usage.name,
+        "explanation_ko": usage.explanation_ko,
+        "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
+    }
+
+
+def _is_settled(span):
+    """LLM 없이 확정할 구간인가(구간 판정 절차 2단계). 승인된 용법 완결 패턴이고, 반려되지 않은
+    용법이 승인된 하나뿐이어야 한다. 용법 완결 표시가 보장하지만 분석 때도 다시 본다.
+    """
+    pattern = span.pattern
+    return (
+        pattern.usage_closed
+        and pattern.status == ReviewStatus.APPROVED
+        and len(span.candidates) == 1
+        and span.candidates[0][1].status == ReviewStatus.APPROVED
+    )
 
 
 def _words_response(stored, offsets, origins, utf16, restore):
@@ -549,8 +567,20 @@ def analyze(request):
         return morphs[token].pos not in _NON_WORD_POS and not overlaps_number(token)
 
     # 등록된 패턴에 걸린 구간과 후보 용법. LLM은 서버가 매긴 구간·후보 ID로만 답한다.
-    spans = patterns.candidate_spans(morphs)
+    # 승인된 용법 완결 패턴의 구간은 LLM 없이 확정하고, 나머지만 후보로 묻는다. 확정 구간은 LLM이
+    # 새 구문으로 다시 내지 않도록 알리기만 한다(#39).
+    matched = patterns.candidate_spans(morphs)
+    settled = [span for span in matched if _is_settled(span)]
+    spans = [span for span in matched if not _is_settled(span)]
     llm_spans = _llm_spans(spans)
+    decided_spans = [
+        {
+            "start_token_id": span.start_token,
+            "end_token_id": span.end_token,
+            "name": span.candidates[0][1].name,
+        }
+        for span in settled
+    ]
     content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
 
     def key_span(start_token, end_token):
@@ -562,7 +592,7 @@ def analyze(request):
         판정할 후보 구간도 함께 둔다.
         """
         # morpheme_key가 같으면 토큰 수도 같으므로 (key, 시작 토큰)이 같으면 같은 구간이다.
-        placed = {(span.pattern.morpheme_key, span.start_token) for span in spans}
+        placed = {(span.pattern.morpheme_key, span.start_token) for span in matched}
         new_patterns = []
         for proposal in validated["new_patterns"]:
             conditions = _new_pattern_conditions(proposal["tokens"], morphs, overlaps_number)
@@ -721,6 +751,21 @@ def analyze(request):
         조건의 패턴을 먼저 등록했으면 _PatternTaken을 던져 다시 묻게 한다(final이면 미발견).
         """
         rows = []
+        for span in settled:
+            start, end = key_span(span.start_token, span.end_token)
+            candidate_id, usage = span.candidates[0]
+            rows.append(
+                SpanMatch(
+                    analysis=saved,
+                    pattern=span.pattern,
+                    usage=usage,
+                    start_offset=start,
+                    end_offset=end,
+                    state=SpanMatch.State.DECIDED,
+                    decided_by=SpanMatch.DecidedBy.SINGLE_USAGE,
+                    candidates=[{"candidate_id": candidate_id, "usage_id": usage.id}],
+                )
+            )
         judged = list(zip(validated["span_list"], validated["spans"], strict=True))
         # 기존 용법으로 설명되지 않는 구간은 같은 패턴 아래 새 용법을 더한다. 동시 요청이 같은
         # 이름의 용법을 서로 다른 순서로 더하면 유일성 대기가 엇갈려 교착이 나므로 (패턴, 이름)
@@ -915,13 +960,24 @@ def analyze(request):
         locked.save(update_fields=["translation_ko", "draft_analysis", "is_stale", "updated_at"])
         return locked, locked.generation != started_generation
 
+    def settled_grammar():
+        grammar = []
+        for span in sorted(settled, key=lambda span: (span.start_token, span.end_token)):
+            start, end = key_span(span.start_token, span.end_token)
+            usage = span.candidates[0][1]
+            grammar.append(_grammar_item(span.pattern, usage, start, end, offsets, origins, utf16))
+        return grammar
+
     def analyze_and_save():
         """LLM 결과를 나오는 대로 낸다. 번역을 검증해 먼저 내고, 문법·단어까지 검증해 저장한
         뒤 이어 낸다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
         """
+        if settled:
+            # LLM을 부르기 전에 확정 구간부터 보낸다. 이 뒤 실패는 error 이벤트로 알린다.
+            yield {"type": "grammar", "grammar": settled_grammar()}
         translation_sent = False
         result = None
-        for kind, value in client.analyze_stream(key_text, tokens, llm_spans):
+        for kind, value in client.analyze_stream(key_text, tokens, llm_spans, decided_spans):
             if kind == "translation":
                 _validate_translation(value, numbers)
                 translation_sent = True

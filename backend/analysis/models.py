@@ -124,6 +124,8 @@ class SpanMatch(models.Model):
         UNFOUND = "unfound"
 
     class DecidedBy(models.TextChoices):
+        # 승인된 용법 완결 패턴의 단일 후보를 LLM 없이 확정(#39)
+        SINGLE_USAGE = "single_usage"
         LLM = "llm"
 
     analysis = models.ForeignKey(

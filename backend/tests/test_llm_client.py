@@ -41,7 +41,7 @@ def test_stream_gives_translation_first_and_then_the_whole_result(llm_client, mo
         ),
     )
 
-    assert list(llm_client.analyze_stream("文", [], [])) == [
+    assert list(llm_client.analyze_stream("文", [], [], [])) == [
         ("translation", "번역"),
         ("result", {"translation_ko": "번역", "grammar": []}),
     ]
@@ -55,7 +55,7 @@ def test_openai_error_becomes_analysis_failure(llm_client, monkeypatch):
     stream_with(llm_client, monkeypatch, fail)
 
     with pytest.raises(BusinessError) as raised:
-        list(llm_client.analyze_stream("文", [], []))
+        list(llm_client.analyze_stream("文", [], [], []))
     assert raised.value.error_code == AnalysisError.FAILED
 
 
@@ -66,7 +66,7 @@ def test_openai_error_in_the_middle_of_the_stream_becomes_analysis_failure(llm_c
 
     stream_with(llm_client, monkeypatch, lambda **_: events())
 
-    stream = llm_client.analyze_stream("文", [], [])
+    stream = llm_client.analyze_stream("文", [], [], [])
     assert next(stream) == ("translation", "번역")
     with pytest.raises(BusinessError) as raised:
         next(stream)
@@ -84,7 +84,7 @@ def test_failed_stream_event_becomes_analysis_failure(llm_client, monkeypatch, e
     )
 
     with pytest.raises(BusinessError) as raised:
-        list(llm_client.analyze_stream("文", [], []))
+        list(llm_client.analyze_stream("文", [], [], []))
     assert raised.value.error_code == AnalysisError.FAILED
 
 
@@ -93,7 +93,7 @@ def test_output_that_is_not_json_becomes_analysis_failure(llm_client, monkeypatc
     stream_with(llm_client, monkeypatch, lambda **_: stream_of(deltas(output_text)))
 
     with pytest.raises(BusinessError) as raised:
-        list(llm_client.analyze_stream("文", [], []))
+        list(llm_client.analyze_stream("文", [], [], []))
     assert raised.value.error_code == AnalysisError.FAILED
 
 
@@ -151,7 +151,7 @@ def test_stream_longer_than_the_total_deadline_becomes_analysis_failure(llm_clie
         lambda **_: stream_of(deltas('{"translation_ko": "번역"', *[" "] * 10, "}")),
     )
 
-    stream = llm_client.analyze_stream("文", [], [])
+    stream = llm_client.analyze_stream("文", [], [], [])
     assert next(stream) == ("translation", "번역")
     with pytest.raises(BusinessError) as raised:
         next(stream)
@@ -176,10 +176,17 @@ def test_request_carries_sentence_tokens_and_candidate_spans(llm_client, monkeyp
         }
     ]
 
-    list(llm_client.analyze_stream("は", tokens, spans))
+    decided = [{"start_token_id": 0, "end_token_id": 0, "name": "주제"}]
+
+    list(llm_client.analyze_stream("は", tokens, spans, decided))
 
     [request] = requests
-    assert json.loads(request["input"]) == {"sentence": "は", "tokens": tokens, "spans": spans}
+    assert json.loads(request["input"]) == {
+        "sentence": "は",
+        "tokens": tokens,
+        "spans": spans,
+        "decided_spans": decided,
+    }
 
 
 def judge_with(llm_client, monkeypatch, response):

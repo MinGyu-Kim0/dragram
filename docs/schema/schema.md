@@ -134,7 +134,7 @@
 | pattern_id | 문법 패턴 ID | bigint |  | → grammar_pattern |  |
 | name | 용법명 | varchar(255) |  |  | 예: で-수단, UNIQUE(pattern_id, name) |
 | explanation_ko | 한국어 설명 | text |  |  | LLM이 처음 1회 작성 → 관리자 검수. 공용 재사용 |
-| example_ja | 예문 | text | Y |  | LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지 |
+| example_ja | 예문 | text | Y |  | LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지. `grammar_pattern.test_cases`의 첫 예문과 같은 검사를 통과해야 저장(소속 패턴에 걸림, 원문 복사 아님, 자리표시자 없음, 200자 이하. design-decisions 34절). 통과하지 못하면 NULL |
 | revision | 용법 판 번호 | integer |  |  | 설명이 아닌 의미 정의가 바뀌면 증가. span_match.usage_revision과 조회 시 비교 |
 | status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. pending은 'AI 생성·미검수' 배지로 표시, 확정 판별 근거로는 approved만. rejected는 판정·규칙·LLM 후보에서 빼고 응답에도 보이지 않음. 반려·반려 취소 시 이 용법이 속한 패턴과 그 패턴을 원형으로 가리키는 회화체 패턴의 분석을 stale로 |
 | approved_via | 승인 방식 | varchar(30) | Y |  | manual / auto. auto는 그림자 모드 검증 후 실제 자동 승인을 켠 뒤에만 |

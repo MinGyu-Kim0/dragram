@@ -7,6 +7,7 @@ from django.db import connection
 from django.test import Client
 
 from analysis import patterns
+from analysis import views as patterns_views
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -16,6 +17,7 @@ from analysis.models import (
     SentenceAnalysis,
     SpanMatch,
 )
+from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
 
 pytestmark = pytest.mark.django_db
@@ -798,3 +800,420 @@ def test_response_quoting_the_sentence_fails_before_asking_again(client, fake_ll
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert fake_llm.rejudge_requests == []
+
+
+# 토큰: 0 昨日 / 1 図書館 / 2 で / 3 本 / 4 を / 5 読ん / 6 で / 7 いる
+LIBRARY = "昨日図書館で本を読んでいる"
+
+
+@pytest.mark.parametrize(
+    ("example_ja", "copied"),
+    [
+        # 문법 구간 밖의 원문을 8자(昨日図書館で本を) 그대로 썼다.
+        ("昨日図書館で本を見ている", True),
+        # 7자(図書館で本を読ん의 일부)까지는 베낀 것으로 보지 않는다.
+        ("図書館で本を見ている", False),
+        ("雨が降っている", False),
+    ],
+)
+def test_example_copying_part_of_sentence_is_rejected(client, fake_llm, example_ja, copied):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [new_pattern((6, "lemma"), (7, "lemma"), example_ja=example_ja)],
+    }
+
+    analyze(client, LIBRARY)
+
+    assert GrammarPattern.objects.get().is_active is not copied
+
+
+def test_grammar_span_itself_does_not_count_as_copying(client, fake_llm, settings):
+    settings.EXAMPLE_COPY_LENGTH = 3
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる. 예문의 ている(3자)는 문법 구간이라 세지 않는다.
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), example_ja="雨が降っている")],
+    }
+
+    analyze(client, "彼が来ている")
+
+    assert GrammarPattern.objects.get().is_active
+
+
+def test_copy_length_comes_from_settings(client, fake_llm, settings):
+    settings.EXAMPLE_COPY_LENGTH = 4
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="図書館で雑誌を見ている")
+        ],
+    }
+
+    analyze(client, LIBRARY)
+
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_new_usage_example_copying_part_of_sentence_is_not_stored(client, fake_llm):
+    register_nagara(client, fake_llm)
+    # 토큰: 0 昨日 / 1 図書館 / 2 で / 3 本 / 4 を / 5 読み / 6 ながら
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽으면서",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage(example_ja="昨日図書館で本を見ながら"))
+        ],
+    }
+
+    analyze(client, "昨日図書館で本を読みながら")
+
+    assert GrammarUsage.objects.get(name="역접").example_ja is None
+
+
+def rewritten(*texts):
+    return {"examples": [{"example_id": i, "example_ja": t} for i, t in enumerate(texts)]}
+
+
+def test_copied_examples_are_rewritten_once_together(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる. 두 용법의 예문이 모두 원문을 베꼈다.
+    fake_llm.response = {
+        "translation_ko": "번역",
+        "new_patterns": [
+            new_pattern((1, "lemma"), (2, "lemma"), example_ja="走っていている"),
+            new_pattern(
+                (3, "lemma"),
+                (4, "lemma"),
+                usage_name="결과 상태",
+                explanation_ko="동작의 결과가 남아 있다",
+                example_ja="彼は走っていている",
+            ),
+        ],
+    }
+    fake_llm.rewrite_response = rewritten("雨が降っている", "窓が開いている")
+
+    analyze(client, "走っていている")
+
+    [request] = fake_llm.rewrite_requests
+    assert request["sentence"] == "走っていている"
+    assert request["examples"] == [
+        {
+            "example_id": 0,
+            "pattern_name": "ている",
+            "usage_name": "진행",
+            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
+            "rejected_example": "走っていている",
+        },
+        {
+            "example_id": 1,
+            "pattern_name": "ている",
+            "usage_name": "결과 상태",
+            "explanation_ko": "동작의 결과가 남아 있다",
+            "rejected_example": "彼は走っていている",
+        },
+    ]
+    pattern = GrammarPattern.objects.get()
+    assert pattern.is_active
+    assert pattern.test_cases == [{"text": "雨が降っている", "should_match": True}]
+    assert dict(GrammarUsage.objects.values_list("name", "example_ja")) == {
+        "진행": "雨が降っている",
+        "결과 상태": "窓が開いている",
+    }
+
+
+def test_example_copied_again_after_rewrite_is_registered_inactive(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    fake_llm.rewrite_response = rewritten("昨日図書館で本を探している")
+
+    analyze(client, LIBRARY)
+
+    assert len(fake_llm.rewrite_requests) == 1
+    pattern = GrammarPattern.objects.get()
+    assert not pattern.is_active
+    assert pattern.test_cases == []
+    assert GrammarUsage.objects.get().example_ja is None
+
+
+def test_rewritten_example_must_still_match_the_pattern(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    fake_llm.rewrite_response = rewritten("雨が降る")
+
+    analyze(client, LIBRARY)
+
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copied_new_usage_example_is_rewritten(client, fake_llm):
+    register_nagara(client, fake_llm)
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽으면서",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage(example_ja="昨日図書館で本を見ながら"))
+        ],
+    }
+    fake_llm.rewrite_response = rewritten("狭いながら快適だ")
+
+    analyze(client, "昨日図書館で本を読みながら")
+
+    assert fake_llm.rewrite_requests[0]["examples"][0]["pattern_name"] == "ながら"
+    assert GrammarUsage.objects.get(name="역접").example_ja == "狭いながら快適だ"
+
+
+def test_example_rejected_for_other_reasons_is_not_rewritten(client, fake_llm):
+    # 패턴에 걸리지 않는 예문은 베낀 것이 아니라 다시 쓰게 하지 않는다.
+    register_teiru(client, fake_llm, example_ja="雨が降る")
+
+    assert fake_llm.rewrite_requests == []
+    assert not GrammarPattern.objects.get().is_active
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"examples": []},
+        {"examples": [{"example_id": 1, "example_ja": "雨が降っている"}]},
+        {"examples": [{"example_id": 0, "example_ja": ""}]},
+        {
+            "examples": [
+                {"example_id": 0, "example_ja": "雨が降っている"},
+                {"example_id": 0, "example_ja": "窓が開いている"},
+            ]
+        },
+        {"examples": "not a list"},
+        "not an object",
+    ],
+)
+def test_invalid_rewrite_answer_keeps_the_analysis_without_example(client, fake_llm, answer):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    fake_llm.rewrite_response = answer
+
+    response = analyze(client, LIBRARY)
+
+    # 보조 호출 하나 때문에 번역·문법을 버리지 않고, 예문 없이 등록한다.
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert SentenceAnalysis.objects.count() == 1
+    assert not GrammarPattern.objects.get().is_active
+    assert GrammarUsage.objects.get().example_ja is None
+
+
+def test_failed_rewrite_call_keeps_the_analysis_without_example(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    fake_llm.rewrite_error = BusinessError(AnalysisError.FAILED, "LLM 예문 다시 쓰기 호출 실패")
+
+    response = analyze(client, LIBRARY)
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copied_example_is_not_rewritten_when_same_usage_has_a_valid_one(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる
+    # 같은 조건·같은 용법 이름의 뒤 제안 예문이 통과한다.
+    fake_llm.response = {
+        "translation_ko": "번역",
+        "new_patterns": [
+            new_pattern((1, "lemma"), (2, "lemma"), example_ja="走っていている"),
+            new_pattern((3, "lemma"), (4, "lemma"), example_ja="雨が降っている"),
+        ],
+    }
+
+    analyze(client, "走っていている")
+
+    assert fake_llm.rewrite_requests == []
+    assert GrammarUsage.objects.get().example_ja == "雨が降っている"
+
+
+@pytest.mark.parametrize(("example_ja", "copied"), [("雪が降った", True), ("彼が来た", False)])
+def test_any_token_inside_grammar_span_counts_as_copying(
+    client, fake_llm, settings, example_ja, copied
+):
+    settings.EXAMPLE_COPY_LENGTH = 2
+    # 토큰: 0 雨 / 1 が / 2 降っ / 3 た. 고정한 が·た는 세지 않지만 아무거나인 降っ는 원문 글자다.
+    fake_llm.response = {
+        "translation_ko": "비가 왔다",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"), (2, "any"), (3, "lemma"), pattern_name="が〜た", example_ja=example_ja
+            )
+        ],
+    }
+
+    analyze(client, "雨が降った")
+
+    assert GrammarPattern.objects.get().is_active is not copied
+
+
+def test_calls_of_one_request_share_one_client(client, fake_llm, monkeypatch):
+    # 요청 전체 마감 시각을 클라이언트가 지니므로 분석·다시 쓰기가 한 클라이언트를 쓴다.
+    created = []
+    monkeypatch.setattr(patterns_views.llm, "get_client", lambda: created.append(1) or fake_llm)
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+
+    analyze(client, LIBRARY)
+
+    assert len(fake_llm.rewrite_requests) == 1
+    assert len(created) == 1
+
+
+def test_copied_example_that_does_not_match_the_pattern_is_not_rewritten(client, fake_llm):
+    # 원문 8자를 베꼈지만 ている도 없어 어차피 쓸 수 없는 예문이다.
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を読む")
+        ],
+    }
+
+    analyze(client, LIBRARY)
+
+    assert fake_llm.rewrite_requests == []
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_rewritten_example_too_long_to_analyze_keeps_the_analysis(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    # SudachiPy 입력 한도(49,149바이트)를 넘는 예문
+    fake_llm.rewrite_response = rewritten("雨が降っている" + "あ" * 17000)
+
+    response = analyze(client, LIBRARY)
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copying_across_a_fixed_token_counts_as_one_copy(client, fake_llm):
+    # 토큰: 0 私 / 1 は / 2 昨日 / 3 雨 / 4 が / 5 降っ / 6 て / 7 も / 8 学校 / 9 に / 10 行く
+    # ても 앞뒤의 원문(は昨日雨が降っ + 学校)을 이어서 9자 베꼈다. 고정한 ても는 세지 않는다.
+    fake_llm.response = {
+        "translation_ko": "나는 어제 비가 와도 학교에 간다",
+        "new_patterns": [
+            new_pattern(
+                (6, "lemma"),
+                (7, "lemma"),
+                pattern_name="ても",
+                usage_name="양보",
+                explanation_ko="앞 내용과 상관없이 뒤 내용이 성립한다",
+                example_ja="兄は昨日雨が降っても学校へ行く",
+            )
+        ],
+    }
+
+    analyze(client, "私は昨日雨が降っても学校に行く")
+
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copying_across_a_fixed_token_written_differently_counts_as_one_copy(client, fake_llm):
+    # 토큰: 0 冬 / 1 に / 2 雨 / 3 が / 4 降っ / 5 て / 6 くる / 7 と / 8 寒い
+    # 고정한 くる를 같은 lemma의 来る로 바꿔 써도 앞뒤의 원문(冬に雨が降っ + と寒い) 9자를 이어서
+    # 베낀 것이다.
+    fake_llm.response = {
+        "translation_ko": "겨울에 비가 내리기 시작하면 춥다",
+        "new_patterns": [
+            new_pattern(
+                (5, "lemma"),
+                (6, "lemma"),
+                pattern_name="てくる",
+                usage_name="변화의 시작",
+                explanation_ko="어떤 상태로 바뀌기 시작한다",
+                example_ja="冬に雨が降って来ると寒い",
+            )
+        ],
+    }
+
+    analyze(client, "冬に雨が降ってくると寒い")
+
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copying_a_fixed_token_outside_the_example_match_counts_as_one_copy(
+    client, fake_llm, settings
+):
+    settings.EXAMPLE_COPY_LENGTH = 4
+    # 토큰: 0 雨 / 1 が / 2 降っ / 3 た / 4 学校. 예문의 패턴 매치는 雪が来た이고, 그 밖에서
+    # 원문의 降っ + た + 学校를 이어 베꼈다. 매치 밖의 た도 원문 고정 토큰과 같은 글자로 잇는다.
+    fake_llm.response = {
+        "translation_ko": "비가 내린 학교",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                (2, "any"),
+                (3, "lemma"),
+                pattern_name="が〜た",
+                example_ja="雪が来た、降った学校へ行く",
+            )
+        ],
+    }
+
+    analyze(client, "雨が降った学校")
+
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copied_example_of_new_usage_with_existing_name_is_not_rewritten(client, fake_llm):
+    register_nagara(client, fake_llm)
+    # 같은 이름의 용법이 이미 있어 어차피 더하지 않는다.
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽으면서",
+        "spans": [
+            span_answer(
+                0,
+                "unfound",
+                new_usage=new_usage(usage_name="동시 동작", example_ja="昨日図書館で本を見ながら"),
+            )
+        ],
+    }
+
+    analyze(client, "昨日図書館で本を読みながら")
+
+    assert fake_llm.rewrite_requests == []
+
+
+@pytest.mark.parametrize(
+    "example_ja",
+    [
+        # 짧은 예문으로 받으므로 길이 상한(200자)을 넘으면 쓰지 않는다.
+        "あ" * 200 + "雨が降っている",
+        # 형태소 분석 한도(49,149바이트)를 넘는 예문도 분석을 실패시키지 않는다.
+        "あ" * 17000 + "雨が降っている",
+    ],
+)
+def test_too_long_example_is_not_used_and_keeps_the_analysis(client, fake_llm, example_ja):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [new_pattern((6, "lemma"), (7, "lemma"), example_ja=example_ja)],
+    }
+
+    response = analyze(client, LIBRARY)
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert not GrammarPattern.objects.get().is_active
+    assert fake_llm.rewrite_requests == []

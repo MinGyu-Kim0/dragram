@@ -225,6 +225,7 @@ def test_judge_spans_sends_sentence_translation_and_spans_and_returns_the_answer
         "spans": SPANS,
     }
     assert request["text"]["format"]["strict"] is True
+    assert request["timeout"] == llm.TIMEOUT_SECONDS
 
 
 @pytest.mark.parametrize(
@@ -240,4 +241,82 @@ def test_judge_spans_failure_becomes_analysis_failure(llm_client, monkeypatch, r
 
     with pytest.raises(BusinessError) as raised:
         llm_client.judge_spans("は", [], "는", SPANS)
+    assert raised.value.error_code == AnalysisError.FAILED
+
+
+def test_follow_up_call_waits_only_until_the_request_deadline(settings, monkeypatch):
+    # 요청 하나의 호출들이 함께 쓰는 마감 시각까지 남은 시간만 기다린다.
+    settings.OPENAI_API_KEY = "test-key"
+    now = iter([0, llm.REQUEST_DEADLINE_SECONDS - 10])
+    monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
+    llm_client = OpenAILLMClient()
+    answer = '{"spans": []}'
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+    )
+
+    llm_client.judge_spans("は", [], "는", SPANS)
+
+    [request] = requests
+    assert request["timeout"] == 10
+
+
+def test_follow_up_call_after_the_request_deadline_is_not_sent(settings, monkeypatch):
+    settings.OPENAI_API_KEY = "test-key"
+    now = iter([0, llm.REQUEST_DEADLINE_SECONDS])
+    monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
+    llm_client = OpenAILLMClient()
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text="{}")
+    )
+
+    with pytest.raises(BusinessError) as raised:
+        llm_client.rewrite_examples("文", EXAMPLES)
+    assert raised.value.error_code == AnalysisError.FAILED
+    assert requests == []
+
+
+EXAMPLES = [
+    {
+        "example_id": 0,
+        "pattern_name": "ている",
+        "usage_name": "진행",
+        "explanation_ko": "동작이 이어지고 있다",
+        "rejected_example": "昨日図書館で本を見ている",
+    }
+]
+
+
+def test_rewrite_examples_sends_sentence_and_rejected_examples_and_returns_the_answer(
+    llm_client, monkeypatch
+):
+    answer = '{"examples": [{"example_id": 0, "example_ja": "雨が降っている"}]}'
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+    )
+
+    result = llm_client.rewrite_examples("昨日図書館で本を読んでいる", EXAMPLES)
+
+    assert result == json.loads(answer)
+    [request] = requests
+    assert json.loads(request["input"]) == {
+        "sentence": "昨日図書館で本を読んでいる",
+        "examples": EXAMPLES,
+    }
+    assert request["text"]["format"]["strict"] is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        openai.OpenAIError("timeout"),
+        SimpleNamespace(status="incomplete", output_text='{"examples": []}'),
+        SimpleNamespace(status="completed", output_text="not json"),
+    ],
+)
+def test_rewrite_examples_failure_becomes_analysis_failure(llm_client, monkeypatch, response):
+    judge_with(llm_client, monkeypatch, response)
+
+    with pytest.raises(BusinessError) as raised:
+        llm_client.rewrite_examples("文", EXAMPLES)
     assert raised.value.error_code == AnalysisError.FAILED

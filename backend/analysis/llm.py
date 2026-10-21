@@ -191,9 +191,12 @@ class TranslationFirstParser:
 # 조각 사이 대기마다 적용된다.
 # 타임아웃 뒤 재시도하면 이미 과금된 요청을 또 보낼 수 있어 재시도하지 않는다.
 TIMEOUT_SECONDS = 30
-# 조각이 계속 오면 위 상한에 걸리지 않으므로 스트림 전체에도 상한을 둔다. 운영 Gunicorn
-# 작업자 타임아웃(Dockerfile)은 이 상한과 조각 대기 상한을 더한 것보다 길어야 한다.
+# 조각이 계속 오면 위 상한에 걸리지 않으므로 스트림 전체에도 상한을 둔다.
 STREAM_DEADLINE_SECONDS = 60
+# 스트림 뒤 보조 호출(다시 묻기·예문 다시 쓰기)까지 요청 하나가 LLM을 기다리는 전체 상한.
+# 클라이언트를 만든 때부터 센다. 운영 Gunicorn 작업자 타임아웃(Dockerfile, 120초)보다 저장할
+# 시간만큼 짧아야 하고, 스트림 상한과 조각 대기 상한을 더한 것보다는 길어야 한다.
+REQUEST_DEADLINE_SECONDS = 110
 MAX_RETRIES = 0
 
 
@@ -202,7 +205,10 @@ _FAILED_EVENTS = {"error", "response.failed", "response.incomplete"}
 
 
 class OpenAILLMClient:
+    """요청 하나가 쓰는 클라이언트. 그 요청의 호출들이 마감 시각 하나를 함께 쓴다."""
+
     def __init__(self):
+        self._deadline = time.monotonic() + REQUEST_DEADLINE_SECONDS
         self._client = OpenAI(
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
         )
@@ -250,40 +256,54 @@ class OpenAILLMClient:
         yield "result", parser.result()
 
     def judge_spans(self, sentence, tokens, translation_ko, spans):
-        """후보 구간만 다시 묻는다. 스트림 없이 받은 검증 전 응답을 돌려준다.
+        """후보 구간만 다시 묻는다. 스트림 없이 받은 검증 전 응답을 돌려준다."""
+        payload = {
+            "sentence": sentence,
+            "tokens": tokens,
+            "translation_ko": translation_ko,
+            "spans": spans,
+        }
+        return self._ask("다시 묻기", JUDGE_INSTRUCTIONS, payload, "span_judgement", JUDGE_SCHEMA)
 
-        SDK 오류, 끝까지 쓰지 못한 응답, JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
+    def rewrite_examples(self, sentence, examples):
+        """원문을 베껴 거부된 예문들을 한 번에 다시 쓰게 한다. 검증 전 응답을 돌려준다."""
+        payload = {"sentence": sentence, "examples": examples}
+        return self._ask(
+            "예문 다시 쓰기", REWRITE_INSTRUCTIONS, payload, "example_rewrite", REWRITE_SCHEMA
+        )
+
+    def _ask(self, purpose, instructions, payload, name, schema):
+        """구조화된 출력을 스트림 없이 받는다.
+
+        요청 마감 시각까지 남은 시간만 기다리고, 이미 지났으면 보내지 않는다. SDK 오류, 끝까지
+        쓰지 못한 응답, JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
         """
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 전에 요청 시간 초과")
         try:
             response = self._client.responses.create(
+                timeout=min(TIMEOUT_SECONDS, remaining),
                 model=settings.OPENAI_MODEL,
-                instructions=JUDGE_INSTRUCTIONS,
-                input=json.dumps(
-                    {
-                        "sentence": sentence,
-                        "tokens": tokens,
-                        "translation_ko": translation_ko,
-                        "spans": spans,
-                    },
-                    ensure_ascii=False,
-                ),
+                instructions=instructions,
+                input=json.dumps(payload, ensure_ascii=False),
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": "span_judgement",
-                        "schema": JUDGE_SCHEMA,
+                        "name": name,
+                        "schema": schema,
                         "strict": True,
                     }
                 },
             )
         except OpenAIError as e:
-            raise BusinessError(AnalysisError.FAILED, "LLM 다시 묻기 호출 실패") from e
+            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 호출 실패") from e
         if response.status != "completed":
-            raise BusinessError(AnalysisError.FAILED, f"LLM 다시 묻기 실패: {response.status}")
+            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 실패: {response.status}")
         try:
             return json.loads(response.output_text)
         except json.JSONDecodeError as e:
-            raise BusinessError(AnalysisError.FAILED, "LLM 다시 묻기 응답이 JSON이 아님") from e
+            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 응답이 JSON이 아님") from e
 
 
 # 같은 형태소 조건의 패턴이 이미 있을 때, 그 구간을 기존 용법 목록으로 다시 묻는 지침
@@ -310,6 +330,39 @@ JUDGE_SCHEMA = {
     "type": "object",
     "properties": {"spans": SPAN_ANSWERS_SCHEMA},
     "required": ["spans"],
+    "additionalProperties": False,
+}
+
+
+# 원문을 베껴 거부된 새 예문을 다시 쓰게 하는 지침
+REWRITE_INSTRUCTIONS = """\
+You help build Japanese example sentences for grammar usages.
+You receive a Japanese sentence that a learner is reading, and examples. Each example has an
+id (example_id), a grammar pattern (pattern_name), a usage (usage_name, explanation_ko) and an
+example sentence (rejected_example) that was rejected because it copied the learner's sentence.
+For each example, write a new short Japanese sentence (example_ja) that uses the same grammar
+pattern with the same usage. Write a sentence of your own about a different topic. Do not copy
+the learner's sentence or any of its phrases; only the grammar pattern itself may appear in
+both. Do not write number placeholders (⟨N1⟩). Answer every example_id you received.
+"""
+
+REWRITE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "examples": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "example_id": {"type": "integer"},
+                    "example_ja": {"type": "string"},
+                },
+                "required": ["example_id", "example_ja"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["examples"],
     "additionalProperties": False,
 }
 

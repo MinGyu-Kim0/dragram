@@ -250,40 +250,49 @@ class OpenAILLMClient:
         yield "result", parser.result()
 
     def judge_spans(self, sentence, tokens, translation_ko, spans):
-        """후보 구간만 다시 묻는다. 스트림 없이 받은 검증 전 응답을 돌려준다.
+        """후보 구간만 다시 묻는다. 스트림 없이 받은 검증 전 응답을 돌려준다."""
+        payload = {
+            "sentence": sentence,
+            "tokens": tokens,
+            "translation_ko": translation_ko,
+            "spans": spans,
+        }
+        return self._ask("다시 묻기", JUDGE_INSTRUCTIONS, payload, "span_judgement", JUDGE_SCHEMA)
+
+    def rewrite_examples(self, sentence, examples):
+        """원문을 베껴 거부된 예문들을 한 번에 다시 쓰게 한다. 검증 전 응답을 돌려준다."""
+        payload = {"sentence": sentence, "examples": examples}
+        return self._ask(
+            "예문 다시 쓰기", REWRITE_INSTRUCTIONS, payload, "example_rewrite", REWRITE_SCHEMA
+        )
+
+    def _ask(self, purpose, instructions, payload, name, schema):
+        """구조화된 출력을 스트림 없이 받는다.
 
         SDK 오류, 끝까지 쓰지 못한 응답, JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
         """
         try:
             response = self._client.responses.create(
                 model=settings.OPENAI_MODEL,
-                instructions=JUDGE_INSTRUCTIONS,
-                input=json.dumps(
-                    {
-                        "sentence": sentence,
-                        "tokens": tokens,
-                        "translation_ko": translation_ko,
-                        "spans": spans,
-                    },
-                    ensure_ascii=False,
-                ),
+                instructions=instructions,
+                input=json.dumps(payload, ensure_ascii=False),
                 text={
                     "format": {
                         "type": "json_schema",
-                        "name": "span_judgement",
-                        "schema": JUDGE_SCHEMA,
+                        "name": name,
+                        "schema": schema,
                         "strict": True,
                     }
                 },
             )
         except OpenAIError as e:
-            raise BusinessError(AnalysisError.FAILED, "LLM 다시 묻기 호출 실패") from e
+            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 호출 실패") from e
         if response.status != "completed":
-            raise BusinessError(AnalysisError.FAILED, f"LLM 다시 묻기 실패: {response.status}")
+            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 실패: {response.status}")
         try:
             return json.loads(response.output_text)
         except json.JSONDecodeError as e:
-            raise BusinessError(AnalysisError.FAILED, "LLM 다시 묻기 응답이 JSON이 아님") from e
+            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 응답이 JSON이 아님") from e
 
 
 # 같은 형태소 조건의 패턴이 이미 있을 때, 그 구간을 기존 용법 목록으로 다시 묻는 지침
@@ -310,6 +319,39 @@ JUDGE_SCHEMA = {
     "type": "object",
     "properties": {"spans": SPAN_ANSWERS_SCHEMA},
     "required": ["spans"],
+    "additionalProperties": False,
+}
+
+
+# 원문을 베껴 거부된 새 예문을 다시 쓰게 하는 지침
+REWRITE_INSTRUCTIONS = """\
+You help build Japanese example sentences for grammar usages.
+You receive a Japanese sentence that a learner is reading, and examples. Each example has an
+id (example_id), a grammar pattern (pattern_name), a usage (usage_name, explanation_ko) and an
+example sentence (rejected_example) that was rejected because it copied the learner's sentence.
+For each example, write a new short Japanese sentence (example_ja) that uses the same grammar
+pattern with the same usage. Write a sentence of your own about a different topic. Do not copy
+the learner's sentence or any of its phrases; only the grammar pattern itself may appear in
+both. Do not write number placeholders (⟨N1⟩). Answer every example_id you received.
+"""
+
+REWRITE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "examples": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "example_id": {"type": "integer"},
+                    "example_ja": {"type": "string"},
+                },
+                "required": ["example_id", "example_ja"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["examples"],
     "additionalProperties": False,
 }
 

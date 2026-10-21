@@ -241,3 +241,49 @@ def test_judge_spans_failure_becomes_analysis_failure(llm_client, monkeypatch, r
     with pytest.raises(BusinessError) as raised:
         llm_client.judge_spans("は", [], "는", SPANS)
     assert raised.value.error_code == AnalysisError.FAILED
+
+
+EXAMPLES = [
+    {
+        "example_id": 0,
+        "pattern_name": "ている",
+        "usage_name": "진행",
+        "explanation_ko": "동작이 이어지고 있다",
+        "rejected_example": "昨日図書館で本を見ている",
+    }
+]
+
+
+def test_rewrite_examples_sends_sentence_and_rejected_examples_and_returns_the_answer(
+    llm_client, monkeypatch
+):
+    answer = '{"examples": [{"example_id": 0, "example_ja": "雨が降っている"}]}'
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+    )
+
+    result = llm_client.rewrite_examples("昨日図書館で本を読んでいる", EXAMPLES)
+
+    assert result == json.loads(answer)
+    [request] = requests
+    assert json.loads(request["input"]) == {
+        "sentence": "昨日図書館で本を読んでいる",
+        "examples": EXAMPLES,
+    }
+    assert request["text"]["format"]["strict"] is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        openai.OpenAIError("timeout"),
+        SimpleNamespace(status="incomplete", output_text='{"examples": []}'),
+        SimpleNamespace(status="completed", output_text="not json"),
+    ],
+)
+def test_rewrite_examples_failure_becomes_analysis_failure(llm_client, monkeypatch, response):
+    judge_with(llm_client, monkeypatch, response)
+
+    with pytest.raises(BusinessError) as raised:
+        llm_client.rewrite_examples("文", EXAMPLES)
+    assert raised.value.error_code == AnalysisError.FAILED

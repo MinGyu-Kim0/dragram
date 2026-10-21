@@ -224,26 +224,43 @@ def _new_pattern_conditions(tokens, morphs, overlaps_number):
     return conditions
 
 
-def _copies_part(example_key, key_text, fixed_spans):
-    """예문이 원문 키 텍스트의 연속된 일부를 기준 길이 이상 그대로 썼는가.
+def _copy_units(key, fixed_spans):
+    """복사 검사에 쓰는 키 텍스트의 단위들. 기호·공백은 지운다.
 
-    예문에는 그 문법이 들어갈 수밖에 없으므로 패턴에서 고정한 토큰(lemma·활용형 고정)의 원문
-    글자(fixed_spans, 키 텍스트 [start, end) 목록)는 길이에 세지 않는다. 다만 고정 토큰을 사이에
-    두고 앞뒤를 이어서 베낀 것은 한 번의 복사로 센다. 구간 안의 아무거나 토큰은 원문 글자라
-    센다. 문장 인용 검사처럼 기호·공백을 지우고 비교한다.
+    fixed_spans는 패턴에서 고정한 토큰의 (패턴 안 순서, 키 텍스트 start, end) 목록이다. 고정
+    토큰 하나는 그 순서를 표시로 한 단위가 된다. 표기가 달라도(くる·来る, 활용형) 같은 자리의
+    고정 토큰끼리 같다.
+    """
+    marks = {}
+    for seq, start, end in fixed_spans:
+        for i in range(start, end):
+            marks.setdefault(i, (seq, start))
+    units = []
+    for i, ch in enumerate(key):
+        if i in marks:
+            if marks[i] != marks.get(i - 1):
+                units.append(marks[i][:1])
+        elif _letters(ch):
+            units.append(ch)
+    return units
+
+
+def _copies_part(example, original):
+    """예문이 원문의 연속된 일부를 기준 길이 이상 그대로 썼는가. 둘 다 _copy_units의 단위다.
+
+    예문에는 그 문법이 들어갈 수밖에 없으므로 고정 토큰은 길이에 세지 않는다. 다만 고정 토큰을
+    사이에 두고 앞뒤를 이어서 베낀 것은 한 번의 복사로 센다. 구간 안의 아무거나 토큰은 원문
+    글자라 센다.
     """
     length = settings.EXAMPLE_COPY_LENGTH
-    fixed = {i for start, end in fixed_spans for i in range(start, end)}
-    # 원문 글자마다 (글자, 길이에 세는가)
-    original = [(ch, i not in fixed) for i, ch in enumerate(key_text) if _letters(ch)]
-    example = _letters(example_key)
-    # counted[j]: 원문 앞 글자와 예문 j번째 글자에서 끝나는 공통 연속 구간의 센 글자 수
+    # counted[j]: 원문 앞 단위와 예문 j번째 단위에서 끝나는 공통 연속 구간의 센 글자 수
     # (공통이 아니면 None)
     counted = [None] * len(example)
-    for ch, counts in original:
+    for unit in original:
+        counts = isinstance(unit, str)
         previous = [None, *counted[:-1]]
         counted = [
-            (previous[j] or 0) + counts if example[j] == ch else None for j in range(len(example))
+            (previous[j] or 0) + counts if example[j] == unit else None for j in range(len(example))
         ]
         if any(c is not None and c >= length for c in counted):
             return True
@@ -271,13 +288,22 @@ def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans)
     # 원문 키 텍스트와 같거나 전체를 포함하면 베낀 것이다(문장 인용과 같은 비교). 형태소가
     # 하나뿐인 원문은 포함만 허용하고, 원문 그대로인 예문은 형태소 수와 상관없이 거부한다.
     # 다시 써도 원문을 베끼지 않는 것만 고쳐지므로, 쓸 수 없는 예문은 베낀 것보다 먼저 가린다.
-    if not patterns.match_starts(conditions, morphemes(text)):
+    morphs = morphemes(text)
+    starts = patterns.match_starts(conditions, morphs)
+    if not starts:
         return _EXAMPLE_UNUSABLE
     if _letters(example_key) == _letters(key_text):
         return _EXAMPLE_COPIED
     if _quotes_whole_sentence([example_key], key_text, content_tokens):
         return _EXAMPLE_COPIED
-    if _copies_part(example_key, key_text, fixed_spans):
+    offsets = key_offsets(pieces)
+    example_fixed = [
+        (seq, *to_key(offsets, morphs[start + seq].begin, morphs[start + seq].end))
+        for start in starts
+        for seq, c in enumerate(conditions)
+        if c != patterns.ANY
+    ]
+    if _copies_part(_copy_units(example_key, example_fixed), _copy_units(key_text, fixed_spans)):
         return _EXAMPLE_COPIED
     return _EXAMPLE_OK
 
@@ -554,9 +580,9 @@ def analyze(request):
         """
 
         def fixed_spans(start_token, conditions):
-            """패턴에서 고정한 토큰의 키 텍스트 구간들"""
+            """패턴에서 고정한 토큰의 (패턴 안 순서, 키 텍스트 start, end)들"""
             return [
-                key_span(start_token + i, start_token + i)
+                (i, *key_span(start_token + i, start_token + i))
                 for i, c in enumerate(conditions)
                 if c != patterns.ANY
             ]

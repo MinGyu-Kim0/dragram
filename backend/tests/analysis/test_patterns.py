@@ -1113,6 +1113,29 @@ def test_copying_across_a_fixed_token_counts_as_one_copy(client, fake_llm):
     assert not GrammarPattern.objects.get().is_active
 
 
+def test_copying_across_a_fixed_token_written_differently_counts_as_one_copy(client, fake_llm):
+    # 토큰: 0 冬 / 1 に / 2 雨 / 3 が / 4 降っ / 5 て / 6 くる / 7 と / 8 寒い
+    # 고정한 くる를 같은 lemma의 来る로 바꿔 써도 앞뒤의 원문(冬に雨が降っ + と寒い) 9자를 이어서
+    # 베낀 것이다.
+    fake_llm.response = {
+        "translation_ko": "겨울에 비가 내리기 시작하면 춥다",
+        "new_patterns": [
+            new_pattern(
+                (5, "lemma"),
+                (6, "lemma"),
+                pattern_name="てくる",
+                usage_name="변화의 시작",
+                explanation_ko="어떤 상태로 바뀌기 시작한다",
+                example_ja="冬に雨が降って来ると寒い",
+            )
+        ],
+    }
+
+    analyze(client, "冬に雨が降ってくると寒い")
+
+    assert not GrammarPattern.objects.get().is_active
+
+
 def test_copied_example_of_new_usage_with_existing_name_is_not_rewritten(client, fake_llm):
     register_nagara(client, fake_llm)
     # 같은 이름의 용법이 이미 있어 어차피 더하지 않는다.

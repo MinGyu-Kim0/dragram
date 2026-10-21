@@ -865,3 +865,141 @@ def test_new_usage_example_copying_part_of_sentence_is_not_stored(client, fake_l
     analyze(client, "昨日図書館で本を読みながら")
 
     assert GrammarUsage.objects.get(name="역접").example_ja is None
+
+
+def rewritten(*texts):
+    return {"examples": [{"example_id": i, "example_ja": t} for i, t in enumerate(texts)]}
+
+
+def test_copied_examples_are_rewritten_once_together(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる. 두 용법의 예문이 모두 원문을 베꼈다.
+    fake_llm.response = {
+        "translation_ko": "번역",
+        "new_patterns": [
+            new_pattern((1, "lemma"), (2, "lemma"), example_ja="走っていている"),
+            new_pattern(
+                (3, "lemma"),
+                (4, "lemma"),
+                usage_name="결과 상태",
+                explanation_ko="동작의 결과가 남아 있다",
+                example_ja="彼は走っていている",
+            ),
+        ],
+    }
+    fake_llm.rewrite_response = rewritten("雨が降っている", "窓が開いている")
+
+    analyze(client, "走っていている")
+
+    [request] = fake_llm.rewrite_requests
+    assert request["sentence"] == "走っていている"
+    assert request["examples"] == [
+        {
+            "example_id": 0,
+            "pattern_name": "ている",
+            "usage_name": "진행",
+            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
+            "rejected_example": "走っていている",
+        },
+        {
+            "example_id": 1,
+            "pattern_name": "ている",
+            "usage_name": "결과 상태",
+            "explanation_ko": "동작의 결과가 남아 있다",
+            "rejected_example": "彼は走っていている",
+        },
+    ]
+    pattern = GrammarPattern.objects.get()
+    assert pattern.is_active
+    assert pattern.test_cases == [{"text": "雨が降っている", "should_match": True}]
+    assert dict(GrammarUsage.objects.values_list("name", "example_ja")) == {
+        "진행": "雨が降っている",
+        "결과 상태": "窓が開いている",
+    }
+
+
+def test_example_copied_again_after_rewrite_is_registered_inactive(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    fake_llm.rewrite_response = rewritten("昨日図書館で本を探している")
+
+    analyze(client, LIBRARY)
+
+    assert len(fake_llm.rewrite_requests) == 1
+    pattern = GrammarPattern.objects.get()
+    assert not pattern.is_active
+    assert pattern.test_cases == []
+    assert GrammarUsage.objects.get().example_ja is None
+
+
+def test_rewritten_example_must_still_match_the_pattern(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    fake_llm.rewrite_response = rewritten("雨が降る")
+
+    analyze(client, LIBRARY)
+
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copied_new_usage_example_is_rewritten(client, fake_llm):
+    register_nagara(client, fake_llm)
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽으면서",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage(example_ja="昨日図書館で本を見ながら"))
+        ],
+    }
+    fake_llm.rewrite_response = rewritten("狭いながら快適だ")
+
+    analyze(client, "昨日図書館で本を読みながら")
+
+    assert fake_llm.rewrite_requests[0]["examples"][0]["pattern_name"] == "ながら"
+    assert GrammarUsage.objects.get(name="역접").example_ja == "狭いながら快適だ"
+
+
+def test_example_rejected_for_other_reasons_is_not_rewritten(client, fake_llm):
+    # 패턴에 걸리지 않는 예문은 베낀 것이 아니라 다시 쓰게 하지 않는다.
+    register_teiru(client, fake_llm, example_ja="雨が降る")
+
+    assert fake_llm.rewrite_requests == []
+    assert not GrammarPattern.objects.get().is_active
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        {"examples": []},
+        {"examples": [{"example_id": 1, "example_ja": "雨が降っている"}]},
+        {"examples": [{"example_id": 0, "example_ja": ""}]},
+        {
+            "examples": [
+                {"example_id": 0, "example_ja": "雨が降っている"},
+                {"example_id": 0, "example_ja": "窓が開いている"},
+            ]
+        },
+        {"examples": "not a list"},
+        "not an object",
+    ],
+)
+def test_invalid_rewrite_answer_fails_and_nothing_is_stored(client, fake_llm, answer):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    fake_llm.rewrite_response = answer
+
+    response = analyze(client, LIBRARY)
+
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
+    assert GrammarPattern.objects.count() == 0
+    assert SentenceAnalysis.objects.count() == 0

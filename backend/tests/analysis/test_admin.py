@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus
+from analysis.models import GrammarPattern, GrammarUsage, PatternSetVersion, ReviewStatus
 from tests.analysis.helpers import analyze, new_pattern
 
 pytestmark = pytest.mark.django_db
@@ -196,3 +196,78 @@ def test_patterns_and_usages_are_not_added_or_deleted_in_admin(admin_client, pat
     assert admin_client.get(f"{PATTERNS}{pattern.pk}/delete/").status_code == 403
     assert admin_client.get(f"{USAGES}{usage.pk}/delete/").status_code == 403
     assert GrammarUsage.objects.count() == 1
+
+
+PASSING = [
+    {"text": "雨が降っている", "should_match": True},
+    {"text": "雨が降る", "should_match": False},
+]
+
+
+def save_cases(admin_client, pattern, cases):
+    return admin_client.post(
+        f"{PATTERNS}{pattern.pk}/change/",
+        pattern_form(pattern, test_cases=json.dumps(cases, ensure_ascii=False)),
+    )
+
+
+@pytest.mark.parametrize("cases", [[], [{"text": "雨が降っている", "should_match": True}]])
+def test_test_cases_that_break_an_approved_pattern_are_not_saved(admin_client, pattern, cases):
+    GrammarPattern.objects.filter(pk=pattern.pk).update(
+        test_cases=PASSING, status=ReviewStatus.APPROVED
+    )
+
+    response = save_cases(admin_client, pattern, cases)
+
+    assert response.status_code == 200
+    pattern.refresh_from_db()
+    assert (pattern.test_cases, pattern.status) == (PASSING, ReviewStatus.APPROVED)
+
+
+def version():
+    return PatternSetVersion.objects.get().version
+
+
+def test_test_cases_with_a_passing_example_activate_an_inactive_pattern(admin_client, pattern):
+    GrammarPattern.objects.filter(pk=pattern.pk).update(test_cases=[], is_active=False)
+    before = version()
+
+    assert save_cases(admin_client, pattern, PASSING).status_code == 302
+
+    pattern.refresh_from_db()
+    assert pattern.is_active
+    assert version() == before + 1
+
+
+def test_test_cases_without_a_passing_example_deactivate_the_pattern(admin_client, pattern):
+    before = version()
+
+    assert save_cases(admin_client, pattern, PASSING[1:]).status_code == 302
+
+    pattern.refresh_from_db()
+    assert not pattern.is_active
+    assert version() == before + 1
+
+
+def test_rejected_pattern_stays_inactive_whatever_its_test_cases(admin_client, pattern):
+    GrammarPattern.objects.filter(pk=pattern.pk).update(
+        status=ReviewStatus.REJECTED, is_active=False
+    )
+
+    assert save_cases(admin_client, pattern, PASSING).status_code == 302
+
+    pattern.refresh_from_db()
+    assert not pattern.is_active
+
+
+def test_usage_without_an_example_can_be_saved(admin_client, pattern):
+    usage = pattern.usages.get()
+    GrammarUsage.objects.filter(pk=usage.pk).update(example_ja=None)
+
+    response = admin_client.post(
+        f"{USAGES}{usage.pk}/change/", {"explanation_ko": "새 설명", "example_ja": ""}
+    )
+
+    assert response.status_code == 302
+    usage.refresh_from_db()
+    assert (usage.explanation_ko, usage.example_ja) == ("새 설명", None)

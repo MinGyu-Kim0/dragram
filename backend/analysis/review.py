@@ -22,13 +22,13 @@ def matches(conditions, text):
     return bool(analysis) and bool(patterns.match_starts(conditions, morphemes(analysis)))
 
 
-def test_cases_failure(pattern):
-    """test_cases가 통과하지 못하는 이유. 통과하면 None.
+def test_cases_failure(pattern, cases=None):
+    """test_cases(주지 않으면 패턴에 저장된 것)가 통과하지 못하는 이유. 통과하면 None.
 
     '걸려야 함'·'걸리면 안 됨' 예문이 각각 하나 이상 있고, 모두 매칭기 결과가 기대와 같아야
     한다. 빈 배열은 통과가 아니다.
     """
-    cases = pattern.test_cases
+    cases = pattern.test_cases if cases is None else cases
     if not any(case["should_match"] for case in cases):
         return "'걸려야 함' 예문이 없습니다"
     if all(case["should_match"] for case in cases):
@@ -204,3 +204,31 @@ def unapprove_usage(usage):
     usage.save(update_fields=["status", "updated_at"])
     patterns.make_stale(usage=usage)
     _open_usages(pattern)
+
+
+def test_cases_refusal(pattern, cases):
+    """패턴의 test_cases를 cases로 바꿀 수 없는 이유. 바꿀 수 있으면 None.
+
+    승인됐거나 용법 완결인 패턴은 바꾼 뒤에도 test_cases를 통과해야 한다(먼저 승인을
+    취소한다). 패턴 행을 잠그므로 같은 트랜잭션에서 update_test_cases를 부른다.
+    """
+    pattern = _locked(pattern)
+    if pattern.status != ReviewStatus.APPROVED and not pattern.usage_closed:
+        return None
+    failure = test_cases_failure(pattern, cases)
+    if failure:
+        return f"승인·용법 완결 패턴은 test_cases를 통과해야 합니다(먼저 승인 취소): {failure}"
+    return None
+
+
+@transaction.atomic
+def update_test_cases(pattern, cases):
+    """test_cases를 바꾸고, 반려되지 않은 패턴이면 활성화 근거를 다시 확인해 is_active를 맞춘다."""
+    refusal = test_cases_refusal(pattern, cases)
+    if refusal:
+        raise Refused(refusal)
+    pattern = _locked(pattern)
+    pattern.test_cases = cases
+    pattern.save(update_fields=["test_cases"])
+    if pattern.status != ReviewStatus.REJECTED:
+        _set_active(pattern, _has_activation_basis(pattern))

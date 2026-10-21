@@ -1,6 +1,9 @@
 """패턴·용법 승인과 반려(#38)."""
 
+import threading
+
 import pytest
+from django.db import connection, transaction
 
 from analysis import patterns, review
 from analysis.models import (
@@ -405,3 +408,40 @@ def test_fresh_analysis_is_still_reused_without_llm(client, fake_llm):
     analyze(client, "走っている")
 
     assert len(fake_llm.requests) == calls
+
+
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_usage_closed_waits_for_a_usage_being_added(client, fake_llm):
+    pattern, _ = approved_teiru(client, fake_llm)
+    added, release = threading.Event(), threading.Event()
+    result = {}
+
+    def analysis_adds_a_usage():
+        # 분석 트랜잭션이 새 용법을 넣고 아직 커밋하지 않았다.
+        with transaction.atomic():
+            patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None)
+            added.set()
+            release.wait(5)
+        connection.close()
+
+    def admin_closes_usages():
+        try:
+            review.close_usages(pattern)
+        except review.Refused:
+            result["refused"] = True
+        connection.close()
+
+    analysis = threading.Thread(target=analysis_adds_a_usage)
+    analysis.start()
+    added.wait(5)
+    admin = threading.Thread(target=admin_closes_usages)
+    admin.start()
+    # 관리자 쪽이 패턴 잠금을 기다리게 한 뒤 분석을 커밋한다.
+    admin.join(0.5)
+    release.set()
+    analysis.join()
+    admin.join()
+
+    assert result == {"refused": True}
+    assert not closed(pattern)

@@ -41,6 +41,10 @@ class GrammarPatternForm(forms.ModelForm):
             problem = _example_problem(case["text"])
             if problem:
                 raise forms.ValidationError(problem)
+        # admin 변경 화면은 한 트랜잭션이라, 여기서 잠근 패턴을 저장(save_model)까지 붙든다.
+        refusal = review.test_cases_refusal(self.instance, cases)
+        if refusal:
+            raise forms.ValidationError(refusal)
         return cases
 
 
@@ -96,6 +100,12 @@ class GrammarPatternAdmin(_ReviewedAdmin):
     fields = ["name", "test_cases", "status", "is_active", "usage_closed", "morpheme_key"]
     readonly_fields = ["status", "is_active", "usage_closed", "morpheme_key"]
     inlines = [PatternMorphemeInline]
+
+    def save_model(self, request, obj, form, change):
+        # test_cases는 활성 상태·패턴 세트 버전과 함께 바꾼다.
+        GrammarPattern.objects.filter(pk=obj.pk).update(name=obj.name)
+        review.update_test_cases(obj, form.cleaned_data["test_cases"])
+
     actions = [
         _review_action("approve", review.approve_pattern, "승인"),
         _review_action("reject", review.reject_pattern, "반려"),
@@ -107,6 +117,9 @@ class GrammarPatternAdmin(_ReviewedAdmin):
 
 
 class GrammarUsageForm(forms.ModelForm):
+    # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
+    example_ja = forms.CharField(widget=forms.Textarea, required=False)
+
     class Meta:
         model = GrammarUsage
         fields = ["explanation_ko", "example_ja"]

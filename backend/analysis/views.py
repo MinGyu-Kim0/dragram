@@ -407,17 +407,18 @@ def _grammar_item(pattern, usage, start_offset, end_offset, offsets, origins, ut
     }
 
 
-def _is_settled(span):
-    """LLM 없이 확정할 구간인가(구간 판정 절차 2단계). 승인된 용법 완결 패턴이고, 반려되지 않은
-    용법이 승인된 하나뿐이어야 한다. 용법 완결 표시가 보장하지만 분석 때도 다시 본다.
+def _closed_usage(span):
+    """용법 완결로 LLM 없이 확정할 구간이면 (후보 ID, 그 용법), 아니면 None(구간 판정 절차
+    2단계). 승인된 용법 완결 패턴이고, 반려되지 않은 용법이 승인된 하나뿐이어야 한다. 용법 완결
+    표시가 보장하지만 분석 때도 다시 본다.
     """
     pattern = span.pattern
-    return (
-        pattern.usage_closed
-        and pattern.status == ReviewStatus.APPROVED
-        and len(span.candidates) == 1
-        and span.candidates[0][1].status == ReviewStatus.APPROVED
-    )
+    if not pattern.usage_closed or pattern.status != ReviewStatus.APPROVED:
+        return None
+    if len(span.candidates) != 1:
+        return None
+    candidate = span.candidates[0]
+    return candidate if candidate[1].status == ReviewStatus.APPROVED else None
 
 
 def _words_response(stored, offsets, origins, utf16, restore):
@@ -570,16 +571,18 @@ def analyze(request):
     # 승인된 용법 완결 패턴의 구간은 LLM 없이 확정하고, 나머지만 후보로 묻는다. 확정 구간은 LLM이
     # 새 구문으로 다시 내지 않도록 알리기만 한다(#39).
     matched = patterns.candidate_spans(morphs)
-    settled = [span for span in matched if _is_settled(span)]
-    spans = [span for span in matched if not _is_settled(span)]
+    # (구간, 후보 ID, 용법)
+    closed_spans, spans = [], []
+    for span in matched:
+        closed = _closed_usage(span)
+        if closed is None:
+            spans.append(span)
+        else:
+            closed_spans.append((span, *closed))
     llm_spans = _llm_spans(spans)
     decided_spans = [
-        {
-            "start_token_id": span.start_token,
-            "end_token_id": span.end_token,
-            "name": span.candidates[0][1].name,
-        }
-        for span in settled
+        {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
+        for span, _, usage in closed_spans
     ]
     content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
 
@@ -751,9 +754,8 @@ def analyze(request):
         조건의 패턴을 먼저 등록했으면 _PatternTaken을 던져 다시 묻게 한다(final이면 미발견).
         """
         rows = []
-        for span in settled:
+        for span, candidate_id, usage in closed_spans:
             start, end = key_span(span.start_token, span.end_token)
-            candidate_id, usage = span.candidates[0]
             rows.append(
                 SpanMatch(
                     analysis=saved,
@@ -960,11 +962,13 @@ def analyze(request):
         locked.save(update_fields=["translation_ko", "draft_analysis", "is_stale", "updated_at"])
         return locked, locked.generation != started_generation
 
-    def settled_grammar():
+    def closed_grammar():
+        """용법 완결로 확정한 구간의 응답 항목(원문 순서)."""
         grammar = []
-        for span in sorted(settled, key=lambda span: (span.start_token, span.end_token)):
+        for span, _, usage in sorted(
+            closed_spans, key=lambda c: (c[0].start_token, c[0].end_token)
+        ):
             start, end = key_span(span.start_token, span.end_token)
-            usage = span.candidates[0][1]
             grammar.append(_grammar_item(span.pattern, usage, start, end, offsets, origins, utf16))
         return grammar
 
@@ -972,9 +976,9 @@ def analyze(request):
         """LLM 결과를 나오는 대로 낸다. 번역을 검증해 먼저 내고, 문법·단어까지 검증해 저장한
         뒤 이어 낸다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
         """
-        if settled:
+        if closed_spans:
             # LLM을 부르기 전에 확정 구간부터 보낸다. 이 뒤 실패는 error 이벤트로 알린다.
-            yield {"type": "grammar", "grammar": settled_grammar()}
+            yield {"type": "grammar", "grammar": closed_grammar()}
         translation_sent = False
         result = None
         for kind, value in client.analyze_stream(key_text, tokens, llm_spans, decided_spans):

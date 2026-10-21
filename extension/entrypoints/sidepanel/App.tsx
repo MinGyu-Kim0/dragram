@@ -75,17 +75,17 @@ function App() {
       const saveAll = (result: SentenceResult) =>
         indices.forEach((index) => save(index, result));
       // LLM 없이 확정한 문법은 번역보다 먼저 와서, 번역이 와도 함께 보인다.
-      let decided: GrammarItem[] | undefined;
+      let earlyGrammar: GrammarItem[] | undefined;
       limiter
         .schedule(
           () =>
             analyzeSentence(
               text,
               (translation) =>
-                saveAll({ status: "translated", translation, decided }),
+                saveAll({ status: "translated", translation, earlyGrammar }),
               (grammar) => {
-                decided = grammar;
-                saveAll({ status: "decided", decided });
+                earlyGrammar = grammar;
+                saveAll({ status: "early", earlyGrammar });
               },
             ),
           () => !current,
@@ -96,7 +96,10 @@ function App() {
             saveAll({
               status: "failed",
               ...(error instanceof AnalysisFailed
-                ? { translation: error.translation, decided: error.grammar }
+                ? {
+                    translation: error.translation,
+                    earlyGrammar: error.earlyGrammar,
+                  }
                 : {}),
             }),
         );

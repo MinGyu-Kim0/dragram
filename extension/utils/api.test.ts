@@ -81,7 +81,7 @@ test("번역을 받은 뒤 스트림이 끊기면 받은 번역과 함께 실패
   expect(failure.translation).toEqual({ translation_ko: "학생", ruby: [] });
 });
 
-test("확정 문법이 오면 onGrammar를 부르고, 실패하면 받은 문법을 함께 싣는다", async () => {
+test("확정 문법이 오면 onEarlyGrammar를 부르고, 실패하면 받은 문법을 함께 싣는다", async () => {
   const item = {
     start: 3,
     end: 6,
@@ -113,6 +113,6 @@ test("확정 문법이 오면 onGrammar를 부르고, 실패하면 받은 문법
 
   expect(received).toEqual([[item]]);
   expect(failure).toBeInstanceOf(AnalysisFailed);
-  expect(failure.grammar).toEqual([item]);
+  expect(failure.earlyGrammar).toEqual([item]);
   expect(failure.translation).toBeUndefined();
 });

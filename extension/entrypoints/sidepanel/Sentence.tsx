@@ -3,26 +3,34 @@ import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
 import { WordList } from "./Words";
 
-// 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. decided는 LLM 없이 확정한 문법만
+// 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 LLM 없이 확정한 문법만
 // 와서 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다. failed에
-// 번역이 있으면 번역 뒤 문법·단어에서 실패했다. decided(확정 문법)는 analysis가 오기 전까지
+// 번역이 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar(LLM 없이 확정해 먼저 온 문법)는 analysis가 오기 전까지
 // 보인다.
 export type SentenceResult =
-  | { status: "decided"; decided: GrammarItem[] }
-  | { status: "translated"; translation: Translation; decided?: GrammarItem[] }
+  | { status: "early"; earlyGrammar: GrammarItem[] }
+  | {
+      status: "translated";
+      translation: Translation;
+      earlyGrammar?: GrammarItem[];
+    }
   | { status: "done"; analysis: Analysis }
-  | { status: "failed"; translation?: Translation; decided?: GrammarItem[] };
+  | {
+      status: "failed";
+      translation?: Translation;
+      earlyGrammar?: GrammarItem[];
+    };
 
-// 지금 보일 문법. 분석이 끝나기 전에는 확정 문법만 보인다.
+// 지금 보일 문법. 분석이 끝나기 전에는 먼저 온 문법만 보인다.
 function grammarOf(result: SentenceResult | undefined) {
   if (result?.status === "done") return result.analysis.grammar;
-  return result?.decided ?? [];
+  return result?.earlyGrammar ?? [];
 }
 
 // 지금 보일 번역과 루비
 function translationOf(result: SentenceResult | undefined) {
   if (result?.status === "done") return result.analysis;
-  if (result?.status === "decided") return undefined;
+  if (result?.status === "early") return undefined;
   return result?.translation;
 }
 
@@ -76,7 +84,7 @@ export function SentenceView({
           />
         </p>
         <hr />
-        {(!result || result.status === "decided") && (
+        {(!result || result.status === "early") && (
           <div
             role="status"
             aria-label="번역을 불러오는 중"

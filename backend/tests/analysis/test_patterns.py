@@ -1154,6 +1154,30 @@ def test_copying_across_a_fixed_token_written_differently_counts_as_one_copy(cli
     assert not GrammarPattern.objects.get().is_active
 
 
+def test_copying_a_fixed_token_outside_the_example_match_counts_as_one_copy(
+    client, fake_llm, settings
+):
+    settings.EXAMPLE_COPY_LENGTH = 4
+    # 토큰: 0 雨 / 1 が / 2 降っ / 3 た / 4 学校. 예문의 패턴 매치는 雪が来た이고, 그 밖에서
+    # 원문의 降っ + た + 学校를 이어 베꼈다. 매치 밖의 た도 원문 고정 토큰과 같은 글자로 잇는다.
+    fake_llm.response = {
+        "translation_ko": "비가 내린 학교",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                (2, "any"),
+                (3, "lemma"),
+                pattern_name="が〜た",
+                example_ja="雪が来た、降った学校へ行く",
+            )
+        ],
+    }
+
+    analyze(client, "雨が降った学校")
+
+    assert not GrammarPattern.objects.get().is_active
+
+
 def test_copied_example_of_new_usage_with_existing_name_is_not_rewritten(client, fake_llm):
     register_nagara(client, fake_llm)
     # 같은 이름의 용법이 이미 있어 어차피 더하지 않는다.

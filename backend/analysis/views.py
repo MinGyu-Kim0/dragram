@@ -224,12 +224,13 @@ def _new_pattern_conditions(tokens, morphs, overlaps_number):
     return conditions
 
 
-def _copy_units(key, fixed_spans):
-    """복사 검사에 쓰는 키 텍스트의 단위들. 기호·공백은 지운다.
+def _copy_units(key, fixed_spans, aligned):
+    """복사 검사에 쓰는 키 텍스트의 (단위, 길이에 세는가)들. 기호·공백은 지운다.
 
-    fixed_spans는 패턴에서 고정한 토큰의 (패턴 안 순서, 키 텍스트 start, end) 목록이다. 고정
-    토큰 하나는 그 순서를 표시로 한 단위가 된다. 표기가 달라도(くる·来る, 활용형) 같은 자리의
-    고정 토큰끼리 같다.
+    fixed_spans는 패턴에서 고정한 토큰의 (패턴 안 순서, 키 텍스트 start, end) 목록이고, 그
+    글자는 길이에 세지 않는다. aligned면 고정 토큰 하나를 그 순서를 표시로 한 단위로 묶어,
+    표기가 달라도(くる·来る, 활용형) 같은 자리의 고정 토큰끼리 같게 한다. 아니면 글자 그대로
+    둔다.
     """
     marks = {}
     for seq, start, end in fixed_spans:
@@ -237,27 +238,27 @@ def _copy_units(key, fixed_spans):
             marks.setdefault(i, (seq, start))
     units = []
     for i, ch in enumerate(key):
-        if i in marks:
+        if i in marks and aligned:
             if marks[i] != marks.get(i - 1):
-                units.append(marks[i][:1])
+                units.append((marks[i][:1], False))
         elif _letters(ch):
-            units.append(ch)
+            units.append((ch, i not in marks))
     return units
 
 
 def _copies_part(example, original):
     """예문이 원문의 연속된 일부를 기준 길이 이상 그대로 썼는가. 둘 다 _copy_units의 단위다.
 
-    예문에는 그 문법이 들어갈 수밖에 없으므로 고정 토큰은 길이에 세지 않는다. 다만 고정 토큰을
-    사이에 두고 앞뒤를 이어서 베낀 것은 한 번의 복사로 센다. 구간 안의 아무거나 토큰은 원문
-    글자라 센다.
+    예문에는 그 문법이 들어갈 수밖에 없으므로 원문의 고정 토큰은 길이에 세지 않는다. 다만
+    고정 토큰을 사이에 두고 앞뒤를 이어서 베낀 것은 한 번의 복사로 센다. 구간 안의 아무거나
+    토큰은 원문 글자라 센다.
     """
     length = settings.EXAMPLE_COPY_LENGTH
+    example = [unit for unit, _ in example]
     # counted[j]: 원문 앞 단위와 예문 j번째 단위에서 끝나는 공통 연속 구간의 센 글자 수
     # (공통이 아니면 None)
     counted = [None] * len(example)
-    for unit in original:
-        counts = isinstance(unit, str)
+    for unit, counts in original:
         previous = [None, *counted[:-1]]
         counted = [
             (previous[j] or 0) + counts if example[j] == unit else None for j in range(len(example))
@@ -303,8 +304,13 @@ def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans)
         for seq, c in enumerate(conditions)
         if c != patterns.ANY
     ]
-    if _copies_part(_copy_units(example_key, example_fixed), _copy_units(key_text, fixed_spans)):
-        return _EXAMPLE_COPIED
+    # 예문의 패턴 매치와 맞춰 보고, 매치 밖에서 원문 고정 토큰을 같은 글자로 베낀 것도 본다.
+    for aligned in (True, False):
+        if _copies_part(
+            _copy_units(example_key, example_fixed if aligned else [], aligned),
+            _copy_units(key_text, fixed_spans, aligned),
+        ):
+            return _EXAMPLE_COPIED
     return _EXAMPLE_OK
 
 

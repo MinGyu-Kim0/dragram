@@ -97,12 +97,12 @@
 | name | 패턴명 | varchar(255) |  |  | 예: 명사+で |
 | morpheme_key | 형태소 열 키 | char(64) |  |  | 형태소 행(lemma\|pos1\|pos2\|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256. UNIQUE(morpheme_key). lemma 규칙: 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리). 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1). 동시 생성은 get_or_create |
 | register | 말투 | varchar(20) |  |  | standard / colloquial. 배지 표시용(colloquial이면 '회화체' 배지). 설명·용법은 variant_of 원형 것을 참조 |
-| usage_closed | 용법 완결 여부 | boolean |  |  | 관리자가 용법이 하나뿐이라고 확인한 패턴. 활용형 조건 검토 필수 |
+| usage_closed | 용법 완결 여부 | boolean |  |  | 관리자가 용법이 하나뿐이라고 확인한 패턴. 활용형 조건 검토 필수. 패턴 승인 + test_cases 통과 + 반려되지 않은 용법이 정확히 하나이고 승인 상태일 때만 true. 새 용법 추가·용법 반려 취소·용법이나 패턴의 승인 취소·반려 때 같은 트랜잭션에서 false로 바꾸고 그 패턴의 분석을 stale로 |
 | revision | 패턴 판 번호 | integer |  |  | 용법 완결 여부·형태소 조건·용법 구성이 바뀌면 증가. span_match.basis_revision과 조회 시 비교 |
 | show_parts | 구성 문법 표시 여부 | boolean |  |  | 긴 패턴 안의 구성 문법을 화면에서 펼쳐 보일지. 화면 접기 전용, 분석 후보는 항상 보존 |
-| test_cases | 검증 예문 | jsonb |  |  | [{text, should_match}] 성공·실패 예문. 첫 '걸려야 함' 항목은 등록 때 LLM이 새로 쓴 예문(원문을 베꼈으면 거부: 키 텍스트가 같거나, 원문 전체를 포함하거나, 원문의 연속된 일부를 기준 길이(`EXAMPLE_COPY_LENGTH`, 기본 8자) 이상 포함. 패턴에서 고정한 토큰 글자는 세지 않되, 그 토큰을 사이에 둔 앞뒤 복사는 이어서 셈. 기호·공백을 뺀 형태소가 하나뿐인 원문은 포함만 예외, 같으면 거부. 원문을 베껴 거부되면 한 번 다시 쓰게 함. 200자를 넘는 예문은 쓰지 않음). 전부 통과해야 승인·용법 완결 가능. 새로 쓴 should_match true·false 예문이 각각 1개 이상 있어야 하고 빈 배열은 통과 아님 / LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지(매칭기로 확인 후 저장, 회귀 테스트 겸용) |
-| is_active | 활성 여부 | boolean |  |  | 활성화 근거(등록 때 원래 문장 재매칭 통과 + 새로 쓴 should_match 예문 1개 이상 통과, LLM·관리자 예문 모두 인정)가 있고 rejected가 아니면 true. 반려 취소·예문 보완 때 서버가 다시 검증. 값이 바뀌거나 활성 패턴의 형태소 조건(pattern_morpheme)이 바뀌면 같은 트랜잭션에서 pattern_set_version.version을 1 올림. false면 매칭에 쓰지 않음 |
-| status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. 형태소 조건의 검수 상태(용법 승인과 별개). LLM이 만든 패턴은 pending으로 생성. 원형에 연결된 회화체 패턴의 미검수 여부도 이 칸으로 판단. 반려·반려 취소 시 이 패턴과 이 패턴을 원형으로 가리키는 회화체 패턴의 분석을 stale로(전이표는 requirements '패턴 매칭 규칙') |
+| test_cases | 검증 예문 | jsonb |  |  | [{text, should_match}] 성공·실패 예문. '걸리면 안 됨' 예문은 관리자가 admin에서 씀. 승인·용법 완결 패턴은 통과하지 못하게 바꿀 수 없음(먼저 승인 취소). 첫 '걸려야 함' 항목은 등록 때 LLM이 새로 쓴 예문(원문을 베꼈으면 거부: 키 텍스트가 같거나, 원문 전체를 포함하거나, 원문의 연속된 일부를 기준 길이(`EXAMPLE_COPY_LENGTH`, 기본 8자) 이상 포함. 패턴에서 고정한 토큰 글자는 세지 않되, 그 토큰을 사이에 둔 앞뒤 복사는 이어서 셈. 기호·공백을 뺀 형태소가 하나뿐인 원문은 포함만 예외, 같으면 거부. 원문을 베껴 거부되면 한 번 다시 쓰게 함. 200자를 넘는 예문은 쓰지 않음). 전부 통과해야 승인·용법 완결 가능. 새로 쓴 should_match true·false 예문이 각각 1개 이상 있어야 하고 빈 배열은 통과 아님 / LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지(매칭기로 확인 후 저장, 회귀 테스트 겸용) |
+| is_active | 활성 여부 | boolean |  |  | 활성화 근거(등록 때 원래 문장 재매칭 통과 + 새로 쓴 should_match 예문 1개 이상 통과, LLM·관리자 예문 모두 인정)가 있고 rejected가 아니면 true. 반려 취소·예문 보완(admin에서 test_cases 저장) 때 서버가 다시 검증. 값이 바뀌거나 활성 패턴의 형태소 조건(pattern_morpheme)이 바뀌면 같은 트랜잭션에서 pattern_set_version.version을 1 올림. false면 매칭에 쓰지 않음 |
+| status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. 형태소 조건의 검수 상태(용법 승인과 별개). LLM이 만든 패턴은 pending으로 생성. 원형에 연결된 회화체 패턴의 미검수 여부도 이 칸으로 판단. 반려 취소는 항상 pending으로 되돌림. 반려·반려 취소 시 이 패턴과 이 패턴을 원형으로 가리키는 회화체 패턴의 분석을 stale로(전이표는 requirements '패턴 매칭 규칙') |
 | created_at | 등록일시 | timestamptz |  |  |  |
 | variant_of | 원형 패턴 | bigint | Y | → grammar_pattern | 회화체 패턴이 가리키는 원형 패턴(자기 참조). 1단계만·체인 금지(원형은 variant_of null). 회화체는 자기 용법 없이 원형 용법을 씀 / 체인 금지, 연결된 회화체는 자기 용법 없음 |
 
@@ -111,7 +111,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | smallint |  | PK | 항상 1인 한 행만 둔다(CHECK id = 1) |
-| version | 현재 패턴 세트 버전 | integer |  |  | grammar_pattern.is_active나 활성 패턴의 형태소 조건이 바뀌는 트랜잭션에서 행을 잠그고(SELECT … FOR UPDATE, 또는 행을 잠그는 UPDATE … SET version = version + 1) 1 증가. 새 패턴을 등록하는 트랜잭션은 패턴을 morpheme_key 순서로 넣고 이 행은 마지막에 잠근다(동시 등록 교착 방지). sentence_analysis.matcher_version과 비교하는 현재값 |
+| version | 현재 패턴 세트 버전 | integer |  |  | grammar_pattern.is_active나 활성 패턴의 형태소 조건이 바뀌는 트랜잭션에서 행을 잠그고(SELECT … FOR UPDATE, 또는 행을 잠그는 UPDATE … SET version = version + 1) 1 증가. 새 패턴을 등록하는 트랜잭션은 패턴을 morpheme_key 순서로 넣고 이 행은 마지막에 잠근다(동시 등록 교착 방지). 상태 전이·분석 저장은 패턴(·용법) → 이 행 → 분석 행 순서로 잠근다(design-decisions 35절). sentence_analysis.matcher_version과 비교하는 현재값 |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 
 ## pattern_morpheme — 패턴 형태소
@@ -136,7 +136,7 @@
 | explanation_ko | 한국어 설명 | text |  |  | LLM이 처음 1회 작성 → 관리자 검수. 공용 재사용 |
 | example_ja | 예문 | text | Y |  | LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지. `grammar_pattern.test_cases`의 첫 예문과 같은 검사를 통과해야 저장(소속 패턴에 걸림, 원문 복사 아님, 자리표시자 없음, 200자 이하. design-decisions 34절). 통과하지 못하면 NULL |
 | revision | 용법 판 번호 | integer |  |  | 설명이 아닌 의미 정의가 바뀌면 증가. span_match.usage_revision과 조회 시 비교 |
-| status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. pending은 'AI 생성·미검수' 배지로 표시, 확정 판별 근거로는 approved만. rejected는 판정·규칙·LLM 후보에서 빼고 응답에도 보이지 않음. 반려·반려 취소 시 이 용법이 속한 패턴과 그 패턴을 원형으로 가리키는 회화체 패턴의 분석을 stale로 |
+| status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. pending은 'AI 생성·미검수' 배지로 표시, 확정 판별 근거로는 approved만. rejected는 판정·규칙·LLM 후보에서 빼고 응답에도 보이지 않음. 승인은 소속 패턴이 rejected가 아닐 때만(test_cases 조건 없음). 반려 취소는 항상 pending으로 되돌림. 반려·반려 취소 시 이 용법이 속한 패턴과 그 패턴을 원형으로 가리키는 회화체 패턴의 분석을 stale로 |
 | approved_via | 승인 방식 | varchar(30) | Y |  | manual / auto. auto는 그림자 모드 검증 후 실제 자동 승인을 켠 뒤에만 |
 | approved_by | 승인자 ID | bigint | Y | → users | 자동 승인이면 null |
 | approved_at | 승인일시 | timestamptz | Y |  |  |
@@ -175,8 +175,8 @@
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
 | status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete |
 | processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 선점 만료 판단과 미완료 작업 재투입 기준 |
-| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소될 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지 |
-| is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시 |
+| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀔 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 분석 요청이 시작할 때 읽은 값과 다르면 저장하지 않음). 기본값 0 |
+| is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시. 판 번호를 더하기 전(#38)에는 반려·반려 취소·승인 취소·용법 완결 변경도 이 칸으로만 기록하고, stale 분석은 다음 요청에서 다시 분석해 통째로 바꾼 뒤 false로 |
 | translation_ko | 한국어 번역 | text | Y |  | 자리표시자(⟨N1⟩) 포함 형태. 자리표시자가 모두 보존된 경우에만 저장 |
 | name_spans | 고유명사 구간 | jsonb | Y |  | [{start, end, type: person/place/org/work/other}]. 형태소·문법 후보는 보존하고 주석만 |
 | sense_ids | 단어 뜻 ID 목록 | bigint[] | Y |  | 문장에 나온 단어 뜻(word_sense) ID 목록. 단어는 sense에서 유도. 내 일본어 계산용. 단어·뜻 병합·삭제 시 갱신 필요 |

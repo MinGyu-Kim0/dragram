@@ -22,6 +22,11 @@ class SentenceAnalysis(models.Model):
     # 위치는 키 텍스트 코드포인트 기준 [start, end). NULL은 이 모양을 받기 전에 저장된 행이라
     # 다시 분석한다.
     draft_analysis = models.JSONField(null=True)
+    # 다시 분석해야 하는 분석. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법
+    # 완결이 바뀌면 켠다(#38). 판 번호는 아직 두지 않는다.
+    is_stale = models.BooleanField(default=False)
+    # 위 사건마다 1 올린다. 분석 요청은 시작할 때 읽은 값이 저장 직전과 다르면 저장하지 않는다.
+    generation = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -49,6 +54,8 @@ class GrammarPattern(models.Model):
     # 바뀌면 같은 트랜잭션에서 pattern_set_version을 올린다.
     is_active = models.BooleanField()
     status = models.CharField(max_length=30, choices=ReviewStatus.choices)
+    # 용법 완결: 관리자가 용법이 하나뿐이라고 확인한 패턴(#38)
+    usage_closed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

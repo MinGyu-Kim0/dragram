@@ -17,7 +17,13 @@ from analysis.models import (
     PatternMorpheme,
     PatternSetVersion,
     ReviewStatus,
+    SentenceAnalysis,
 )
+
+# 새 예문(용법 예문, test_cases)은 짧은 문장으로 받는다. 이보다 길면 쓰지 않는다. 형태소 분석
+# 한도(49,149바이트)보다 훨씬 짧아 분석이 실패하지 않고, 부분 복사 검사도 원문 길이 × 이 길이
+# 안에서 끝난다.
+EXAMPLE_MAX_LENGTH = 200
 
 
 class Condition(NamedTuple):
@@ -80,8 +86,10 @@ def _with_candidates(patterns):
     ).order_by("id")
 
 
-def _conditions(pattern):
-    return [Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in pattern.morphemes.all()]
+def conditions_of(pattern):
+    """패턴의 형태소 조건(seq 순서). 미리 읽어 둔 형태소가 있으면 그것을 쓴다."""
+    morphemes = sorted(pattern.morphemes.all(), key=lambda m: m.seq)
+    return [Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in morphemes]
 
 
 def _numbered(usages, next_id):
@@ -99,7 +107,7 @@ def candidate_spans(morphs):
         usages = list(pattern.usages.all())
         if not usages:
             continue
-        conditions = _conditions(pattern)
+        conditions = conditions_of(pattern)
         for start in match_starts(conditions, morphs):
             spans.append(
                 Span(
@@ -123,7 +131,7 @@ def existing_patterns(conditions_list):
 
 def span_of(pattern, start, next_id):
     """이미 있는 패턴을 start 토큰에서 시작하는 구간으로 다시 물을 때의 구간과 후보."""
-    conditions = _conditions(pattern)
+    conditions = conditions_of(pattern)
     usages = list(pattern.usages.all())
     return Span(pattern, conditions, start, start + len(conditions) - 1, _numbered(usages, next_id))
 
@@ -172,10 +180,13 @@ def add_usage(pattern, name, explanation_ko, example_ja):
 
     example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 연다.
     """
+    # 패턴을 먼저 잠가, 용법 완결 표시(analysis.review)가 커밋 전 용법을 못 본 채 하나라고
+    # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다.
+    GrammarPattern.objects.select_for_update(no_key=True).filter(pk=pattern.pk).exists()
     try:
         # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
         with transaction.atomic():
-            return GrammarUsage.objects.create(
+            usage = GrammarUsage.objects.create(
                 pattern=pattern,
                 name=name,
                 explanation_ko=explanation_ko,
@@ -185,3 +196,27 @@ def add_usage(pattern, name, explanation_ko, example_ja):
             )
     except IntegrityError:
         return None
+    # 용법이 둘이 되면 더는 용법 완결이 아니다.
+    if GrammarPattern.objects.filter(pk=pattern.pk, usage_closed=True).update(usage_closed=False):
+        make_stale(pattern=pattern)
+    return usage
+
+
+def make_stale(pattern=None, usage=None):
+    """그 패턴으로 매칭된 구간, 또는 그 용법으로 정해진 구간이 있는 분석을 stale로 만들고 세대
+    번호를 올린다(#38). 동시에 여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다.
+    """
+    span_filter = (
+        {"span_matches__pattern": pattern} if usage is None else {"span_matches__usage": usage}
+    )
+    ids = list(
+        SentenceAnalysis.objects.filter(
+            id__in=SentenceAnalysis.objects.filter(**span_filter).values("id")
+        )
+        .order_by("id")
+        .select_for_update(no_key=True)
+        .values_list("id", flat=True)
+    )
+    SentenceAnalysis.objects.filter(id__in=ids).update(
+        is_stale=True, generation=F("generation") + 1
+    )

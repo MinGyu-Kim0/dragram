@@ -7,7 +7,6 @@ from itertools import chain
 from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse, StreamingHttpResponse
-from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from analysis import llm, patterns
@@ -270,16 +269,13 @@ def _copies_part(example, original):
 
 # 새 예문 검사 결과. 원문을 베껴 거부된 예문만 다시 쓰게 한다.
 _EXAMPLE_OK, _EXAMPLE_COPIED, _EXAMPLE_UNUSABLE = "ok", "copied", "unusable"
-# 새 예문은 짧은 문장으로 받는다. 이보다 길면 쓰지 않는다. 형태소 분석 한도(49,149바이트)보다
-# 훨씬 짧아 분석이 실패하지 않고, 부분 복사 검사도 원문 길이 × 이 길이 안에서 끝난다.
-_EXAMPLE_MAX_LENGTH = 200
 
 
 def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans):
     """새 예문을 검사한다. 패턴에 걸리지 않는 등 원문과 상관없이 쓸 수 없으면 unusable, 그렇지
     않은데 원문을 베꼈으면 copied(다시 쓰게 함), 쓸 수 있으면 ok다.
     """
-    if len(example) > _EXAMPLE_MAX_LENGTH or not has_only_known_placeholders(example, ()):
+    if len(example) > patterns.EXAMPLE_MAX_LENGTH or not has_only_known_placeholders(example, ()):
         return _EXAMPLE_UNUSABLE
     text, _ = analysis_text(example)
     if not text:
@@ -442,6 +438,15 @@ def _llm_spans(spans):
     ]
 
 
+def _is_fresh(analysis):
+    """다시 분석하지 않고 쓸 수 있는 분석인가."""
+    return analysis.draft_analysis is not None and not analysis.is_stale
+
+
+class _SavedByAnother(Exception):  # noqa: N818
+    """다시 채우려던 분석 행을 그사이 다른 요청이 먼저 채웠다."""
+
+
 class _PatternTaken(Exception):  # noqa: N818
     """새 패턴을 등록하는 사이 다른 요청이 같은 조건의 패턴을 먼저 등록했다."""
 
@@ -520,10 +525,11 @@ def analyze(request):
             ),
         }
 
-    # 임시 분석을 받기 전에 저장된 행(draft_analysis가 NULL)은 다시 분석한다.
-    cached = SentenceAnalysis.objects.filter(
-        sentence_hash=sentence_hash, draft_analysis__isnull=False
-    ).first()
+    # 임시 분석을 받기 전에 저장된 행(draft_analysis가 NULL)과 stale 행은 다시 분석한다.
+    existing = SentenceAnalysis.objects.filter(sentence_hash=sentence_hash).first()
+    cached = existing if existing is not None and _is_fresh(existing) else None
+    # 다시 분석하는 동안 영향 범위의 패턴·용법 상태가 바뀌면 이 값이 올라 저장하지 않는다.
+    started_generation = existing.generation if existing is not None else 0
     if cached:
         # 이미 다 있으니 한 번에 보낸다.
         events = [translation_event(cached.translation_ko), analysis_event(cached)]
@@ -571,7 +577,7 @@ def analyze(request):
     def saved_by_another():
         """첫 호출을 기다리는 사이 다른 요청이 이 문장의 분석을 저장했는가."""
         return SentenceAnalysis.objects.filter(
-            sentence_hash=sentence_hash, draft_analysis__isnull=False
+            sentence_hash=sentence_hash, draft_analysis__isnull=False, is_stale=False
         ).exists()
 
     def check_examples(validated):
@@ -846,7 +852,7 @@ def analyze(request):
             raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
 
     def save(validated, final=False):
-        """검증한 결과를 공용 캐시에 저장하고 저장된 행을 돌려준다.
+        """검증한 결과를 공용 캐시에 저장하고 분석 이벤트를 돌려준다.
 
         저장하는 사이 다른 요청이 같은 조건의 패턴을 먼저 등록했으면, 저장을 되돌리고 그 패턴의
         용법 목록으로 다시 물은 뒤 한 번만 다시 저장한다.
@@ -856,17 +862,25 @@ def analyze(request):
         check_examples(validated)
         draft = {"words": _stored_words(validated["words"], morphs, offsets)}
 
-        # 분석 행과 구간·새 패턴을 함께 저장한다. 다른 요청이 먼저 저장한 문장이면 그 결과를
-        # 쓰고, 이번 결과의 구간·패턴은 저장하지 않는다.
+        # 분석 행과 구간·새 패턴을 함께 저장하고 응답을 만든다. 다른 요청이 먼저 저장한 문장이면
+        # 그 결과를 쓰고, 이번 결과의 구간·패턴은 저장하지 않는다.
         try:
             with transaction.atomic():
-                return save_once(validated, draft, final)
+                saved, outdated = save_once(validated, draft, final)
+                event = analysis_event(saved)
+                if outdated:
+                    # 분석하는 사이 영향 범위가 바뀌었다. 이번 결과는 보내되 저장하지 않고,
+                    # stale로 남겨 다음 요청이 다시 분석하게 한다.
+                    transaction.set_rollback(True)
+                return event
         except _PatternTaken:
             # LLM 호출은 트랜잭션 밖에서 한다.
             return save(ask_again(validated), final=True)
 
     def save_once(validated, draft, final):
-        """분석 행을 만들거나 채우고 구간 매칭을 저장한다. 호출하는 쪽이 트랜잭션을 연다."""
+        """분석 행을 만들거나 다시 채우고 구간 매칭을 저장한다. (행, 시작 뒤 세대 번호가
+        바뀌었는가)를 돌려준다. 호출하는 쪽이 트랜잭션을 연다.
+        """
         saved, created = SentenceAnalysis.objects.get_or_create(
             sentence_hash=sentence_hash,
             defaults={
@@ -877,23 +891,29 @@ def analyze(request):
                 "draft_analysis": draft,
             },
         )
-        if not created:
-            if saved.draft_analysis is not None:
-                return saved
-            # 임시 분석을 받기 전에 저장된 행이면 이번 결과로 채운다. 그사이 다른 요청이
-            # 먼저 채웠으면 그 값을 쓴다(NULL일 때만 갱신).
-            filled = SentenceAnalysis.objects.filter(
-                pk=saved.pk, draft_analysis__isnull=True
-            ).update(
-                translation_ko=validated["translation_ko"],
-                draft_analysis=draft,
-                updated_at=timezone.now(),
-            )
-            saved.refresh_from_db()
-            if not filled:
-                return saved
-        span_matches(saved, validated, final)
-        return saved
+        if created:
+            span_matches(saved, validated, final)
+            return saved, False
+        if _is_fresh(saved):
+            return saved, False
+        # 임시 분석을 받기 전에 저장된 행이나 stale 행이면 이번 결과로 통째로 바꾼다. 상태
+        # 전이(analysis.review)가 패턴 → 패턴 세트 버전 → 분석 순서로 잠그므로, 분석 행은 패턴
+        # 쪽을 다 쓴 뒤 마지막에 잠근다.
+        try:
+            with transaction.atomic():
+                saved.span_matches.all().delete()
+                span_matches(saved, validated, final)
+                locked = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=saved.pk)
+                if _is_fresh(locked):
+                    raise _SavedByAnother
+        except _SavedByAnother:
+            # 그사이 다른 요청이 먼저 채웠다. 이번에 쓴 구간·패턴은 되돌리고 그 값을 쓴다.
+            return SentenceAnalysis.objects.get(pk=saved.pk), False
+        locked.translation_ko = validated["translation_ko"]
+        locked.draft_analysis = draft
+        locked.is_stale = False
+        locked.save(update_fields=["translation_ko", "draft_analysis", "is_stale", "updated_at"])
+        return locked, locked.generation != started_generation
 
     def analyze_and_save():
         """LLM 결과를 나오는 대로 낸다. 번역을 검증해 먼저 내고, 문법·단어까지 검증해 저장한
@@ -914,7 +934,7 @@ def analyze(request):
         # 거부될 응답이면 다시 묻지 않는다.
         reject_quotes(validated)
         # 다시 묻기는 번역을 보낸 뒤, 저장 트랜잭션 밖에서 한다.
-        yield analysis_event(save(ask_again(prepare(validated))))
+        yield save(ask_again(prepare(validated)))
 
     # 이 요청의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트로 해서 요청 전체 마감
     # 시각을 함께 쓴다.

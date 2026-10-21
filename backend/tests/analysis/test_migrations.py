@@ -39,3 +39,5 @@ def test_analysis_with_sentence_grammar_is_analyzed_again():
     assert row.translation_ko == "번역"
     version = new_apps.get_model("analysis", "PatternSetVersion").objects.get()
     assert (version.id, version.version) == (1, 0)
+    # 뒤 테스트가 쓰도록 최신 마이그레이션까지 되돌려 놓는다.
+    migrate(MigrationExecutor(connection).loader.graph.leaf_nodes())

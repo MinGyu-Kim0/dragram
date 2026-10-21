@@ -95,7 +95,7 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | name | 패턴명 | varchar(255) |  |  | 예: 명사+で |
-| morpheme_key | 형태소 열 키 | char(64) |  |  | 형태소 행(lemma\|pos1\|pos2\|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256. UNIQUE(morpheme_key). lemma 규칙: 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 1그룹 음편형(撥音便·イ音便)이면 で→て, でる→てる, じゃう→ちゃう, だ→た, だら→たら. 동시 생성은 get_or_create |
+| morpheme_key | 형태소 열 키 | char(64) |  |  | 형태소 행(lemma\|pos1\|pos2\|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256. UNIQUE(morpheme_key). lemma 규칙: 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리). 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1). 동시 생성은 get_or_create |
 | register | 말투 | varchar(20) |  |  | standard / colloquial. 배지 표시용(colloquial이면 '회화체' 배지). 설명·용법은 variant_of 원형 것을 참조 |
 | usage_closed | 용법 완결 여부 | boolean |  |  | 관리자가 용법이 하나뿐이라고 확인한 패턴. 활용형 조건 검토 필수 |
 | revision | 패턴 판 번호 | integer |  |  | 용법 완결 여부·형태소 조건·용법 구성이 바뀌면 증가. span_match.basis_revision과 조회 시 비교 |
@@ -121,7 +121,7 @@
 | id | ID | bigint |  | PK |  |
 | pattern_id | 문법 패턴 ID | bigint |  | → grammar_pattern |  |
 | seq | 순서 | smallint |  |  | UNIQUE(pattern_id, seq) |
-| lemma | 표제어 | varchar(255) | Y |  | 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 1그룹 음편형(撥音便·イ音便)이면 で→て, でる→てる, じゃう→ちゃう, だ→た, だら→たら. null이면 아무거나(정확히 1토큰) |
+| lemma | 표제어 | varchar(255) | Y |  | 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리). 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1). null이면 아무거나(정확히 1토큰) |
 | pos1 | 품사 대분류 | varchar(30) | Y |  | null이면 아무거나 |
 | pos2 | 품사 중분류 | varchar(30) | Y |  |  |
 | conjugation_form | 활용형 | varchar(30) | Y |  | 과거/조건(終止形 vs 仮定形)처럼 구분이 필요한 패턴은 필수 |

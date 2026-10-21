@@ -540,15 +540,23 @@ def analyze(request):
             for index, (span, (_, _, new_usage)) in enumerate(judged)
             if new_usage is not None
         )
+        # 용법 예문은 같은 (패턴, 이름)의 답 중 검사를 통과한 첫 예문이다.
+        usage_examples = {}
+        for _, name, index in additions:
+            span, (_, _, new_usage) = judged[index]
+            if usage_examples.get((span.pattern.id, name)) is None:
+                usage_examples[span.pattern.id, name] = _checked_example(
+                    new_usage["example_ja"], span.conditions, key_text, content_tokens
+                )
         added, new_usages = {}, {}
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
             if (span.pattern.id, name) not in added:
-                example = _checked_example(
-                    new_usage["example_ja"], span.conditions, key_text, content_tokens
-                )
                 added[span.pattern.id, name] = patterns.add_usage(
-                    span.pattern, name, new_usage["explanation_ko"], example
+                    span.pattern,
+                    name,
+                    new_usage["explanation_ko"],
+                    usage_examples[span.pattern.id, name],
                 )
             new_usages[index] = added[span.pattern.id, name]
         for index, (span, (state, usage, new_usage)) in enumerate(judged):
@@ -586,18 +594,21 @@ def analyze(request):
         registered = {}
         proposals = sorted(validated["new_patterns"], key=order)
         # 예문 검사는 제안마다 한 번만 한다. 같은 조건의 제안 중 통과한 첫 예문이 패턴의
-        # 활성화 근거가 된다(용법 예문은 그 용법이 쓴 예문만 쓴다).
+        # 활성화 근거가 되고, 같은 조건·같은 용법 이름의 제안 중 통과한 첫 예문이 그 용법의
+        # 예문이 된다(다른 용법의 예문은 용법 예문으로 쓰지 않는다).
         examples = [
             _checked_example(p["example_ja"], p["conditions"], key_text, content_tokens)
             if p["existing"] is None and p["conditions"] is not None
             else None
             for p in proposals
         ]
-        test_examples = {}
+        test_examples, usage_examples = {}, {}
         for proposal, example in zip(proposals, examples, strict=True):
             if example is not None:
                 test_examples.setdefault(order(proposal), example)
-        for proposal, example in zip(proposals, examples, strict=True):
+                usage_examples.setdefault((order(proposal), proposal["usage_name"]), example)
+        for proposal in proposals:
+            example = usage_examples.get((order(proposal), proposal["usage_name"]))
             ids = [token for token, _ in proposal["tokens"]]
             start, end = key_span(min(ids), max(ids))
             pattern, usage = proposal["existing"], None

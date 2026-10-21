@@ -388,6 +388,39 @@ def test_pattern_is_activated_by_valid_example_of_later_same_proposal(client, fa
     }
 
 
+def test_usage_example_is_taken_from_later_same_usage_when_first_fails(client, fake_llm):
+    # 새 패턴: 첫 제안의 예문은 원문을 베꼈고, 같은 용법 이름의 뒤 제안 예문은 통과한다.
+    # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる
+    fake_llm.response = {
+        "translation_ko": "번역",
+        "new_patterns": [
+            new_pattern((1, "lemma"), (2, "lemma"), example_ja="走っていている"),
+            new_pattern((3, "lemma"), (4, "lemma"), example_ja="雨が降っている"),
+        ],
+    }
+
+    analyze(client, "走っていている")
+
+    assert GrammarUsage.objects.get().example_ja == "雨が降っている"
+
+
+def test_new_usage_example_is_taken_from_later_same_usage_when_first_fails(client, fake_llm):
+    register_nagara(client, fake_llm)
+    # 기존 패턴(ながら)이 두 번 걸리고 두 구간 모두 같은 새 용법을 낸다. 첫 예문은 패턴에 안 걸린다.
+    # 토큰: 0 知っ / 1 て / 2 い / 3 ながら / 4 、 / 5 狭い / 6 ながら
+    fake_llm.response = {
+        "translation_ko": "알면서도, 좁으면서도",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage(example_ja="狭い部屋だ")),
+            span_answer(1, "unfound", new_usage=new_usage()),
+        ],
+    }
+
+    analyze(client, "知っていながら、狭いながら")
+
+    assert GrammarUsage.objects.get(name="역접").example_ja == "狭いながら快適だ"
+
+
 def test_sentence_saved_by_another_request_is_not_asked_again(client, fake_llm):
     # 첫 LLM 호출을 기다리는 사이 같은 문장의 다른 요청이 ている를 등록하며 분석을 저장한다.
     def other_request_saves_first():

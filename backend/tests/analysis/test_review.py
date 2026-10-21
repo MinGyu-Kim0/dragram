@@ -356,3 +356,44 @@ def test_usage_closed_is_removed_automatically(client, fake_llm, event):
 
     assert not closed(pattern)
     assert stale(using) == [True]
+
+
+def test_stale_analysis_is_analyzed_again_and_replaced(client, fake_llm):
+    pattern, usage, decided, _ = teiru_with_candidate_only_analysis(client, fake_llm)
+    review.reject_usage(usage)
+    calls = len(fake_llm.requests)
+    # 진행 용법이 반려돼 ている 패턴에는 후보가 없다.
+    fake_llm.response = {"translation_ko": "달리는 중이다"}
+
+    response = analyze(client, "走っている")
+
+    assert len(fake_llm.requests) == calls + 1
+    assert fake_llm.requests[-1]["spans"] == []
+    assert response.json()["translation_ko"] == "달리는 중이다"
+    decided.refresh_from_db()
+    assert (decided.translation_ko, decided.is_stale) == ("달리는 중이다", False)
+    # 반려된 용법으로 정했던 옛 구간은 남지 않는다.
+    assert not decided.span_matches.exists()
+
+
+def test_analysis_outdated_while_being_analyzed_is_sent_but_not_saved(client, fake_llm):
+    pattern, usage, decided, _ = teiru_with_candidate_only_analysis(client, fake_llm)
+    review.reject_usage(usage)
+    fake_llm.response = {"translation_ko": "달리는 중이다"}
+    # 분석하는 사이 영향 범위의 용법 상태가 또 바뀐다.
+    fake_llm.before_respond = lambda: review.unreject_usage(usage)
+
+    response = analyze(client, "走っている")
+
+    assert response.json()["translation_ko"] == "달리는 중이다"
+    decided.refresh_from_db()
+    assert (decided.translation_ko, decided.is_stale) == ("달리고 있다", True)
+
+
+def test_fresh_analysis_is_still_reused_without_llm(client, fake_llm):
+    register_teiru(client, fake_llm)
+    calls = len(fake_llm.requests)
+
+    analyze(client, "走っている")
+
+    assert len(fake_llm.requests) == calls

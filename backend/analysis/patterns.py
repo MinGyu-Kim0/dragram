@@ -17,6 +17,7 @@ from analysis.models import (
     PatternMorpheme,
     PatternSetVersion,
     ReviewStatus,
+    SentenceAnalysis,
 )
 
 
@@ -183,7 +184,7 @@ def add_usage(pattern, name, explanation_ko, example_ja):
     try:
         # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
         with transaction.atomic():
-            return GrammarUsage.objects.create(
+            usage = GrammarUsage.objects.create(
                 pattern=pattern,
                 name=name,
                 explanation_ko=explanation_ko,
@@ -193,3 +194,16 @@ def add_usage(pattern, name, explanation_ko, example_ja):
             )
     except IntegrityError:
         return None
+    # 용법이 둘이 되면 더는 용법 완결이 아니다.
+    if GrammarPattern.objects.filter(pk=pattern.pk, usage_closed=True).update(usage_closed=False):
+        make_stale(pattern=pattern)
+    return usage
+
+
+def make_stale(**span_filter):
+    """구간이 span_filter에 걸리는 분석을 stale로 만들고 세대 번호를 올린다(#38)."""
+    SentenceAnalysis.objects.filter(
+        id__in=SentenceAnalysis.objects.filter(
+            **{f"span_matches__{key}": value for key, value in span_filter.items()}
+        ).values("id")
+    ).update(is_stale=True, generation=F("generation") + 1)

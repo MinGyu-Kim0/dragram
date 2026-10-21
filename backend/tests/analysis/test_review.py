@@ -2,9 +2,15 @@
 
 import pytest
 
-from analysis import review
-from analysis.models import GrammarPattern, PatternSetVersion, ReviewStatus, SentenceAnalysis
-from tests.analysis.helpers import analyze, new_pattern
+from analysis import patterns, review
+from analysis.models import (
+    GrammarPattern,
+    GrammarUsage,
+    PatternSetVersion,
+    ReviewStatus,
+    SentenceAnalysis,
+)
+from tests.analysis.helpers import analyze, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -171,3 +177,182 @@ def test_pattern_action_from_a_wrong_status_is_refused(client, fake_llm, status,
 
     pattern.refresh_from_db()
     assert pattern.status == status
+
+
+def teiru_with_candidate_only_analysis(client, fake_llm):
+    """ている를 등록하고, 진행 용법이 후보로만 들어간(해당 없음) 분석을 하나 더 만든다."""
+    pattern = register_teiru(client, fake_llm)
+    decided = SentenceAnalysis.objects.get()
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる
+    candidate_only = analysis_of(
+        client, "彼が来ている", fake_llm, spans=[span_answer(0, "not_applicable")]
+    )
+    return pattern, pattern.usages.get(), decided, candidate_only
+
+
+def stale(*analyses):
+    for analysis in analyses:
+        analysis.refresh_from_db()
+    return [analysis.is_stale for analysis in analyses]
+
+
+def test_rejected_usage_makes_only_analyses_decided_by_it_stale(client, fake_llm):
+    pattern, usage, decided, candidate_only = teiru_with_candidate_only_analysis(client, fake_llm)
+
+    review.reject_usage(usage)
+
+    usage.refresh_from_db()
+    assert usage.status == ReviewStatus.REJECTED
+    assert stale(decided, candidate_only) == [True, False]
+
+
+def test_unrejected_usage_makes_every_analysis_of_its_pattern_stale(client, fake_llm):
+    pattern, usage, decided, candidate_only = teiru_with_candidate_only_analysis(client, fake_llm)
+    review.reject_usage(usage)
+
+    review.unreject_usage(usage)
+
+    usage.refresh_from_db()
+    assert usage.status == ReviewStatus.PENDING
+    assert stale(decided, candidate_only) == [True, True]
+
+
+def test_usage_approval_and_its_cancellation(client, fake_llm):
+    pattern, usage, decided, candidate_only = teiru_with_candidate_only_analysis(client, fake_llm)
+
+    review.approve_usage(usage)
+    usage.refresh_from_db()
+    assert usage.status == ReviewStatus.APPROVED
+    assert stale(decided, candidate_only) == [False, False]
+
+    review.unapprove_usage(usage)
+    usage.refresh_from_db()
+    assert usage.status == ReviewStatus.PENDING
+    assert stale(decided, candidate_only) == [True, False]
+
+
+def test_usage_of_a_rejected_pattern_cannot_be_approved(client, fake_llm):
+    pattern = register_teiru(client, fake_llm)
+    review.reject_pattern(pattern)
+    usage = pattern.usages.get()
+
+    with pytest.raises(review.Refused):
+        review.approve_usage(usage)
+
+    usage.refresh_from_db()
+    assert usage.status == ReviewStatus.PENDING
+
+
+@pytest.mark.parametrize(
+    ("status", "action"),
+    [
+        (ReviewStatus.APPROVED, review.approve_usage),
+        (ReviewStatus.REJECTED, review.approve_usage),
+        (ReviewStatus.REJECTED, review.reject_usage),
+        (ReviewStatus.PENDING, review.unreject_usage),
+        (ReviewStatus.PENDING, review.unapprove_usage),
+    ],
+)
+def test_usage_action_from_a_wrong_status_is_refused(client, fake_llm, status, action):
+    usage = register_teiru(client, fake_llm).usages.get()
+    GrammarUsage.objects.filter(pk=usage.pk).update(status=status)
+
+    with pytest.raises(review.Refused):
+        action(usage)
+
+    usage.refresh_from_db()
+    assert usage.status == status
+
+
+def approved_teiru(client, fake_llm):
+    pattern = with_cases(
+        register_teiru(client, fake_llm), ("雨が降っている", True), ("雨が降る", False)
+    )
+    review.approve_pattern(pattern)
+    usage = pattern.usages.get()
+    review.approve_usage(usage)
+    pattern.refresh_from_db()
+    return pattern, usage
+
+
+def closed(pattern):
+    pattern.refresh_from_db()
+    return pattern.usage_closed
+
+
+def test_pattern_with_one_approved_usage_is_marked_usage_closed(client, fake_llm):
+    pattern, _ = approved_teiru(client, fake_llm)
+    using = SentenceAnalysis.objects.get()
+
+    review.close_usages(pattern)
+
+    assert closed(pattern)
+    assert stale(using) == [True]
+
+
+def test_usage_closed_mark_is_removed_and_its_analyses_become_stale(client, fake_llm):
+    pattern, _ = approved_teiru(client, fake_llm)
+    review.close_usages(pattern)
+    using = SentenceAnalysis.objects.get()
+    SentenceAnalysis.objects.update(is_stale=False)
+
+    review.open_usages(pattern)
+
+    assert not closed(pattern)
+    assert stale(using) == [True]
+
+
+@pytest.mark.parametrize(
+    "unready",
+    [
+        # 패턴이 승인되지 않았다
+        lambda pattern, usage: review.unapprove_pattern(pattern),
+        # 용법이 승인되지 않았다
+        lambda pattern, usage: review.unapprove_usage(usage),
+        # test_cases가 통과하지 않는다
+        lambda pattern, usage: with_cases(pattern, ("雨が降っている", True)),
+        # 반려되지 않은 용법이 둘이다
+        lambda pattern, usage: patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None),
+    ],
+)
+def test_usage_closed_needs_an_approved_pattern_and_exactly_one_approved_usage(
+    client, fake_llm, unready
+):
+    pattern, usage = approved_teiru(client, fake_llm)
+    unready(pattern, usage)
+
+    with pytest.raises(review.Refused):
+        review.close_usages(pattern)
+
+    assert not closed(pattern)
+
+
+def test_rejected_second_usage_does_not_count_for_usage_closed(client, fake_llm):
+    pattern, _ = approved_teiru(client, fake_llm)
+    review.reject_usage(patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None))
+
+    review.close_usages(pattern)
+
+    assert closed(pattern)
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        lambda pattern, usage: patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None),
+        lambda pattern, usage: review.unapprove_usage(usage),
+        lambda pattern, usage: review.reject_usage(usage),
+        lambda pattern, usage: review.unapprove_pattern(pattern),
+        lambda pattern, usage: review.reject_pattern(pattern),
+    ],
+)
+def test_usage_closed_is_removed_automatically(client, fake_llm, event):
+    pattern, usage = approved_teiru(client, fake_llm)
+    review.close_usages(pattern)
+    using = SentenceAnalysis.objects.get()
+    SentenceAnalysis.objects.update(is_stale=False)
+
+    event(pattern, usage)
+
+    assert not closed(pattern)
+    assert stale(using) == [True]

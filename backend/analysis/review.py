@@ -5,10 +5,9 @@ admin 액션과 이후 티켓이 함께 쓴다. 함수마다 한 트랜잭션에
 """
 
 from django.db import transaction
-from django.db.models import F
 
 from analysis import patterns
-from analysis.models import GrammarPattern, ReviewStatus, SentenceAnalysis
+from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus
 from analysis.morphology import morphemes
 from analysis.normalize import analysis_text
 
@@ -62,15 +61,6 @@ def approve_pattern(pattern):
     pattern.save(update_fields=["status"])
 
 
-def _make_stale(**span_filter):
-    """구간이 span_filter에 걸리는 분석을 stale로 만들고 세대 번호를 올린다."""
-    SentenceAnalysis.objects.filter(
-        id__in=SentenceAnalysis.objects.filter(
-            **{f"span_matches__{key}": value for key, value in span_filter.items()}
-        ).values("id")
-    ).update(is_stale=True, generation=F("generation") + 1)
-
-
 def _set_active(pattern, active):
     """is_active를 바꾼다. 실제로 바뀌면 같은 트랜잭션에서 패턴 세트 버전을 올린다."""
     if pattern.is_active == active:
@@ -89,7 +79,7 @@ def reject_pattern(pattern):
     pattern.usage_closed = False
     pattern.save(update_fields=["status", "usage_closed"])
     _set_active(pattern, False)
-    _make_stale(pattern=pattern)
+    patterns.make_stale(pattern=pattern)
 
 
 def _has_activation_basis(pattern):
@@ -108,7 +98,7 @@ def unreject_pattern(pattern):
     pattern.status = ReviewStatus.PENDING
     pattern.save(update_fields=["status"])
     _set_active(pattern, _has_activation_basis(pattern))
-    _make_stale(pattern=pattern)
+    patterns.make_stale(pattern=pattern)
 
 
 @transaction.atomic
@@ -119,4 +109,96 @@ def unapprove_pattern(pattern):
     pattern.status = ReviewStatus.PENDING
     pattern.usage_closed = False
     pattern.save(update_fields=["status", "usage_closed"])
-    _make_stale(pattern=pattern)
+    patterns.make_stale(pattern=pattern)
+
+
+def _locked_usage(usage):
+    """용법과 그 소속 패턴을 잠근다. 패턴을 먼저 잠가 패턴 쪽 전이와 순서를 맞춘다."""
+    pattern = _locked(usage.pattern)
+    usage = GrammarUsage.objects.select_for_update().get(pk=usage.pk)
+    return pattern, usage
+
+
+def _open_usages(pattern):
+    """용법 완결을 뗀다. 붙어 있었으면 그 패턴의 구간이 있는 분석을 stale로 만든다."""
+    if not pattern.usage_closed:
+        return
+    pattern.usage_closed = False
+    pattern.save(update_fields=["usage_closed"])
+    patterns.make_stale(pattern=pattern)
+
+
+@transaction.atomic
+def close_usages(pattern):
+    """용법 완결을 표시한다. 패턴이 승인됐고 test_cases를 통과하며, 반려되지 않은 용법이
+    정확히 하나이고 그 용법이 승인됐을 때만 한다."""
+    pattern = _locked(pattern)
+    if pattern.status != ReviewStatus.APPROVED:
+        raise Refused("승인된 패턴만 용법 완결로 표시할 수 있습니다")
+    failure = test_cases_failure(pattern)
+    if failure:
+        raise Refused(failure)
+    usages = list(
+        GrammarUsage.objects.select_for_update()
+        .filter(pattern=pattern)
+        .exclude(status=ReviewStatus.REJECTED)
+    )
+    if len(usages) != 1:
+        raise Refused("반려되지 않은 용법이 정확히 하나여야 합니다")
+    if usages[0].status != ReviewStatus.APPROVED:
+        raise Refused("그 용법이 승인돼야 합니다")
+    if pattern.usage_closed:
+        return
+    pattern.usage_closed = True
+    pattern.save(update_fields=["usage_closed"])
+    patterns.make_stale(pattern=pattern)
+
+
+@transaction.atomic
+def open_usages(pattern):
+    """용법 완결 표시를 뗀다."""
+    _open_usages(_locked(pattern))
+
+
+@transaction.atomic
+def approve_usage(usage):
+    """미검수 용법을 승인한다. 소속 패턴이 반려 상태면 하지 않는다."""
+    pattern, usage = _locked_usage(usage)
+    _require(usage, ReviewStatus.PENDING)
+    if pattern.status == ReviewStatus.REJECTED:
+        raise Refused("반려된 패턴의 용법은 승인할 수 없습니다")
+    usage.status = ReviewStatus.APPROVED
+    usage.save(update_fields=["status", "updated_at"])
+
+
+@transaction.atomic
+def reject_usage(usage):
+    """용법을 반려하고, 그 용법으로 정해진 구간이 있는 분석을 stale로 만든다."""
+    pattern, usage = _locked_usage(usage)
+    _require(usage, ReviewStatus.PENDING, ReviewStatus.APPROVED)
+    usage.status = ReviewStatus.REJECTED
+    usage.save(update_fields=["status", "updated_at"])
+    patterns.make_stale(usage=usage)
+    _open_usages(pattern)
+
+
+@transaction.atomic
+def unreject_usage(usage):
+    """반려를 취소해 미검수로 되돌리고, 그 패턴의 구간이 있는 분석을 stale로 만든다(되살아난
+    용법을 다시 후보로 검토하게)."""
+    pattern, usage = _locked_usage(usage)
+    _require(usage, ReviewStatus.REJECTED)
+    usage.status = ReviewStatus.PENDING
+    usage.save(update_fields=["status", "updated_at"])
+    patterns.make_stale(pattern=pattern)
+
+
+@transaction.atomic
+def unapprove_usage(usage):
+    """승인을 취소해 미검수로 되돌리고, 그 용법으로 정해진 구간이 있는 분석을 stale로 만든다."""
+    pattern, usage = _locked_usage(usage)
+    _require(usage, ReviewStatus.APPROVED)
+    usage.status = ReviewStatus.PENDING
+    usage.save(update_fields=["status", "updated_at"])
+    patterns.make_stale(usage=usage)
+    _open_usages(pattern)

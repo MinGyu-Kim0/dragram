@@ -16,7 +16,8 @@ class Refused(Exception):  # noqa: N818
     """조건을 어겨 상태를 바꾸지 않았다. 메시지는 관리자에게 보이는 이유다."""
 
 
-def _matches(conditions, text):
+def matches(conditions, text):
+    """매칭기로 예문에 패턴이 걸리는지 본다."""
     analysis, _ = analysis_text(text)
     return bool(analysis) and bool(patterns.match_starts(conditions, morphemes(analysis)))
 
@@ -34,7 +35,7 @@ def test_cases_failure(pattern):
         return "'걸리면 안 됨' 예문이 없습니다"
     conditions = patterns.conditions_of(pattern)
     for case in cases:
-        if _matches(conditions, case["text"]) != case["should_match"]:
+        if matches(conditions, case["text"]) != case["should_match"]:
             expected = "걸려야" if case["should_match"] else "걸리면 안 되"
             return f"{expected} 하는 예문이 기대와 다릅니다: {case['text']}"
     return None
@@ -86,7 +87,7 @@ def _has_activation_basis(pattern):
     """활성화 근거: test_cases에 매칭기를 통과하는 '걸려야 함' 예문이 하나 이상 있다."""
     conditions = patterns.conditions_of(pattern)
     return any(
-        case["should_match"] and _matches(conditions, case["text"]) for case in pattern.test_cases
+        case["should_match"] and matches(conditions, case["text"]) for case in pattern.test_cases
     )
 
 

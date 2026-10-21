@@ -20,6 +20,11 @@ from analysis.models import (
     SentenceAnalysis,
 )
 
+# 새 예문(용법 예문, test_cases)은 짧은 문장으로 받는다. 이보다 길면 쓰지 않는다. 형태소 분석
+# 한도(49,149바이트)보다 훨씬 짧아 분석이 실패하지 않고, 부분 복사 검사도 원문 길이 × 이 길이
+# 안에서 끝난다.
+EXAMPLE_MAX_LENGTH = 200
+
 
 class Condition(NamedTuple):
     lemma: str | None

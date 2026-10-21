@@ -45,19 +45,24 @@ export interface Translation {
   ruby: RubyItem[];
 }
 
-// 분석 실패. 번역을 받은 뒤 문법·단어에서 실패했으면 받은 번역을 함께 싣는다.
+// 분석 실패. 실패 전에 받은 번역과 확정 문법을 함께 싣는다.
 export class AnalysisFailed extends Error {
-  constructor(readonly translation?: Translation) {
+  constructor(
+    readonly translation?: Translation,
+    readonly grammar?: GrammarItem[],
+  ) {
     super("분석 실패");
   }
 }
 
 // 서버는 줄 단위 JSON으로 translation(번역, 루비) → analysis(번역, 문법, 단어)를 보내고,
-// 실패하면 error를 보낸다. 번역이 오면 onTranslation을 부르고, 다 오면 분석 전체를 돌려준다.
-// analysis의 번역은 문법·단어와 짝인 저장된 번역이라 그것을 쓴다.
+// 실패하면 error를 보낸다. LLM 없이 확정한 문법이 있으면 그보다 먼저 grammar를 보낸다.
+// grammar가 오면 onGrammar를, 번역이 오면 onTranslation을 부르고, 다 오면 분석 전체를
+// 돌려준다. analysis의 번역은 문법·단어와 짝인 저장된 번역이라 그것을 쓴다.
 export async function analyzeSentence(
   text: string,
   onTranslation: (translation: Translation) => void,
+  onGrammar?: (grammar: GrammarItem[]) => void,
 ): Promise<Analysis> {
   const response = await fetch(`${API_BASE_URL}/api/analyses/`, {
     method: "POST",
@@ -66,9 +71,13 @@ export async function analyzeSentence(
   });
   if (!response.ok || !response.body) throw new AnalysisFailed();
   let translation: Translation | undefined;
+  let grammar: GrammarItem[] | undefined;
   try {
     for await (const event of ndjsonEvents(response.body)) {
-      if (event.type === "translation") {
+      if (event.type === "grammar") {
+        grammar = event.grammar;
+        onGrammar?.(grammar);
+      } else if (event.type === "translation") {
         translation = {
           translation_ko: event.translation_ko,
           ruby: event.ruby,
@@ -89,10 +98,11 @@ export async function analyzeSentence(
     // 연결이 끊기거나 줄이 JSON이 아니어도 이미 받은 번역은 남긴다.
   }
   // error 이벤트를 받았거나, analysis 전에 스트림이 끝났거나 끊겼다.
-  throw new AnalysisFailed(translation);
+  throw new AnalysisFailed(translation, grammar);
 }
 
 type StreamEvent =
+  | { type: "grammar"; grammar: GrammarItem[] }
   | ({ type: "translation" } & Translation)
   | ({ type: "analysis" } & Omit<Analysis, "ruby">)
   | { type: "error"; error: string };

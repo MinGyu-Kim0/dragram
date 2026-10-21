@@ -12,6 +12,13 @@ export interface GrammarItem {
   review_status: "pending" | "approved";
 }
 
+// LLM 판별을 기다리는 후보 구간(확인 중). 원문 기준 UTF-16 위치와 후보 용법 이름(서버가 매긴 순서)
+export interface CheckingItem {
+  start: number;
+  end: number;
+  candidates: { name: string }[];
+}
+
 export interface WordItem {
   // 원문 기준 UTF-16 위치 [start, end). 문장에 나온 그 단어(활용형 포함)의 자리다.
   start: number;
@@ -56,13 +63,14 @@ export class AnalysisFailed extends Error {
 }
 
 // 서버는 줄 단위 JSON으로 translation(번역, 루비) → analysis(번역, 문법, 단어)를 보내고,
-// 실패하면 error를 보낸다. LLM 없이 확정한 문법이 있으면 그보다 먼저 grammar를 보낸다.
+// 실패하면 error를 보낸다. LLM 없이 확정한 문법이나 판별을 기다리는 구간이 있으면 그보다 먼저
+// grammar(확정 문법, 확인 중 구간)를 보낸다. 실패하면 확정 문법만 싣는다.
 // grammar가 오면 onEarlyGrammar를, 번역이 오면 onTranslation을 부르고, 다 오면 분석 전체를
 // 돌려준다. analysis의 번역은 문법·단어와 짝인 저장된 번역이라 그것을 쓴다.
 export async function analyzeSentence(
   text: string,
   onTranslation: (translation: Translation) => void,
-  onEarlyGrammar?: (grammar: GrammarItem[]) => void,
+  onEarlyGrammar?: (grammar: GrammarItem[], checking: CheckingItem[]) => void,
 ): Promise<Analysis> {
   const response = await fetch(`${API_BASE_URL}/api/analyses/`, {
     method: "POST",
@@ -76,7 +84,7 @@ export async function analyzeSentence(
     for await (const event of ndjsonEvents(response.body)) {
       if (event.type === "grammar") {
         earlyGrammar = event.grammar;
-        onEarlyGrammar?.(earlyGrammar);
+        onEarlyGrammar?.(earlyGrammar, event.checking);
       } else if (event.type === "translation") {
         translation = {
           translation_ko: event.translation_ko,
@@ -102,7 +110,7 @@ export async function analyzeSentence(
 }
 
 type StreamEvent =
-  | { type: "grammar"; grammar: GrammarItem[] }
+  | { type: "grammar"; grammar: GrammarItem[]; checking: CheckingItem[] }
   | ({ type: "translation" } & Translation)
   | ({ type: "analysis" } & Omit<Analysis, "ruby">)
   | { type: "error"; error: string };

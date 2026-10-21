@@ -1,18 +1,25 @@
-import type { Analysis, GrammarItem, Translation } from "@/utils/api";
+import type {
+  Analysis,
+  CheckingItem,
+  GrammarItem,
+  Translation,
+} from "@/utils/api";
 import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
 import { WordList } from "./Words";
 
-// 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 LLM 없이 확정한 문법만
-// 와서 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다. failed에
-// 번역이 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar(LLM 없이 확정해 먼저 온 문법)는 analysis가 오기 전까지
-// 보인다.
+// 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 번역보다 먼저 온
+// grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별을 기다리는 구간 checking)만 와서
+// 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다. failed에 번역이
+// 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar는 analysis가 오기 전까지 보이고,
+// checking은 실패하면 지운다.
 export type SentenceResult =
-  | { status: "early"; earlyGrammar: GrammarItem[] }
+  | { status: "early"; earlyGrammar: GrammarItem[]; checking: CheckingItem[] }
   | {
       status: "translated";
       translation: Translation;
       earlyGrammar?: GrammarItem[];
+      checking?: CheckingItem[];
     }
   | { status: "done"; analysis: Analysis }
   | {
@@ -22,6 +29,14 @@ export type SentenceResult =
     };
 
 // 지금 보일 문법. 분석이 끝나기 전에는 먼저 온 문법만 보인다.
+// 지금 보일 확인 중 구간. 분석이 끝나거나 실패하면 없다.
+function checkingOf(result: SentenceResult | undefined) {
+  if (result?.status === "early" || result?.status === "translated") {
+    return result.checking ?? [];
+  }
+  return [];
+}
+
 function grammarOf(result: SentenceResult | undefined) {
   if (result?.status === "done") return result.analysis.grammar;
   return result?.earlyGrammar ?? [];
@@ -60,6 +75,7 @@ export function SentenceView({
 }) {
   const translation = translationOf(result);
   const grammar = grammarOf(result);
+  const checking = checkingOf(result);
   return (
     <>
       <section className="sentence-card">
@@ -79,6 +95,7 @@ export function SentenceView({
           <HighlightedText
             text={text}
             grammar={grammar}
+            checking={checking}
             ruby={showRuby && translation ? translation.ruby : []}
             dragHandles={showHandles ? selection : undefined}
           />
@@ -101,9 +118,14 @@ export function SentenceView({
           <p className="error">분석하지 못했습니다</p>
         )}
       </section>
-      {result?.status !== "done" && grammar.length > 0 && (
+      {result?.status !== "done" && grammar.length + checking.length > 0 && (
         <div className="below-card">
-          <GrammarCards text={text} grammar={grammar} selection={selection} />
+          <GrammarCards
+            text={text}
+            grammar={grammar}
+            checking={checking}
+            selection={selection}
+          />
         </div>
       )}
       {result?.status === "translated" && (

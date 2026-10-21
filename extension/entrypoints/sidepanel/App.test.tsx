@@ -926,3 +926,108 @@ test("확정한 문법을 보인 뒤 실패하면 그 문법은 남기고 실패
   const [card] = screen.getAllByRole("listitem");
   expect(within(card!).getByRole("heading").textContent).toBe("진행");
 });
+
+function checkingItem(start: number, end: number, ...names: string[]) {
+  return { start, end, candidates: names.map((name) => ({ name })) };
+}
+
+test("판별을 기다리는 구간은 '확인 중' 점선 카드와 점선 밑줄로 먼저 보이고, 분석이 오면 고른 용법으로 바뀐다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "彼が来ている");
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [checkingItem(3, 6, "진행", "결과 상태")],
+  });
+
+  const [card] = await screen.findAllByRole("listitem");
+  expect(card).toHaveClass("checking");
+  expect(within(card!).getByRole("heading").textContent).toBe(
+    "진행 · 결과 상태",
+  );
+  expect(within(card!).getByText("확인 중")).toBeInTheDocument();
+  expect(within(card!).queryByText("AI 생성·미검수")).not.toBeInTheDocument();
+  expect(
+    [...document.querySelectorAll(".original mark.checking")].map(
+      (mark) => mark.textContent,
+    ),
+  ).toEqual(["ている"]);
+  expect(document.querySelectorAll(".original mark.highlight")).toHaveLength(0);
+
+  stream.push({
+    type: "translation",
+    translation_ko: "그가 와 있다",
+    ruby: [],
+  });
+  stream.push({
+    type: "analysis",
+    translation_ko: "그가 와 있다",
+    grammar: [grammarItem(3, 6, "진행")],
+    words: [],
+  });
+  stream.end();
+
+  expect(
+    await screen.findByRole("tab", { name: "문법 1" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("확인 중")).not.toBeInTheDocument();
+  expect(document.querySelectorAll(".original mark.checking")).toHaveLength(0);
+  expect(
+    [...document.querySelectorAll(".original mark.highlight")].map(
+      (mark) => mark.textContent,
+    ),
+  ).toEqual(["ている"]);
+});
+
+test("확정 문법과 확인 중 구간을 원문 순서대로 함께 보인다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "歩きながら来ている");
+
+  stream.push({
+    type: "grammar",
+    grammar: [approvedGrammarItem(6, 9, "진행")],
+    checking: [checkingItem(2, 5, "동시 동작")],
+  });
+
+  await screen.findAllByRole("listitem");
+  expect(
+    screen
+      .getAllByRole("listitem")
+      .map((item) => within(item).getByRole("heading").textContent),
+  ).toEqual(["동시 동작", "진행"]);
+});
+
+test("확인 중 구간을 보인 뒤 실패하면 확인 중은 지우고 확정 문법만 남긴다", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        ndjson([
+          {
+            type: "grammar",
+            grammar: [approvedGrammarItem(6, 9, "진행")],
+            checking: [checkingItem(2, 5, "동시 동작")],
+          },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]),
+      ),
+    ),
+  );
+  render(<App />);
+
+  await send(panelWindowId, "歩きながら来ている");
+
+  expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
+  expect(
+    screen
+      .getAllByRole("listitem")
+      .map((item) => within(item).getByRole("heading").textContent),
+  ).toEqual(["진행"]);
+  expect(screen.queryByText("확인 중")).not.toBeInTheDocument();
+  expect(document.querySelectorAll(".original mark.checking")).toHaveLength(0);
+});

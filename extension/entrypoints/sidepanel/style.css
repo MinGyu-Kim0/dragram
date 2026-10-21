@@ -14,6 +14,7 @@
   --color-brand-strong: #0f5e44;
   --color-on-brand: #ffffff;
   --color-border-subtle: #e1ece5;
+  --color-border-control: #cfddd4;
   /* 형광펜 4색: 칩 배경 / 칩 글자. 라이트 본문 형광펜은 칩 배경과 같다. */
   --color-highlight-0: #ddf27a;
   --color-highlight-0-text: #3d4a00;
@@ -191,6 +192,16 @@ h1 {
   --highlight-text: var(--color-highlight-3-text);
 }
 
+/* 판별을 기다리는 구간(확인 중): 형광펜 대신 점선 밑줄 */
+.original mark.checking {
+  color: inherit;
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  text-decoration: underline dashed var(--color-border-control) 2px;
+  text-underline-offset: 4px;
+}
+
 .grammar-cards {
   list-style: none;
   margin: 14px 0 0;
@@ -203,6 +214,26 @@ h1 {
   background: var(--color-surface);
   border-radius: 20px;
   padding: 14px 16px;
+}
+
+/* 확인 중 카드: 점선 대기 카드(DESIGN.md) */
+.grammar-card.checking {
+  border: 1.5px dashed var(--color-border-control);
+  border-radius: 16px;
+}
+
+.checking-chip {
+  background: var(--color-surface-inset);
+  color: var(--color-text-muted);
+}
+
+.checking-drag-meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.checking-skeleton {
+  margin-top: 8px;
 }
 
 /* 드래그한 부분의 문법 카드·단어 행: 선택 링 */

@@ -1038,3 +1038,54 @@ def test_copied_example_is_not_rewritten_when_same_usage_has_a_valid_one(client,
 
     assert fake_llm.rewrite_requests == []
     assert GrammarUsage.objects.get().example_ja == "雨が降っている"
+
+
+@pytest.mark.parametrize(("example_ja", "copied"), [("雪が降った", True), ("彼が来た", False)])
+def test_any_token_inside_grammar_span_counts_as_copying(
+    client, fake_llm, settings, example_ja, copied
+):
+    settings.EXAMPLE_COPY_LENGTH = 2
+    # 토큰: 0 雨 / 1 が / 2 降っ / 3 た. 고정한 が·た는 세지 않지만 아무거나인 降っ는 원문 글자다.
+    fake_llm.response = {
+        "translation_ko": "비가 왔다",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"), (2, "any"), (3, "lemma"), pattern_name="が〜た", example_ja=example_ja
+            )
+        ],
+    }
+
+    analyze(client, "雨が降った")
+
+    assert GrammarPattern.objects.get().is_active is not copied
+
+
+def test_copied_example_that_does_not_match_the_pattern_is_not_rewritten(client, fake_llm):
+    # 원문 8자를 베꼈지만 ている도 없어 어차피 쓸 수 없는 예문이다.
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を読む")
+        ],
+    }
+
+    analyze(client, LIBRARY)
+
+    assert fake_llm.rewrite_requests == []
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_rewritten_example_too_long_to_analyze_keeps_the_analysis(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    # SudachiPy 입력 한도(49,149바이트)를 넘는 예문
+    fake_llm.rewrite_response = rewritten("雨が降っている" + "あ" * 17000)
+
+    response = analyze(client, LIBRARY)
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert not GrammarPattern.objects.get().is_active

@@ -224,17 +224,21 @@ def _new_pattern_conditions(tokens, morphs, overlaps_number):
     return conditions
 
 
-def _copies_part(example_key, key_text, grammar_span):
+def _copies_part(example_key, key_text, fixed_spans):
     """예문이 원문 키 텍스트의 연속된 일부를 기준 길이 이상 그대로 썼는가.
 
-    예문에는 그 문법이 들어갈 수밖에 없으므로 원문의 문법 구간(grammar_span, 키 텍스트
-    [start, end)) 글자는 세지 않고, 그 앞과 뒤를 따로 본다. 문장 인용 검사처럼 기호·공백을
-    지우고 비교한다.
+    예문에는 그 문법이 들어갈 수밖에 없으므로, 패턴에서 고정한 토큰(lemma·활용형 고정)의 원문
+    글자(fixed_spans, 키 텍스트 [start, end) 목록)는 세지 않고 그 사이를 따로 본다. 구간 안의
+    아무거나 토큰은 원문 글자라 센다. 문장 인용 검사처럼 기호·공백을 지우고 비교한다.
     """
     length = settings.EXAMPLE_COPY_LENGTH
     example_letters = _letters(example_key)
-    start, end = grammar_span
-    for side in (_letters(key_text[:start]), _letters(key_text[end:])):
+    sides, position = [], 0
+    for start, end in sorted(fixed_spans):
+        sides.append(key_text[position:start])
+        position = max(position, end)
+    sides.append(key_text[position:])
+    for side in map(_letters, sides):
         if any(side[i : i + length] in example_letters for i in range(len(side) - length + 1)):
             return True
     return False
@@ -244,9 +248,9 @@ def _copies_part(example_key, key_text, grammar_span):
 _EXAMPLE_OK, _EXAMPLE_COPIED, _EXAMPLE_UNUSABLE = "ok", "copied", "unusable"
 
 
-def _example_verdict(example, conditions, key_text, content_tokens, grammar_span):
-    """새 예문을 검사한다. 원문을 베꼈으면 copied, 패턴에 걸리지 않는 등 그 밖의 이유로 쓸 수
-    없으면 unusable, 쓸 수 있으면 ok다.
+def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans):
+    """새 예문을 검사한다. 패턴에 걸리지 않는 등 원문과 상관없이 쓸 수 없으면 unusable, 그렇지
+    않은데 원문을 베꼈으면 copied(다시 쓰게 함), 쓸 수 있으면 ok다.
     """
     if not has_only_known_placeholders(example, ()):
         return _EXAMPLE_UNUSABLE
@@ -257,14 +261,15 @@ def _example_verdict(example, conditions, key_text, content_tokens, grammar_span
     example_key = "".join(pieces)
     # 원문 키 텍스트와 같거나 전체를 포함하면 베낀 것이다(문장 인용과 같은 비교). 형태소가
     # 하나뿐인 원문은 포함만 허용하고, 원문 그대로인 예문은 형태소 수와 상관없이 거부한다.
+    # 다시 써도 원문을 베끼지 않는 것만 고쳐지므로, 쓸 수 없는 예문은 베낀 것보다 먼저 가린다.
+    if not patterns.match_starts(conditions, morphemes(text)):
+        return _EXAMPLE_UNUSABLE
     if _letters(example_key) == _letters(key_text):
         return _EXAMPLE_COPIED
     if _quotes_whole_sentence([example_key], key_text, content_tokens):
         return _EXAMPLE_COPIED
-    if _copies_part(example_key, key_text, grammar_span):
+    if _copies_part(example_key, key_text, fixed_spans):
         return _EXAMPLE_COPIED
-    if not patterns.match_starts(conditions, morphemes(text)):
-        return _EXAMPLE_UNUSABLE
     return _EXAMPLE_OK
 
 
@@ -538,14 +543,24 @@ def analyze(request):
         않는다. 이미 검사한 예문은 다시 보지 않는다(다시 묻기 뒤 재시도). LLM 호출이라 저장
         트랜잭션 밖에서 부른다.
         """
-        # (예문을 담은 제안·새 용법, 같은 용법인지 가르는 열쇠, 패턴 이름, 형태소 조건, 문법 구간)
+
+        def fixed_spans(start_token, conditions):
+            """패턴에서 고정한 토큰의 키 텍스트 구간들"""
+            return [
+                key_span(start_token + i, start_token + i)
+                for i, c in enumerate(conditions)
+                if c != patterns.ANY
+            ]
+
+        # (예문을 담은 제안·새 용법, 같은 용법인지 가르는 열쇠, 패턴 이름, 형태소 조건,
+        #  고정 토큰 구간)
         targets = [
             (
                 p,
                 (patterns.morpheme_key(p["conditions"]), p["usage_name"]),
                 p["pattern_name"],
                 p["conditions"],
-                key_span(p["tokens"][0][0], p["tokens"][-1][0]),
+                fixed_spans(p["tokens"][0][0], p["conditions"]),
             )
             for p in validated["new_patterns"]
             if "checked_example" not in p and p["existing"] is None and p["conditions"] is not None
@@ -556,21 +571,21 @@ def analyze(request):
                 (span.pattern.id, n["usage_name"]),
                 span.pattern.name,
                 span.conditions,
-                key_span(span.start_token, span.end_token),
+                fixed_spans(span.start_token, span.conditions),
             )
             for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True)
             if n is not None and "checked_example" not in n
         ]
         copied, usable = [], set()
-        for holder, usage_key, pattern_name, conditions, grammar_span in targets:
+        for holder, usage_key, pattern_name, conditions, fixed in targets:
             verdict = _example_verdict(
-                holder["example_ja"], conditions, key_text, content_tokens, grammar_span
+                holder["example_ja"], conditions, key_text, content_tokens, fixed
             )
             holder["checked_example"] = holder["example_ja"] if verdict == _EXAMPLE_OK else None
             if verdict == _EXAMPLE_OK:
                 usable.add(usage_key)
             elif verdict == _EXAMPLE_COPIED:
-                copied.append((holder, usage_key, pattern_name, conditions, grammar_span))
+                copied.append((holder, usage_key, pattern_name, conditions, fixed))
         copied = [item for item in copied if item[1] not in usable]
         if not copied or saved_by_another():
             return
@@ -594,8 +609,13 @@ def analyze(request):
         except BusinessError as e:
             log_business_error(e)
             return
-        for (holder, _, _, conditions, grammar_span), text in zip(copied, rewritten, strict=True):
-            verdict = _example_verdict(text, conditions, key_text, content_tokens, grammar_span)
+        for (holder, _, _, conditions, fixed), text in zip(copied, rewritten, strict=True):
+            try:
+                verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed)
+            except BusinessError as e:
+                # 형태소 분석 한도를 넘는 등 다시 쓴 예문을 검사하지 못하면 그 예문만 버린다.
+                log_business_error(e)
+                continue
             if verdict == _EXAMPLE_OK:
                 holder["checked_example"] = text
 

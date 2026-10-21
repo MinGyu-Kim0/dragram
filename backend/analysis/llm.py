@@ -191,9 +191,12 @@ class TranslationFirstParser:
 # 조각 사이 대기마다 적용된다.
 # 타임아웃 뒤 재시도하면 이미 과금된 요청을 또 보낼 수 있어 재시도하지 않는다.
 TIMEOUT_SECONDS = 30
-# 조각이 계속 오면 위 상한에 걸리지 않으므로 스트림 전체에도 상한을 둔다. 운영 Gunicorn
-# 작업자 타임아웃(Dockerfile)은 이 상한과 조각 대기 상한을 더한 것보다 길어야 한다.
+# 조각이 계속 오면 위 상한에 걸리지 않으므로 스트림 전체에도 상한을 둔다.
 STREAM_DEADLINE_SECONDS = 60
+# 스트림 뒤 보조 호출(다시 묻기·예문 다시 쓰기)까지 요청 하나가 LLM을 기다리는 전체 상한.
+# 클라이언트를 만든 때부터 센다. 운영 Gunicorn 작업자 타임아웃(Dockerfile, 120초)보다 저장할
+# 시간만큼 짧아야 하고, 스트림 상한과 조각 대기 상한을 더한 것보다는 길어야 한다.
+REQUEST_DEADLINE_SECONDS = 110
 MAX_RETRIES = 0
 
 
@@ -202,7 +205,10 @@ _FAILED_EVENTS = {"error", "response.failed", "response.incomplete"}
 
 
 class OpenAILLMClient:
+    """요청 하나가 쓰는 클라이언트. 그 요청의 호출들이 마감 시각 하나를 함께 쓴다."""
+
     def __init__(self):
+        self._deadline = time.monotonic() + REQUEST_DEADLINE_SECONDS
         self._client = OpenAI(
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
         )
@@ -269,10 +275,15 @@ class OpenAILLMClient:
     def _ask(self, purpose, instructions, payload, name, schema):
         """구조화된 출력을 스트림 없이 받는다.
 
-        SDK 오류, 끝까지 쓰지 못한 응답, JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
+        요청 마감 시각까지 남은 시간만 기다리고, 이미 지났으면 보내지 않는다. SDK 오류, 끝까지
+        쓰지 못한 응답, JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
         """
+        remaining = self._deadline - time.monotonic()
+        if remaining <= 0:
+            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 전에 요청 시간 초과")
         try:
             response = self._client.responses.create(
+                timeout=min(TIMEOUT_SECONDS, remaining),
                 model=settings.OPENAI_MODEL,
                 instructions=instructions,
                 input=json.dumps(payload, ensure_ascii=False),

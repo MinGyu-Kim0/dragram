@@ -635,7 +635,7 @@ def analyze(request):
         if not copied or saved_by_another():
             return
         try:
-            result = llm.get_client().rewrite_examples(
+            result = client.rewrite_examples(
                 key_text,
                 [
                     {
@@ -687,7 +687,7 @@ def analyze(request):
         if saved_by_another():
             # 그 결과를 쓰므로(save_once) 버려질 재질문을 보내지 않는다.
             return validated
-        result = llm.get_client().judge_spans(
+        result = client.judge_spans(
             key_text, tokens, validated["translation_ko"], _llm_spans(asked)
         )
         answers = _validate_span_answers(
@@ -895,7 +895,7 @@ def analyze(request):
         """
         translation_sent = False
         result = None
-        for kind, value in llm.get_client().analyze_stream(key_text, tokens, llm_spans):
+        for kind, value in client.analyze_stream(key_text, tokens, llm_spans):
             if kind == "translation":
                 _validate_translation(value, numbers)
                 translation_sent = True
@@ -910,6 +910,9 @@ def analyze(request):
         # 다시 묻기는 번역을 보낸 뒤, 저장 트랜잭션 밖에서 한다.
         yield analysis_event(save(ask_again(prepare(validated))))
 
+    # 이 요청의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트로 해서 요청 전체 마감
+    # 시각을 함께 쓴다.
+    client = llm.get_client()
     events = analyze_and_save()
     # 첫 이벤트(번역)까지는 응답을 시작하기 전이라, 그 전에 실패하면 다른 API 오류처럼
     # 오류 핸들러가 상태 코드로 알린다.

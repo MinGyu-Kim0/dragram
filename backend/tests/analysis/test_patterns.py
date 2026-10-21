@@ -7,6 +7,7 @@ from django.db import connection
 from django.test import Client
 
 from analysis import patterns
+from analysis import views as patterns_views
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -1058,6 +1059,23 @@ def test_any_token_inside_grammar_span_counts_as_copying(
     analyze(client, "雨が降った")
 
     assert GrammarPattern.objects.get().is_active is not copied
+
+
+def test_calls_of_one_request_share_one_client(client, fake_llm, monkeypatch):
+    # 요청 전체 마감 시각을 클라이언트가 지니므로 분석·다시 쓰기가 한 클라이언트를 쓴다.
+    created = []
+    monkeypatch.setattr(patterns_views.llm, "get_client", lambda: created.append(1) or fake_llm)
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+
+    analyze(client, LIBRARY)
+
+    assert len(fake_llm.rewrite_requests) == 1
+    assert len(created) == 1
 
 
 def test_copied_example_that_does_not_match_the_pattern_is_not_rewritten(client, fake_llm):

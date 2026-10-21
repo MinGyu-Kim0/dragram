@@ -225,6 +225,7 @@ def test_judge_spans_sends_sentence_translation_and_spans_and_returns_the_answer
         "spans": SPANS,
     }
     assert request["text"]["format"]["strict"] is True
+    assert request["timeout"] == llm.TIMEOUT_SECONDS
 
 
 @pytest.mark.parametrize(
@@ -241,6 +242,38 @@ def test_judge_spans_failure_becomes_analysis_failure(llm_client, monkeypatch, r
     with pytest.raises(BusinessError) as raised:
         llm_client.judge_spans("は", [], "는", SPANS)
     assert raised.value.error_code == AnalysisError.FAILED
+
+
+def test_follow_up_call_waits_only_until_the_request_deadline(settings, monkeypatch):
+    # 요청 하나의 호출들이 함께 쓰는 마감 시각까지 남은 시간만 기다린다.
+    settings.OPENAI_API_KEY = "test-key"
+    now = iter([0, llm.REQUEST_DEADLINE_SECONDS - 10])
+    monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
+    llm_client = OpenAILLMClient()
+    answer = '{"spans": []}'
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+    )
+
+    llm_client.judge_spans("は", [], "는", SPANS)
+
+    [request] = requests
+    assert request["timeout"] == 10
+
+
+def test_follow_up_call_after_the_request_deadline_is_not_sent(settings, monkeypatch):
+    settings.OPENAI_API_KEY = "test-key"
+    now = iter([0, llm.REQUEST_DEADLINE_SECONDS])
+    monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
+    llm_client = OpenAILLMClient()
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text="{}")
+    )
+
+    with pytest.raises(BusinessError) as raised:
+        llm_client.rewrite_examples("文", EXAMPLES)
+    assert raised.value.error_code == AnalysisError.FAILED
+    assert requests == []
 
 
 EXAMPLES = [

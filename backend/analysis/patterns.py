@@ -86,16 +86,10 @@ def _with_candidates(patterns):
     ).order_by("id")
 
 
-def _conditions(pattern):
-    return [Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in pattern.morphemes.all()]
-
-
 def conditions_of(pattern):
-    """패턴의 형태소 조건(seq 순서)."""
-    return [
-        Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form)
-        for m in pattern.morphemes.order_by("seq")
-    ]
+    """패턴의 형태소 조건(seq 순서). 미리 읽어 둔 형태소가 있으면 그것을 쓴다."""
+    morphemes = sorted(pattern.morphemes.all(), key=lambda m: m.seq)
+    return [Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in morphemes]
 
 
 def _numbered(usages, next_id):
@@ -113,7 +107,7 @@ def candidate_spans(morphs):
         usages = list(pattern.usages.all())
         if not usages:
             continue
-        conditions = _conditions(pattern)
+        conditions = conditions_of(pattern)
         for start in match_starts(conditions, morphs):
             spans.append(
                 Span(
@@ -137,7 +131,7 @@ def existing_patterns(conditions_list):
 
 def span_of(pattern, start, next_id):
     """이미 있는 패턴을 start 토큰에서 시작하는 구간으로 다시 물을 때의 구간과 후보."""
-    conditions = _conditions(pattern)
+    conditions = conditions_of(pattern)
     usages = list(pattern.usages.all())
     return Span(pattern, conditions, start, start + len(conditions) - 1, _numbered(usages, next_id))
 
@@ -205,10 +199,21 @@ def add_usage(pattern, name, explanation_ko, example_ja):
     return usage
 
 
-def make_stale(**span_filter):
-    """구간이 span_filter에 걸리는 분석을 stale로 만들고 세대 번호를 올린다(#38)."""
-    SentenceAnalysis.objects.filter(
-        id__in=SentenceAnalysis.objects.filter(
-            **{f"span_matches__{key}": value for key, value in span_filter.items()}
-        ).values("id")
-    ).update(is_stale=True, generation=F("generation") + 1)
+def make_stale(pattern=None, usage=None):
+    """그 패턴으로 매칭된 구간, 또는 그 용법으로 정해진 구간이 있는 분석을 stale로 만들고 세대
+    번호를 올린다(#38). 동시에 여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다.
+    """
+    span_filter = (
+        {"span_matches__pattern": pattern} if usage is None else {"span_matches__usage": usage}
+    )
+    ids = list(
+        SentenceAnalysis.objects.filter(
+            id__in=SentenceAnalysis.objects.filter(**span_filter).values("id")
+        )
+        .order_by("id")
+        .select_for_update()
+        .values_list("id", flat=True)
+    )
+    SentenceAnalysis.objects.filter(id__in=ids).update(
+        is_stale=True, generation=F("generation") + 1
+    )

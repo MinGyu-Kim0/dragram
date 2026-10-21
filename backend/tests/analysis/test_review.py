@@ -336,10 +336,17 @@ def test_rejected_second_usage_does_not_count_for_usage_closed(client, fake_llm)
     assert closed(pattern)
 
 
+def unreject_second_usage(pattern):
+    """반려된 둘째 용법을 되살려 반려되지 않은 용법을 둘로 만든다."""
+    second = GrammarUsage.objects.get(pattern=pattern, name="결과 상태")
+    review.unreject_usage(second)
+
+
 @pytest.mark.parametrize(
     "event",
     [
-        lambda pattern, usage: patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None),
+        lambda pattern, usage: patterns.add_usage(pattern, "계속", "상태가 이어진다", None),
+        lambda pattern, usage: unreject_second_usage(pattern),
         lambda pattern, usage: review.unapprove_usage(usage),
         lambda pattern, usage: review.reject_usage(usage),
         lambda pattern, usage: review.unapprove_pattern(pattern),
@@ -348,6 +355,7 @@ def test_rejected_second_usage_does_not_count_for_usage_closed(client, fake_llm)
 )
 def test_usage_closed_is_removed_automatically(client, fake_llm, event):
     pattern, usage = approved_teiru(client, fake_llm)
+    review.reject_usage(patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None))
     review.close_usages(pattern)
     using = SentenceAnalysis.objects.get()
     SentenceAnalysis.objects.update(is_stale=False)

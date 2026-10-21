@@ -54,7 +54,7 @@ class PatternMorphemeInline(admin.TabularInline):
         return False
 
 
-def _review_action(transition, description):
+def _review_action(name, transition, description):
     """선택한 행마다 상태 전이를 부르는 admin 액션. 거부되면 그 행은 바꾸지 않고 이유를 보인다."""
 
     def action(model_admin, request, queryset):
@@ -69,7 +69,7 @@ def _review_action(transition, description):
         if done:
             model_admin.message_user(request, f"{done}개를 처리했습니다", messages.SUCCESS)
 
-    action.__name__ = transition.__name__.split("_")[0]
+    action.__name__ = name
     return admin.action(description=description)(action)
 
 
@@ -97,12 +97,12 @@ class GrammarPatternAdmin(_ReviewedAdmin):
     readonly_fields = ["status", "is_active", "usage_closed", "morpheme_key"]
     inlines = [PatternMorphemeInline]
     actions = [
-        _review_action(review.approve_pattern, "승인"),
-        _review_action(review.reject_pattern, "반려"),
-        _review_action(review.unreject_pattern, "반려 취소(미검수로)"),
-        _review_action(review.unapprove_pattern, "승인 취소(미검수로)"),
-        _review_action(review.close_usages, "용법 완결 표시"),
-        _review_action(review.open_usages, "용법 완결 해제"),
+        _review_action("approve", review.approve_pattern, "승인"),
+        _review_action("reject", review.reject_pattern, "반려"),
+        _review_action("unreject", review.unreject_pattern, "반려 취소(미검수로)"),
+        _review_action("unapprove", review.unapprove_pattern, "승인 취소(미검수로)"),
+        _review_action("close_usages", review.close_usages, "용법 완결 표시"),
+        _review_action("open_usages", review.open_usages, "용법 완결 해제"),
     ]
 
 
@@ -132,8 +132,8 @@ class GrammarUsageAdmin(_ReviewedAdmin):
     fields = ["name", "pattern", "status", "origin", "explanation_ko", "example_ja"]
     readonly_fields = ["name", "pattern", "status", "origin"]
     actions = [
-        _review_action(review.approve_usage, "승인"),
-        _review_action(review.reject_usage, "반려"),
-        _review_action(review.unreject_usage, "반려 취소(미검수로)"),
-        _review_action(review.unapprove_usage, "승인 취소(미검수로)"),
+        _review_action("approve", review.approve_usage, "승인"),
+        _review_action("reject", review.reject_usage, "반려"),
+        _review_action("unreject", review.unreject_usage, "반려 취소(미검수로)"),
+        _review_action("unapprove", review.unapprove_usage, "승인 취소(미검수로)"),
     ]

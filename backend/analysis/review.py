@@ -71,15 +71,24 @@ def _set_active(pattern, active):
     patterns.raise_pattern_set_version()
 
 
+def _open_usages(pattern):
+    """용법 완결을 뗀다. 붙어 있었으면 그 패턴의 구간이 있는 분석을 stale로 만든다."""
+    if not pattern.usage_closed:
+        return
+    pattern.usage_closed = False
+    pattern.save(update_fields=["usage_closed"])
+    patterns.make_stale(pattern=pattern)
+
+
 @transaction.atomic
 def reject_pattern(pattern):
     """패턴을 반려해 매칭에서 빼고, 그 패턴으로 매칭된 구간이 있는 분석을 stale로 만든다."""
     pattern = _locked(pattern)
     _require(pattern, ReviewStatus.PENDING, ReviewStatus.APPROVED)
     pattern.status = ReviewStatus.REJECTED
-    pattern.usage_closed = False
-    pattern.save(update_fields=["status", "usage_closed"])
+    pattern.save(update_fields=["status"])
     _set_active(pattern, False)
+    _open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 
 
@@ -108,8 +117,8 @@ def unapprove_pattern(pattern):
     pattern = _locked(pattern)
     _require(pattern, ReviewStatus.APPROVED)
     pattern.status = ReviewStatus.PENDING
-    pattern.usage_closed = False
-    pattern.save(update_fields=["status", "usage_closed"])
+    pattern.save(update_fields=["status"])
+    _open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 
 
@@ -118,15 +127,6 @@ def _locked_usage(usage):
     pattern = _locked(usage.pattern)
     usage = GrammarUsage.objects.select_for_update().get(pk=usage.pk)
     return pattern, usage
-
-
-def _open_usages(pattern):
-    """용법 완결을 뗀다. 붙어 있었으면 그 패턴의 구간이 있는 분석을 stale로 만든다."""
-    if not pattern.usage_closed:
-        return
-    pattern.usage_closed = False
-    pattern.save(update_fields=["usage_closed"])
-    patterns.make_stale(pattern=pattern)
 
 
 @transaction.atomic
@@ -186,11 +186,12 @@ def reject_usage(usage):
 @transaction.atomic
 def unreject_usage(usage):
     """반려를 취소해 미검수로 되돌리고, 그 패턴의 구간이 있는 분석을 stale로 만든다(되살아난
-    용법을 다시 후보로 검토하게)."""
+    용법을 다시 후보로 검토하게). 반려되지 않은 용법이 늘므로 용법 완결도 뗀다."""
     pattern, usage = _locked_usage(usage)
     _require(usage, ReviewStatus.REJECTED)
     usage.status = ReviewStatus.PENDING
     usage.save(update_fields=["status", "updated_at"])
+    _open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 
 

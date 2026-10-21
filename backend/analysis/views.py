@@ -4,6 +4,7 @@ import re
 import unicodedata
 from itertools import chain
 
+from django.conf import settings
 from django.db import transaction
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
@@ -223,7 +224,23 @@ def _new_pattern_conditions(tokens, morphs, overlaps_number):
     return conditions
 
 
-def _checked_example(example, conditions, key_text, content_tokens):
+def _copies_part(example_key, key_text, grammar_span):
+    """예문이 원문 키 텍스트의 연속된 일부를 기준 길이 이상 그대로 썼는가.
+
+    예문에는 그 문법이 들어갈 수밖에 없으므로 원문의 문법 구간(grammar_span, 키 텍스트
+    [start, end)) 글자는 세지 않고, 그 앞과 뒤를 따로 본다. 문장 인용 검사처럼 기호·공백을
+    지우고 비교한다.
+    """
+    length = settings.EXAMPLE_COPY_LENGTH
+    example_letters = _letters(example_key)
+    start, end = grammar_span
+    for side in (_letters(key_text[:start]), _letters(key_text[end:])):
+        if any(side[i : i + length] in example_letters for i in range(len(side) - length + 1)):
+            return True
+    return False
+
+
+def _checked_example(example, conditions, key_text, content_tokens, grammar_span):
     """새 예문이 패턴에 걸리고 원문을 베끼지 않았으면 그 예문, 아니면 None."""
     if not has_only_known_placeholders(example, ()):
         return None
@@ -237,6 +254,8 @@ def _checked_example(example, conditions, key_text, content_tokens):
     if _letters(example_key) == _letters(key_text):
         return None
     if _quotes_whole_sentence([example_key], key_text, content_tokens):
+        return None
+    if _copies_part(example_key, key_text, grammar_span):
         return None
     if not patterns.match_starts(conditions, morphemes(text)):
         return None
@@ -546,7 +565,11 @@ def analyze(request):
             span, (_, _, new_usage) = judged[index]
             if usage_examples.get((span.pattern.id, name)) is None:
                 usage_examples[span.pattern.id, name] = _checked_example(
-                    new_usage["example_ja"], span.conditions, key_text, content_tokens
+                    new_usage["example_ja"],
+                    span.conditions,
+                    key_text,
+                    content_tokens,
+                    key_span(span.start_token, span.end_token),
                 )
         added, new_usages = {}, {}
         for _, name, index in additions:
@@ -597,7 +620,13 @@ def analyze(request):
         # 활성화 근거가 되고, 같은 조건·같은 용법 이름의 제안 중 통과한 첫 예문이 그 용법의
         # 예문이 된다(다른 용법의 예문은 용법 예문으로 쓰지 않는다).
         examples = [
-            _checked_example(p["example_ja"], p["conditions"], key_text, content_tokens)
+            _checked_example(
+                p["example_ja"],
+                p["conditions"],
+                key_text,
+                content_tokens,
+                key_span(p["tokens"][0][0], p["tokens"][-1][0]),
+            )
             if p["existing"] is None and p["conditions"] is not None
             else None
             for p in proposals

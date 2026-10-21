@@ -78,6 +78,10 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "")
 
+# LLM이 쓴 새 예문이 원문 키 텍스트(문법 구간 밖)의 연속된 글자를 이만큼 이상 그대로 쓰면 베낀
+# 것으로 본다(기호·공백 제외). 실제 예문을 보며 조정한다(#37).
+EXAMPLE_COPY_LENGTH = int(os.environ.get("EXAMPLE_COPY_LENGTH", "8"))
+
 REST_FRAMEWORK = {
     # API 비즈니스 오류(errors.BusinessError)를 {"error": code}로 응답한다.
     "EXCEPTION_HANDLER": "errors.handler.handle_exception",

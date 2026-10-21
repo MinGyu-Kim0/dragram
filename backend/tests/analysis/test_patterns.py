@@ -798,3 +798,70 @@ def test_response_quoting_the_sentence_fails_before_asking_again(client, fake_ll
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert fake_llm.rejudge_requests == []
+
+
+# 토큰: 0 昨日 / 1 図書館 / 2 で / 3 本 / 4 を / 5 読ん / 6 で / 7 いる
+LIBRARY = "昨日図書館で本を読んでいる"
+
+
+@pytest.mark.parametrize(
+    ("example_ja", "copied"),
+    [
+        # 문법 구간 밖의 원문을 8자(昨日図書館で本を) 그대로 썼다.
+        ("昨日図書館で本を見ている", True),
+        # 7자(図書館で本を読ん의 일부)까지는 베낀 것으로 보지 않는다.
+        ("図書館で本を見ている", False),
+        ("雨が降っている", False),
+    ],
+)
+def test_example_copying_part_of_sentence_is_rejected(client, fake_llm, example_ja, copied):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [new_pattern((6, "lemma"), (7, "lemma"), example_ja=example_ja)],
+    }
+
+    analyze(client, LIBRARY)
+
+    assert GrammarPattern.objects.get().is_active is not copied
+
+
+def test_grammar_span_itself_does_not_count_as_copying(client, fake_llm, settings):
+    settings.EXAMPLE_COPY_LENGTH = 3
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる. 예문의 ている(3자)는 문법 구간이라 세지 않는다.
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), example_ja="雨が降っている")],
+    }
+
+    analyze(client, "彼が来ている")
+
+    assert GrammarPattern.objects.get().is_active
+
+
+def test_copy_length_comes_from_settings(client, fake_llm, settings):
+    settings.EXAMPLE_COPY_LENGTH = 4
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="図書館で雑誌を見ている")
+        ],
+    }
+
+    analyze(client, LIBRARY)
+
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_new_usage_example_copying_part_of_sentence_is_not_stored(client, fake_llm):
+    register_nagara(client, fake_llm)
+    # 토큰: 0 昨日 / 1 図書館 / 2 で / 3 本 / 4 を / 5 読み / 6 ながら
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽으면서",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage(example_ja="昨日図書館で本を見ながら"))
+        ],
+    }
+
+    analyze(client, "昨日図書館で本を読みながら")
+
+    assert GrammarUsage.objects.get(name="역접").example_ja is None

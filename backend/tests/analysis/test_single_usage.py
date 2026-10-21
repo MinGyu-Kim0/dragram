@@ -156,3 +156,12 @@ def test_sentence_without_matched_spans_starts_with_the_translation(client, fake
     response = analyze(client, "雨が降る")
 
     assert response.types() == ["translation", "analysis"]
+
+
+def test_only_decided_spans_leave_checking_empty(client, fake_llm):
+    closed_teiru(client, fake_llm)
+    fake_llm.response = {"translation_ko": "그가 와 있다"}
+
+    response = analyze(client, KITEIRU)
+
+    assert response.events[0]["checking"] == []

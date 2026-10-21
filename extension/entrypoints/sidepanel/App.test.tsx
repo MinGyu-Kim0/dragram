@@ -1031,3 +1031,61 @@ test("확인 중 구간을 보인 뒤 실패하면 확인 중은 지우고 확�
   expect(screen.queryByText("확인 중")).not.toBeInTheDocument();
   expect(document.querySelectorAll(".original mark.checking")).toHaveLength(0);
 });
+
+test("확인 중 구간의 경계가 확정 문법 안에 있어도 그 형광펜을 쪼개지 않는다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "彼が来ている");
+
+  stream.push({
+    type: "grammar",
+    grammar: [approvedGrammarItem(3, 6, "진행")],
+    checking: [checkingItem(5, 6, "보조 동사")],
+  });
+
+  await screen.findAllByRole("listitem");
+  expect(
+    [...document.querySelectorAll(".original mark")].map((m) => m.textContent),
+  ).toEqual(["ている"]);
+});
+
+test("확인 중 카드는 번역이 와도 남고, 해당 없음으로 판정되면 사라지며, 드래그 범위와 겹치면 먼저 보인다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  // 드래그 범위: 来ている(2~6)
+  await sendSelected(panelWindowId, "彼が来ている", 2, 6);
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [checkingItem(1, 2, "주격"), checkingItem(3, 6, "진행")],
+  });
+  stream.push({
+    type: "translation",
+    translation_ko: "그가 와 있다",
+    ruby: [],
+  });
+
+  expect(await screen.findByText("그가 와 있다")).toBeInTheDocument();
+  expect(
+    screen
+      .getAllByRole("listitem")
+      .map((item) => within(item).getByRole("heading").textContent),
+  ).toEqual(["진행", "주격"]);
+
+  // が는 해당 없음, ている는 진행
+  stream.push({
+    type: "analysis",
+    translation_ko: "그가 와 있다",
+    grammar: [grammarItem(3, 6, "진행")],
+    words: [],
+  });
+  stream.end();
+
+  expect(
+    await screen.findByRole("tab", { name: "문법 1" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("주격")).not.toBeInTheDocument();
+});

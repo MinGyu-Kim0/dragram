@@ -26,7 +26,7 @@ export function WordList({
             <span lang="ja" className="word-reading">
               {word.reading}
             </span>
-            {dragged && <span className="drag-meta">드래그한 부분</span>}
+            {dragged && <span className="card-meta">드래그한 부분</span>}
           </div>
           <p className="word-meaning">
             {word.meaning_ko}

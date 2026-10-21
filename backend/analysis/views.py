@@ -973,7 +973,7 @@ def analyze(request):
         return grammar
 
     def checking():
-        """LLM 판별을 기다리는 후보 구간의 원문 위치와 후보 용법 이름(원문 순서)."""
+        """판별 대상 구간의 원문 위치와 후보 용법 이름(원문 순서)."""
         items = []
         for span in sorted(spans, key=lambda span: (span.start_token, span.end_token)):
             key_start, key_end = key_span(span.start_token, span.end_token)
@@ -987,7 +987,7 @@ def analyze(request):
         뒤 이어 낸다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
         """
         if closed_spans or spans:
-            # LLM을 부르기 전에 확정 구간과 판별을 기다리는 후보 구간(확인 중)부터 보낸다. 이 뒤
+            # LLM을 부르기 전에 확정 구간과 판별 대상 구간(화면의 확인 중)부터 보낸다. 이 뒤
             # 실패는 error 이벤트로 알린다(#39, #44).
             yield {"type": "grammar", "grammar": closed_grammar(), "checking": checking()}
         translation_sent = False

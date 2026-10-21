@@ -227,7 +227,8 @@ h1 {
   color: var(--color-text-muted);
 }
 
-.checking-drag-meta {
+/* 확인 중 카드에서 "확인 중" 다음에 붙는 메타 */
+.card-meta-next {
   font-size: 12px;
   color: var(--color-text-muted);
 }
@@ -272,8 +273,8 @@ h1 {
   color: var(--color-warn-text);
 }
 
-/* 오른쪽 메타 "드래그한 부분" */
-.drag-meta {
+/* 카드 오른쪽 메타("드래그한 부분", "확인 중") */
+.card-meta {
   margin-left: auto;
   font-size: 12px;
   color: var(--color-text-muted);

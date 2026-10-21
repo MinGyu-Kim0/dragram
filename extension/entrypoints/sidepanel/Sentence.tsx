@@ -9,7 +9,7 @@ import { GrammarCards, HighlightedText } from "./Grammar";
 import { WordList } from "./Words";
 
 // 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 번역보다 먼저 온
-// grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별을 기다리는 구간 checking)만 와서
+// grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별 대상 구간 checking)만 와서
 // 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다. failed에 번역이
 // 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar는 analysis가 오기 전까지 보이고,
 // checking은 실패하면 지운다.
@@ -28,8 +28,7 @@ export type SentenceResult =
       earlyGrammar?: GrammarItem[];
     };
 
-// 지금 보일 문법. 분석이 끝나기 전에는 먼저 온 문법만 보인다.
-// 지금 보일 확인 중 구간. 분석이 끝나거나 실패하면 없다.
+// 지금 보일 판별 대상 구간(확인 중). 분석이 끝나거나 실패하면 없다.
 function checkingOf(result: SentenceResult | undefined) {
   if (result?.status === "early" || result?.status === "translated") {
     return result.checking ?? [];
@@ -37,6 +36,7 @@ function checkingOf(result: SentenceResult | undefined) {
   return [];
 }
 
+// 지금 보일 문법. 분석이 끝나기 전에는 먼저 온 문법만 보인다.
 function grammarOf(result: SentenceResult | undefined) {
   if (result?.status === "done") return result.analysis.grammar;
   return result?.earlyGrammar ?? [];

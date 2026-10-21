@@ -1000,8 +1000,8 @@ def analyze(request):
     # 시각을 함께 쓴다.
     client = llm.get_client()
     events = analyze_and_save()
-    # 첫 이벤트(번역)까지는 응답을 시작하기 전이라, 그 전에 실패하면 다른 API 오류처럼
-    # 오류 핸들러가 상태 코드로 알린다.
+    # 첫 이벤트(확정 구간이 있으면 grammar, 없으면 번역)까지는 응답을 시작하기 전이라, 그 전에
+    # 실패하면 다른 API 오류처럼 오류 핸들러가 상태 코드로 알린다.
     first = next(events)
     return StreamingHttpResponse(
         map(_ndjson, _errors_as_event(chain([first], events))), content_type=_NDJSON

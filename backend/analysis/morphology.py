@@ -40,6 +40,22 @@ class Morpheme(NamedTuple):
 
 _FUNCTION_POS = {"助詞", "助動詞"}
 
+# 탁음화 조건부 규칙: 1그룹 동사 음편형 뒤에서 탁음이 된 기능어는 청음형 lemma로 본다
+# (読んでしまう는 てしまう 패턴). だら는 원형이 だ라 だ → た로 함께 처리된다. ないで처럼 그 밖의
+# で는 그대로 두어 별개 패턴이 된다. 조사·조동사는 원형을 쓰므로 SudachiPy가 ちゃ를 て로 바꾸는
+# 정규화는 따르지 않는다.
+_UNVOICED = {"で": "て", "でる": "てる", "じゃう": "ちゃう", "だ": "た"}
+# 음편형 중 탁음화를 일으키는 것(促音便 뒤는 원래 청음이다: 走って). イ音便은 1그룹 동사에만 있다.
+_VOICING_FORMS = {"連用形-撥音便", "連用形-イ音便"}
+
+
+def _after_sound_change(prev, morph):
+    if prev.pos != "動詞" or prev.conjugation_form not in _VOICING_FORMS:
+        return morph
+    if morph.pos not in _FUNCTION_POS or morph.lemma not in _UNVOICED:
+        return morph
+    return morph._replace(lemma=_UNVOICED[morph.lemma])
+
 
 def _morpheme(m):
     pos = m.part_of_speech()
@@ -59,4 +75,7 @@ def morphemes(text):
         raise BusinessError(AnalysisError.FAILED, "형태소 분석 실패") from e
     # SudachiPy는 입력을 내부에서 바꿔(… → ...) 길이 0인 형태소를 덧붙이기도 한다. 원문에
     # 대응하는 글자가 없어 구간을 만들 수 없으므로 뺀다.
-    return [_morpheme(m) for m in tokens if m.begin() < m.end()]
+    morphs = [_morpheme(m) for m in tokens if m.begin() < m.end()]
+    return morphs[:1] + [
+        _after_sound_change(p, m) for p, m in zip(morphs, morphs[1:], strict=False)
+    ]

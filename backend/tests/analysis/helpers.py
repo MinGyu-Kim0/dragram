@@ -68,5 +68,19 @@ def new_pattern(
     }
 
 
-def span_answer(span_id, verdict="usage", candidate_id=None):
-    return {"span_id": span_id, "verdict": verdict, "candidate_id": candidate_id}
+def span_answer(span_id, verdict="usage", candidate_id=None, new_usage=None):
+    return {
+        "span_id": span_id,
+        "verdict": verdict,
+        "candidate_id": candidate_id,
+        "new_usage": new_usage,
+    }
+
+
+def new_usage(
+    usage_name="역접",
+    explanation_ko="앞 내용과 반대되는 뒤 내용을 잇는다",
+    example_ja="狭いながら快適だ",
+):
+    """미발견 구간에 더할 새 용법."""
+    return {"usage_name": usage_name, "explanation_ko": explanation_ko, "example_ja": example_ja}

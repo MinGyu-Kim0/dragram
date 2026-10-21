@@ -180,3 +180,64 @@ def test_request_carries_sentence_tokens_and_candidate_spans(llm_client, monkeyp
 
     [request] = requests
     assert json.loads(request["input"]) == {"sentence": "は", "tokens": tokens, "spans": spans}
+
+
+def judge_with(llm_client, monkeypatch, response):
+    requests = []
+
+    def create(**kwargs):
+        requests.append(kwargs)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    stream_with(llm_client, monkeypatch, create)
+    return requests
+
+
+SPANS = [
+    {
+        "span_id": 0,
+        "start_token_id": 0,
+        "end_token_id": 0,
+        "candidates": [{"candidate_id": 1, "name": "주제", "explanation_ko": "설명"}],
+    }
+]
+
+
+def test_judge_spans_sends_sentence_translation_and_spans_and_returns_the_answer(
+    llm_client, monkeypatch
+):
+    answer = '{"spans": [{"span_id": 0, "verdict": "usage", "candidate_id": 1, "new_usage": null}]}'
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+    )
+    tokens = [{"id": 0, "surface": "は"}]
+
+    result = llm_client.judge_spans("は", tokens, "는", SPANS)
+
+    assert result == json.loads(answer)
+    [request] = requests
+    assert json.loads(request["input"]) == {
+        "sentence": "は",
+        "tokens": tokens,
+        "translation_ko": "는",
+        "spans": SPANS,
+    }
+    assert request["text"]["format"]["strict"] is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        openai.OpenAIError("timeout"),
+        SimpleNamespace(status="incomplete", output_text='{"spans": []}'),
+        SimpleNamespace(status="completed", output_text="not json"),
+    ],
+)
+def test_judge_spans_failure_becomes_analysis_failure(llm_client, monkeypatch, response):
+    judge_with(llm_client, monkeypatch, response)
+
+    with pytest.raises(BusinessError) as raised:
+        llm_client.judge_spans("は", [], "는", SPANS)
+    assert raised.value.error_code == AnalysisError.FAILED

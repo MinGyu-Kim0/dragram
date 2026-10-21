@@ -15,6 +15,9 @@ class FakeLLMClient:
         # 응답하기 전에 실행할 일. 호출 도중에 다른 요청이 끼어드는 상황을 만든다.
         self.before_respond = None
         self.result_given = False
+        # 같은 형태소 조건의 패턴이 이미 있을 때 다시 묻는 요청과 그 응답
+        self.rejudge_requests = []
+        self.rejudge_response = {"spans": []}
 
     def analyze_stream(self, sentence, tokens, spans):
         """실제 클라이언트처럼 번역이 문자열이면 먼저 넘기고, 이어서 응답 전체를 넘긴다."""
@@ -32,6 +35,19 @@ class FakeLLMClient:
         # 번역을 넘긴 뒤 응답 전체를 넘기기 전까지를 테스트가 볼 수 있게 표시한다.
         self.result_given = True
         yield "result", response
+
+    def judge_spans(self, sentence, tokens, translation_ko, spans):
+        self.rejudge_requests.append(
+            {
+                "sentence": sentence,
+                "tokens": tokens,
+                "translation_ko": translation_ko,
+                "spans": spans,
+            }
+        )
+        if self.error:
+            raise self.error
+        return self.rejudge_response
 
 
 @pytest.fixture

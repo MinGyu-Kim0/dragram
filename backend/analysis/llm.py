@@ -19,9 +19,11 @@ For each span give its span_id and a verdict:
 - "usage": one candidate explains the span with the same reading as your translation. Give its
   candidate_id.
 - "not_applicable": there is no grammar to learn at that place (for example の inside a name).
-- "unfound": the span has grammar to learn but no candidate explains it.
-Use null for candidate_id unless the verdict is "usage". Use only candidate ids given for
-that span.
+- "unfound": the span has grammar to learn but no candidate explains it. Give new_usage: the
+  usage that explains it, which will be added to the same pattern, with usage_name,
+  explanation_ko and example_ja written as described for new_patterns below.
+Use null for candidate_id unless the verdict is "usage", and null for new_usage unless the
+verdict is "unfound". Use only candidate ids given for that span.
 
 In new_patterns, list grammar points of the sentence that no span explains: particles,
 auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
@@ -63,23 +65,41 @@ SPAN_VERDICTS = ("usage", "not_applicable", "unfound")
 # 새 구문 토큰 표시: lemma 고정 / 활용형도 고정 / 아무거나
 TOKEN_FIXES = ("lemma", "form", "any")
 
+# 후보 구간마다의 판정. 첫 분석과 다시 묻기가 함께 쓴다.
+SPAN_ANSWERS_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "span_id": {"type": "integer"},
+            "verdict": {"type": "string", "enum": list(SPAN_VERDICTS)},
+            "candidate_id": {"type": ["integer", "null"]},
+            "new_usage": {
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "usage_name": {"type": "string"},
+                            "explanation_ko": {"type": "string"},
+                            "example_ja": {"type": "string"},
+                        },
+                        "required": ["usage_name", "explanation_ko", "example_ja"],
+                        "additionalProperties": False,
+                    },
+                    {"type": "null"},
+                ]
+            },
+        },
+        "required": ["span_id", "verdict", "candidate_id", "new_usage"],
+        "additionalProperties": False,
+    },
+}
+
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
         "translation_ko": {"type": "string"},
-        "spans": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "span_id": {"type": "integer"},
-                    "verdict": {"type": "string", "enum": list(SPAN_VERDICTS)},
-                    "candidate_id": {"type": ["integer", "null"]},
-                },
-                "required": ["span_id", "verdict", "candidate_id"],
-                "additionalProperties": False,
-            },
-        },
+        "spans": SPAN_ANSWERS_SCHEMA,
         "new_patterns": {
             "type": "array",
             "items": {
@@ -228,6 +248,70 @@ class OpenAILLMClient:
         except OpenAIError as e:
             raise BusinessError(AnalysisError.FAILED, "LLM 호출 실패") from e
         yield "result", parser.result()
+
+    def judge_spans(self, sentence, tokens, translation_ko, spans):
+        """후보 구간만 다시 묻는다. 스트림 없이 받은 검증 전 응답을 돌려준다.
+
+        SDK 오류, 끝까지 쓰지 못한 응답, JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
+        """
+        try:
+            response = self._client.responses.create(
+                model=settings.OPENAI_MODEL,
+                instructions=JUDGE_INSTRUCTIONS,
+                input=json.dumps(
+                    {
+                        "sentence": sentence,
+                        "tokens": tokens,
+                        "translation_ko": translation_ko,
+                        "spans": spans,
+                    },
+                    ensure_ascii=False,
+                ),
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "span_judgement",
+                        "schema": JUDGE_SCHEMA,
+                        "strict": True,
+                    }
+                },
+            )
+        except OpenAIError as e:
+            raise BusinessError(AnalysisError.FAILED, "LLM 다시 묻기 호출 실패") from e
+        if response.status != "completed":
+            raise BusinessError(AnalysisError.FAILED, f"LLM 다시 묻기 실패: {response.status}")
+        try:
+            return json.loads(response.output_text)
+        except json.JSONDecodeError as e:
+            raise BusinessError(AnalysisError.FAILED, "LLM 다시 묻기 응답이 JSON이 아님") from e
+
+
+# 같은 형태소 조건의 패턴이 이미 있을 때, 그 구간을 기존 용법 목록으로 다시 묻는 지침
+JUDGE_INSTRUCTIONS = """\
+You help a Korean learner of Japanese read one Japanese sentence.
+You receive the sentence, its tokens, each with an id, its Korean translation (translation_ko)
+and spans. A span is a run of tokens (start_token_id to end_token_id) that matched a
+registered grammar pattern, with candidate usages of that pattern.
+In spans, answer every span you received, reading each span the same way as the translation.
+For each span give its span_id and a verdict:
+- "usage": one candidate explains the span. Give its candidate_id.
+- "not_applicable": there is no grammar to learn at that place.
+- "unfound": the span has grammar to learn but no candidate explains it. Give new_usage: a
+  short Korean name of the usage (usage_name), a Korean explanation of the usage in general so
+  that it fits every sentence with this usage, not of this sentence (explanation_ko), and a new
+  short Japanese example sentence of your own with the same usage (example_ja).
+Use null for candidate_id unless the verdict is "usage", and null for new_usage unless the
+verdict is "unfound". Use only candidate ids given for that span.
+In usage_name and explanation_ko, quote Japanese only from that span's own tokens. Never quote
+the whole sentence or long parts of it. Do not write number placeholders (⟨N1⟩) there.
+"""
+
+JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {"spans": SPAN_ANSWERS_SCHEMA},
+    "required": ["spans"],
+    "additionalProperties": False,
+}
 
 
 def get_client():

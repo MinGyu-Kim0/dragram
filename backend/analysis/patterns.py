@@ -7,6 +7,7 @@
 import hashlib
 from typing import NamedTuple
 
+from django.db import IntegrityError, transaction
 from django.db.models import F, Prefetch
 from django.utils import timezone
 
@@ -62,9 +63,29 @@ class Span(NamedTuple):
     """등록된 패턴에 걸린 구간. candidates는 (후보 ID, 용법)이다."""
 
     pattern: GrammarPattern
+    conditions: list
     start_token: int
     end_token: int
     candidates: list
+
+
+def _with_candidates(patterns):
+    """패턴마다 형태소 조건(seq 순서)과 반려되지 않은 용법(등록 순서)을 함께 읽는다."""
+    return patterns.prefetch_related(
+        Prefetch("morphemes", queryset=PatternMorpheme.objects.order_by("seq")),
+        Prefetch(
+            "usages",
+            queryset=GrammarUsage.objects.exclude(status=ReviewStatus.REJECTED).order_by("id"),
+        ),
+    ).order_by("id")
+
+
+def _conditions(pattern):
+    return [Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in pattern.morphemes.all()]
+
+
+def _numbered(usages, next_id):
+    return [(next_id + i, usage) for i, usage in enumerate(usages)]
 
 
 def candidate_spans(morphs):
@@ -72,41 +93,54 @@ def candidate_spans(morphs):
 
     후보 ID는 이 요청에서 서버가 1부터 매긴다. LLM은 이 ID로만 용법을 고른다.
     """
-    patterns = GrammarPattern.objects.filter(is_active=True).prefetch_related(
-        Prefetch("morphemes", queryset=PatternMorpheme.objects.order_by("seq")),
-        Prefetch(
-            "usages",
-            queryset=GrammarUsage.objects.exclude(status=ReviewStatus.REJECTED).order_by("id"),
-        ),
-    )
     spans = []
     next_id = 1
-    for pattern in patterns.order_by("id"):
+    for pattern in _with_candidates(GrammarPattern.objects.filter(is_active=True)):
         usages = list(pattern.usages.all())
         if not usages:
             continue
-        conditions = [
-            Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in pattern.morphemes.all()
-        ]
+        conditions = _conditions(pattern)
         for start in match_starts(conditions, morphs):
-            candidates = [(next_id + i, usage) for i, usage in enumerate(usages)]
+            spans.append(
+                Span(
+                    pattern,
+                    conditions,
+                    start,
+                    start + len(conditions) - 1,
+                    _numbered(usages, next_id),
+                )
+            )
             next_id += len(usages)
-            spans.append(Span(pattern, start, start + len(conditions) - 1, candidates))
     return spans
 
 
-def register(conditions, pattern_name, usage_name, explanation_ko, example_ja):
+def existing_patterns(conditions_list):
+    """형태소 조건마다 같은 morpheme_key로 이미 있는 패턴(후보 용법을 함께 읽음). 없으면 없음."""
+    keys = {morpheme_key(conditions) for conditions in conditions_list}
+    found = _with_candidates(GrammarPattern.objects.filter(morpheme_key__in=keys))
+    return {pattern.morpheme_key: pattern for pattern in found}
+
+
+def span_of(pattern, start, next_id):
+    """이미 있는 패턴을 start 토큰에서 시작하는 구간으로 다시 물을 때의 구간과 후보."""
+    conditions = _conditions(pattern)
+    usages = list(pattern.usages.all())
+    return Span(pattern, conditions, start, start + len(conditions) - 1, _numbered(usages, next_id))
+
+
+def register(conditions, pattern_name, usage_name, explanation_ko, example_ja, test_example):
     """새 패턴과 용법을 미검수로 등록한다. 같은 morpheme_key가 이미 있으면 (그 패턴, None).
 
-    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 예문이 있어야 활성화한다.
-    활성화했으면 호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다.
+    example_ja는 이 용법이 쓴 예문, test_example은 같은 조건의 제안 중 검사를 통과한 예문이다
+    (첫 test_cases 항목). 없으면 None이고, test_example이 있어야 활성화한다. 활성화했으면
+    호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다.
     """
     pattern, created = GrammarPattern.objects.get_or_create(
         morpheme_key=morpheme_key(conditions),
         defaults={
             "name": pattern_name,
-            "test_cases": [{"text": example_ja, "should_match": True}] if example_ja else [],
-            "is_active": example_ja is not None,
+            "test_cases": [{"text": test_example, "should_match": True}] if test_example else [],
+            "is_active": test_example is not None,
             "status": ReviewStatus.PENDING,
         },
     )
@@ -131,3 +165,23 @@ def raise_pattern_set_version():
     PatternSetVersion.objects.filter(id=1).update(
         version=F("version") + 1, updated_at=timezone.now()
     )
+
+
+def add_usage(pattern, name, explanation_ko, example_ja):
+    """기존 패턴 아래 새 용법을 미검수로 더한다. 같은 이름의 용법이 이미 있으면 None.
+
+    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 연다.
+    """
+    try:
+        # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
+        with transaction.atomic():
+            return GrammarUsage.objects.create(
+                pattern=pattern,
+                name=name,
+                explanation_ko=explanation_ko,
+                example_ja=example_ja,
+                status=ReviewStatus.PENDING,
+                origin=GrammarUsage.Origin.LLM,
+            )
+    except IntegrityError:
+        return None

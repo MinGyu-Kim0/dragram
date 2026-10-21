@@ -84,6 +84,14 @@ def _conditions(pattern):
     return [Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form) for m in pattern.morphemes.all()]
 
 
+def conditions_of(pattern):
+    """패턴의 형태소 조건(seq 순서)."""
+    return [
+        Condition(m.lemma, m.pos1, m.pos2, m.conjugation_form)
+        for m in pattern.morphemes.order_by("seq")
+    ]
+
+
 def _numbered(usages, next_id):
     return [(next_id + i, usage) for i, usage in enumerate(usages)]
 

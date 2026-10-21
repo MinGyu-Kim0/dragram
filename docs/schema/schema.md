@@ -111,7 +111,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | smallint |  | PK | 항상 1인 한 행만 둔다(CHECK id = 1) |
-| version | 현재 패턴 세트 버전 | integer |  |  | grammar_pattern.is_active나 활성 패턴의 형태소 조건이 바뀌는 트랜잭션에서 행을 잠그고(SELECT … FOR UPDATE, 또는 행을 잠그는 UPDATE … SET version = version + 1) 1 증가. 새 패턴을 등록하는 트랜잭션은 패턴을 morpheme_key 순서로 넣고 이 행은 마지막에 잠근다(동시 등록 교착 방지). 상태 전이·분석 저장은 패턴(·용법) → 이 행 → 분석 행 순서로 잠근다(design-decisions 35절). sentence_analysis.matcher_version과 비교하는 현재값 |
+| version | 현재 패턴 세트 버전 | integer |  |  | grammar_pattern.is_active나 활성 패턴의 형태소 조건이 바뀌는 트랜잭션에서 행을 잠그는 UPDATE … SET version = version + 1로 1 증가. 새 패턴을 등록하는 트랜잭션은 패턴을 morpheme_key 순서로 넣고 이 행은 마지막에 잠근다(동시 등록 교착 방지). 상태 전이·분석 저장은 패턴(·용법) → 이 행 → 분석 행 순서로 잠근다(design-decisions 35절). sentence_analysis.matcher_version과 비교하는 현재값 |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 
 ## pattern_morpheme — 패턴 형태소
@@ -175,8 +175,8 @@
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
 | status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete |
 | processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 선점 만료 판단과 미완료 작업 재투입 기준 |
-| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀔 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 분석 요청이 시작할 때 읽은 값과 다르면 저장하지 않음). 기본값 0 |
-| is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시. 판 번호를 더하기 전(#38)에는 반려·반려 취소·승인 취소·용법 완결 변경도 이 칸으로만 기록하고, stale 분석은 다음 요청에서 다시 분석해 통째로 바꾼 뒤 false로 |
+| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀔 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 분석 요청이 시작할 때 읽은 값과 다르면 응답은 보내고 저장은 되돌림. 한 사건에서 여러 번 오를 수 있어 같은지만 비교). 기본값 0 |
+| is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시. 판 번호가 생기기 전까지(지금 구현, #38) 반려·반려 취소·승인 취소·용법 완결 변경도 이 칸으로만 기록하고, stale 분석은 다음 요청에서 다시 분석해 통째로 바꾼 뒤 false로 |
 | translation_ko | 한국어 번역 | text | Y |  | 자리표시자(⟨N1⟩) 포함 형태. 자리표시자가 모두 보존된 경우에만 저장 |
 | name_spans | 고유명사 구간 | jsonb | Y |  | [{start, end, type: person/place/org/work/other}]. 형태소·문법 후보는 보존하고 주석만 |
 | sense_ids | 단어 뜻 ID 목록 | bigint[] | Y |  | 문장에 나온 단어 뜻(word_sense) ID 목록. 단어는 sense에서 유도. 내 일본어 계산용. 단어·뜻 병합·삭제 시 갱신 필요 |

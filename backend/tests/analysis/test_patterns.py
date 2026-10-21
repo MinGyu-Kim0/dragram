@@ -1089,3 +1089,44 @@ def test_rewritten_example_too_long_to_analyze_keeps_the_analysis(client, fake_l
 
     assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
     assert not GrammarPattern.objects.get().is_active
+
+
+def test_copying_across_a_fixed_token_counts_as_one_copy(client, fake_llm):
+    # 토큰: 0 私 / 1 は / 2 昨日 / 3 雨 / 4 が / 5 降っ / 6 て / 7 も / 8 学校 / 9 に / 10 行く
+    # ても 앞뒤의 원문(は昨日雨が降っ + 学校)을 이어서 9자 베꼈다. 고정한 ても는 세지 않는다.
+    fake_llm.response = {
+        "translation_ko": "나는 어제 비가 와도 학교에 간다",
+        "new_patterns": [
+            new_pattern(
+                (6, "lemma"),
+                (7, "lemma"),
+                pattern_name="ても",
+                usage_name="양보",
+                explanation_ko="앞 내용과 상관없이 뒤 내용이 성립한다",
+                example_ja="兄は昨日雨が降っても学校へ行く",
+            )
+        ],
+    }
+
+    analyze(client, "私は昨日雨が降っても学校に行く")
+
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copied_example_of_new_usage_with_existing_name_is_not_rewritten(client, fake_llm):
+    register_nagara(client, fake_llm)
+    # 같은 이름의 용법이 이미 있어 어차피 더하지 않는다.
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽으면서",
+        "spans": [
+            span_answer(
+                0,
+                "unfound",
+                new_usage=new_usage(usage_name="동시 동작", example_ja="昨日図書館で本を見ながら"),
+            )
+        ],
+    }
+
+    analyze(client, "昨日図書館で本を読みながら")
+
+    assert fake_llm.rewrite_requests == []

@@ -11,7 +11,7 @@ from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from analysis import llm, patterns
-from analysis.models import ReviewStatus, SentenceAnalysis, SpanMatch
+from analysis.models import GrammarUsage, ReviewStatus, SentenceAnalysis, SpanMatch
 from analysis.morphology import morphemes
 from analysis.normalize import (
     NORMALIZE_VERSION,
@@ -227,19 +227,25 @@ def _new_pattern_conditions(tokens, morphs, overlaps_number):
 def _copies_part(example_key, key_text, fixed_spans):
     """예문이 원문 키 텍스트의 연속된 일부를 기준 길이 이상 그대로 썼는가.
 
-    예문에는 그 문법이 들어갈 수밖에 없으므로, 패턴에서 고정한 토큰(lemma·활용형 고정)의 원문
-    글자(fixed_spans, 키 텍스트 [start, end) 목록)는 세지 않고 그 사이를 따로 본다. 구간 안의
-    아무거나 토큰은 원문 글자라 센다. 문장 인용 검사처럼 기호·공백을 지우고 비교한다.
+    예문에는 그 문법이 들어갈 수밖에 없으므로 패턴에서 고정한 토큰(lemma·활용형 고정)의 원문
+    글자(fixed_spans, 키 텍스트 [start, end) 목록)는 길이에 세지 않는다. 다만 고정 토큰을 사이에
+    두고 앞뒤를 이어서 베낀 것은 한 번의 복사로 센다. 구간 안의 아무거나 토큰은 원문 글자라
+    센다. 문장 인용 검사처럼 기호·공백을 지우고 비교한다.
     """
     length = settings.EXAMPLE_COPY_LENGTH
-    example_letters = _letters(example_key)
-    sides, position = [], 0
-    for start, end in sorted(fixed_spans):
-        sides.append(key_text[position:start])
-        position = max(position, end)
-    sides.append(key_text[position:])
-    for side in map(_letters, sides):
-        if any(side[i : i + length] in example_letters for i in range(len(side) - length + 1)):
+    fixed = {i for start, end in fixed_spans for i in range(start, end)}
+    # 원문 글자마다 (글자, 길이에 세는가)
+    original = [(ch, i not in fixed) for i, ch in enumerate(key_text) if _letters(ch)]
+    example = _letters(example_key)
+    # counted[j]: 원문 앞 글자와 예문 j번째 글자에서 끝나는 공통 연속 구간의 센 글자 수
+    # (공통이 아니면 None)
+    counted = [None] * len(example)
+    for ch, counts in original:
+        previous = [None, *counted[:-1]]
+        counted = [
+            (previous[j] or 0) + counts if example[j] == ch else None for j in range(len(example))
+        ]
+        if any(c is not None and c >= length for c in counted):
             return True
     return False
 
@@ -576,8 +582,18 @@ def analyze(request):
             for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True)
             if n is not None and "checked_example" not in n
         ]
+        # 기존 패턴에 이미 있는 이름의 새 용법은 더하지 않으므로(patterns.add_usage) 검사하지
+        # 않는다. 다시 쓰기를 보내도 버려진다.
+        taken = set(
+            GrammarUsage.objects.filter(
+                pattern__in=[span.pattern for span in validated["span_list"]]
+            ).values_list("pattern_id", "name")
+        )
         copied, usable = [], set()
         for holder, usage_key, pattern_name, conditions, fixed in targets:
+            if usage_key in taken:
+                holder["checked_example"] = None
+                continue
             verdict = _example_verdict(
                 holder["example_ja"], conditions, key_text, content_tokens, fixed
             )

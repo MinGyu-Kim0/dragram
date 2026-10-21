@@ -856,3 +856,73 @@ test("번역 전에 실패하면 '분석하지 못했습니다'를 보인다", a
 
   expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
 });
+
+function approvedGrammarItem(start: number, end: number, name: string) {
+  return { ...grammarItem(start, end, name), review_status: "approved" };
+}
+
+test("LLM 없이 확정한 문법은 번역보다 먼저 보이고, 분석이 끝나면 전체로 바뀐다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "彼が来ている");
+
+  stream.push({
+    type: "grammar",
+    grammar: [approvedGrammarItem(3, 6, "진행")],
+  });
+
+  const [card] = await screen.findAllByRole("listitem");
+  expect(within(card!).getByRole("heading").textContent).toBe("진행");
+  expect(within(card!).queryByText("AI 생성·미검수")).not.toBeInTheDocument();
+  expect(
+    [...document.querySelectorAll(".original mark")].map((m) => m.textContent),
+  ).toEqual(["ている"]);
+  // 번역은 아직 불러오는 중이다.
+  expect(
+    screen.getByRole("status", { name: "번역을 불러오는 중" }),
+  ).toBeInTheDocument();
+
+  stream.push({
+    type: "translation",
+    translation_ko: "그가 와 있다",
+    ruby: [],
+  });
+  stream.push({
+    type: "analysis",
+    translation_ko: "그가 와 있다",
+    grammar: [grammarItem(1, 2, "주격 が"), approvedGrammarItem(3, 6, "진행")],
+    words: [],
+  });
+  stream.end();
+
+  expect(
+    await screen.findByRole("tab", { name: "문법 2" }),
+  ).toBeInTheDocument();
+  expect(
+    screen
+      .getAllByRole("listitem")
+      .map((item) => within(item).getByRole("heading").textContent),
+  ).toEqual(["주격 が", "진행"]);
+});
+
+test("확정한 문법을 보인 뒤 실패하면 그 문법은 남기고 실패를 보인다", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        ndjson([
+          { type: "grammar", grammar: [approvedGrammarItem(3, 6, "진행")] },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]),
+      ),
+    ),
+  );
+  render(<App />);
+
+  await send(panelWindowId, "彼が来ている");
+
+  expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
+  const [card] = screen.getAllByRole("listitem");
+  expect(within(card!).getByRole("heading").textContent).toBe("진행");
+});

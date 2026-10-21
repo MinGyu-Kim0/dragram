@@ -10,7 +10,7 @@ from errors import AnalysisError, BusinessError
 
 INSTRUCTIONS = """\
 You help a Korean learner of Japanese read one Japanese sentence.
-You receive the sentence, its tokens, each with an id, and spans.
+You receive the sentence, its tokens, each with an id, spans and decided_spans.
 Return the Korean translation of the whole sentence in translation_ko.
 
 In spans, answer every span you received. A span is a run of tokens (start_token_id to
@@ -27,7 +27,9 @@ verdict is "unfound". Use only candidate ids given for that span.
 
 In new_patterns, list grammar points of the sentence that no span explains: particles,
 auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
-content words or grammar that a span already explains. For each one:
+content words or grammar that a span already explains. decided_spans are grammar points already
+explained (start_token_id to end_token_id, with the usage name); do not answer them and do not
+list them in new_patterns. For each one:
 - tokens: every token of the grammar point in order, from its first to its last token with no
   gap, each with a mark (fix). "lemma" means the same word in any conjugation, "form" means the
   same word in the same conjugated form, "any" means any single token. The first and last
@@ -213,10 +215,11 @@ class OpenAILLMClient:
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
         )
 
-    def analyze_stream(self, sentence, tokens, spans):
+    def analyze_stream(self, sentence, tokens, spans, decided_spans):
         """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을 먼저 넘기고,
         다 받으면 ("result", 검증 전 응답)을 넘긴다. spans는 등록된 패턴에 걸린 구간과 그 후보
-        용법이다.
+        용법이다. decided_spans는 LLM 없이 확정한 구간이라 답을 받지 않고, 새 구문으로 다시 내지
+        않게 알리기만 한다.
 
         SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
         응답(거절 등)은 ANALYSIS:FAILED다.
@@ -228,7 +231,13 @@ class OpenAILLMClient:
                 model=settings.OPENAI_MODEL,
                 instructions=INSTRUCTIONS,
                 input=json.dumps(
-                    {"sentence": sentence, "tokens": tokens, "spans": spans}, ensure_ascii=False
+                    {
+                        "sentence": sentence,
+                        "tokens": tokens,
+                        "spans": spans,
+                        "decided_spans": decided_spans,
+                    },
+                    ensure_ascii=False,
                 ),
                 text={
                     "format": {

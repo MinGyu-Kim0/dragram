@@ -1,18 +1,36 @@
-import type { Analysis, Translation } from "@/utils/api";
+import type { Analysis, GrammarItem, Translation } from "@/utils/api";
 import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
 import { WordList } from "./Words";
 
-// 문장 하나의 분석 결과. 없으면 아직 번역도 오지 않았다. translated는 번역만 와서
-// 문법·단어를 기다리는 중이다. failed에 번역이 있으면 번역 뒤 문법·단어에서 실패했다.
+// 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 LLM 없이 확정한 문법만
+// 와서 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다. failed에
+// 번역이 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar(LLM 없이 확정해 먼저 온 문법)는 analysis가 오기 전까지
+// 보인다.
 export type SentenceResult =
-  | { status: "translated"; translation: Translation }
+  | { status: "early"; earlyGrammar: GrammarItem[] }
+  | {
+      status: "translated";
+      translation: Translation;
+      earlyGrammar?: GrammarItem[];
+    }
   | { status: "done"; analysis: Analysis }
-  | { status: "failed"; translation?: Translation };
+  | {
+      status: "failed";
+      translation?: Translation;
+      earlyGrammar?: GrammarItem[];
+    };
+
+// 지금 보일 문법. 분석이 끝나기 전에는 먼저 온 문법만 보인다.
+function grammarOf(result: SentenceResult | undefined) {
+  if (result?.status === "done") return result.analysis.grammar;
+  return result?.earlyGrammar ?? [];
+}
 
 // 지금 보일 번역과 루비
 function translationOf(result: SentenceResult | undefined) {
   if (result?.status === "done") return result.analysis;
+  if (result?.status === "early") return undefined;
   return result?.translation;
 }
 
@@ -41,6 +59,7 @@ export function SentenceView({
   onTabChange: (tab: ResultTab) => void;
 }) {
   const translation = translationOf(result);
+  const grammar = grammarOf(result);
   return (
     <>
       <section className="sentence-card">
@@ -59,13 +78,13 @@ export function SentenceView({
         <p lang="ja" className="original">
           <HighlightedText
             text={text}
-            grammar={result?.status === "done" ? result.analysis.grammar : []}
+            grammar={grammar}
             ruby={showRuby && translation ? translation.ruby : []}
             dragHandles={showHandles ? selection : undefined}
           />
         </p>
         <hr />
-        {!result && (
+        {(!result || result.status === "early") && (
           <div
             role="status"
             aria-label="번역을 불러오는 중"
@@ -82,6 +101,11 @@ export function SentenceView({
           <p className="error">분석하지 못했습니다</p>
         )}
       </section>
+      {result?.status !== "done" && grammar.length > 0 && (
+        <div className="below-card">
+          <GrammarCards text={text} grammar={grammar} selection={selection} />
+        </div>
+      )}
       {result?.status === "translated" && (
         <div
           role="status"

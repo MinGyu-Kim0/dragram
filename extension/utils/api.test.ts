@@ -80,3 +80,39 @@ test("번역을 받은 뒤 스트림이 끊기면 받은 번역과 함께 실패
   expect(failure).toBeInstanceOf(AnalysisFailed);
   expect(failure.translation).toEqual({ translation_ko: "학생", ruby: [] });
 });
+
+test("확정 문법이 오면 onEarlyGrammar를 부르고, 실패하면 받은 문법을 함께 싣는다", async () => {
+  const item = {
+    start: 3,
+    end: 6,
+    name: "진행",
+    explanation_ko: "설명",
+    review_status: "approved",
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      new Response(
+        [
+          { type: "grammar", grammar: [item] },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]
+          .map((event) => JSON.stringify(event) + "\n")
+          .join(""),
+        { status: 200, headers: { "Content-Type": "application/x-ndjson" } },
+      ),
+    ),
+  );
+  const received: unknown[] = [];
+
+  const failure = await analyzeSentence(
+    "彼が来ている",
+    () => {},
+    (grammar) => received.push(grammar),
+  ).catch((e) => e);
+
+  expect(received).toEqual([[item]]);
+  expect(failure).toBeInstanceOf(AnalysisFailed);
+  expect(failure.earlyGrammar).toEqual([item]);
+  expect(failure.translation).toBeUndefined();
+});

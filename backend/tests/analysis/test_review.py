@@ -12,6 +12,7 @@ from analysis.models import (
     PatternSetVersion,
     ReviewStatus,
     SentenceAnalysis,
+    SpanMatch,
 )
 from tests.analysis.helpers import analyze, new_pattern, span_answer
 
@@ -445,3 +446,51 @@ def test_usage_closed_waits_for_a_usage_being_added(client, fake_llm):
 
     assert result == {"refused": True}
     assert not closed(pattern)
+
+
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_rejecting_a_pattern_while_an_analysis_saves_its_spans_does_not_deadlock(client, fake_llm):
+    pattern = register_teiru(client, fake_llm)
+    analysis = SentenceAnalysis.objects.get()
+    locked, rejecting = threading.Event(), threading.Event()
+    errors = []
+
+    def analysis_saves():
+        # 다시 분석한 결과를 저장하는 트랜잭션(views.save_once): 패턴을 참조하는 구간을 쓰고
+        # 분석 행을 마지막에 잠근 뒤 커밋한다. FK는 커밋 때 검사해 그때 패턴 행을 참조한다.
+        try:
+            with transaction.atomic():
+                SpanMatch.objects.create(
+                    analysis=analysis,
+                    pattern=pattern,
+                    start_offset=0,
+                    end_offset=1,
+                    state=SpanMatch.State.NOT_APPLICABLE,
+                )
+                SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=analysis.pk)
+                locked.set()
+                rejecting.wait(5)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+        connection.close()
+
+    def admin_rejects():
+        try:
+            review.reject_pattern(pattern)
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+        connection.close()
+
+    writer = threading.Thread(target=analysis_saves)
+    writer.start()
+    locked.wait(5)
+    admin = threading.Thread(target=admin_rejects)
+    admin.start()
+    # 반려가 패턴을 잠그고 분석 행을 기다리게 한 뒤, 분석을 커밋한다.
+    admin.join(0.5)
+    rejecting.set()
+    writer.join()
+    admin.join()
+
+    assert errors == []

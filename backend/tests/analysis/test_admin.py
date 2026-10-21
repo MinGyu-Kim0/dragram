@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from analysis.admin import GrammarUsageAdmin
 from analysis.models import GrammarPattern, GrammarUsage, PatternSetVersion, ReviewStatus
 from tests.analysis.helpers import analyze, new_pattern
 
@@ -271,3 +272,35 @@ def test_usage_without_an_example_can_be_saved(admin_client, pattern):
     assert response.status_code == 302
     usage.refresh_from_db()
     assert (usage.explanation_ko, usage.example_ja) == ("새 설명", None)
+
+
+def test_saving_a_usage_does_not_overwrite_a_status_changed_meanwhile(
+    admin_client, pattern, monkeypatch
+):
+    usage = pattern.usages.get()
+    # 폼을 연 뒤 다른 요청이 그 용법을 반려했다. 화면이 읽어 둔 용법은 아직 미검수다.
+    stale_usage = GrammarUsage.objects.get(pk=usage.pk)
+    GrammarUsage.objects.filter(pk=usage.pk).update(status=ReviewStatus.REJECTED)
+    monkeypatch.setattr(GrammarUsageAdmin, "get_object", lambda *args: stale_usage)
+
+    response = admin_client.post(
+        f"{USAGES}{usage.pk}/change/", usage_form(usage, explanation_ko="새 설명")
+    )
+
+    assert response.status_code == 302
+    usage.refresh_from_db()
+    assert (usage.explanation_ko, usage.status) == ("새 설명", ReviewStatus.REJECTED)
+
+
+def test_example_that_cannot_be_stored_is_rejected_by_the_form(admin_client, pattern):
+    before = pattern.test_cases
+    # 단독 서로게이트는 UTF-8로 쓸 수 없어 PostgreSQL이 거부한다.
+    cases = '[{"text": "\\ud800", "should_match": true}]'
+
+    response = admin_client.post(
+        f"{PATTERNS}{pattern.pk}/change/", pattern_form(pattern, test_cases=cases)
+    )
+
+    assert response.status_code == 200
+    pattern.refresh_from_db()
+    assert pattern.test_cases == before

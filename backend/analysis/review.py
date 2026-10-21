@@ -42,7 +42,9 @@ def test_cases_failure(pattern, cases=None):
 
 
 def _locked(pattern):
-    return GrammarPattern.objects.select_for_update().get(pk=pattern.pk)
+    # 잠금은 모두 FOR NO KEY UPDATE다. 서로는 막아 직렬화하지만, 구간(span_match)의 FK가
+    # 커밋 때 거는 KEY SHARE는 막지 않아 분석 저장과 교착하지 않는다.
+    return GrammarPattern.objects.select_for_update(no_key=True).get(pk=pattern.pk)
 
 
 def _require(obj, *statuses):
@@ -125,7 +127,7 @@ def unapprove_pattern(pattern):
 def _locked_usage(usage):
     """용법과 그 소속 패턴을 잠근다. 패턴을 먼저 잠가 패턴 쪽 전이와 순서를 맞춘다."""
     pattern = _locked(usage.pattern)
-    usage = GrammarUsage.objects.select_for_update().get(pk=usage.pk)
+    usage = GrammarUsage.objects.select_for_update(no_key=True).get(pk=usage.pk)
     return pattern, usage
 
 
@@ -140,7 +142,7 @@ def close_usages(pattern):
     if failure:
         raise Refused(failure)
     usages = list(
-        GrammarUsage.objects.select_for_update()
+        GrammarUsage.objects.select_for_update(no_key=True)
         .filter(pattern=pattern)
         .exclude(status=ReviewStatus.REJECTED)
     )

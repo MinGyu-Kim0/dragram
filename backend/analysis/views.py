@@ -903,7 +903,7 @@ def analyze(request):
             with transaction.atomic():
                 saved.span_matches.all().delete()
                 span_matches(saved, validated, final)
-                locked = SentenceAnalysis.objects.select_for_update().get(pk=saved.pk)
+                locked = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=saved.pk)
                 if _is_fresh(locked):
                     raise _SavedByAnother
         except _SavedByAnother:

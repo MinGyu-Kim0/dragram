@@ -5,6 +5,8 @@ LLM이 만들므로 여기서 더하거나 지우지 않는다. 상태는 필드
 analysis.review의 상태 전이를 부른다.
 """
 
+import json
+
 from django import forms
 from django.contrib import admin, messages
 
@@ -17,6 +19,10 @@ def _example_problem(text):
     """관리자가 쓴 예문의 모양 문제. 없으면 None."""
     if not isinstance(text, str) or not text.strip():
         return "예문은 비어 있지 않은 문자열이어야 합니다"
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return "예문에 저장할 수 없는 문자(짝 없는 서로게이트 등)가 있습니다"
     if len(text) > patterns.EXAMPLE_MAX_LENGTH:
         return f"예문은 {patterns.EXAMPLE_MAX_LENGTH}자 이하여야 합니다"
     if not has_only_known_placeholders(text, ()):
@@ -24,7 +30,21 @@ def _example_problem(text):
     return None
 
 
+class _TestCasesField(forms.JSONField):
+    """오류 화면에서 입력을 되보일 때, UTF-8로 쓸 수 없는 문자는 \\u 이스케이프로 보인다."""
+
+    def prepare_value(self, value):
+        text = super().prepare_value(value)
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            return json.dumps(value)
+        return text
+
+
 class GrammarPatternForm(forms.ModelForm):
+    test_cases = _TestCasesField()
+
     class Meta:
         model = GrammarPattern
         fields = ["name", "test_cases"]
@@ -144,6 +164,11 @@ class GrammarUsageAdmin(_ReviewedAdmin):
     search_fields = ["name", "pattern__name"]
     fields = ["name", "pattern", "status", "origin", "explanation_ko", "example_ja"]
     readonly_fields = ["name", "pattern", "status", "origin"]
+
+    def save_model(self, request, obj, form, change):
+        # 고칠 수 있는 칸만 쓴다. 폼을 연 뒤 액션이 바꾼 상태를 화면이 읽어 둔 값으로 덮지 않는다.
+        obj.save(update_fields=["explanation_ko", "example_ja", "updated_at"])
+
     actions = [
         _review_action("approve", review.approve_usage, "승인"),
         _review_action("reject", review.reject_usage, "반려"),

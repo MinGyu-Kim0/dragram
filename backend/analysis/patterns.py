@@ -182,7 +182,7 @@ def add_usage(pattern, name, explanation_ko, example_ja):
     """
     # 패턴을 먼저 잠가, 용법 완결 표시(analysis.review)가 커밋 전 용법을 못 본 채 하나라고
     # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다.
-    GrammarPattern.objects.select_for_update().filter(pk=pattern.pk).exists()
+    GrammarPattern.objects.select_for_update(no_key=True).filter(pk=pattern.pk).exists()
     try:
         # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
         with transaction.atomic():
@@ -214,7 +214,7 @@ def make_stale(pattern=None, usage=None):
             id__in=SentenceAnalysis.objects.filter(**span_filter).values("id")
         )
         .order_by("id")
-        .select_for_update()
+        .select_for_update(no_key=True)
         .values_list("id", flat=True)
     )
     SentenceAnalysis.objects.filter(id__in=ids).update(

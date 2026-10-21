@@ -529,53 +529,75 @@ def analyze(request):
         ).exists()
 
     def check_examples(validated):
-        """새 패턴·새 용법의 예문을 저장 전에 검사해 쓸 수 있는 예문을 "example"에 둔다(없으면
-        None). 원문을 베껴 거부된 예문은 한 번에 묶어 한 번만 다시 쓰게 하고, 다시 쓴 예문도
-        같은 검사를 통과해야 쓴다. 이미 검사한 예문은 다시 보지 않는다(다시 묻기 뒤 재시도).
-        LLM 호출이라 저장 트랜잭션 밖에서 부른다.
+        """새 패턴·새 용법의 예문을 저장 전에 검사해, 쓸 수 있는 예문을 "checked_example"에
+        둔다(없으면 None). validated 안의 제안·새 용법을 제자리에서 고친다.
+
+        원문을 베껴 거부된 예문은 한 번에 묶어 한 번만 다시 쓰게 하고, 다시 쓴 예문도 같은
+        검사를 통과해야 쓴다. 같은 용법에 이미 통과한 예문이 있으면 다시 쓰지 않는다(그 예문을
+        쓴다). 다시 쓰기가 실패하면 예문 없이 둔다. 보조 호출 하나 때문에 분석 전체를 버리지
+        않는다. 이미 검사한 예문은 다시 보지 않는다(다시 묻기 뒤 재시도). LLM 호출이라 저장
+        트랜잭션 밖에서 부른다.
         """
-        # (예문을 담은 제안·새 용법, 패턴 이름, 형태소 조건, 문법 구간)
+        # (예문을 담은 제안·새 용법, 같은 용법인지 가르는 열쇠, 패턴 이름, 형태소 조건, 문법 구간)
         targets = [
-            (p, p["pattern_name"], p["conditions"], key_span(p["tokens"][0][0], p["tokens"][-1][0]))
+            (
+                p,
+                (patterns.morpheme_key(p["conditions"]), p["usage_name"]),
+                p["pattern_name"],
+                p["conditions"],
+                key_span(p["tokens"][0][0], p["tokens"][-1][0]),
+            )
             for p in validated["new_patterns"]
-            if "example" not in p and p["existing"] is None and p["conditions"] is not None
+            if "checked_example" not in p and p["existing"] is None and p["conditions"] is not None
         ]
         targets += [
-            (n, span.pattern.name, span.conditions, key_span(span.start_token, span.end_token))
+            (
+                n,
+                (span.pattern.id, n["usage_name"]),
+                span.pattern.name,
+                span.conditions,
+                key_span(span.start_token, span.end_token),
+            )
             for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True)
-            if n is not None and "example" not in n
+            if n is not None and "checked_example" not in n
         ]
-        copied = []
-        for holder, pattern_name, conditions, grammar_span in targets:
+        copied, usable = [], set()
+        for holder, usage_key, pattern_name, conditions, grammar_span in targets:
             verdict = _example_verdict(
                 holder["example_ja"], conditions, key_text, content_tokens, grammar_span
             )
-            holder["example"] = holder["example_ja"] if verdict == _EXAMPLE_OK else None
-            if verdict == _EXAMPLE_COPIED:
-                copied.append((holder, pattern_name, conditions, grammar_span))
+            holder["checked_example"] = holder["example_ja"] if verdict == _EXAMPLE_OK else None
+            if verdict == _EXAMPLE_OK:
+                usable.add(usage_key)
+            elif verdict == _EXAMPLE_COPIED:
+                copied.append((holder, usage_key, pattern_name, conditions, grammar_span))
+        copied = [item for item in copied if item[1] not in usable]
         if not copied or saved_by_another():
-            return validated
-        result = llm.get_client().rewrite_examples(
-            key_text,
-            [
-                {
-                    "example_id": example_id,
-                    "pattern_name": pattern_name,
-                    "usage_name": holder["usage_name"],
-                    "explanation_ko": holder["explanation_ko"],
-                    "rejected_example": holder["example_ja"],
-                }
-                for example_id, (holder, pattern_name, _, _) in enumerate(copied)
-            ],
-        )
-        rewritten = _validate_rewrites(result, len(copied))
-        if rewritten is None:
-            raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 예문 다시 쓰기")
-        for (holder, _, conditions, grammar_span), text in zip(copied, rewritten, strict=True):
+            return
+        try:
+            result = llm.get_client().rewrite_examples(
+                key_text,
+                [
+                    {
+                        "example_id": example_id,
+                        "pattern_name": pattern_name,
+                        "usage_name": holder["usage_name"],
+                        "explanation_ko": holder["explanation_ko"],
+                        "rejected_example": holder["example_ja"],
+                    }
+                    for example_id, (holder, _, pattern_name, _, _) in enumerate(copied)
+                ],
+            )
+            rewritten = _validate_rewrites(result, len(copied))
+            if rewritten is None:
+                raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 예문 다시 쓰기")
+        except BusinessError as e:
+            log_business_error(e)
+            return
+        for (holder, _, _, conditions, grammar_span), text in zip(copied, rewritten, strict=True):
             verdict = _example_verdict(text, conditions, key_text, content_tokens, grammar_span)
             if verdict == _EXAMPLE_OK:
-                holder["example"] = text
-        return validated
+                holder["checked_example"] = text
 
     def ask_again(validated):
         """형태소 조건이 같은 패턴이 이미 있는 새 구문은 새 용법을 버리고, 그 패턴의 기존 용법
@@ -641,7 +663,7 @@ def analyze(request):
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
             if usage_examples.get((span.pattern.id, name)) is None:
-                usage_examples[span.pattern.id, name] = new_usage["example"]
+                usage_examples[span.pattern.id, name] = new_usage["checked_example"]
         added, new_usages = {}, {}
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
@@ -690,7 +712,7 @@ def analyze(request):
         # 같은 조건의 제안 중 검사를 통과한 첫 예문(check_examples)이 패턴의 활성화 근거가
         # 되고, 같은 조건·같은 용법 이름의 제안 중 통과한 첫 예문이 그 용법의 예문이 된다(다른
         # 용법의 예문은 용법 예문으로 쓰지 않는다).
-        examples = [p.get("example") for p in proposals]
+        examples = [p.get("checked_example") for p in proposals]
         test_examples, usage_examples = {}, {}
         for proposal, example in zip(proposals, examples, strict=True):
             if example is not None:
@@ -765,7 +787,7 @@ def analyze(request):
         """
         # 다시 물어 받은 새 용법도 공용 테이블에 들어가므로 다시 본다.
         reject_quotes(validated)
-        validated = check_examples(validated)
+        check_examples(validated)
         draft = {"words": _stored_words(validated["words"], morphs, offsets)}
 
         # 분석 행과 구간·새 패턴을 함께 저장한다. 다른 요청이 먼저 저장한 문장이면 그 결과를

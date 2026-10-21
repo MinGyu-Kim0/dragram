@@ -22,6 +22,7 @@ class FakeLLMClient:
         # 그대로 돌려준다(다시 써도 베낀 경우).
         self.rewrite_requests = []
         self.rewrite_response = None
+        self.rewrite_error = None
 
     def analyze_stream(self, sentence, tokens, spans):
         """실제 클라이언트처럼 번역이 문자열이면 먼저 넘기고, 이어서 응답 전체를 넘긴다."""
@@ -55,8 +56,8 @@ class FakeLLMClient:
 
     def rewrite_examples(self, sentence, examples):
         self.rewrite_requests.append({"sentence": sentence, "examples": examples})
-        if self.error:
-            raise self.error
+        if self.error or self.rewrite_error:
+            raise self.error or self.rewrite_error
         if self.rewrite_response is not None:
             return self.rewrite_response
         return {

@@ -16,6 +16,7 @@ from analysis.models import (
     SentenceAnalysis,
     SpanMatch,
 )
+from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
 
 pytestmark = pytest.mark.django_db
@@ -989,7 +990,7 @@ def test_example_rejected_for_other_reasons_is_not_rewritten(client, fake_llm):
         "not an object",
     ],
 )
-def test_invalid_rewrite_answer_fails_and_nothing_is_stored(client, fake_llm, answer):
+def test_invalid_rewrite_answer_keeps_the_analysis_without_example(client, fake_llm, answer):
     fake_llm.response = {
         "translation_ko": "어제 도서관에서 책을 읽고 있다",
         "new_patterns": [
@@ -1000,6 +1001,40 @@ def test_invalid_rewrite_answer_fails_and_nothing_is_stored(client, fake_llm, an
 
     response = analyze(client, LIBRARY)
 
-    assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert GrammarPattern.objects.count() == 0
-    assert SentenceAnalysis.objects.count() == 0
+    # 보조 호출 하나 때문에 번역·문법을 버리지 않고, 예문 없이 등록한다.
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert SentenceAnalysis.objects.count() == 1
+    assert not GrammarPattern.objects.get().is_active
+    assert GrammarUsage.objects.get().example_ja is None
+
+
+def test_failed_rewrite_call_keeps_the_analysis_without_example(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "어제 도서관에서 책을 읽고 있다",
+        "new_patterns": [
+            new_pattern((6, "lemma"), (7, "lemma"), example_ja="昨日図書館で本を見ている")
+        ],
+    }
+    fake_llm.rewrite_error = BusinessError(AnalysisError.FAILED, "LLM 예문 다시 쓰기 호출 실패")
+
+    response = analyze(client, LIBRARY)
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+    assert not GrammarPattern.objects.get().is_active
+
+
+def test_copied_example_is_not_rewritten_when_same_usage_has_a_valid_one(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 い / 3 て / 4 いる
+    # 같은 조건·같은 용법 이름의 뒤 제안 예문이 통과한다.
+    fake_llm.response = {
+        "translation_ko": "번역",
+        "new_patterns": [
+            new_pattern((1, "lemma"), (2, "lemma"), example_ja="走っていている"),
+            new_pattern((3, "lemma"), (4, "lemma"), example_ja="雨が降っている"),
+        ],
+    }
+
+    analyze(client, "走っていている")
+
+    assert fake_llm.rewrite_requests == []
+    assert GrammarUsage.objects.get().example_ja == "雨が降っている"

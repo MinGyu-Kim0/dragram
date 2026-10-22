@@ -111,7 +111,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | smallint |  | PK | 항상 1인 한 행만 둔다(CHECK id = 1) |
-| version | 현재 패턴 세트 버전 | integer |  |  | grammar_pattern.is_active나 활성 패턴의 형태소 조건이 바뀌는 트랜잭션에서 행을 잠그는 UPDATE … SET version = version + 1로 1 증가. 새 패턴을 등록하는 트랜잭션은 패턴을 morpheme_key 순서로 넣고 이 행은 마지막에 잠근다(동시 등록 교착 방지). 상태 전이·분석 저장은 패턴(·용법) → 이 행 → 분석 행 순서로 잠근다(design-decisions 35절). sentence_analysis.matcher_version과 비교하는 현재값 |
+| version | 현재 패턴 세트 버전 | integer |  |  | grammar_pattern.is_active나 활성 패턴의 형태소 조건이 바뀌거나, 패턴의 매칭 자격(활성 + 반려되지 않은 용법 1개 이상)이 거짓에서 참이 되는(용법 반려 취소, 첫 용법 추가) 트랜잭션에서 행을 잠그는 UPDATE … SET version = version + 1로 1 증가. 새 패턴을 등록하는 트랜잭션은 패턴을 morpheme_key 순서로 넣고 이 행은 마지막에 잠근다(동시 등록 교착 방지). 상태 전이·분석 저장·재매칭 저장은 패턴(·용법) → 이 행 → 분석 행 순서로 잠그고, 구간은 분석 행을 잠근 뒤 쓴다(design-decisions 35절, 41절). sentence_analysis.matcher_version과 비교하는 현재값 |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 
 ## pattern_morpheme — 패턴 형태소
@@ -171,7 +171,7 @@
 | sentence_hash | 문장 해시 | char(64) |  |  | 키 텍스트(정규화+숫자 자리표시자) SHA-256. UNIQUE(sentence_hash). 공용 테이블에 원문 미저장 |
 | normalize_version | 정규화 버전 | smallint |  |  | 기록용. 정규화 규칙이 바뀌면 마이그레이션으로 해시 재계산 |
 | pipeline_version | 파이프라인 버전 | varchar(30) |  |  | SudachiPy·사전·판별 로직 버전 |
-| matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전(pattern_set_version.version). 현재 값보다 낮으면 조회 시 로컬 매칭을 다시 돌림. 일괄 재처리 없음. DB만으로 정할 수 없는 새 구간이 생기면 stale로 만들고 LLM 재판정을 큐에 넣음 |
+| matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전(pattern_set_version.version). 첫 분석·stale 교체·재매칭이 매칭 직전에 읽은 값을 기록하고, 값은 낮추지 않음. 기존 행은 0. 현재 값보다 낮으면 조회 시 그 요청의 원문으로 로컬 매칭을 다시 돌려 저장된 구간에 없는 새 구간만 더함(일괄 재처리 없음, stale로 만들지 않음). DB만으로 정할 수 없는 새 구간은 같은 요청 안에서 LLM 재판정(rematch_judge)으로 정함. 재판정이 실패하면 이 값도 그대로 둬 다음 조회가 다시 시도(design-decisions 41절) |
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
 | status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete |
 | processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 선점 만료 판단과 미완료 작업 재투입 기준 |
@@ -188,7 +188,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| analysis_id | 문장 분석 ID | bigint |  | → sentence_analysis |  |
+| analysis_id | 문장 분석 ID | bigint |  | → sentence_analysis | UNIQUE(analysis_id, pattern_id, start_offset, end_offset) WHERE pattern_id IS NOT NULL: 같은 자리의 같은 패턴 구간은 하나(중복 카드 방지 백스톱). 구간을 쓰는 모든 경로는 패턴(·용법) → 패턴 세트 버전 → 분석 행을 잠근 뒤 저장 열쇠를 확인하고 씀(design-decisions 41절) |
 | pattern_id | 문법 패턴 ID | bigint | Y | → grammar_pattern | 미발견 구간에서 새 패턴 등록에 실패해 패턴이 없으면 null |
 | usage_id | 확정 용법 ID | bigint | Y | → grammar_usage | 회화체 패턴이 원형에 연결됐으면(variant_of) 원형 용법만, 미연결이면 자기 용법만 허용(서버 검증). usage_closed·usage_rule 확정은 실제 매칭된 패턴 기준 / 그 패턴 또는 variant_of 원형 소속(트랜잭션 검증) |
 | start_offset | 시작 위치 | integer |  |  | 키 텍스트 코드포인트 기준 [start, end). 원문 위치는 서버가 변환 / 0 ≤ start < end (CHECK) |

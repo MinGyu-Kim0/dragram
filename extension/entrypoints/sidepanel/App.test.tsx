@@ -1186,3 +1186,45 @@ test("stale 분석은 옛 결과를 '재분석 중'으로 먼저 보이고, 중�
   expect(screen.getByRole("tab", { name: "문법 0" })).toBeInTheDocument();
   expect(screen.queryByText("재분석 중")).not.toBeInTheDocument();
 });
+
+test("재분석이 실패하면 옛 결과를 남기고 '재분석하지 못했습니다'를 보이며, 그사이 받은 새 번역은 버린다", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        ndjson([
+          previousEvent(),
+          { type: "grammar", grammar: [], checking: [] },
+          { type: "translation", translation_ko: "새 번역", ruby: [] },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]),
+      ),
+    ),
+  );
+  render(<App />);
+
+  await send(panelWindowId, "彼が来ている");
+
+  expect(await screen.findByText("재분석하지 못했습니다")).toBeInTheDocument();
+  expect(screen.queryByText("재분석 중")).not.toBeInTheDocument();
+  expect(screen.getByText("그가 와 있다")).toBeInTheDocument();
+  expect(screen.queryByText("새 번역")).not.toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "단어 1" })).toBeInTheDocument();
+  expect(
+    screen.queryByText("문법·단어를 분석하지 못했습니다"),
+  ).not.toBeInTheDocument();
+});
+
+test("재분석 중에 스트림이 끊겨도 옛 결과를 남기고 '재분석하지 못했습니다'를 보인다", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => Promise.resolve(ndjson([previousEvent()]))),
+  );
+  render(<App />);
+
+  await send(panelWindowId, "彼が来ている");
+
+  expect(await screen.findByText("재분석하지 못했습니다")).toBeInTheDocument();
+  expect(screen.getByText("그가 와 있다")).toBeInTheDocument();
+});

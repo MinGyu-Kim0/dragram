@@ -1243,6 +1243,16 @@ function respondInTurn(...responses: (() => Promise<Response> | Response)[]) {
 
 const failed = () => json(502, { error: "ANALYSIS:FAILED" });
 
+// 첫 요청은 실패하고, 다음 요청부터는 then으로 응답한다.
+function failOnceThen(then: () => Promise<Response> | Response) {
+  let tried = false;
+  return () => {
+    if (tried) return then();
+    tried = true;
+    return failed();
+  };
+}
+
 test("번역 전에 실패한 문장은 '다시 시도'로 그 문장만 다시 요청하고, 성공하면 결과로 바뀐다", async () => {
   const fetchMock = respondInTurn(failed, () =>
     json(200, analysis("나는 학생입니다.")),
@@ -1345,10 +1355,10 @@ test("먼저 온 문법이 있는 채로 실패한 문장에서 다시 시도하
 });
 
 test("여러 문장 중 실패한 문장에만 버튼이 있고, 다시 시도해도 다른 문장은 다시 보내지 않는다", async () => {
-  let failures = 0;
   const fetchMock = respondPerSentence({
-    "私は学生です。": () =>
-      failures++ === 0 ? failed() : json(200, analysis("나는 학생입니다.")),
+    "私は学生です。": failOnceThen(() =>
+      json(200, analysis("나는 학생입니다.")),
+    ),
     "猫が好きです。": () => json(200, analysis("고양이를 좋아합니다.")),
   });
   render(<App />);
@@ -1429,12 +1439,10 @@ test("같은 문장이 두 페이지에 있으면 한 페이지에서 다시 시
 
 test("다시 시도한 요청이 끝나기 전에 새 회차가 오면 그 응답은 새 회차 화면에 나타나지 않는다", async () => {
   let finishRetry: (response: Response) => void = () => {};
-  let calls = 0;
   respondPerSentence({
-    "私は学生です。": () =>
-      calls++ === 0
-        ? failed()
-        : new Promise<Response>((resolve) => (finishRetry = resolve)),
+    "私は学生です。": failOnceThen(
+      () => new Promise<Response>((resolve) => (finishRetry = resolve)),
+    ),
     "猫が好きです。": () => json(200, analysis("고양이를 좋아합니다.")),
   });
   render(<App />);
@@ -1453,13 +1461,12 @@ test("다시 시도한 요청이 끝나기 전에 새 회차가 오면 그 응�
 
 test("다시 시도도 동시 요청 한도에 들어가, 한도가 차 있으면 자리가 날 때까지 보내지 않는다", async () => {
   let finishFirst: (response: Response) => void = () => {};
-  let failures = 0;
   const fetchMock = respondPerSentence({
     "一。": () => new Promise<Response>((resolve) => (finishFirst = resolve)),
     "二。": () => new Promise<Response>(() => {}),
     "三。": () => new Promise<Response>(() => {}),
     "四。": () => new Promise<Response>(() => {}),
-    "五。": () => (failures++ === 0 ? failed() : json(200, analysis("다섯."))),
+    "五。": failOnceThen(() => json(200, analysis("다섯."))),
     "六。": () => new Promise<Response>(() => {}),
   });
   render(<App />);

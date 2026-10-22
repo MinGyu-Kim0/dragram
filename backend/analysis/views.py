@@ -11,7 +11,7 @@ from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from analysis import llm, patterns
-from analysis.models import GrammarUsage, ReviewStatus, SentenceAnalysis, SpanMatch
+from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus, SentenceAnalysis, SpanMatch
 from analysis.morphology import morphemes
 from analysis.normalize import (
     NORMALIZE_VERSION,
@@ -357,9 +357,28 @@ def _copies_part(example, original):
 _EXAMPLE_OK, _EXAMPLE_COPIED, _EXAMPLE_UNUSABLE = "ok", "copied", "unusable"
 
 
-def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans):
+def _fixed_runs(conditions, key_range):
+    """이어진 고정 토큰 묶음마다 (묶음 순서, 키 텍스트 start, end). key_range(i, j)는 패턴 안
+    i~j번째 토큰의 키 텍스트 구간이다. 아무거나 토큰은 묶음을 끊고, 그 글자는 복사 길이에 센다.
+    """
+    runs, first = [], None
+    for i, c in enumerate([*conditions, patterns.ANY]):
+        if c != patterns.ANY and first is None:
+            first = i
+        elif c == patterns.ANY and first is not None:
+            runs.append((len(runs), *key_range(first, i - 1)))
+            first = None
+    return runs
+
+
+def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans, by_runs=False):
     """새 예문을 검사한다. 패턴에 걸리지 않는 등 원문과 상관없이 쓸 수 없으면 unusable, 그렇지
     않은데 원문을 베꼈으면 copied(다시 쓰게 함), 쓸 수 있으면 ok다.
+
+    by_runs면 고정 토큰을 토큰마다가 아니라 이어진 묶음마다(_fixed_runs) 맞춘다. 연결된 회화체
+    구간의 새 용법 예문은 원형 조건으로 검사하는데, 회화체(ちゃう)와 원형(て·しまう)은 토큰 수가
+    달라 토큰끼리 맞추면 문법 앞뒤로 이어 베낀 것이 끊겨 보인다. 그때 fixed_spans도 원문의 회화체
+    고정 토큰 묶음이다(#63).
     """
     if len(example) > patterns.EXAMPLE_MAX_LENGTH or not has_only_known_placeholders(example, ()):
         return _EXAMPLE_UNUSABLE
@@ -380,12 +399,24 @@ def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans)
     if _quotes_whole_sentence([example_key], key_text, content_tokens):
         return _EXAMPLE_COPIED
     offsets = key_offsets(pieces)
-    example_fixed = [
-        (seq, *to_key(offsets, morphs[start + seq].begin, morphs[start + seq].end))
-        for start in starts
-        for seq, c in enumerate(conditions)
-        if c != patterns.ANY
-    ]
+    if by_runs:
+        example_fixed = [
+            run
+            for start in starts
+            for run in _fixed_runs(
+                conditions,
+                lambda i, j, start=start: to_key(
+                    offsets, morphs[start + i].begin, morphs[start + j].end
+                ),
+            )
+        ]
+    else:
+        example_fixed = [
+            (seq, *to_key(offsets, morphs[start + seq].begin, morphs[start + seq].end))
+            for start in starts
+            for seq, c in enumerate(conditions)
+            if c != patterns.ANY
+        ]
     # 예문의 패턴 매치와 맞춰 보고, 매치 밖에서 원문 고정 토큰을 같은 글자로 베낀 것도 본다.
     for aligned in (True, False):
         if _copies_part(
@@ -474,7 +505,7 @@ def _grammar_response(analysis, offsets, origins, utf16, restore):
     """
     spans = list(
         analysis.span_matches.filter(state__in=_SHOWN_STATES)
-        .select_related("pattern", "usage__pattern")
+        .select_related("pattern__variant_of", "usage__pattern")
         .order_by("start_offset", "end_offset", "id")
     )
     alternative_usages = GrammarUsage.objects.select_related("pattern").in_bulk(
@@ -536,12 +567,22 @@ def _grammar_item(
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
         "review_status": review_status,
+        **_register_fields(pattern),
     }
 
 
+def _register_fields(pattern):
+    """회화체 표시 칸: 매칭된 패턴의 register와, 연결된 원형 패턴 이름(없으면 null, #63)."""
+    base = pattern.variant_of
+    return {"register": pattern.register, "variant_of": base.name if base else None}
+
+
 def _unresolved_item(span, offsets, origins, utf16):
-    """미확정 구간의 응답 항목. 이름은 매칭된 패턴의 것이고 설명은 없다. 패턴이 반려됐으면 None."""
-    if span.pattern.status == ReviewStatus.REJECTED:
+    """미확정 구간의 응답 항목. 이름은 매칭된 패턴의 것이고 설명은 없다. 매칭된 패턴이나 연결된
+    원형이 반려됐으면 None, 하나라도 미검수면 pending이다.
+    """
+    statuses = _pattern_statuses(span.pattern)
+    if ReviewStatus.REJECTED in statuses:
         return None
     start, end = to_original(
         origins, utf16, *to_analysis(offsets, span.start_offset, span.end_offset)
@@ -552,18 +593,28 @@ def _unresolved_item(span, offsets, origins, utf16):
         "state": SpanMatch.State.UNRESOLVED,
         "name": span.pattern.name,
         "explanation_ko": None,
-        "review_status": ("pending" if span.pattern.status == ReviewStatus.PENDING else "approved"),
+        "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
+        **_register_fields(span.pattern),
     }
 
 
 def _review_status(pattern, usage):
-    """화면에 보일 검수 상태(ADR 0003). 고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴 중
-    하나라도 반려됐으면 None(보이지 않음), 미검수면 pending이다.
+    """화면에 보일 검수 상태(ADR 0003). 고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴,
+    매칭된 패턴이 연결된 원형 중 하나라도 반려됐으면 None(보이지 않음), 미검수면 pending이다.
+    용법이 매칭된 패턴이나 그 원형 소속이 아니면(연결 해제 뒤 재분석 전) 역시 None이다(#63).
     """
-    statuses = {usage.status, usage.pattern.status, pattern.status}
+    if usage.pattern_id not in {pattern.id, pattern.variant_of_id}:
+        return None
+    statuses = {usage.status, usage.pattern.status, *_pattern_statuses(pattern)}
     if ReviewStatus.REJECTED in statuses:
         return None
     return "pending" if ReviewStatus.PENDING in statuses else "approved"
+
+
+def _pattern_statuses(pattern):
+    """매칭된 패턴과, 연결됐으면 그 원형의 검수 상태들(#63)."""
+    base = pattern.variant_of
+    return {pattern.status} | ({base.status} if base else set())
 
 
 def _closed_usage(span):
@@ -572,7 +623,8 @@ def _closed_usage(span):
     표시가 보장하지만 분석 때도 다시 본다.
     """
     pattern = span.pattern
-    if not pattern.usage_closed or pattern.status != ReviewStatus.APPROVED:
+    # 연결된 회화체는 원형도 승인돼야 한다. 후보는 원형의 용법이다(#63).
+    if not pattern.usage_closed or _pattern_statuses(pattern) != {ReviewStatus.APPROVED}:
         return None
     if len(span.candidates) != 1:
         return None
@@ -601,12 +653,15 @@ def _words_response(stored, offsets, origins, utf16, restore):
 
 
 def _llm_spans(spans):
-    """LLM에 줄 후보 구간. 구간 ID는 이 목록의 순번이다."""
+    """LLM에 줄 후보 구간. 구간 ID는 이 목록의 순번이다. 원형에 연결된 회화체 구간은 원형 패턴
+    이름(colloquial_of)을 함께 준다. 후보는 원형의 용법이다(#63).
+    """
     return [
         {
             "span_id": span_id,
             "start_token_id": span.start_token,
             "end_token_id": span.end_token,
+            **({"colloquial_of": span.pattern.variant_of.name} if span.pattern.variant_of else {}),
             "candidates": [
                 {"candidate_id": candidate_id, "name": u.name, "explanation_ko": u.explanation_ko}
                 for candidate_id, u in span.candidates
@@ -614,6 +669,11 @@ def _llm_spans(spans):
         }
         for span_id, span in enumerate(spans)
     ]
+
+
+def _usage_owner(pattern):
+    """그 패턴의 구간에 새 용법을 더할 패턴. 연결된 회화체면 원형이다(#63)."""
+    return pattern.variant_of or pattern
 
 
 def _reading_changed(first, again):
@@ -627,6 +687,35 @@ def _reading_changed(first, again):
     if first[0] == SpanMatch.State.UNRESOLVED:
         return True
     return again[1] != first[1]
+
+
+def _basis_changed(rows):
+    """판정 근거로 읽은 상태가 저장 직전에 바뀌어 이 구간들을 저장하면 안 되는가(#63).
+
+    둘을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
+    구간의 용법 완결이 풀렸다(이번 저장이 같은 원형에 새 용법을 더해 풀었을 수 있다). 그대로
+    저장하면 그 stale 처리가 이 트랜잭션의 구간을 보지 못해 다시 분석될 계기가 없다.
+    """
+    closed = {row.pattern_id for row in rows if row.decided_by == SpanMatch.DecidedBy.SINGLE_USAGE}
+    opened = GrammarPattern.objects.filter(pk__in=closed, usage_closed=False).exists()
+    return opened or _links_changed(rows)
+
+
+def _links_changed(rows):
+    """구간마다 분석할 때 읽은 원형 연결이 지금과 다른가(#63). 판정 상태와 상관없이 모두 본다.
+
+    분석하는 사이 연결·해제가 일어나면 후보·용법이 바뀐 패턴 기준이 된다. 그대로 저장하면 연결·
+    해제의 stale 처리가 저장 전에 지나가 다시 분석될 계기가 없어서 저장하지 않는다. 저장하는
+    트랜잭션은 맨 처음 patterns.lock_links()로 연결·해제와 직렬화하므로, 여기서 읽은 연결은
+    커밋할 때까지 바뀌지 않는다.
+    """
+    read = [(row.pattern_id, row.pattern.variant_of_id) for row in rows if row.pattern_id]
+    current = dict(
+        GrammarPattern.objects.filter(pk__in={pk for pk, _ in read}).values_list(
+            "pk", "variant_of_id"
+        )
+    )
+    return any(current.get(pk) != base for pk, base in read)
 
 
 def _stored_keys(analysis):
@@ -710,7 +799,7 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
         ]
 
     # (예문을 담은 제안·새 용법, 같은 용법인지 가르는 열쇠, 패턴 이름, 형태소 조건,
-    #  고정 토큰 구간)
+    #  고정 토큰 구간, 매치 전체를 한 단위로 맞추는가)
     targets = [
         (
             p,
@@ -718,41 +807,53 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
             p["pattern_name"],
             p["conditions"],
             fixed_spans(p["tokens"][0][0], p["conditions"]),
+            False,
         )
         for p in validated["new_patterns"]
         if "checked_example" not in p and p["existing"] is None and p["conditions"] is not None
     ]
-    targets += [
-        (
-            n,
-            (span.pattern.id, n["usage_name"]),
-            span.pattern.name,
-            span.conditions,
-            fixed_spans(span.start_token, span.conditions),
+    # 새 용법은 그 용법이 들어갈 패턴(연결된 회화체면 원형)의 조건에 걸려야 한다. 연결된 회화체
+    # 구간은 원문과 예문의 고정 토큰을 이어진 묶음마다 맞춘다(#63).
+    for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True):
+        if n is None or "checked_example" in n:
+            continue
+        owner = _usage_owner(span.pattern)
+        linked = owner is not span.pattern
+        targets.append(
+            (
+                n,
+                (owner.id, n["usage_name"]),
+                owner.name,
+                patterns.conditions_of(owner),
+                _fixed_runs(
+                    span.conditions,
+                    lambda i, j, start=span.start_token: key_span(start + i, start + j),
+                )
+                if linked
+                else fixed_spans(span.start_token, span.conditions),
+                linked,
+            )
         )
-        for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True)
-        if n is not None and "checked_example" not in n
-    ]
     # 기존 패턴에 이미 있는 이름의 새 용법은 더하지 않으므로(patterns.add_usage) 검사하지
     # 않는다. 다시 쓰기를 보내도 버려진다.
     taken = set(
         GrammarUsage.objects.filter(
-            pattern__in=[span.pattern for span in validated["span_list"]]
+            pattern__in=[_usage_owner(span.pattern) for span in validated["span_list"]]
         ).values_list("pattern_id", "name")
     )
     copied, usable = [], set()
-    for holder, usage_key, pattern_name, conditions, fixed in targets:
+    for holder, usage_key, pattern_name, conditions, fixed, whole in targets:
         if usage_key in taken:
             holder["checked_example"] = None
             continue
         verdict = _example_verdict(
-            holder["example_ja"], conditions, key_text, content_tokens, fixed
+            holder["example_ja"], conditions, key_text, content_tokens, fixed, whole
         )
         holder["checked_example"] = holder["example_ja"] if verdict == _EXAMPLE_OK else None
         if verdict == _EXAMPLE_OK:
             usable.add(usage_key)
         elif verdict == _EXAMPLE_COPIED:
-            copied.append((holder, usage_key, pattern_name, conditions, fixed))
+            copied.append((holder, usage_key, pattern_name, conditions, fixed, whole))
     copied = [item for item in copied if item[1] not in usable]
     if not copied or discarded():
         return
@@ -767,7 +868,7 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
                     "explanation_ko": holder["explanation_ko"],
                     "rejected_example": holder["example_ja"],
                 }
-                for example_id, (holder, _, pattern_name, _, _) in enumerate(copied)
+                for example_id, (holder, _, pattern_name, *_) in enumerate(copied)
             ],
         )
         rewritten = _validate_rewrites(result, len(copied))
@@ -776,8 +877,8 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
     except BusinessError as e:
         log_business_error(e)
         return
-    for (holder, _, _, conditions, fixed), text in zip(copied, rewritten, strict=True):
-        verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed)
+    for (holder, _, _, conditions, fixed, whole), text in zip(copied, rewritten, strict=True):
+        verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed, whole)
         if verdict == _EXAMPLE_OK:
             holder["checked_example"] = text
 
@@ -939,7 +1040,7 @@ def analyze(request):
                 pattern = existing.get(patterns.morpheme_key(proposal["conditions"]))
             if pattern is None:
                 rest.append(proposal)
-            elif pattern.status == ReviewStatus.REJECTED:
+            elif ReviewStatus.REJECTED in _pattern_statuses(pattern):
                 rest.append({**proposal, "existing": pattern})
             else:
                 span = patterns.span_of(pattern, proposal["tokens"][0][0], next_id)
@@ -1041,30 +1142,42 @@ def analyze(request):
         # 기존 용법으로 설명되지 않는 구간은 같은 패턴 아래 새 용법을 더한다. 동시 요청이 같은
         # 이름의 용법을 서로 다른 순서로 더하면 유일성 대기가 엇갈려 교착이 나므로 (패턴, 이름)
         # 순서로 더한다. 이 응답에서 이미 더한 (패턴, 이름)이면 그 용법을 함께 쓴다.
+        # 연결된 회화체 구간의 새 용법은 원형 아래에 더하고, 이름과 순서도 원형 기준이다(#63).
         additions = sorted(
-            (span.pattern.morpheme_key, new_usage["usage_name"], index)
+            (_usage_owner(span.pattern).morpheme_key, new_usage["usage_name"], index)
             for index, (span, (_, _, new_usage)) in enumerate(judged)
             if new_usage is not None
         )
+        # 새 용법을 더할 패턴들(과 그 회화체들)을 처음에 한 번에 잠근다. 하나씩 잠그면 연결·해제나
+        # 다른 분석과 잠금 순서가 엇갈릴 수 있다(#63).
+        if additions:
+            patterns.lock_families(
+                *(_usage_owner(judged[index][0].pattern) for *_, index in additions)
+            )
         # 용법 예문은 같은 (패턴, 이름)의 답 중 검사를 통과한 첫 예문이다(check_examples).
         usage_examples = {}
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
-            if usage_examples.get((span.pattern.id, name)) is None:
-                usage_examples[span.pattern.id, name] = new_usage["checked_example"]
+            owner = _usage_owner(span.pattern)
+            if usage_examples.get((owner.id, name)) is None:
+                usage_examples[owner.id, name] = new_usage["checked_example"]
         added, new_usages = {}, {}
         activated = False
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
-            if (span.pattern.id, name) not in added:
-                added[span.pattern.id, name], matchable = patterns.add_usage(
-                    span.pattern,
+            owner = _usage_owner(span.pattern)
+            # 같은 원형을 가리키는 회화체 구간들은 같은 새 용법을 함께 쓴다. 나머지 구간의 연결
+            # 상태는 저장 직전에 함께 본다(_links_changed).
+            if (owner.id, name) not in added:
+                added[owner.id, name], matchable = patterns.add_usage(
+                    owner,
                     name,
                     new_usage["explanation_ko"],
-                    usage_examples[span.pattern.id, name],
+                    usage_examples[owner.id, name],
+                    matched=span.pattern,
                 )
                 activated |= matchable
-            new_usages[index] = added[span.pattern.id, name]
+            new_usages[index] = added[owner.id, name]
         rows = []
         for index, (span, (state, usage, new_usage)) in enumerate(judged):
             start, end = key_span(span.start_token, span.end_token)
@@ -1223,9 +1336,10 @@ def analyze(request):
             return save(ask_again(validated), final=True)
 
     def save_once(validated, draft, final):
-        """분석 행을 만들거나 다시 채우고 구간 매칭을 저장한다. (행, 시작 뒤 세대 번호가
-        바뀌었는가)를 돌려준다. 호출하는 쪽이 트랜잭션을 연다.
+        """분석 행을 만들거나 다시 채우고 구간 매칭을 저장한다. (행, 시작 뒤 세대 번호나 원형
+        연결이 바뀌었는가)를 돌려준다. 호출하는 쪽이 트랜잭션을 연다.
         """
+        patterns.lock_links()
         saved, created = SentenceAnalysis.objects.get_or_create(
             sentence_hash=sentence_hash,
             defaults={
@@ -1239,8 +1353,9 @@ def analyze(request):
         )
         if created:
             # 이 트랜잭션에서 만든 행이라 다른 요청은 아직 보지도 잠그지도 못한다.
-            SpanMatch.objects.bulk_create(span_matches(saved, validated, final))
-            return saved, False
+            rows = span_matches(saved, validated, final)
+            SpanMatch.objects.bulk_create(rows)
+            return saved, _basis_changed(rows)
         if _is_fresh(saved):
             return saved, False
         # 임시 분석을 받기 전에 저장된 행이나 stale 행이면 이번 결과로 통째로 바꾼다. 상태
@@ -1277,7 +1392,7 @@ def analyze(request):
                 "updated_at",
             ]
         )
-        return locked, locked.generation != started_generation
+        return locked, locked.generation != started_generation or _basis_changed(rows)
 
     def closed_grammar():
         """용법 완결로 확정한 구간의 응답 항목(원문 순서)."""
@@ -1346,12 +1461,17 @@ def analyze(request):
         usages = GrammarUsage.objects.select_related("pattern").in_bulk(
             [usage.id for _, _, usage in new_closed]
         )
+        matched = GrammarPattern.objects.select_related("variant_of").in_bulk(
+            [span.pattern.id for span, _, _ in new_closed]
+        )
         for span, _, usage in new_closed:
             current = usages.get(usage.id)
             if span_key(span) in stored_keys or current is None:
                 continue
             start, end = key_span(span.start_token, span.end_token)
-            item = _grammar_item(current.pattern, current, start, end, offsets, origins, utf16)
+            item = _grammar_item(
+                matched[span.pattern.id], current, start, end, offsets, origins, utf16
+            )
             if item is not None:
                 grammar.append(item)
         return sorted(grammar, key=lambda item: (item["start"], item["end"]))
@@ -1378,6 +1498,7 @@ def analyze(request):
         저장되지 않았는지 다시 본다. 하나라도 어긋나면 모두 되돌리고 None이다.
         """
         with transaction.atomic():
+            patterns.lock_links()
             rows, activated = judged_rows(cached, list(span_list), list(answers), alternatives)
             rows = closed_rows(cached, new_closed) + rows
             if activated:
@@ -1389,6 +1510,7 @@ def analyze(request):
                 or locked.generation != started_generation
                 or locked.matcher_version >= matcher_version
                 or new_keys & _stored_keys(locked)
+                or _basis_changed(rows)
             ):
                 transaction.set_rollback(True)
                 return None
@@ -1443,7 +1565,7 @@ def analyze(request):
             cached.span_matches.filter(
                 state__in=(SpanMatch.State.DECIDED, SpanMatch.State.DIVERGENT)
             )
-            .select_related("pattern", "usage__pattern")
+            .select_related("pattern__variant_of", "usage__pattern")
             .order_by("start_offset", "end_offset", "id")
         )
         for span in stored:

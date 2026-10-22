@@ -13,6 +13,10 @@ export interface GrammarItem {
   explanation_ko: string | null;
   // pending은 LLM이 썼고 아직 검수되지 않은 문법이다.
   review_status: "pending" | "approved";
+  // 매칭된 패턴의 말투. colloquial이면 회화체 패턴(ちゃう 등)이다.
+  register: "standard" | "colloquial";
+  // 회화체가 연결된 원형 패턴 이름(てしまう 등). 연결되지 않았으면 null이다.
+  variant_of: string | null;
   // 해석 갈림의 대안 해석(대안 용법 이름, 그 해석으로 옮긴 문장 전체 번역). 반려된 대안은 빠진다.
   alternatives?: Alternative[];
 }

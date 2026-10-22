@@ -54,6 +54,8 @@ def test_span_of_a_usage_closed_pattern_is_decided_without_asking_the_llm(client
         "name": "진행",
         "explanation_ko": "동작이 이어지고 있음을 나타낸다",
         "review_status": "approved",
+        "register": "standard",
+        "variant_of": None,
     }
     assert response.events[0]["grammar"] == [expected]
     assert response.json()["grammar"] == [expected]

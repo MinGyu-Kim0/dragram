@@ -256,6 +256,8 @@ function grammarItem(start: number, end: number, name: string) {
     name,
     explanation_ko: `${name} 설명`,
     review_status: "pending",
+    register: "standard",
+    variant_of: null,
   };
 }
 
@@ -1589,6 +1591,8 @@ test("미확정 구간은 패턴 이름과 '판단하지 못함'으로 보이고
         name: "ている",
         explanation_ko: null,
         review_status: "pending",
+        register: "standard",
+        variant_of: null,
       },
     ],
     words: [],
@@ -1656,4 +1660,35 @@ test("확인 중 카드는 분석이 오면 해석 갈림 카드로 바뀌고, �
     .getAllByRole("listitem")
     .filter((li) => li.classList.contains("grammar-card"));
   expect(card).toHaveClass("divergent");
+});
+
+test("회화체 구간은 '회화체' 배지를 달고, 원형에 연결됐으면 제목 아래에 원형 안내 한 줄을 둔다", async () => {
+  respondWith(200, {
+    translation_ko: "다 먹어 버렸다",
+    grammar: [
+      {
+        ...grammarItem(2, 5, "완료"),
+        register: "colloquial",
+        variant_of: "てしまう",
+      },
+      // 연결을 푼 회화체는 배지만 남는다.
+      { ...grammarItem(5, 6, "과거"), register: "colloquial" },
+      grammarItem(0, 2, "명사"),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "全部食べちゃった");
+
+  await screen.findByRole("tab", { name: "문법 3" });
+  const [standard, linked, unlinked] = screen.getAllByRole("listitem");
+  expect(within(linked!).getByText("회화체")).toHaveClass("badge-neutral");
+  expect(within(linked!).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(within(linked!).getByText("「てしまう」의 회화체")).toHaveClass(
+    "variant-note",
+  );
+  expect(within(unlinked!).getByText("회화체")).toBeInTheDocument();
+  expect(unlinked!.querySelector(".variant-note")).toBeNull();
+  expect(within(standard!).queryByText("회화체")).toBeNull();
 });

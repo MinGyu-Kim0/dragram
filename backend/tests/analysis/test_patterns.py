@@ -39,6 +39,8 @@ def test_new_grammar_is_registered_as_unreviewed_and_shown(client, fake_llm):
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
 
@@ -81,6 +83,8 @@ def test_same_grammar_in_another_sentence_is_offered_as_candidate_and_reused(cli
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
     assert GrammarUsage.objects.count() == 1
@@ -657,6 +661,27 @@ def test_voiced_function_word_after_sound_change_matches_unvoiced_pattern(
             "食べちゃう",
             new_pattern((1, "lemma"), pattern_name="ちゃう", example_ja="全部見ちゃう"),
         ),
+        # どく → とく, じまう → ちまう, でく → てく, じゃ(接続助詞) → ちゃ(#63)
+        (
+            "飲んどく",
+            "言っとく",
+            new_pattern((1, "lemma"), pattern_name="とく", example_ja="手紙を書いとく"),
+        ),
+        (
+            "飲んじまった",
+            "食べちまった",
+            new_pattern((1, "lemma"), pattern_name="ちまう", example_ja="全部見ちまった"),
+        ),
+        (
+            "読んでく",
+            "食べてく",
+            new_pattern((1, "lemma"), pattern_name="てく", example_ja="パンを買ってく"),
+        ),
+        (
+            "読んじゃいけない",
+            "食べちゃいけない",
+            new_pattern((1, "lemma"), pattern_name="ちゃ", example_ja="ここで見ちゃ駄目"),
+        ),
     ],
 )
 def test_other_voiced_auxiliaries_after_sound_change_match_unvoiced_patterns(
@@ -705,6 +730,8 @@ def test_unfound_span_adds_new_usage_under_the_same_pattern(client, fake_llm):
             "name": "역접",
             "explanation_ko": "앞 내용과 반대되는 뒤 내용을 잇는다",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
     assert GrammarPattern.objects.count() == 1

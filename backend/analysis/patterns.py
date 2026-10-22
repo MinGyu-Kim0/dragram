@@ -7,7 +7,7 @@
 import hashlib
 from typing import NamedTuple
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Exists, F, OuterRef, Prefetch, Q
 from django.utils import timezone
 
@@ -80,24 +80,45 @@ def _open_usages():
 
 
 def _with_candidates(patterns):
-    """패턴마다 형태소 조건(seq 순서)과 반려되지 않은 용법(등록 순서)을 함께 읽는다."""
-    return patterns.prefetch_related(
-        Prefetch("morphemes", queryset=PatternMorpheme.objects.order_by("seq")),
-        Prefetch("usages", queryset=_open_usages().order_by("id")),
-    ).order_by("id")
-
-
-def matchable_patterns():
-    """매칭 자격이 있는 패턴: 활성이고 반려되지 않은 용법이 하나 이상이다. candidate_spans가
-    매칭에 쓰는 패턴이고, 이 판정이 거짓에서 참이 되면 패턴 세트 버전을 올린다(#41).
+    """패턴마다 형태소 조건(seq 순서)과 반려되지 않은 용법(등록 순서)을 함께 읽는다. 연결된
+    회화체면 원형과 원형의 형태소 조건·용법도 읽는다.
     """
-    return GrammarPattern.objects.filter(
-        Exists(_open_usages().filter(pattern=OuterRef("pk"))), is_active=True
+    morphemes = PatternMorpheme.objects.order_by("seq")
+    usages = _open_usages().order_by("id")
+    return (
+        patterns.select_related("variant_of")
+        .prefetch_related(
+            Prefetch("morphemes", queryset=morphemes),
+            Prefetch("usages", queryset=usages),
+            Prefetch("variant_of__morphemes", queryset=morphemes),
+            Prefetch("variant_of__usages", queryset=usages),
+        )
+        .order_by("id")
     )
 
 
-def is_matchable(pattern):
-    return matchable_patterns().filter(pk=pattern.pk).exists()
+def candidate_usages(pattern):
+    """후보가 될 용법(등록 순서). 연결된 회화체면 원형의 반려되지 않은 용법이고 원형이 반려됐으면
+    없다. 그 밖에는 자기 반려되지 않은 용법이다(#63). _with_candidates로 읽은 패턴에 쓴다.
+    """
+    base = pattern.variant_of
+    if base is None:
+        return list(pattern.usages.all())
+    if base.status == ReviewStatus.REJECTED:
+        return []
+    return list(base.usages.all())
+
+
+def matchable_patterns():
+    """매칭 자격이 있는 패턴: 활성이고 후보가 될 용법(candidate_usages)이 하나 이상이다.
+    candidate_spans가 매칭에 쓰는 패턴이고, 이 판정이 거짓에서 참이 되면 패턴 세트 버전을
+    올린다(#41, #63).
+    """
+    own = Exists(_open_usages().filter(pattern=OuterRef("pk")))
+    base = Exists(_open_usages().filter(pattern=OuterRef("variant_of")))
+    return GrammarPattern.objects.filter(is_active=True).filter(
+        Q(own, variant_of__isnull=True) | (Q(base) & ~Q(variant_of__status=ReviewStatus.REJECTED))
+    )
 
 
 def conditions_of(pattern):
@@ -118,7 +139,7 @@ def candidate_spans(morphs):
     spans = []
     next_id = 1
     for pattern in _with_candidates(matchable_patterns()):
-        usages = list(pattern.usages.all())
+        usages = candidate_usages(pattern)
         # 용법은 따로 읽으므로 그사이 모두 반려됐을 수 있다.
         if not usages:
             continue
@@ -147,7 +168,7 @@ def existing_patterns(conditions_list):
 def span_of(pattern, start, next_id):
     """이미 있는 패턴을 start 토큰에서 시작하는 구간으로 다시 물을 때의 구간과 후보."""
     conditions = conditions_of(pattern)
-    usages = list(pattern.usages.all())
+    usages = candidate_usages(pattern)
     return Span(pattern, conditions, start, start + len(conditions) - 1, _numbered(usages, next_id))
 
 
@@ -195,18 +216,64 @@ def raise_pattern_set_version():
     )
 
 
-def add_usage(pattern, name, explanation_ko, example_ja):
-    """기존 패턴 아래 새 용법을 미검수로 더한다. (용법, 매칭 자격을 새로 얻었는가)를 돌려준다.
-    같은 이름의 용법이 이미 있으면 (None, False)다.
+# 원형 연결 상태의 advisory 잠금 열쇠(#63)
+_LINKS_LOCK = 63_000_001
+
+
+def lock_links(exclusive=False):
+    """원형 연결 상태를 트랜잭션이 끝날 때까지 잠근다. 연결·해제는 배타로, 구간을 저장하는 분석은
+    공유로 잡아 분석끼리는 막지 않는다. 연결·해제가 저장 중인(커밋 전) 구간을 stale로 만들지
+    못하고 지나가지 않게 한다. 다른 잠금보다 먼저, 트랜잭션 맨 처음에 잡는다(#63).
+    """
+    function = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT {function}(%s)", [_LINKS_LOCK])
+
+
+def lock_families(*patterns):
+    """패턴들과, 그 패턴을 원형으로 가리키는 회화체들을 한 번에 id 순서로 잠근다(#63).
+
+    원형 쪽 사건은 연결된 회화체까지 바꾸고, 연결·해제와 한 문장의 새 용법들은 여러 패턴을 함께
+    잠근다. 패턴을 잠그는 모든 경로가 이 함수로 한 번에 잠가 순서를 맞춘다. 잠금은 FOR NO KEY
+    UPDATE다(analysis.review). {id: 잠근 패턴}을 돌려준다.
+    """
+    ids = {pattern.pk for pattern in patterns}
+    family = Q(pk__in=ids) | Q(variant_of__in=ids)
+    rows = GrammarPattern.objects.select_for_update(no_key=True).filter(family).order_by("id")
+    return {row.pk: row for row in rows}
+
+
+def matchable_family(pattern):
+    """그 패턴과 그 패턴을 원형으로 가리키는 회화체 중 매칭 자격이 있는 것의 ID들(#63)."""
+    family = matchable_patterns().filter(Q(pk=pattern.pk) | Q(variant_of=pattern))
+    return set(family.values_list("pk", flat=True))
+
+
+def add_usage(pattern, name, explanation_ko, example_ja, matched=None):
+    """기존 패턴 아래 새 용법을 미검수로 더한다. (용법, 매칭 자격을 새로 얻은 패턴이 있는가)를
+    돌려준다. 같은 이름의 용법이 이미 있으면 (None, False)다.
+
+    matched는 이 용법이 설명할 구간의 실제로 매칭된 패턴이고, 주지 않으면 pattern이다. 연결된
+    회화체면 pattern은 그 원형이다. 패턴을 잠근 뒤 연결 상태가 그대로인지(matched가 pattern이면
+    연결되지 않음, 아니면 pattern에 연결됨) 다시 보고, 바뀌었으면 더하지 않고 (None, False)다.
+    연결된 회화체에는 자기 용법을 두지 않는다(#63).
 
     example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 열고,
     매칭 자격을 새로 얻었으면 분석 행을 잠그기 전에 패턴 세트 버전을 한 번 올린다(잠금 순서:
-    패턴 → 용법 → 버전 → 분석).
+    패턴과 그 회화체(lock_families) → 용법 → 버전 → 분석).
     """
     # 패턴을 먼저 잠가, 용법 완결 표시(analysis.review)가 커밋 전 용법을 못 본 채 하나라고
-    # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다.
-    GrammarPattern.objects.select_for_update(no_key=True).filter(pk=pattern.pk).exists()
-    was_matchable = is_matchable(pattern)
+    # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다. 연결·해제도 이 패턴을 잠그므로
+    # 그 뒤 읽은 연결 상태는 이 트랜잭션이 끝날 때까지 바뀌지 않는다.
+    lock_families(pattern)
+    matched_id = (matched or pattern).pk
+    # 자기 패턴에 더하면 그 패턴은 아직 회화체로 연결되지 않아야 하고, 원형에 더하면 매칭된
+    # 회화체가 아직 그 원형에 연결돼 있어야 한다.
+    expected_base = None if matched_id == pattern.pk else pattern.pk
+    linked_to = GrammarPattern.objects.values_list("variant_of_id", flat=True).get(pk=matched_id)
+    if linked_to != expected_base:
+        return None, False
+    was_matchable = matchable_family(pattern)
     try:
         # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
         with transaction.atomic():
@@ -220,19 +287,32 @@ def add_usage(pattern, name, explanation_ko, example_ja):
             )
     except IntegrityError:
         return None, False
-    # 용법이 둘이 되면 더는 용법 완결이 아니다.
-    if GrammarPattern.objects.filter(pk=pattern.pk, usage_closed=True).update(usage_closed=False):
+    # 용법이 둘이 되면 더는 용법 완결이 아니다(그 패턴에 연결된 회화체도).
+    clear_usage_closed(pattern)
+    return usage, bool(matchable_family(pattern) - was_matchable)
+
+
+def clear_usage_closed(pattern):
+    """그 패턴과, 그 패턴을 원형으로 가리키는 회화체의 용법 완결을 뗀다. 회화체의 용법 완결은
+    원형의 용법에 기대므로 원형 쪽 사건이 함께 뗀다(#63). 뗐으면 그 패턴(과 회화체)의 구간이
+    있는 분석을 stale로 만든다. 호출하는 쪽이 lock_families로 회화체까지 잠가 둔다.
+    """
+    family = Q(pk=pattern.pk) | Q(variant_of=pattern)
+    if GrammarPattern.objects.filter(family, usage_closed=True).update(usage_closed=False):
+        pattern.usage_closed = False
         make_stale(pattern=pattern)
-    return usage, not was_matchable and is_matchable(pattern)
 
 
 def make_stale(pattern=None, usage=None):
-    """그 패턴으로 매칭된 구간, 또는 그 용법으로 정해진 구간이나 그 용법을 대안으로 쓴 해석 갈림
-    구간이 있는 분석을 stale로 만들고 세대 번호를 올린다(#38, #40). 동시에 여러 사건이 겹쳐도
-    교착하지 않게 id 순서로 잠근 뒤 바꾼다.
+    """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 또는 그 용법으로 정해진
+    구간이나 그 용법을 대안으로 쓴 해석 갈림 구간이 있는 분석을 stale로 만들고 세대 번호를
+    올린다(#38, #40, #63). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은 따로 넓히지 않는다. 동시에
+    여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다.
     """
     if usage is None:
-        span_filter = Q(span_matches__pattern=pattern)
+        span_filter = Q(span_matches__pattern=pattern) | Q(
+            span_matches__pattern__variant_of=pattern
+        )
     else:
         span_filter = Q(span_matches__usage=usage) | Q(
             span_matches__alternatives__contains=[{"usage_id": usage.id}]

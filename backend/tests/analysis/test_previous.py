@@ -53,6 +53,8 @@ def test_stale_analysis_sends_its_previous_result_before_calling_the_llm(client,
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
     assert [(w["lemma"], w["meaning_ko"]) for w in first["words"]] == [("走る", "달리다")]

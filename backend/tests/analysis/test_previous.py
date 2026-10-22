@@ -83,6 +83,20 @@ def test_previous_result_leaves_out_spans_of_a_rejected_usage(client, fake_llm):
     assert response.types()[-1] == "analysis"
 
 
+def test_previous_result_leaves_out_spans_of_a_rejected_pattern(client, fake_llm):
+    stale_teiru(client, fake_llm)
+    SentenceAnalysis.objects.update(is_stale=False)
+    review.reject_pattern(GrammarPattern.objects.get())
+    # 반려된 패턴은 매칭되지 않는다.
+    fake_llm.response = {"translation_ko": "달리는 중이다"}
+
+    response = analyze(client, "走っている")
+
+    assert response.events[0]["type"] == "previous"
+    assert response.events[0]["grammar"] == []
+    assert response.types()[-1] == "analysis"
+
+
 def test_llm_failure_after_the_previous_result_is_an_error_event_and_keeps_it_stale(
     client, fake_llm
 ):

@@ -357,9 +357,13 @@ def _copies_part(example, original):
 _EXAMPLE_OK, _EXAMPLE_COPIED, _EXAMPLE_UNUSABLE = "ok", "copied", "unusable"
 
 
-def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans):
+def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans, whole_span=False):
     """새 예문을 검사한다. 패턴에 걸리지 않는 등 원문과 상관없이 쓸 수 없으면 unusable, 그렇지
     않은데 원문을 베꼈으면 copied(다시 쓰게 함), 쓸 수 있으면 ok다.
+
+    whole_span이면 예문의 패턴 매치 전체를 한 단위로 맞춘다. 연결된 회화체 구간의 새 용법 예문은
+    원형 조건으로 검사하는데, 회화체(ちゃう)와 원형(て·しまう)은 토큰 수가 달라 토큰끼리 맞추면
+    문법 앞뒤로 이어 베낀 것이 끊겨 보인다. 그때 fixed_spans도 원문 구간 전체 하나다(#63).
     """
     if len(example) > patterns.EXAMPLE_MAX_LENGTH or not has_only_known_placeholders(example, ()):
         return _EXAMPLE_UNUSABLE
@@ -380,12 +384,18 @@ def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans)
     if _quotes_whole_sentence([example_key], key_text, content_tokens):
         return _EXAMPLE_COPIED
     offsets = key_offsets(pieces)
-    example_fixed = [
-        (seq, *to_key(offsets, morphs[start + seq].begin, morphs[start + seq].end))
-        for start in starts
-        for seq, c in enumerate(conditions)
-        if c != patterns.ANY
-    ]
+    if whole_span:
+        last = len(conditions) - 1
+        example_fixed = [
+            (0, *to_key(offsets, morphs[start].begin, morphs[start + last].end)) for start in starts
+        ]
+    else:
+        example_fixed = [
+            (seq, *to_key(offsets, morphs[start + seq].begin, morphs[start + seq].end))
+            for start in starts
+            for seq, c in enumerate(conditions)
+            if c != patterns.ANY
+        ]
     # 예문의 패턴 매치와 맞춰 보고, 매치 밖에서 원문 고정 토큰을 같은 글자로 베낀 것도 본다.
     for aligned in (True, False):
         if _copies_part(
@@ -754,7 +764,7 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
         ]
 
     # (예문을 담은 제안·새 용법, 같은 용법인지 가르는 열쇠, 패턴 이름, 형태소 조건,
-    #  고정 토큰 구간)
+    #  고정 토큰 구간, 매치 전체를 한 단위로 맞추는가)
     targets = [
         (
             p,
@@ -762,23 +772,28 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
             p["pattern_name"],
             p["conditions"],
             fixed_spans(p["tokens"][0][0], p["conditions"]),
+            False,
         )
         for p in validated["new_patterns"]
         if "checked_example" not in p and p["existing"] is None and p["conditions"] is not None
     ]
-    # 새 용법은 그 용법이 들어갈 패턴(연결된 회화체면 원형)의 조건에 걸려야 한다. 원문에서 고정한
-    # 토큰은 실제로 매칭된 패턴의 것이다(#63).
+    # 새 용법은 그 용법이 들어갈 패턴(연결된 회화체면 원형)의 조건에 걸려야 한다. 연결된 회화체
+    # 구간은 원문 구간 전체와 예문의 원형 매치 전체를 한 단위로 맞춘다(#63).
     for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True):
         if n is None or "checked_example" in n:
             continue
         owner = _usage_owner(span.pattern)
+        linked = owner is not span.pattern
         targets.append(
             (
                 n,
                 (owner.id, n["usage_name"]),
                 owner.name,
                 patterns.conditions_of(owner),
-                fixed_spans(span.start_token, span.conditions),
+                [(0, *key_span(span.start_token, span.end_token))]
+                if linked
+                else fixed_spans(span.start_token, span.conditions),
+                linked,
             )
         )
     # 기존 패턴에 이미 있는 이름의 새 용법은 더하지 않으므로(patterns.add_usage) 검사하지
@@ -789,18 +804,18 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
         ).values_list("pattern_id", "name")
     )
     copied, usable = [], set()
-    for holder, usage_key, pattern_name, conditions, fixed in targets:
+    for holder, usage_key, pattern_name, conditions, fixed, whole in targets:
         if usage_key in taken:
             holder["checked_example"] = None
             continue
         verdict = _example_verdict(
-            holder["example_ja"], conditions, key_text, content_tokens, fixed
+            holder["example_ja"], conditions, key_text, content_tokens, fixed, whole
         )
         holder["checked_example"] = holder["example_ja"] if verdict == _EXAMPLE_OK else None
         if verdict == _EXAMPLE_OK:
             usable.add(usage_key)
         elif verdict == _EXAMPLE_COPIED:
-            copied.append((holder, usage_key, pattern_name, conditions, fixed))
+            copied.append((holder, usage_key, pattern_name, conditions, fixed, whole))
     copied = [item for item in copied if item[1] not in usable]
     if not copied or discarded():
         return
@@ -815,7 +830,7 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
                     "explanation_ko": holder["explanation_ko"],
                     "rejected_example": holder["example_ja"],
                 }
-                for example_id, (holder, _, pattern_name, _, _) in enumerate(copied)
+                for example_id, (holder, _, pattern_name, *_) in enumerate(copied)
             ],
         )
         rewritten = _validate_rewrites(result, len(copied))
@@ -824,8 +839,8 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
     except BusinessError as e:
         log_business_error(e)
         return
-    for (holder, _, _, conditions, fixed), text in zip(copied, rewritten, strict=True):
-        verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed)
+    for (holder, _, _, conditions, fixed, whole), text in zip(copied, rewritten, strict=True):
+        verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed, whole)
         if verdict == _EXAMPLE_OK:
             holder["checked_example"] = text
 

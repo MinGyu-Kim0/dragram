@@ -595,3 +595,29 @@ def test_linking_while_an_analysis_adds_usages_to_both_patterns_does_not_deadloc
     assert "error" not in response.json()
     # 연결할 패턴에 자기 용법이 있어 연결은 거부된다.
     assert result["link"] == "refused"
+
+
+def test_example_spreading_the_colloquial_form_into_the_base_still_counts_as_copying(
+    client, fake_llm
+):
+    # 원문의 ちゃっ 한 토큰을 예문이 て·しまっ 두 토큰으로 펼쳐도, 문법 앞뒤로 이어 베낀 글자
+    # (図書館で見 +
+    # た本だ = 8자)는 한 번의 복사로 센다.
+    linked(fake_llm)
+    # 토큰: 0 図書館 / 1 で / 2 見 / 3 ちゃっ / 4 た / 5 本 / 6 だ
+    fake_llm.response = {
+        "translation_ko": "도서관에서 봐 버린 책이다",
+        "spans": [
+            span_answer(
+                0, "unfound", new_usage=new_usage("유감", "아쉬움", "図書館で見てしまった本だ")
+            )
+        ],
+    }
+    fake_llm.rewrite_response = {
+        "examples": [{"example_id": 0, "example_ja": "本を忘れてしまった"}]
+    }
+
+    analyze(client, "図書館で見ちゃった本だ")
+
+    assert len(fake_llm.rewrite_requests) == 1
+    assert GrammarUsage.objects.get(name="유감").example_ja == "本を忘れてしまった"

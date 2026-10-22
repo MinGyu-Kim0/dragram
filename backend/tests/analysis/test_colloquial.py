@@ -814,3 +814,18 @@ def test_merged_duplicates_fold_and_a_divergent_span_left_without_alternatives_i
     span = SpanMatch.objects.get(analysis__translation_ko="전부 봐 버렸다")
     assert (span.state, span.usage_id, span.alternatives) == ("decided", done.pk, None)
     assert span.candidates == [{"candidate_id": 1, "usage_id": done.pk}]
+
+
+@pytest.mark.parametrize(
+    ("example_ja", "stored"),
+    [("本を忘れてしまった", "本を忘れてしまった"), ("本を忘れちゃった", None)],
+)
+def test_moved_usage_joins_the_base_and_keeps_its_status(fake_llm, example_ja, stored):
+    base, variant, _, own = with_own_usage(fake_llm)
+    GrammarUsage.objects.filter(pk=own.pk).update(status="approved", example_ja=example_ja)
+
+    review.link_variant(variant, base, {own.pk: None})
+
+    own.refresh_from_db()
+    # 회화체 형태로 쓴 예문은 원형 조건에 걸리지 않아 비운다.
+    assert (own.pattern, own.status, own.example_ja) == (base, "approved", stored)

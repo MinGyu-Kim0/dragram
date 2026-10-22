@@ -235,8 +235,9 @@ def link_variant(pattern, base, mapping=None):
     두 패턴(과 그 회화체들)을 한 번에 id 순서로 잠근다(patterns.lock_families). 그 회화체의
     구간이 있는 분석은 stale이 되고, 매칭 자격이 새로 생기면 패턴 세트 버전을 올린다.
 
-    mapping은 회화체의 반려되지 않은 자기 용법마다 {용법 ID: 합칠 원형 용법 ID}다. 자기 용법이
-    남았으면 모두 골라야 연결한다(#64). 이름으로 자동 대응하지 않는다.
+    mapping은 회화체의 반려되지 않은 자기 용법마다 {용법 ID: 합칠 원형 용법 ID, 원형 아래로
+    옮기면 None}이다. 자기 용법이 남았으면 모두 골라야 연결한다(#64). 이름으로 자동 대응하지
+    않는다.
     """
     if pattern.pk == base.pk:
         raise Refused("원형으로 자기 자신을 고를 수 없습니다")
@@ -253,10 +254,11 @@ def link_variant(pattern, base, mapping=None):
     if ReviewStatus.REJECTED in {base.status, pattern.status}:
         raise Refused("반려된 패턴은 연결할 수 없습니다")
     mapping = mapping or {}
+    merges = {source: target for source, target in mapping.items() if target is not None}
     # 자기 용법과 합칠 원형 용법을 한 번에 id 순서로 잠근다(패턴 → 용법 순서).
     locked = (
         GrammarUsage.objects.select_for_update(no_key=True)
-        .filter(Q(pattern=pattern) | Q(pattern=base, pk__in=mapping.values()))
+        .filter(Q(pattern=pattern) | Q(pattern=base, pk__in=merges.values()))
         .exclude(status=ReviewStatus.REJECTED)
         .order_by("id")
     )
@@ -266,7 +268,7 @@ def link_variant(pattern, base, mapping=None):
         raise Refused("반려되지 않은 자기 용법이 남아 있습니다(용법마다 합칠 원형 용법을 고릅니다)")
     if set(own) != set(mapping):
         raise Refused("고른 용법이 지금의 반려되지 않은 자기 용법과 다릅니다")
-    if any(target not in targets for target in mapping.values()):
+    if any(target not in targets for target in merges.values()):
         raise Refused("합칠 용법은 원형의 반려되지 않은 용법이어야 합니다")
     was_matchable = patterns.matchable_family(pattern)
     pattern.variant_of = base
@@ -275,9 +277,22 @@ def link_variant(pattern, base, mapping=None):
     if patterns.matchable_family(pattern) - was_matchable:
         patterns.raise_pattern_set_version()
     for source, target in mapping.items():
-        patterns.merge_usage(own[source], targets[target])
+        if target is None:
+            _move_usage(own[source], base)
+        else:
+            patterns.merge_usage(own[source], targets[target])
     patterns.clear_usage_closed(pattern)
     patterns.make_stale(pattern=pattern)
+
+
+def _move_usage(usage, base):
+    """회화체의 자기 용법을 원형 아래로 옮긴다(#64). 검수 상태는 그대로다. 예문이 원형 조건에
+    걸리지 않으면(회화체 형태로 쓴 예문) 비운다.
+    """
+    usage.pattern = base
+    if usage.example_ja is not None and not matches(patterns.conditions_of(base), usage.example_ja):
+        usage.example_ja = None
+    usage.save(update_fields=["pattern", "example_ja", "updated_at"])
 
 
 @transaction.atomic

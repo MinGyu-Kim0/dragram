@@ -8,7 +8,7 @@ import hashlib
 from typing import NamedTuple
 
 from django.db import IntegrityError, transaction
-from django.db.models import F, Prefetch
+from django.db.models import F, Prefetch, Q
 from django.utils import timezone
 
 from analysis.models import (
@@ -203,15 +203,19 @@ def add_usage(pattern, name, explanation_ko, example_ja):
 
 
 def make_stale(pattern=None, usage=None):
-    """그 패턴으로 매칭된 구간, 또는 그 용법으로 정해진 구간이 있는 분석을 stale로 만들고 세대
-    번호를 올린다(#38). 동시에 여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다.
+    """그 패턴으로 매칭된 구간, 또는 그 용법으로 정해진 구간이나 그 용법을 대안으로 쓴 해석 갈림
+    구간이 있는 분석을 stale로 만들고 세대 번호를 올린다(#38, #40). 동시에 여러 사건이 겹쳐도
+    교착하지 않게 id 순서로 잠근 뒤 바꾼다.
     """
-    span_filter = (
-        {"span_matches__pattern": pattern} if usage is None else {"span_matches__usage": usage}
-    )
+    if usage is None:
+        span_filter = Q(span_matches__pattern=pattern)
+    else:
+        span_filter = Q(span_matches__usage=usage) | Q(
+            span_matches__alternatives__contains=[{"usage_id": usage.id}]
+        )
     ids = list(
         SentenceAnalysis.objects.filter(
-            id__in=SentenceAnalysis.objects.filter(**span_filter).values("id")
+            id__in=SentenceAnalysis.objects.filter(span_filter).values("id")
         )
         .order_by("id")
         .select_for_update(no_key=True)

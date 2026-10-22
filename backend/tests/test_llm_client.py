@@ -221,7 +221,7 @@ def test_judge_spans_sends_sentence_translation_and_spans_and_returns_the_answer
     )
     tokens = [{"id": 0, "surface": "は"}]
 
-    result = llm_client.judge_spans("は", tokens, "는", SPANS)
+    result = llm_client.judge_spans("は", tokens, "는", [], [], SPANS)
 
     assert result == json.loads(answer)
     [request] = requests
@@ -229,10 +229,29 @@ def test_judge_spans_sends_sentence_translation_and_spans_and_returns_the_answer
         "sentence": "は",
         "tokens": tokens,
         "translation_ko": "는",
+        "decided_spans": [],
+        "recheck_spans": [],
         "spans": SPANS,
     }
     assert request["text"]["format"]["strict"] is True
+    # 같은 조건 구간만 다시 물으면 번역을 받지 않는다.
+    assert request["text"]["format"]["schema"]["required"] == ["spans"]
     assert request["timeout"] == llm.TIMEOUT_SECONDS
+
+
+def test_judge_spans_asks_for_the_translation_only_when_rechecking(llm_client, monkeypatch):
+    answer = '{"translation_ko": "는", "spans": []}'
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+    )
+    decided = [{"start_token_id": 0, "end_token_id": 0, "name": "주제"}]
+
+    llm_client.judge_spans("は", [], "는", decided, SPANS, [])
+
+    [request] = requests
+    assert json.loads(request["input"])["decided_spans"] == decided
+    assert json.loads(request["input"])["recheck_spans"] == SPANS
+    assert request["text"]["format"]["schema"]["required"] == ["translation_ko", "spans"]
 
 
 @pytest.mark.parametrize(
@@ -247,7 +266,7 @@ def test_judge_spans_failure_becomes_analysis_failure(llm_client, monkeypatch, r
     judge_with(llm_client, monkeypatch, response)
 
     with pytest.raises(BusinessError) as raised:
-        llm_client.judge_spans("は", [], "는", SPANS)
+        llm_client.judge_spans("は", [], "는", [], [], SPANS)
     assert raised.value.error_code == AnalysisError.FAILED
 
 
@@ -262,7 +281,7 @@ def test_follow_up_call_waits_only_until_the_request_deadline(settings, monkeypa
         llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
     )
 
-    llm_client.judge_spans("は", [], "는", SPANS)
+    llm_client.judge_spans("は", [], "는", [], [], SPANS)
 
     [request] = requests
     assert request["timeout"] == 10

@@ -9,7 +9,13 @@ from django.db.models import F
 from django.test import Client
 
 from analysis import patterns, review
-from analysis.models import GrammarPattern, GrammarUsage, PatternSetVersion, SentenceAnalysis
+from analysis.models import (
+    GrammarPattern,
+    GrammarUsage,
+    PatternSetVersion,
+    SentenceAnalysis,
+    SpanMatch,
+)
 from tests.analysis.helpers import (
     analyze,
     new_pattern,
@@ -744,3 +750,26 @@ def test_analysis_is_not_saved_when_a_new_base_usage_opens_a_closed_span(client,
     assert fake_llm.requests[-1]["decided_spans"][0]["start_token_id"] == 1
     assert "error" not in response.json()
     assert not SentenceAnalysis.objects.filter(translation_ko="봐 버리고 먹어 버렸다").exists()
+
+
+# 자기 용법이 남은 회화체를 연결하며 용법을 합치거나 옮기기(#64)
+
+
+def with_own_usage(fake_llm):
+    """원형 てしまう(용법 완료)와, 자기 용법 완료(회화체)가 남은 회화체 ちゃう."""
+    base = register(fake_llm, "食べてしまった", TESHIMAU, "먹어 버렸다")
+    variant = register(fake_llm, "食べちゃった", CHAU, "먹어 버렸다")
+    return base, variant, base.usages.get(), variant.usages.get()
+
+
+def test_merging_points_the_spans_at_the_base_usage_and_drops_the_own_usage(client, fake_llm):
+    base, variant, done, own = with_own_usage(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, MICHAU)
+
+    review.link_variant(variant, base, {own.pk: done.pk})
+
+    assert not GrammarUsage.objects.filter(pk=own.pk).exists()
+    span = SpanMatch.objects.get(analysis__translation_ko="전부 봐 버렸다")
+    assert span.usage_id == done.pk
+    assert span.candidates == [{"candidate_id": 1, "usage_id": done.pk}]

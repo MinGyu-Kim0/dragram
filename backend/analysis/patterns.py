@@ -18,6 +18,7 @@ from analysis.models import (
     PatternSetVersion,
     ReviewStatus,
     SentenceAnalysis,
+    SpanMatch,
 )
 
 # 새 예문(용법 예문, test_cases)은 짧은 문장으로 받는다. 이보다 길면 쓰지 않는다. 형태소 분석
@@ -303,11 +304,13 @@ def clear_usage_closed(pattern):
         make_stale(pattern=pattern)
 
 
-def make_stale(pattern=None, usage=None):
+def make_stale(pattern=None, usage=None, candidates=False):
     """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 또는 그 용법으로 정해진
     구간이나 그 용법을 대안으로 쓴 해석 갈림 구간이 있는 분석을 stale로 만들고 세대 번호를
     올린다(#38, #40, #63). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은 따로 넓히지 않는다. 동시에
-    여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다.
+    여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다. 잠근 분석 ID들을 돌려준다.
+
+    candidates면 그 용법을 후보로만 가진 구간의 분석도 넣는다. 용법 참조를 옮길 때 쓴다(#64).
     """
     if usage is None:
         span_filter = Q(span_matches__pattern=pattern) | Q(
@@ -317,6 +320,8 @@ def make_stale(pattern=None, usage=None):
         span_filter = Q(span_matches__usage=usage) | Q(
             span_matches__alternatives__contains=[{"usage_id": usage.id}]
         )
+        if candidates:
+            span_filter |= Q(span_matches__candidates__contains=[{"usage_id": usage.id}])
     ids = list(
         SentenceAnalysis.objects.filter(
             id__in=SentenceAnalysis.objects.filter(span_filter).values("id")
@@ -328,3 +333,45 @@ def make_stale(pattern=None, usage=None):
     SentenceAnalysis.objects.filter(id__in=ids).update(
         is_stale=True, generation=F("generation") + 1
     )
+    return ids
+
+
+def merge_usage(source, target):
+    """source 용법을 target으로 합친다(#64). 구간이 source를 주 용법·후보·대안으로 가리키던
+    참조를 target으로 바꾸고 source를 지운다.
+
+    그 구간이 있는 분석을 먼저 잠가 stale로 만들고 세대 번호를 올린 뒤 구간을 바꾼다(구간은 분석
+    행을 잠근 뒤 쓴다). 호출하는 쪽이 두 용법과 그 패턴을 잠그고, 그사이 source를 가리키는 구간을
+    저장하는 분석이 없게 한다. 패턴 합치기(FR-A27)와 관리자 정정도 이 함수로 참조를 옮긴다.
+    """
+    ids = make_stale(usage=source, candidates=True)
+    rows = [
+        row
+        for row in SpanMatch.objects.filter(analysis_id__in=ids).order_by("id")
+        if _repointed(row, source.pk, target.pk)
+    ]
+    SpanMatch.objects.bulk_update(rows, ["usage", "state", "candidates", "alternatives"])
+    source.delete()
+
+
+def _repointed(row, source_id, target_id):
+    """구간의 source 참조를 target으로 바꾼다. source를 가리키지 않던 구간이면 그대로 두고
+    False다.
+    """
+    items = (row.candidates or []) + (row.alternatives or [])
+    if row.usage_id != source_id and all(item["usage_id"] != source_id for item in items):
+        return False
+
+    def swapped(items):
+        return [
+            {**item, "usage_id": target_id if item["usage_id"] == source_id else item["usage_id"]}
+            for item in items
+        ]
+
+    if row.usage_id == source_id:
+        row.usage_id = target_id
+    if row.candidates is not None:
+        row.candidates = swapped(row.candidates)
+    if row.alternatives is not None:
+        row.alternatives = swapped(row.alternatives)
+    return True

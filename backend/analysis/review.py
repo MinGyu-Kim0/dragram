@@ -5,6 +5,7 @@ admin 액션과 이후 티켓이 함께 쓴다. 함수마다 한 트랜잭션에
 """
 
 from django.db import transaction
+from django.db.models import Q
 
 from analysis import patterns
 from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus
@@ -228,12 +229,14 @@ def unapprove_usage(usage):
 
 
 @transaction.atomic
-def link_variant(pattern, base):
+def link_variant(pattern, base, mapping=None):
     """회화체 패턴을 원형에 연결한다(#63). 연결된 회화체는 원형의 용법을 후보로 쓴다.
 
     두 패턴(과 그 회화체들)을 한 번에 id 순서로 잠근다(patterns.lock_families). 그 회화체의
-    구간이 있는 분석은 stale이 되고, 매칭 자격이 새로 생기면 패턴 세트 버전을 올린다. 자기
-    용법이 남은 회화체의 용법 병합은 하지 않는다(#64).
+    구간이 있는 분석은 stale이 되고, 매칭 자격이 새로 생기면 패턴 세트 버전을 올린다.
+
+    mapping은 회화체의 반려되지 않은 자기 용법마다 {용법 ID: 합칠 원형 용법 ID}다. 자기 용법이
+    남았으면 모두 골라야 연결한다(#64). 이름으로 자동 대응하지 않는다.
     """
     if pattern.pk == base.pk:
         raise Refused("원형으로 자기 자신을 고를 수 없습니다")
@@ -249,14 +252,30 @@ def link_variant(pattern, base):
         raise Refused("이 패턴을 원형으로 가리키는 회화체가 있습니다")
     if ReviewStatus.REJECTED in {base.status, pattern.status}:
         raise Refused("반려된 패턴은 연결할 수 없습니다")
-    if GrammarUsage.objects.filter(pattern=pattern).exclude(status=ReviewStatus.REJECTED).exists():
-        raise Refused("반려되지 않은 자기 용법이 남아 있습니다")
+    mapping = mapping or {}
+    # 자기 용법과 합칠 원형 용법을 한 번에 id 순서로 잠근다(패턴 → 용법 순서).
+    locked = (
+        GrammarUsage.objects.select_for_update(no_key=True)
+        .filter(Q(pattern=pattern) | Q(pattern=base, pk__in=mapping.values()))
+        .exclude(status=ReviewStatus.REJECTED)
+        .order_by("id")
+    )
+    own = {u.pk: u for u in locked if u.pattern_id == pattern.pk}
+    targets = {u.pk: u for u in locked if u.pattern_id == base.pk}
+    if own and not mapping:
+        raise Refused("반려되지 않은 자기 용법이 남아 있습니다(용법마다 합칠 원형 용법을 고릅니다)")
+    if set(own) != set(mapping):
+        raise Refused("고른 용법이 지금의 반려되지 않은 자기 용법과 다릅니다")
+    if any(target not in targets for target in mapping.values()):
+        raise Refused("합칠 용법은 원형의 반려되지 않은 용법이어야 합니다")
     was_matchable = patterns.matchable_family(pattern)
     pattern.variant_of = base
     pattern.register = GrammarPattern.Register.COLLOQUIAL
     pattern.save(update_fields=["variant_of", "register"])
     if patterns.matchable_family(pattern) - was_matchable:
         patterns.raise_pattern_set_version()
+    for source, target in mapping.items():
+        patterns.merge_usage(own[source], targets[target])
     patterns.clear_usage_closed(pattern)
     patterns.make_stale(pattern=pattern)
 

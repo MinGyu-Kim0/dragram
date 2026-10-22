@@ -26,6 +26,15 @@ TESHIMAU = new_pattern(
     example_ja="見てしまう",
 )
 
+TESHIMATTA = new_pattern(
+    (1, "lemma"),
+    (2, "lemma"),
+    (3, "lemma"),
+    pattern_name="てしまった",
+    usage_name="완료 과거",
+    explanation_ko="동작을 끝까지 해 버렸다",
+    example_ja="見てしまった",
+)
 SHIMATTA = new_pattern(
     (2, "lemma"),
     (3, "lemma"),
@@ -151,5 +160,23 @@ def test_partly_overlapping_or_same_range_grammar_are_cards_of_their_own(
     client, fake_llm, proposals, expected
 ):
     response = analyze_with(client, fake_llm, *proposals)
+
+    assert outline(response.json()["grammar"]) == expected
+
+
+@pytest.mark.parametrize(
+    ("hidden_in", "expected"),
+    [
+        (None, [("완료 과거", ["연결", "완료"])]),
+        ("てしまった", [("완료 과거", [])]),
+        # て는 그것을 바로 품은 てしまう 아래에 붙을 자리라 함께 숨는다.
+        ("てしまう", [("완료 과거", ["완료"])]),
+    ],
+)
+def test_nested_parts_are_laid_flat_under_the_outermost_card(client, fake_llm, hidden_in, expected):
+    analyze_with(client, fake_llm, TESHIMATTA, TESHIMAU, TE)
+    GrammarPattern.objects.filter(name=hidden_in).update(show_parts=False)
+
+    response = analyze(client, TABETESHIMATTA)
 
     assert outline(response.json()["grammar"]) == expected

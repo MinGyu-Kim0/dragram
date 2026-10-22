@@ -69,6 +69,7 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
         "translation_ko",
         "is_stale",
         "generation",
+        "matcher_version",
         "created_at",
         "updated_at",
     }

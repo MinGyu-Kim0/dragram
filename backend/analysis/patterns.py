@@ -168,6 +168,11 @@ def register(conditions, pattern_name, usage_name, explanation_ko, example_ja, t
     return pattern, usage
 
 
+def pattern_set_version():
+    """현재 패턴 세트 버전."""
+    return PatternSetVersion.objects.values_list("version", flat=True).get(id=1)
+
+
 def raise_pattern_set_version():
     """패턴 세트 버전을 1 올린다. UPDATE가 행을 잠그므로 동시에 올려도 하나씩 오른다."""
     PatternSetVersion.objects.filter(id=1).update(

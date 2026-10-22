@@ -5,7 +5,7 @@ import unicodedata
 from itertools import chain
 
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
@@ -744,7 +744,9 @@ def analyze(request):
 
     # 등록된 패턴에 걸린 구간과 후보 용법. LLM은 서버가 매긴 구간·후보 ID로만 답한다.
     # 승인된 용법 완결 패턴의 구간은 LLM 없이 확정하고, 나머지만 후보로 묻는다. 확정 구간은 LLM이
-    # 새 구문으로 다시 내지 않도록 알리기만 한다(#39).
+    # 새 구문으로 다시 내지 않도록 알리기만 한다(#39). 분석에는 매칭 직전에 읽은 패턴 세트 버전을
+    # 기록한다. 그 뒤에 활성화된 패턴은 다음 조회가 다시 매칭해 찾는다(#41).
+    matcher_version = patterns.pattern_set_version()
     matched = patterns.candidate_spans(morphs)
     # (구간, 후보 ID, 용법)
     closed_spans, spans = [], []
@@ -1189,6 +1191,7 @@ def analyze(request):
                 "status": SentenceAnalysis.Status.COMPLETE,
                 "translation_ko": validated["translation_ko"],
                 "draft_analysis": draft,
+                "matcher_version": matcher_version,
             },
         )
         if created:
@@ -1206,13 +1209,24 @@ def analyze(request):
                 locked = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=saved.pk)
                 if _is_fresh(locked):
                     raise _SavedByAnother
-        except _SavedByAnother:
-            # 그사이 다른 요청이 먼저 채웠다. 이번에 쓴 구간·패턴은 되돌리고 그 값을 쓴다.
+        except _SavedByAnother, IntegrityError:
+            # 그사이 다른 요청이 먼저 채웠다. 이번에 쓴 구간·패턴은 되돌리고 그 값을 쓴다. 같은
+            # 구간을 먼저 넣은 요청이 있으면 구간 유일성 제약에 걸린다(#41).
             return SentenceAnalysis.objects.get(pk=saved.pk), False
         locked.translation_ko = validated["translation_ko"]
         locked.draft_analysis = draft
         locked.is_stale = False
-        locked.save(update_fields=["translation_ko", "draft_analysis", "is_stale", "updated_at"])
+        # 세대 번호가 같으면 그사이 더 높은 버전으로 저장된 적이 없지만, 값은 낮추지 않는다.
+        locked.matcher_version = max(locked.matcher_version, matcher_version)
+        locked.save(
+            update_fields=[
+                "translation_ko",
+                "draft_analysis",
+                "is_stale",
+                "matcher_version",
+                "updated_at",
+            ]
+        )
         return locked, locked.generation != started_generation
 
     def closed_grammar():

@@ -27,6 +27,9 @@ class SentenceAnalysis(models.Model):
     is_stale = models.BooleanField(default=False)
     # 위 사건마다 1 올린다. 분석 요청은 시작할 때 읽은 값이 저장 직전과 다르면 저장하지 않는다.
     generation = models.IntegerField(default=0)
+    # 분석 당시 패턴 세트 버전. 매칭(candidate_spans) 직전에 읽은 값이고 낮추지 않는다. 지금
+    # 버전보다 낮으면 조회할 때 로컬 매칭을 다시 돌린다(#41). 이 칸 전의 행은 0이다.
+    matcher_version = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -173,6 +176,12 @@ class SpanMatch(models.Model):
                     & models.Q(alternatives__isnull=True)
                 ),
                 name="span_match_alternatives_by_state",
+            ),
+            # 같은 자리의 같은 패턴은 한 번만 둔다(#41). 중복 카드가 남지 않게 하는 백스톱이다.
+            models.UniqueConstraint(
+                fields=["analysis", "pattern", "start_offset", "end_offset"],
+                condition=models.Q(pattern__isnull=False),
+                name="span_match_place_unique",
             ),
         ]
 

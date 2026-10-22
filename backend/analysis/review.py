@@ -195,7 +195,7 @@ def reject_usage(usage):
     usage.save(update_fields=["status", "updated_at"])
     # 패턴 쪽(용법 완결)을 분석 행보다 먼저 바꾼다(패턴 → 분석 순서).
     patterns.clear_usage_closed(pattern)
-    patterns.make_stale(usage=usage)
+    patterns.make_stale(usages=[usage])
 
 
 @transaction.atomic
@@ -225,7 +225,7 @@ def unapprove_usage(usage):
     usage.status = ReviewStatus.PENDING
     usage.save(update_fields=["status", "updated_at"])
     patterns.clear_usage_closed(pattern)
-    patterns.make_stale(usage=usage)
+    patterns.make_stale(usages=[usage])
 
 
 @transaction.atomic
@@ -288,18 +288,21 @@ def link_variant(pattern, base, mapping=None):
     # 버전은 분석 행을 잠그기(합침, stale) 전에 올린다.
     if patterns.matchable_family(base) - was_matchable:
         patterns.raise_pattern_set_version()
+    if mapping:
+        # 원형과 그 회화체들(이번에 연결한 것 포함)의 분석, 합치거나 옮길 용법을 주 용법·후보·
+        # 대안으로 가리키는 분석을 다시 분석한다. 병합 전에 시작한 분석이 옛 소속으로 저장하지
+        # 못하게 한다. 이 분석들을 먼저 한 번에 id 순서로 잠가, 뒤의 합침·용법 완결 떼기가 그
+        # 일부를 다시 잠가도 기다리지 않게 한다. 분석 행을 id 순서로 잠그는 다른 사건과
+        # 엇갈리지 않는다.
+        patterns.make_stale(pattern=base, usages=own.values(), candidates=True)
     for source, target in merges.items():
         patterns.merge_usage(own[source], targets[target])
-    moved = [own[source] for source in mapping.keys() - merges.keys()]
-    if moved:
+    if mapping.keys() - merges.keys():
         # 옮김은 원형에 용법을 더한 것과 같다. 원형과 그 회화체들의 용법 완결을 뗀다.
         patterns.clear_usage_closed(base)
     patterns.clear_usage_closed(pattern)
-    # 용법을 합치거나 옮겼으면 원형과 그 회화체들(이번에 연결한 것 포함)의 분석, 옮긴 용법을
-    # 가리키던 분석도 다시 분석한다. 병합 전에 시작한 분석이 옛 소속으로 저장하지 못하게 한다.
-    patterns.make_stale(pattern=base if mapping else pattern)
-    for usage in moved:
-        patterns.make_stale(usage=usage, candidates=True)
+    if not mapping:
+        patterns.make_stale(pattern=pattern)
 
 
 def _move_usage(usage, base):

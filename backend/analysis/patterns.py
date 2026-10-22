@@ -5,6 +5,8 @@
 """
 
 import hashlib
+import operator
+from functools import reduce
 from typing import NamedTuple
 
 from django.db import IntegrityError, connection, transaction
@@ -304,24 +306,29 @@ def clear_usage_closed(pattern):
         make_stale(pattern=pattern)
 
 
-def make_stale(pattern=None, usage=None, candidates=False):
-    """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 또는 그 용법으로 정해진
+def make_stale(pattern=None, usages=(), candidates=False):
+    """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 또는 그 용법들로 정해진
     구간이나 그 용법을 대안으로 쓴 해석 갈림 구간이 있는 분석을 stale로 만들고 세대 번호를
     올린다(#38, #40, #63). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은 따로 넓히지 않는다. 동시에
     여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다. 잠근 분석 ID들을 돌려준다.
 
-    candidates면 그 용법을 후보로만 가진 구간의 분석도 넣는다. 용법 참조를 옮길 때 쓴다(#64).
+    패턴과 용법을 함께 주면 어느 쪽에든 걸리는 분석을 한 번에 잠근다. candidates면 그 용법을
+    후보로만 가진 구간의 분석도 넣는다. 용법 참조를 옮길 때 쓴다(#64).
     """
-    if usage is None:
-        span_filter = Q(span_matches__pattern=pattern) | Q(
-            span_matches__pattern__variant_of=pattern
-        )
-    else:
-        span_filter = Q(span_matches__usage=usage) | Q(
-            span_matches__alternatives__contains=[{"usage_id": usage.id}]
-        )
+    span_filters = []
+    if pattern is not None:
+        span_filters += [
+            Q(span_matches__pattern=pattern),
+            Q(span_matches__pattern__variant_of=pattern),
+        ]
+    for usage in usages:
+        span_filters += [
+            Q(span_matches__usage=usage),
+            Q(span_matches__alternatives__contains=[{"usage_id": usage.id}]),
+        ]
         if candidates:
-            span_filter |= Q(span_matches__candidates__contains=[{"usage_id": usage.id}])
+            span_filters.append(Q(span_matches__candidates__contains=[{"usage_id": usage.id}]))
+    span_filter = reduce(operator.or_, span_filters)
     ids = list(
         SentenceAnalysis.objects.filter(
             id__in=SentenceAnalysis.objects.filter(span_filter).values("id")
@@ -345,7 +352,7 @@ def merge_usage(source, target):
     행을 잠근 뒤 쓴다). 호출하는 쪽이 두 용법과 그 패턴을 잠그고, 그사이 source를 가리키는 구간을
     저장하는 분석이 없게 한다. 패턴 합치기(FR-A27)와 관리자 정정도 이 함수로 참조를 옮긴다.
     """
-    ids = make_stale(usage=source, candidates=True)
+    ids = make_stale(usages=[source], candidates=True)
     rows = [
         row
         for row in SpanMatch.objects.filter(analysis_id__in=ids).order_by("id")

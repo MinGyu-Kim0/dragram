@@ -1060,3 +1060,58 @@ def test_merging_while_an_analysis_adds_a_base_usage_does_not_deadlock(fake_llm,
     assert result.get("linked")
     assert not GrammarUsage.objects.filter(pk=own.pk).exists()
     assert GrammarUsage.objects.filter(pattern=base, name="유감").exists()
+
+
+# 토큰: 0 本 / 1 を / 2 読む
+WO = new_pattern((1, "lemma"), pattern_name="を", usage_name="목적어", example_ja="水を飲む")
+
+
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_merging_while_another_pattern_event_locks_the_same_analyses_does_not_deadlock(
+    client, fake_llm, monkeypatch
+):
+    # 원형 구간과 を 구간이 있는 분석(앞 id), 회화체 구간과 を 구간이 있는 분석(뒤 id)이 있다.
+    # 연결·병합이 분석 행을 잠그는 사이 관리자가 を의 용법을 반려한다. 반려는 두 분석을 id
+    # 순서로 잠그므로, 병합도 분석 행을 한 번에 id 순서로 잠가야 엇갈리지 않는다.
+    base, variant, done, own = with_own_usage(fake_llm)
+    wo = register(fake_llm, "本を読む", WO, "책을 읽는다")
+    # 토큰: 0 本 / 1 を / 2 読ん / 3 で / 4 しまっ / 5 た
+    fake_llm.response = {
+        "translation_ko": "책을 읽어 버렸다",
+        "spans": [span_answer(0, "usage", 1), span_answer(1, "usage", 2)],
+    }
+    analyze(client, "本を読んでしまった")
+    # 토큰: 0 本 / 1 を / 2 見 / 3 ちゃっ / 4 た
+    fake_llm.response = {
+        "translation_ko": "책을 봐 버렸다",
+        "spans": [span_answer(0, "usage", 1), span_answer(1, "usage", 2)],
+    }
+    analyze(client, "本を見ちゃった")
+    result = {}
+    make_stale = patterns.make_stale
+
+    def reject():
+        try:
+            review.reject_usage(wo.usages.get())
+            result["rejected"] = True
+        finally:
+            connection.close()
+
+    def reject_meanwhile(*args, **kwargs):
+        # 병합이 처음 분석 행을 잠근 직후 반려가 시작되게 한다.
+        monkeypatch.setattr(patterns, "make_stale", make_stale)
+        locked = make_stale(*args, **kwargs)
+        thread = threading.Thread(target=reject)
+        thread.start()
+        wait_until_blocked()
+        result["thread"] = thread
+        return locked
+
+    monkeypatch.setattr(patterns, "make_stale", reject_meanwhile)
+
+    review.link_variant(variant, base, {own.pk: done.pk})
+    result["thread"].join()
+
+    assert result.get("rejected")
+    assert fresh(variant).variant_of == base

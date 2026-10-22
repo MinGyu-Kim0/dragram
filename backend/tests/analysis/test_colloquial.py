@@ -925,3 +925,54 @@ def test_analysis_started_before_merging_is_not_saved(client, fake_llm, moved):
 
     assert "error" not in response.json()
     assert not SentenceAnalysis.objects.filter(translation_ko="전부 봐 버렸다").exists()
+
+
+# 대응표 거부 조건. (원형 용법 완료, 자기 용법 완료(회화체), 자기 용법 유감) → 대응표
+def one_usage_left_out(done, own, regret):
+    return {own.pk: done.pk}
+
+
+def not_an_own_usage(done, own, regret):
+    return {own.pk: done.pk, regret.pk: None, done.pk: None}
+
+
+def target_is_not_a_base_usage(done, own, regret):
+    return {own.pk: regret.pk, regret.pk: None}
+
+
+def target_is_rejected(done, own, regret):
+    review.reject_usage(done)
+    return {own.pk: done.pk, regret.pk: None}
+
+
+@pytest.mark.parametrize(
+    "case",
+    [one_usage_left_out, not_an_own_usage, target_is_not_a_base_usage, target_is_rejected],
+)
+def test_mapping_must_cover_the_own_usages_with_open_base_usages(fake_llm, case):
+    base, variant, done, own = with_own_usage(fake_llm)
+    with transaction.atomic():
+        regret, _ = patterns.add_usage(variant, "유감", "아쉬운 마음을 담는다", None)
+    mapping = case(done, own, regret)
+
+    with pytest.raises(review.Refused):
+        review.link_variant(variant, base, mapping)
+
+    assert fresh(variant).variant_of is None
+    assert set(variant.usages.values_list("pk", flat=True)) == {own.pk, regret.pk}
+
+
+def test_rejected_own_usage_stays_with_the_variant_and_stays_hidden(client, fake_llm):
+    base, variant, done, own = with_own_usage(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, MICHAU)
+    review.reject_usage(own)
+    with transaction.atomic():
+        regret, _ = patterns.add_usage(variant, "유감", "아쉬운 마음을 담는다", None)
+
+    review.link_variant(variant, base, {regret.pk: done.pk})
+
+    assert GrammarUsage.objects.get(pk=own.pk).pattern == variant
+    SentenceAnalysis.objects.update(is_stale=False)
+    response = analyze(client, MICHAU)
+    assert response.json()["grammar"] == []

@@ -175,7 +175,7 @@
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
 | status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete |
 | processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 선점 만료 판단과 미완료 작업 재투입 기준 |
-| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀔 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 분석 요청이 시작할 때 읽은 값과 다르면 응답은 보내고 저장은 되돌림. 한 사건에서 여러 번 오를 수 있어 같은지만 비교). 기본값 0 |
+| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀌거나 회화체가 원형에 연결·해제될 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 분석 요청이 시작할 때 읽은 값과 다르면 응답은 보내고 저장은 되돌림. 한 사건에서 여러 번 오를 수 있어 같은지만 비교). 기본값 0 |
 | is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시. 판 번호가 생기기 전까지(지금 구현, #38) 반려·반려 취소·승인 취소·용법 완결 변경도 이 칸으로만 기록하고, stale 분석은 다음 요청에서 다시 분석해 통째로 바꾼 뒤 false로 |
 | translation_ko | 한국어 번역 | text | Y |  | 자리표시자(⟨N1⟩) 포함 형태. 자리표시자가 모두 보존된 경우에만 저장 |
 | name_spans | 고유명사 구간 | jsonb | Y |  | [{start, end, type: person/place/org/work/other}]. 형태소·문법 후보는 보존하고 주석만 |
@@ -190,7 +190,7 @@
 | id | ID | bigint |  | PK |  |
 | analysis_id | 문장 분석 ID | bigint |  | → sentence_analysis | UNIQUE(analysis_id, pattern_id, start_offset, end_offset) WHERE pattern_id IS NOT NULL: 같은 자리의 같은 패턴 구간은 하나(중복 카드 방지 백스톱). 구간을 쓰는 모든 경로는 분석 행을 잠근 뒤 씀(재매칭은 저장 열쇠가 없는지, stale 교체는 행이 아직 fresh가 아닌지 확인). 잠금 순서는 원형 연결 advisory 잠금 → 패턴과 그 패턴을 원형으로 가리키는 회화체(id 순) → 용법 → (올릴 때) 패턴 세트 버전 → 분석 행(design-decisions 41절, 42절) |
 | pattern_id | 문법 패턴 ID | bigint | Y | → grammar_pattern | 미발견 구간에서 새 패턴 등록에 실패해 패턴이 없으면 null |
-| usage_id | 확정 용법 ID | bigint | Y | → grammar_usage | 회화체 패턴이 원형에 연결됐으면(variant_of) 원형 용법만, 미연결이면 자기 용법만 허용(서버 검증). usage_closed·usage_rule 확정은 실제 매칭된 패턴 기준 / 그 패턴 또는 variant_of 원형 소속. 조회 때 어긋나면 뺌. 저장 때는 분석할 때 읽은 원형 연결이 저장 직전과 다르면 저장하지 않음(design-decisions 42절) |
+| usage_id | 확정 용법 ID | bigint | Y | → grammar_usage | 연결된 회화체 구간이면 원형 용법, 그 밖에는 자기 용법. usage_closed·usage_rule 확정은 실제 매칭된 패턴 기준 / 그 패턴 또는 variant_of 원형 소속. 조회 때 어긋나면 뺌. 저장 때는 분석할 때 읽은 원형 연결이 저장 직전과 다르면 저장하지 않음(design-decisions 42절) |
 | start_offset | 시작 위치 | integer |  |  | 키 텍스트 코드포인트 기준 [start, end). 원문 위치는 서버가 변환 / 0 ≤ start < end (CHECK) |
 | end_offset | 끝 위치 | integer |  |  | 0 ≤ start < end (CHECK) |
 | state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status, 그 용법이 속한 패턴(grammar_usage.pattern_id, 회화체 구간이면 원형)의 status, pattern_id(실제 매칭된 패턴)의 status, pattern_id가 연결된 원형(variant_of)의 status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌. alternatives의 각 usage_id도 주 용법과 같은 네 가지(그 용법, 그 용법의 소속 패턴, pattern_id, pattern_id가 연결된 원형)와 소속(pattern_id나 그 원형)으로 따로 검사(pending이면 그 대안에 배지, rejected면 그 대안만 뺌). 주 용법 쪽이 rejected면 구간째 뺌(대안을 주 용법으로 올리지 않음). unresolved는 pattern_id와 그 원형(연결됐으면)의 status만 봄(이름은 매칭된 패턴 이름, 설명 없음) / 상태별 칸(CHECK): decided면 usage_id 필수, divergent면 usage_id 필수이고 alternatives가 비어 있지 않음, unresolved면 usage_id·alternatives 모두 NULL(candidates·pattern_id는 남김), 그 밖에는 alternatives NULL |

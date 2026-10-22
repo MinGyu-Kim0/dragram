@@ -122,11 +122,12 @@ h1 {
   color: var(--color-danger-text);
 }
 
-/* 실패 문구 옆의 다시 시도 텍스트 버튼. 줄 높이는 그대로 두고 누르는 영역만 넓힌다. */
+/* 실패 문구 옆의 다시 시도 텍스트 버튼. 줄 높이는 그대로 두고 누르는 영역만 44px 이상으로
+   넓힌다(가장 작은 11px 줄에서도). */
 .retry,
 .display-toggles .retry {
-  margin: -12px 0 -12px 6px;
-  padding: 12px 4px;
+  margin: -14px 0 -14px 6px;
+  padding: 14px 4px;
   border: 0;
   border-radius: 0;
   background: transparent;

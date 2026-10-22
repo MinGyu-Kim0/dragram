@@ -53,11 +53,13 @@ export interface Translation {
   ruby: RubyItem[];
 }
 
-// 분석 실패. 실패 전에 받은 번역과 먼저 온 문법(LLM 없이 확정한 구간)을 함께 싣는다.
+// 분석 실패. 실패 전에 받은 번역과 먼저 온 문법(LLM 없이 확정한 구간), stale 분석의 옛 결과를
+// 함께 싣는다.
 export class AnalysisFailed extends Error {
   constructor(
     readonly translation?: Translation,
     readonly earlyGrammar?: GrammarItem[],
+    readonly previous?: Analysis,
   ) {
     super("분석 실패");
   }
@@ -66,13 +68,15 @@ export class AnalysisFailed extends Error {
 // 서버는 줄 단위 JSON으로 translation(번역, 루비) → analysis(번역, 문법, 단어)를 보내고,
 // 실패하면 error를 보낸다. LLM 없이 확정한 문법이나 판별 대상 구간이 있으면 그보다 먼저
 // grammar(확정 문법, 판별 대상 구간)를 보낸다. 실패(AnalysisFailed)에는 받은 확정 문법만 싣고,
-// 판별 대상 구간은 싣지 않는다(화면에서 지운다).
+// 판별 대상 구간은 싣지 않는다(화면에서 지운다). stale 분석이면 맨 먼저 previous(옛 번역, 루비,
+// 문법, 단어)를 보내고 onPrevious를 부른다. 이어지는 이벤트는 다시 분석하는 흐름 그대로다.
 // grammar가 오면 onEarlyGrammar를, 번역이 오면 onTranslation을 부르고, 다 오면 분석 전체를
 // 돌려준다. analysis의 번역은 문법·단어와 짝인 저장된 번역이라 그것을 쓴다.
 export async function analyzeSentence(
   text: string,
   onTranslation: (translation: Translation) => void,
   onEarlyGrammar?: (grammar: GrammarItem[], checking: CheckingItem[]) => void,
+  onPrevious?: (previous: Analysis) => void,
 ): Promise<Analysis> {
   const response = await fetch(`${API_BASE_URL}/api/analyses/`, {
     method: "POST",
@@ -82,9 +86,18 @@ export async function analyzeSentence(
   if (!response.ok || !response.body) throw new AnalysisFailed();
   let translation: Translation | undefined;
   let earlyGrammar: GrammarItem[] | undefined;
+  let previous: Analysis | undefined;
   try {
     for await (const event of ndjsonEvents(response.body)) {
-      if (event.type === "grammar") {
+      if (event.type === "previous") {
+        previous = {
+          translation_ko: event.translation_ko,
+          grammar: event.grammar,
+          words: event.words,
+          ruby: event.ruby,
+        };
+        onPrevious?.(previous);
+      } else if (event.type === "grammar") {
         earlyGrammar = event.grammar;
         onEarlyGrammar?.(earlyGrammar, event.checking);
       } else if (event.type === "translation") {
@@ -108,10 +121,11 @@ export async function analyzeSentence(
     // 연결이 끊기거나 줄이 JSON이 아니어도 이미 받은 번역은 남긴다.
   }
   // error 이벤트를 받았거나, analysis 전에 스트림이 끝났거나 끊겼다.
-  throw new AnalysisFailed(translation, earlyGrammar);
+  throw new AnalysisFailed(translation, earlyGrammar, previous);
 }
 
 type StreamEvent =
+  | ({ type: "previous" } & Analysis)
   | { type: "grammar"; grammar: GrammarItem[]; checking: CheckingItem[] }
   | ({ type: "translation" } & Translation)
   | ({ type: "analysis" } & Omit<Analysis, "ruby">)

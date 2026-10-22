@@ -563,6 +563,12 @@ def analyze(request):
         # 이미 다 있으니 한 번에 보낸다.
         events = [translation_event(cached.translation_ko), analysis_event(cached)]
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
+    # stale 행의 옛 결과는 다시 분석하는 동안 '재분석 중'으로 보이도록 LLM보다 먼저 보낸다(#60).
+    # 저장된 임시 분석을 그대로 내보내지 않고 analysis 이벤트와 같은 경로로 만들어, 반려된 구간은
+    # 빠지고 검수 상태는 지금 지식 상태로 다시 계산된다.
+    previous = None
+    if existing is not None and existing.draft_analysis is not None:
+        previous = {**analysis_event(existing), "type": "previous", "ruby": ruby}
 
     # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
     tokens = [{"id": i, "surface": "".join(pieces[m.begin : m.end])} for i, m in enumerate(morphs)]
@@ -1001,6 +1007,8 @@ def analyze(request):
         """LLM 결과를 나오는 대로 낸다. 번역을 검증해 먼저 내고, 문법·단어까지 검증해 저장한
         뒤 이어 낸다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
         """
+        if previous is not None:
+            yield previous
         if closed_spans or spans:
             # LLM을 부르기 전에 확정 구간과 판별 대상 구간(화면의 확인 중)부터 보낸다. 이 뒤
             # 실패는 error 이벤트로 알린다(#39, #44).
@@ -1026,8 +1034,8 @@ def analyze(request):
     # 시각을 함께 쓴다.
     client = llm.get_client()
     events = analyze_and_save()
-    # 첫 이벤트(확정 구간이 있으면 grammar, 없으면 번역)까지는 응답을 시작하기 전이라, 그 전에
-    # 실패하면 다른 API 오류처럼 오류 핸들러가 상태 코드로 알린다.
+    # 첫 이벤트(옛 결과가 있으면 previous, 확정·판별 대상 구간이 있으면 grammar, 없으면 번역)까지는
+    # 응답을 시작하기 전이라, 그 전에 실패하면 다른 API 오류처럼 오류 핸들러가 상태 코드로 알린다.
     first = next(events)
     return StreamingHttpResponse(
         map(_ndjson, _errors_as_event(chain([first], events))), content_type=_NDJSON

@@ -927,8 +927,13 @@ test("확정한 문법을 보인 뒤 실패하면 그 문법은 남기고 실패
   expect(within(card!).getByRole("heading").textContent).toBe("진행");
 });
 
+// 후보가 모두 검수된 판별 대상 구간
 function checkingItem(start: number, end: number, ...names: string[]) {
-  return { start, end, candidates: names.map((name) => ({ name })) };
+  return {
+    start,
+    end,
+    candidates: names.map((name) => ({ name, review_status: "approved" })),
+  };
 }
 
 test("판별을 기다리는 구간은 '확인 중' 점선 카드와 점선 밑줄로 먼저 보이고, 분석이 오면 고른 용법으로 바뀐다", async () => {
@@ -1088,4 +1093,30 @@ test("확인 중 카드는 번역이 와도 남고, 해당 없음으로 판정�
     await screen.findByRole("tab", { name: "문법 1" }),
   ).toBeInTheDocument();
   expect(screen.queryByText("주격")).not.toBeInTheDocument();
+});
+
+test("확인 중 카드의 후보에 미검수 용법이 있으면 'AI 생성·미검수' 배지를 단다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "彼が来ている");
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [
+      {
+        start: 3,
+        end: 6,
+        candidates: [
+          { name: "진행", review_status: "approved" },
+          { name: "결과 상태", review_status: "pending" },
+        ],
+      },
+    ],
+  });
+
+  const [card] = await screen.findAllByRole("listitem");
+  expect(within(card!).getByText("확인 중")).toBeInTheDocument();
+  expect(within(card!).getByText("AI 생성·미검수")).toBeInTheDocument();
 });

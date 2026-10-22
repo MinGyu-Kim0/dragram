@@ -394,8 +394,8 @@ def _grammar_response(analysis, offsets, origins, utf16):
 
 def _grammar_item(pattern, usage, start_offset, end_offset, offsets, origins, utf16):
     """용법이 정해진 구간 하나를 응답 항목으로 만든다. 반려됐으면 None(ADR 0003)."""
-    statuses = {usage.status, usage.pattern.status, pattern.status}
-    if ReviewStatus.REJECTED in statuses:
+    review_status = _review_status(pattern, usage)
+    if review_status is None:
         return None
     start, end = to_original(origins, utf16, *to_analysis(offsets, start_offset, end_offset))
     return {
@@ -403,8 +403,18 @@ def _grammar_item(pattern, usage, start_offset, end_offset, offsets, origins, ut
         "end": end,
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
-        "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
+        "review_status": review_status,
     }
+
+
+def _review_status(pattern, usage):
+    """화면에 보일 검수 상태(ADR 0003). 고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴 중
+    하나라도 반려됐으면 None(보이지 않음), 미검수면 pending이다.
+    """
+    statuses = {usage.status, usage.pattern.status, pattern.status}
+    if ReviewStatus.REJECTED in statuses:
+        return None
+    return "pending" if ReviewStatus.PENDING in statuses else "approved"
 
 
 def _closed_usage(span):
@@ -973,12 +983,17 @@ def analyze(request):
         return grammar
 
     def checking():
-        """판별 대상 구간의 원문 위치와 후보 용법 이름(원문 순서)."""
+        """판별 대상 구간의 원문 위치와 후보 용법의 이름·검수 상태(원문 순서). 후보 이름도 LLM이
+        만든 지식이라 미검수면 미검수로 보인다(불변식). 반려된 용법은 후보에 없다.
+        """
         items = []
         for span in sorted(spans, key=lambda span: (span.start_token, span.end_token)):
             key_start, key_end = key_span(span.start_token, span.end_token)
             start, end = to_original(origins, utf16, *to_analysis(offsets, key_start, key_end))
-            candidates = [{"name": usage.name} for _, usage in span.candidates]
+            candidates = [
+                {"name": usage.name, "review_status": _review_status(span.pattern, usage)}
+                for _, usage in span.candidates
+            ]
             items.append({"start": start, "end": end, "candidates": candidates})
         return items
 

@@ -242,7 +242,8 @@ function GrammarCard({
   );
 }
 
-// 판별 대상 구간(확인 중). 아직 용법을 고르지 않아 후보 이름만 잇고, 검수 배지는 달지 않는다.
+// 판별 대상 구간(확인 중). 아직 용법을 고르지 않아 후보 이름만 잇는다. 후보 이름도 LLM이 만든
+// 지식이라 미검수 후보가 하나라도 있으면 'AI 생성·미검수' 배지를 단다(PR #61 리뷰).
 function CheckingCard({
   text,
   item,
@@ -265,6 +266,9 @@ function CheckingCard({
         <h3>
           {item.candidates.map((candidate) => candidate.name).join(" · ")}
         </h3>
+        {item.candidates.some(
+          (candidate) => candidate.review_status === "pending",
+        ) && <span className="badge-warn">AI 생성·미검수</span>}
         <span className="card-meta">확인 중</span>
         {dragged && <span className="card-meta-next">드래그한 부분</span>}
       </div>

@@ -16,7 +16,8 @@ export interface GrammarItem {
 export interface CheckingItem {
   start: number;
   end: number;
-  candidates: { name: string }[];
+  // 후보 이름도 LLM이 만든 지식이라 검수 상태를 함께 받는다(pending이면 미검수).
+  candidates: { name: string; review_status: "pending" | "approved" }[];
 }
 
 export interface WordItem {

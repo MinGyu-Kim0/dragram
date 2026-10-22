@@ -115,7 +115,14 @@ def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fak
     assert response.events[0] == {
         "type": "grammar",
         "grammar": [],
-        "checking": [{"start": 3, "end": 6, "candidates": [{"name": "진행"}]}],
+        # 미검수 패턴·용법이라 미검수로 보인다.
+        "checking": [
+            {
+                "start": 3,
+                "end": 6,
+                "candidates": [{"name": "진행", "review_status": "pending"}],
+            }
+        ],
     }
 
 
@@ -147,7 +154,13 @@ def test_decided_and_checking_spans_are_sent_together(client, fake_llm):
     assert response.types() == ["grammar", "translation", "analysis"]
     first = response.events[0]
     assert [item["name"] for item in first["grammar"]] == ["진행"]
-    assert first["checking"] == [{"start": 2, "end": 5, "candidates": [{"name": "동시 동작"}]}]
+    assert first["checking"] == [
+        {
+            "start": 2,
+            "end": 5,
+            "candidates": [{"name": "동시 동작", "review_status": "pending"}],
+        }
+    ]
 
 
 def test_sentence_without_matched_spans_starts_with_the_translation(client, fake_llm):
@@ -165,3 +178,16 @@ def test_only_decided_spans_leave_checking_empty(client, fake_llm):
     response = analyze(client, KITEIRU)
 
     assert response.events[0]["checking"] == []
+
+
+def test_checking_candidate_of_an_approved_usage_and_pattern_is_approved(client, fake_llm):
+    # 승인됐지만 용법 완결은 아닌 ている
+    pattern = register_teiru(client, fake_llm)
+    review.approve_pattern(pattern)
+    review.approve_usage(pattern.usages.get())
+    fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "usage", 1)]}
+
+    response = analyze(client, KITEIRU)
+
+    [item] = response.events[0]["checking"]
+    assert item["candidates"] == [{"name": "진행", "review_status": "approved"}]

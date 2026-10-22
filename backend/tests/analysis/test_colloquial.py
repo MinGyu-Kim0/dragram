@@ -773,3 +773,44 @@ def test_merging_points_the_spans_at_the_base_usage_and_drops_the_own_usage(clie
     span = SpanMatch.objects.get(analysis__translation_ko="전부 봐 버렸다")
     assert span.usage_id == done.pk
     assert span.candidates == [{"candidate_id": 1, "usage_id": done.pk}]
+
+
+def divergent_variant_span(client, fake_llm, variant):
+    """회화체 구간이 자기 용법 둘(후보 1 주 용법, 후보 2 대안)로 해석이 갈린 분석. 둘째 용법
+    유감을 돌려준다."""
+    with transaction.atomic():
+        regret, _ = patterns.add_usage(variant, "유감", "아쉬운 마음을 담는다", None)
+    fake_llm.response = {
+        "translation_ko": "전부 봐 버렸다",
+        "spans": [span_answer(0, "divergent", 1)],
+    }
+    fake_llm.rejudge_response = {
+        "translation_ko": "전부 봐 버렸다",
+        "spans": [
+            {
+                **span_answer(0, "divergent", 1),
+                "alternatives": [
+                    {
+                        "candidate_id": 2,
+                        "translation_ko": "아쉽게도 전부 봐 버렸다",
+                        "basis": "아쉬워하는 앞 문맥",
+                    }
+                ],
+            }
+        ],
+    }
+    analyze(client, MICHAU)
+    return regret
+
+
+def test_merged_duplicates_fold_and_a_divergent_span_left_without_alternatives_is_decided(
+    client, fake_llm
+):
+    base, variant, done, own = with_own_usage(fake_llm)
+    regret = divergent_variant_span(client, fake_llm, variant)
+
+    review.link_variant(variant, base, {own.pk: done.pk, regret.pk: done.pk})
+
+    span = SpanMatch.objects.get(analysis__translation_ko="전부 봐 버렸다")
+    assert (span.state, span.usage_id, span.alternatives) == ("decided", done.pk, None)
+    assert span.candidates == [{"candidate_id": 1, "usage_id": done.pk}]

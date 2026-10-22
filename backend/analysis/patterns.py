@@ -338,7 +338,8 @@ def make_stale(pattern=None, usage=None, candidates=False):
 
 def merge_usage(source, target):
     """source 용법을 target으로 합친다(#64). 구간이 source를 주 용법·후보·대안으로 가리키던
-    참조를 target으로 바꾸고 source를 지운다.
+    참조를 target으로 바꾸고 source를 지운다. 바꾼 구간에서 겹친 후보는 앞의 것만 남기고, 주
+    용법과 같아졌거나 앞 대안과 겹친 대안은 뺀다. 대안이 남지 않은 해석 갈림은 decided가 된다.
 
     그 구간이 있는 분석을 먼저 잠가 stale로 만들고 세대 번호를 올린 뒤 구간을 바꾼다(구간은 분석
     행을 잠근 뒤 쓴다). 호출하는 쪽이 두 용법과 그 패턴을 잠그고, 그사이 source를 가리키는 구간을
@@ -355,23 +356,30 @@ def merge_usage(source, target):
 
 
 def _repointed(row, source_id, target_id):
-    """구간의 source 참조를 target으로 바꾼다. source를 가리키지 않던 구간이면 그대로 두고
-    False다.
+    """구간의 source 참조를 target으로 바꾸고 겹친 후보·대안을 정리한다. source를 가리키지 않던
+    구간이면 그대로 두고 False다.
     """
     items = (row.candidates or []) + (row.alternatives or [])
     if row.usage_id != source_id and all(item["usage_id"] != source_id for item in items):
         return False
 
-    def swapped(items):
-        return [
-            {**item, "usage_id": target_id if item["usage_id"] == source_id else item["usage_id"]}
-            for item in items
-        ]
+    def kept(items, taken):
+        # 바꾼 뒤 이미 나온 용법이면 뺀다(앞의 것을 남긴다).
+        result = []
+        for item in items:
+            usage_id = target_id if item["usage_id"] == source_id else item["usage_id"]
+            if usage_id not in taken:
+                taken.add(usage_id)
+                result.append({**item, "usage_id": usage_id})
+        return result
 
     if row.usage_id == source_id:
         row.usage_id = target_id
     if row.candidates is not None:
-        row.candidates = swapped(row.candidates)
+        row.candidates = kept(row.candidates, set())
     if row.alternatives is not None:
-        row.alternatives = swapped(row.alternatives)
+        # 주 용법과 같아진 대안도 뺀다. 대안이 남지 않으면 해석이 갈리지 않은 것이다.
+        row.alternatives = kept(row.alternatives, {row.usage_id}) or None
+        if row.alternatives is None:
+            row.state = SpanMatch.State.DECIDED
     return True

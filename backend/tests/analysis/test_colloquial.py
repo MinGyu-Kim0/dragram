@@ -665,3 +665,74 @@ def test_variants_of_one_base_share_the_new_usage_added_in_one_sentence(client, 
 
     assert [item["name"] for item in response.json()["grammar"]] == ["유감", "유감"]
     assert GrammarUsage.objects.filter(name="유감", pattern=base).count() == 1
+
+
+def test_any_token_inside_a_variant_span_still_counts_as_copying(client, fake_llm):
+    # 원형 が〜〜ね(아무거나 두 토큰)에 회화체 が〜ね(아무거나 한 토큰)를 연결한다. 회화체 구간의
+    # 아무거나 자리(インターナショナル, 9자)를 예문이 그대로 옮기면 복사로 센다.
+    # 토큰: 0 猫 / 1 が / 2 好き / 3 だ / 4 ね
+    base = register(
+        fake_llm,
+        "猫が好きだね",
+        new_pattern(
+            (1, "lemma"),
+            (2, "any"),
+            (3, "any"),
+            (4, "lemma"),
+            pattern_name="が〜〜ね",
+            example_ja="犬が元気だね",
+        ),
+    )
+    # 토큰: 0 雨 / 1 が / 2 降る / 3 ね
+    variant = register(
+        fake_llm,
+        "雨が降るね",
+        new_pattern(
+            (1, "lemma"), (2, "any"), (3, "lemma"), pattern_name="が〜ね", example_ja="花が咲くね"
+        ),
+    )
+    review.reject_usage(variant.usages.get())
+    review.link_variant(variant, base)
+    # 토큰: 0 君 / 1 が / 2 インターナショナル / 3 ね
+    fake_llm.response = {
+        "translation_ko": "너는 국제적이네",
+        "spans": [
+            span_answer(
+                0,
+                "unfound",
+                new_usage=new_usage("감탄", "감탄을 나타낸다", "猫がインターナショナルだね"),
+            )
+        ],
+    }
+    fake_llm.rewrite_response = {"examples": [{"example_id": 0, "example_ja": "犬が元気だね"}]}
+
+    analyze(client, "君がインターナショナルね")
+
+    assert len(fake_llm.rewrite_requests) == 1
+    assert GrammarUsage.objects.get(name="감탄").example_ja == "犬が元気だね"
+
+
+def test_analysis_is_not_saved_when_a_new_base_usage_opens_a_closed_span(client, fake_llm):
+    # 용법 완결 ちゃう 구간은 LLM 없이 정해지는데, 같은 원형의 열린 ちまう 구간이 원형에 새 용법을
+    # 더하면 그 용법 완결이 풀린다. 풀리기 전 기준의 확정 구간을 fresh로 저장하지 않는다.
+    base, _ = closed_variant(fake_llm)
+    chimau = register(
+        fake_llm,
+        "食べちまった",
+        new_pattern((1, "lemma"), pattern_name="ちまう", example_ja="全部見ちまった"),
+    )
+    review.reject_usage(chimau.usages.get())
+    review.link_variant(chimau, base)
+    # 토큰: 0 見 / 1 ちゃっ / 2 て / 3 食べ / 4 ちまっ / 5 た
+    fake_llm.response = {
+        "translation_ko": "봐 버리고 먹어 버렸다",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage("유감", "아쉬움", "本を忘れてしまった"))
+        ],
+    }
+
+    response = analyze(client, "見ちゃって食べちまった")
+
+    assert fake_llm.requests[-1]["decided_spans"][0]["start_token_id"] == 1
+    assert "error" not in response.json()
+    assert not SentenceAnalysis.objects.filter(translation_ko="봐 버리고 먹어 버렸다").exists()

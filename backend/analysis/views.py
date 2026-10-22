@@ -357,13 +357,28 @@ def _copies_part(example, original):
 _EXAMPLE_OK, _EXAMPLE_COPIED, _EXAMPLE_UNUSABLE = "ok", "copied", "unusable"
 
 
-def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans, whole_span=False):
+def _fixed_runs(conditions, key_range):
+    """이어진 고정 토큰 묶음마다 (묶음 순서, 키 텍스트 start, end). key_range(i, j)는 패턴 안
+    i~j번째 토큰의 키 텍스트 구간이다. 아무거나 토큰은 묶음을 끊고, 그 글자는 복사 길이에 센다.
+    """
+    runs, first = [], None
+    for i, c in enumerate([*conditions, patterns.ANY]):
+        if c != patterns.ANY and first is None:
+            first = i
+        elif c == patterns.ANY and first is not None:
+            runs.append((len(runs), *key_range(first, i - 1)))
+            first = None
+    return runs
+
+
+def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans, by_runs=False):
     """새 예문을 검사한다. 패턴에 걸리지 않는 등 원문과 상관없이 쓸 수 없으면 unusable, 그렇지
     않은데 원문을 베꼈으면 copied(다시 쓰게 함), 쓸 수 있으면 ok다.
 
-    whole_span이면 예문의 패턴 매치 전체를 한 단위로 맞춘다. 연결된 회화체 구간의 새 용법 예문은
-    원형 조건으로 검사하는데, 회화체(ちゃう)와 원형(て·しまう)은 토큰 수가 달라 토큰끼리 맞추면
-    문법 앞뒤로 이어 베낀 것이 끊겨 보인다. 그때 fixed_spans도 원문 구간 전체 하나다(#63).
+    by_runs면 고정 토큰을 토큰마다가 아니라 이어진 묶음마다(_fixed_runs) 맞춘다. 연결된 회화체
+    구간의 새 용법 예문은 원형 조건으로 검사하는데, 회화체(ちゃう)와 원형(て·しまう)은 토큰 수가
+    달라 토큰끼리 맞추면 문법 앞뒤로 이어 베낀 것이 끊겨 보인다. 그때 fixed_spans도 원문의 회화체
+    고정 토큰 묶음이다(#63).
     """
     if len(example) > patterns.EXAMPLE_MAX_LENGTH or not has_only_known_placeholders(example, ()):
         return _EXAMPLE_UNUSABLE
@@ -384,10 +399,16 @@ def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans,
     if _quotes_whole_sentence([example_key], key_text, content_tokens):
         return _EXAMPLE_COPIED
     offsets = key_offsets(pieces)
-    if whole_span:
-        last = len(conditions) - 1
+    if by_runs:
         example_fixed = [
-            (0, *to_key(offsets, morphs[start].begin, morphs[start + last].end)) for start in starts
+            run
+            for start in starts
+            for run in _fixed_runs(
+                conditions,
+                lambda i, j, start=start: to_key(
+                    offsets, morphs[start + i].begin, morphs[start + j].end
+                ),
+            )
         ]
     else:
         example_fixed = [
@@ -668,6 +689,18 @@ def _reading_changed(first, again):
     return again[1] != first[1]
 
 
+def _basis_changed(rows):
+    """판정 근거로 읽은 상태가 저장 직전에 바뀌어 이 구간들을 저장하면 안 되는가(#63).
+
+    둘을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
+    구간의 용법 완결이 풀렸다(이번 저장이 같은 원형에 새 용법을 더해 풀었을 수 있다). 그대로
+    저장하면 그 stale 처리가 이 트랜잭션의 구간을 보지 못해 다시 분석될 계기가 없다.
+    """
+    closed = {row.pattern_id for row in rows if row.decided_by == SpanMatch.DecidedBy.SINGLE_USAGE}
+    opened = GrammarPattern.objects.filter(pk__in=closed, usage_closed=False).exists()
+    return opened or _links_changed(rows)
+
+
 def _links_changed(rows):
     """구간마다 분석할 때 읽은 원형 연결이 지금과 다른가(#63). 판정 상태와 상관없이 모두 본다.
 
@@ -780,7 +813,7 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
         if "checked_example" not in p and p["existing"] is None and p["conditions"] is not None
     ]
     # 새 용법은 그 용법이 들어갈 패턴(연결된 회화체면 원형)의 조건에 걸려야 한다. 연결된 회화체
-    # 구간은 원문 구간 전체와 예문의 원형 매치 전체를 한 단위로 맞춘다(#63).
+    # 구간은 원문과 예문의 고정 토큰을 이어진 묶음마다 맞춘다(#63).
     for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True):
         if n is None or "checked_example" in n:
             continue
@@ -792,7 +825,10 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
                 (owner.id, n["usage_name"]),
                 owner.name,
                 patterns.conditions_of(owner),
-                [(0, *key_span(span.start_token, span.end_token))]
+                _fixed_runs(
+                    span.conditions,
+                    lambda i, j, start=span.start_token: key_span(start + i, start + j),
+                )
                 if linked
                 else fixed_spans(span.start_token, span.conditions),
                 linked,
@@ -1319,7 +1355,7 @@ def analyze(request):
             # 이 트랜잭션에서 만든 행이라 다른 요청은 아직 보지도 잠그지도 못한다.
             rows = span_matches(saved, validated, final)
             SpanMatch.objects.bulk_create(rows)
-            return saved, _links_changed(rows)
+            return saved, _basis_changed(rows)
         if _is_fresh(saved):
             return saved, False
         # 임시 분석을 받기 전에 저장된 행이나 stale 행이면 이번 결과로 통째로 바꾼다. 상태
@@ -1356,7 +1392,7 @@ def analyze(request):
                 "updated_at",
             ]
         )
-        return locked, locked.generation != started_generation or _links_changed(rows)
+        return locked, locked.generation != started_generation or _basis_changed(rows)
 
     def closed_grammar():
         """용법 완결로 확정한 구간의 응답 항목(원문 순서)."""
@@ -1474,7 +1510,7 @@ def analyze(request):
                 or locked.generation != started_generation
                 or locked.matcher_version >= matcher_version
                 or new_keys & _stored_keys(locked)
-                or _links_changed(rows)
+                or _basis_changed(rows)
             ):
                 transaction.set_rollback(True)
                 return None

@@ -18,6 +18,7 @@ class FakeLLMClient:
         # 같은 형태소 조건의 패턴이 이미 있을 때 다시 묻는 요청과 그 응답
         self.rejudge_requests = []
         self.rejudge_response = {"spans": []}
+        self.rejudge_error = None
         # 원문을 베낀 예문을 다시 쓰게 하는 요청과 그 응답. 응답을 정하지 않으면 거부된 예문을
         # 그대로 돌려준다(다시 써도 베낀 경우).
         self.rewrite_requests = []
@@ -43,17 +44,19 @@ class FakeLLMClient:
         self.result_given = True
         yield "result", response
 
-    def judge_spans(self, sentence, tokens, translation_ko, spans):
+    def judge_spans(self, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans):
         self.rejudge_requests.append(
             {
                 "sentence": sentence,
                 "tokens": tokens,
                 "translation_ko": translation_ko,
+                "decided_spans": decided_spans,
+                "recheck_spans": recheck_spans,
                 "spans": spans,
             }
         )
-        if self.error:
-            raise self.error
+        if self.error or self.rejudge_error:
+            raise self.error or self.rejudge_error
         return self.rejudge_response
 
     def rewrite_examples(self, sentence, examples):

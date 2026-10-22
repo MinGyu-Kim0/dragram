@@ -49,6 +49,7 @@ def test_stale_analysis_sends_its_previous_result_before_calling_the_llm(client,
         {
             "start": 2,
             "end": 5,
+            "state": "decided",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "review_status": "pending",

@@ -225,21 +225,46 @@ function GrammarCard({
   index: number;
   dragged: boolean;
 }) {
+  // 응답에서 대안이 모두 빠진 해석 갈림은 보통 카드로 보인다.
+  const alternatives = item.alternatives ?? [];
+  const classes = [
+    "grammar-card",
+    alternatives.length > 0 && "divergent",
+    dragged && "dragged",
+  ].filter(Boolean);
   return (
-    <li className={dragged ? "grammar-card dragged" : "grammar-card"}>
+    <li className={classes.join(" ")}>
       <div className="grammar-card-head">
         <span lang="ja" className={`grammar-chip ${highlightClass(index)}`}>
           {text.slice(item.start, item.end)}
         </span>
         <h3>{item.name}</h3>
-        {item.review_status === "pending" && (
-          <span className="badge-warn">AI 생성·미검수</span>
-        )}
+        {item.review_status === "pending" && <PendingBadge />}
         {dragged && <span className="card-meta">드래그한 부분</span>}
       </div>
-      <p className="grammar-explanation">{item.explanation_ko}</p>
+      {item.state === "unresolved" ? (
+        <p className="grammar-explanation unresolved-note">판단하지 못함</p>
+      ) : (
+        <p className="grammar-explanation">{item.explanation_ko}</p>
+      )}
+      {alternatives.length > 0 && (
+        <ul className="alternatives" aria-label="다른 해석">
+          {alternatives.map((alternative) => (
+            <li key={alternative.name} className="alternative">
+              <span>
+                다른 해석: {alternative.name} — {alternative.translation_ko}
+              </span>
+              {alternative.review_status === "pending" && <PendingBadge />}
+            </li>
+          ))}
+        </ul>
+      )}
     </li>
   );
+}
+
+function PendingBadge() {
+  return <span className="badge-warn">AI 생성·미검수</span>;
 }
 
 // 판별 대상 구간(확인 중). 아직 용법을 고르지 않아 후보 이름만 잇는다. 후보 이름도 LLM이 만든
@@ -268,7 +293,7 @@ function CheckingCard({
         </h3>
         {item.candidates.some(
           (candidate) => candidate.review_status === "pending",
-        ) && <span className="badge-warn">AI 생성·미검수</span>}
+        ) && <PendingBadge />}
         <span className="card-meta">확인 중</span>
         {dragged && <span className="card-meta-next">드래그한 부분</span>}
       </div>

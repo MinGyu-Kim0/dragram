@@ -50,6 +50,7 @@ def test_span_of_a_usage_closed_pattern_is_decided_without_asking_the_llm(client
     expected = {
         "start": 3,
         "end": 6,
+        "state": "decided",
         "name": "진행",
         "explanation_ko": "동작이 이어지고 있음을 나타낸다",
         "review_status": "approved",

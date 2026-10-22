@@ -122,6 +122,10 @@ class SpanMatch(models.Model):
         DECIDED = "decided"
         NOT_APPLICABLE = "not_applicable"
         UNFOUND = "unfound"
+        # 문장만으로 해석이 갈린다. usage는 번역과 같은 주 용법, alternatives는 대안 해석(#40)
+        DIVERGENT = "divergent"
+        # 다시 물어도 판단하지 못했다. 정상적인 최종 판정이다(#40).
+        UNRESOLVED = "unresolved"
 
     class DecidedBy(models.TextChoices):
         # 승인된 용법 완결 패턴의 단일 후보를 LLM 없이 확정(#39)
@@ -142,6 +146,9 @@ class SpanMatch(models.Model):
     )
     # LLM에 준 후보 [{candidate_id, usage_id}]
     candidates = models.JSONField(null=True)
+    # 해석 갈림의 대안 [{usage_id, translation_ko}](후보 순서). 번역은 주 번역처럼 키 텍스트
+    # 기준이다. 근거는 그 문장을 풀어 쓴 글이라 두지 않는다.
+    alternatives = models.JSONField(null=True)
 
     class Meta:
         db_table = "span_match"
@@ -153,6 +160,19 @@ class SpanMatch(models.Model):
             models.CheckConstraint(
                 condition=~models.Q(state="decided") | models.Q(usage__isnull=False),
                 name="span_match_decided_has_usage",
+            ),
+            # 해석 갈림은 주 용법과 대안이 있고, 미확정은 둘 다 없다. 그 밖에는 대안이 없다.
+            models.CheckConstraint(
+                condition=(
+                    models.Q(state="divergent", usage__isnull=False, alternatives__isnull=False)
+                    & ~models.Q(alternatives=[])
+                )
+                | models.Q(state="unresolved", usage__isnull=True, alternatives__isnull=True)
+                | (
+                    ~models.Q(state__in=["divergent", "unresolved"])
+                    & models.Q(alternatives__isnull=True)
+                ),
+                name="span_match_alternatives_by_state",
             ),
         ]
 

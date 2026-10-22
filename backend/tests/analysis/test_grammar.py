@@ -31,6 +31,7 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
         {
             "start": 1,
             "end": 2,
+            "state": "decided",
             "name": "주제 は",
             "explanation_ko": "주제",
             "review_status": "pending",
@@ -38,6 +39,7 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
         {
             "start": 4,
             "end": 6,
+            "state": "decided",
             "name": "정중 です",
             "explanation_ko": "정중",
             "review_status": "pending",

@@ -49,15 +49,73 @@ def _is_token_id(value, token_count):
     return type(value) is int and 0 <= value < token_count
 
 
+# 구간마다 받을 수 있는 판정. 첫 응답은 모두, 다시 묻기에서 첫 응답의 해석 갈림·미확정
+# 구간(RECHECK)은 미발견을 받지 않는다(#40).
+FIRST_VERDICTS = frozenset(llm.SPAN_VERDICTS)
+RECHECK_VERDICTS = FIRST_VERDICTS - {"unfound"}
+
+
+def _has_basis(value):
+    """대안의 근거가 있는가. 공백·기호·제어 문자를 지우고도 글자가 남아야 한다."""
+    return isinstance(value, str) and any(unicodedata.category(ch)[0] not in "ZPSC" for ch in value)
+
+
+def _validate_alternatives(items, candidates, primary_id, numbers):
+    """다시 묻기의 해석 갈림 대안을 검증한다. 틀리면 None, 아니면 [(용법, 대안 번역)](후보 순서).
+
+    근거가 빈 대안은 다른 칸을 보지 않고 그 대안만 버린다. 근거는 그 문장을 풀어 쓴 글이라
+    저장하지도 로그에 남기지도 않는다. 대안은 그 구간의 후보 중 주 용법이 아닌 것이고 서로
+    달라야 한다. 대안 번역은 주 번역처럼 자리표시자를 빠짐없이 옮겨야 한다.
+    """
+    if not isinstance(items, list):
+        return None
+    order = list(candidates)
+    chosen = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return None
+        if not _has_basis(item.get("basis")):
+            continue
+        candidate_id, translation = item.get("candidate_id"), item.get("translation_ko")
+        if type(candidate_id) is not int or candidate_id not in candidates:
+            return None
+        if candidate_id == primary_id or candidate_id in chosen:
+            return None
+        if not _is_text(translation) or not has_all_placeholders(translation, numbers):
+            return None
+        chosen[candidate_id] = translation
+    return [
+        (candidates[candidate_id], chosen[candidate_id])
+        for candidate_id in sorted(chosen, key=order.index)
+    ]
+
+
 def _validate_span_answers(answers, spans):
-    """LLM이 후보 구간마다 낸 판정을 검증한다. 하나라도 틀리거나 빠지면 None.
+    """첫 응답이 후보 구간마다 낸 판정을 검증한다. 하나라도 틀리거나 빠지면 None.
 
     구간마다 (판정 상태, 고른 용법, 새 용법)을 돌려준다. 용법은 그 구간에 준 후보 안에서만 고를
-    수 있다. 미발견이면 그 패턴 아래 더할 새 용법(이름·설명·예문)이 있어야 한다.
+    수 있다. 미발견이면 그 패턴 아래 더할 새 용법(이름·설명·예문)이 있어야 한다. 해석 갈림은 주
+    용법만 받고, 후보가 하나뿐인 구간에서는 갈릴 해석이 없어 틀린 답이다.
     """
+    checked = _checked_span_answers(answers, spans, [FIRST_VERDICTS] * len(spans), None)
+    return None if checked is None else checked[0]
+
+
+def _validate_recheck_answers(answers, spans, allowed, numbers):
+    """다시 묻기의 판정을 검증한다. 하나라도 틀리거나 빠지면 None, 아니면 (판정들, {구간 순번:
+    [(대안 용법, 대안 번역)]}).
+
+    allowed는 구간마다 받을 판정이다. 해석 갈림은 대안까지 검증하고, 근거 있는 대안이 남지 않으면
+    미확정이다.
+    """
+    return _checked_span_answers(answers, spans, allowed, numbers)
+
+
+def _checked_span_answers(answers, spans, allowed, numbers):
+    """두 검증이 함께 쓰는 판정 검증. numbers가 None이면 첫 응답이라 대안을 보지 않는다."""
     if not isinstance(answers, list):
         return None
-    judged = {}
+    judged, alternatives = {}, {}
     for item in answers:
         if not isinstance(item, dict):
             return None
@@ -66,7 +124,32 @@ def _validate_span_answers(answers, spans):
         if not _is_token_id(span_id, len(spans)) or span_id in judged:
             return None
         verdict, candidate_id = item.get("verdict"), item.get("candidate_id")
-        if verdict == "usage":
+        if verdict not in allowed[span_id]:
+            return None
+        if verdict == "divergent":
+            candidates = dict(spans[span_id].candidates)
+            usage = candidates.get(candidate_id)
+            if type(candidate_id) is not int or usage is None:
+                return None
+            if numbers is None:
+                if len(candidates) < 2:
+                    return None
+                judged[span_id] = (SpanMatch.State.DIVERGENT, usage, None)
+                continue
+            # 대안 칸이 null이면 대안이 없는 것이다(근거 있는 대안이 없을 때와 같다).
+            alts = _validate_alternatives(
+                item.get("alternatives") or [], candidates, candidate_id, numbers
+            )
+            if alts is None:
+                return None
+            if alts:
+                judged[span_id] = (SpanMatch.State.DIVERGENT, usage, None)
+                alternatives[span_id] = alts
+            else:
+                judged[span_id] = (SpanMatch.State.UNRESOLVED, None, None)
+        elif verdict == "unresolved":
+            judged[span_id] = (SpanMatch.State.UNRESOLVED, None, None)
+        elif verdict == "usage":
             # bool은 int의 하위 타입이고 True == 1이라 따로 거른다.
             usage = dict(spans[span_id].candidates).get(candidate_id)
             if type(candidate_id) is not int or usage is None:
@@ -83,7 +166,7 @@ def _validate_span_answers(answers, spans):
             return None
     if len(judged) != len(spans):
         return None
-    return [judged[span_id] for span_id in range(len(spans))]
+    return [judged[span_id] for span_id in range(len(spans))], alternatives
 
 
 # 새 구문 제안에서 공용 패턴·용법에 들어가는 글
@@ -369,30 +452,75 @@ def _letters(text):
     return "".join(ch for ch in text if unicodedata.category(ch)[0] not in "PSZC")
 
 
-def _grammar_response(analysis, offsets, origins, utf16):
-    """용법이 정해진 구간을 이 요청 원문의 UTF-16 위치와 용법의 이름·설명으로 보인다.
+# 화면에 보이는 구간 판정
+_SHOWN_STATES = (
+    SpanMatch.State.DECIDED,
+    SpanMatch.State.DIVERGENT,
+    SpanMatch.State.UNRESOLVED,
+)
+
+
+def _grammar_response(analysis, offsets, origins, utf16, restore):
+    """용법이 정해진 구간, 해석 갈림, 미확정 구간을 이 요청 원문의 UTF-16 위치로 보인다.
 
     같은 분석을 표기가 다른 원문(앞 공백, 괄호, 숫자 자릿수 등)이 함께 쓰므로, 요청마다
     그 원문 기준으로 다시 계산한다. 검수 상태는 저장하지 않고 볼 때마다 정한다(ADR 0003):
     고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴 중 하나라도 반려됐으면 빼고, 미검수면
-    'AI 생성·미검수'다.
+    'AI 생성·미검수'다. 해석 갈림의 대안도 하나씩 같게 보고, 반려된 대안만 뺀다(주 용법 쪽이
+    반려면 구간째 뺀다). 미확정은 매칭된 패턴만 본다.
     """
-    spans = (
-        analysis.span_matches.filter(state=SpanMatch.State.DECIDED)
+    spans = list(
+        analysis.span_matches.filter(state__in=_SHOWN_STATES)
         .select_related("pattern", "usage__pattern")
         .order_by("start_offset", "end_offset", "id")
     )
+    alternative_usages = GrammarUsage.objects.select_related("pattern").in_bulk(
+        [alt["usage_id"] for span in spans for alt in span.alternatives or []]
+    )
     grammar = []
     for span in spans:
-        item = _grammar_item(
-            span.pattern, span.usage, span.start_offset, span.end_offset, offsets, origins, utf16
-        )
-        if item is not None:
-            grammar.append(item)
+        if span.state == SpanMatch.State.UNRESOLVED:
+            item = _unresolved_item(span, offsets, origins, utf16)
+        else:
+            item = _grammar_item(
+                span.pattern,
+                span.usage,
+                span.start_offset,
+                span.end_offset,
+                offsets,
+                origins,
+                utf16,
+                span.state,
+            )
+        if item is None:
+            continue
+        if span.state == SpanMatch.State.DIVERGENT:
+            item["alternatives"] = []
+            for alt in span.alternatives:
+                usage = alternative_usages.get(alt["usage_id"])
+                review_status = _review_status(span.pattern, usage) if usage else None
+                if review_status is not None:
+                    item["alternatives"].append(
+                        {
+                            "name": usage.name,
+                            "translation_ko": restore(alt["translation_ko"]),
+                            "review_status": review_status,
+                        }
+                    )
+        grammar.append(item)
     return grammar
 
 
-def _grammar_item(pattern, usage, start_offset, end_offset, offsets, origins, utf16):
+def _grammar_item(
+    pattern,
+    usage,
+    start_offset,
+    end_offset,
+    offsets,
+    origins,
+    utf16,
+    state=SpanMatch.State.DECIDED,
+):
     """용법이 정해진 구간 하나를 응답 항목으로 만든다. 반려됐으면 None(ADR 0003)."""
     review_status = _review_status(pattern, usage)
     if review_status is None:
@@ -401,9 +529,27 @@ def _grammar_item(pattern, usage, start_offset, end_offset, offsets, origins, ut
     return {
         "start": start,
         "end": end,
+        "state": state,
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
         "review_status": review_status,
+    }
+
+
+def _unresolved_item(span, offsets, origins, utf16):
+    """미확정 구간의 응답 항목. 이름은 매칭된 패턴의 것이고 설명은 없다. 패턴이 반려됐으면 None."""
+    if span.pattern.status == ReviewStatus.REJECTED:
+        return None
+    start, end = to_original(
+        origins, utf16, *to_analysis(offsets, span.start_offset, span.end_offset)
+    )
+    return {
+        "start": start,
+        "end": end,
+        "state": SpanMatch.State.UNRESOLVED,
+        "name": span.pattern.name,
+        "explanation_ko": None,
+        "review_status": ("pending" if span.pattern.status == ReviewStatus.PENDING else "approved"),
     }
 
 
@@ -465,6 +611,19 @@ def _llm_spans(spans):
         }
         for span_id, span in enumerate(spans)
     ]
+
+
+def _reading_changed(first, again):
+    """해석 갈림·미확정이던 구간의 주 해석이 다시 묻기에서 바뀌었는가(번역을 바꿀지).
+
+    주 해석은 고른 용법(해석 갈림이면 주 용법)이거나 '해당 없음'이다. 다시 물어도 미확정이면
+    바뀌지 않은 것으로 보고, 처음에 미확정이었으면 무엇이 오든 바뀐 것이다.
+    """
+    if again[0] == SpanMatch.State.UNRESOLVED:
+        return False
+    if first[0] == SpanMatch.State.UNRESOLVED:
+        return True
+    return again[1] != first[1]
 
 
 def _is_fresh(analysis):
@@ -548,7 +707,7 @@ def analyze(request):
         return {
             "type": "analysis",
             "translation_ko": restore(saved.translation_ko),
-            "grammar": _grammar_response(saved, offsets, origins, utf16),
+            "grammar": _grammar_response(saved, offsets, origins, utf16, restore),
             "words": _words_response(
                 saved.draft_analysis["words"], offsets, origins, utf16, restore
             ),
@@ -721,16 +880,34 @@ def analyze(request):
                 holder["checked_example"] = text
 
     def ask_again(validated):
-        """형태소 조건이 같은 패턴이 이미 있는 새 구문은 새 용법을 버리고, 그 패턴의 기존 용법
-        목록으로 한 번 더 묻는다. 물은 구간은 판정할 후보 구간으로 옮긴다. 반려된 패턴이면
-        묻지 않고 미발견으로 남긴다.
+        """첫 응답의 해석 갈림·미확정 구간과, 형태소 조건이 같은 패턴이 이미 있는 새 구문을 한
+        요청으로 다시 묻는다(#40). 이 호출이 마지막이다.
+
+        같은 조건의 새 구문은 새 용법을 버리고 그 패턴의 기존 용법 목록으로 묻고, 물은 구간은
+        판정할 후보 구간으로 옮긴다. 반려된 패턴이면 묻지 않고 미발견으로 남긴다. 해석 갈림·
+        미확정 구간은 한 번만 묻는다(_PatternTaken 뒤 다시 부를 때는 빼고, 그 답은 다시 묻지
+        않는다). 그 구간의 주 해석이 바뀌었을 때만 다시 받은 번역으로 바꾼다.
         """
+        recheck = (
+            []
+            if validated.get("rechecked")
+            else [
+                index
+                for index, (state, _, _) in enumerate(validated["spans"])
+                if state in (SpanMatch.State.DIVERGENT, SpanMatch.State.UNRESOLVED)
+            ]
+        )
+        recheck_spans = [validated["span_list"][index] for index in recheck]
         proposals = validated["new_patterns"]
         existing = patterns.existing_patterns(
             [p["conditions"] for p in proposals if p["conditions"] is not None]
         )
         rest, asked = [], []
-        next_id = 1
+        # 후보 ID가 다시 묻는 구간끼리 겹치지 않게 이어 매긴다.
+        next_id = 1 + max(
+            (candidate_id for span in recheck_spans for candidate_id, _ in span.candidates),
+            default=0,
+        )
         for proposal in proposals:
             pattern = None
             if proposal["conditions"] is not None:
@@ -743,24 +920,70 @@ def analyze(request):
                 span = patterns.span_of(pattern, proposal["tokens"][0][0], next_id)
                 next_id += len(span.candidates)
                 asked.append(span)
-        if not asked:
+        if not asked and not recheck:
             return {**validated, "new_patterns": rest}
         if saved_by_another():
             # 그 결과를 쓰므로(save_once) 버려질 재질문을 보내지 않는다.
             return validated
+        llm_spans = _llm_spans(recheck_spans + asked)
+        # 해석이 정해진 구간은 그 해석대로 번역하게 알린다(답은 받지 않는다).
+        decided = [
+            {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
+            for span, (state, usage, _) in zip(
+                validated["span_list"], validated["spans"], strict=True
+            )
+            if state == SpanMatch.State.DECIDED
+        ]
         result = client.judge_spans(
-            key_text, tokens, validated["translation_ko"], _llm_spans(asked)
+            key_text,
+            tokens,
+            validated["translation_ko"],
+            decided_spans + decided,
+            llm_spans[: len(recheck)],
+            llm_spans[len(recheck) :],
         )
-        answers = _validate_span_answers(
-            result.get("spans") if isinstance(result, dict) else None, asked
-        )
-        if answers is None:
+        if not isinstance(result, dict):
             raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 다시 묻기")
+        checked = _validate_recheck_answers(
+            result.get("spans"),
+            recheck_spans + asked,
+            [RECHECK_VERDICTS] * len(recheck) + [FIRST_VERDICTS] * len(asked),
+            numbers,
+        )
+        if checked is None:
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 다시 묻기")
+        answers, new_alternatives = checked
+        translation = validated["translation_ko"]
+        if any(
+            _reading_changed(validated["spans"][index], answers[k])
+            for k, index in enumerate(recheck)
+        ):
+            translation = result.get("translation_ko")
+            if not _is_text(translation) or not has_all_placeholders(translation, numbers):
+                raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 다시 묻기 번역")
+        # 대안 번역이 최종 번역과 같으면 갈린 해석이 아니다.
+        if any(
+            alt.strip() == translation.strip()
+            for alts in new_alternatives.values()
+            for _, alt in alts
+        ):
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 대안 번역")
+        spans = list(validated["spans"])
+        # 대안은 판정할 후보 구간 목록의 순번으로 둔다.
+        positions = recheck + list(range(len(spans), len(spans) + len(asked)))
+        for k, index in enumerate(recheck):
+            spans[index] = answers[k]
         return {
             **validated,
+            "translation_ko": translation,
             "new_patterns": rest,
-            "spans": validated["spans"] + answers,
+            "spans": spans + answers[len(recheck) :],
             "span_list": validated["span_list"] + asked,
+            "alternatives": {
+                **validated.get("alternatives", {}),
+                **{positions[k]: alts for k, alts in new_alternatives.items()},
+            },
+            "rechecked": True,
         }
 
     def span_matches(saved, validated, final):
@@ -769,6 +992,13 @@ def analyze(request):
         패턴 생성 규칙을 어긴 새 구문은 미발견으로 남겨 보이지 않는다. 그사이 다른 요청이 같은
         조건의 패턴을 먼저 등록했으면 _PatternTaken을 던져 다시 묻게 한다(final이면 미발견).
         """
+        # 다른 요청이 먼저 저장해 다시 묻기를 건너뛰었는데, 그 행이 저장 전에 stale이 되어 이
+        # 결과로 다시 채우게 된 경우다. 다시 묻지 않은 해석 갈림·미확정은 저장하지 않는다.
+        if not validated.get("rechecked") and any(
+            state in (SpanMatch.State.DIVERGENT, SpanMatch.State.UNRESOLVED)
+            for state, _, _ in validated["spans"]
+        ):
+            raise BusinessError(AnalysisError.FAILED, "다시 묻지 않은 해석 갈림·미확정 구간")
         rows = []
         for span, candidate_id, usage in closed_spans:
             start, end = key_span(span.start_token, span.end_token)
@@ -816,6 +1046,12 @@ def analyze(request):
                 usage = new_usages[index]
                 if usage is not None:
                     state = SpanMatch.State.DECIDED
+            alternatives = None
+            if state == SpanMatch.State.DIVERGENT:
+                alternatives = [
+                    {"usage_id": alt.id, "translation_ko": translation}
+                    for alt, translation in validated["alternatives"][index]
+                ]
             rows.append(
                 SpanMatch(
                     analysis=saved,
@@ -829,6 +1065,7 @@ def analyze(request):
                         {"candidate_id": candidate_id, "usage_id": u.id}
                         for candidate_id, u in span.candidates
                     ],
+                    alternatives=alternatives,
                 )
             )
 

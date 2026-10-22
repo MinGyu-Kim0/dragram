@@ -22,8 +22,13 @@ For each span give its span_id and a verdict:
 - "unfound": the span has grammar to learn but no candidate explains it. Give new_usage: the
   usage that explains it, which will be added to the same pattern, with usage_name,
   explanation_ko and example_ja written as described for new_patterns below.
-Use null for candidate_id unless the verdict is "usage", and null for new_usage unless the
-verdict is "unfound". Use only candidate ids given for that span.
+- "divergent": the sentence alone can be read with more than one candidate, and nothing in it
+  tells which. Give the candidate_id of the candidate with the same reading as your
+  translation. Use it only for a span with two or more candidates.
+- "unresolved": you cannot tell which candidate explains the span, or the place is outside
+  what you can judge.
+Use null for candidate_id unless the verdict is "usage" or "divergent", and null for new_usage
+unless the verdict is "unfound". Use only candidate ids given for that span.
 
 In new_patterns, list grammar points of the sentence that no span explains: particles,
 auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
@@ -53,24 +58,49 @@ For loanwords, including new ones not in dictionaries, keep the katakana in the 
 (コーヒー → コーヒー). For a word written in katakana only for emphasis, give its usual
 dictionary form and reading (ヤバい → やばい / やばい). Write readings in kana only.
 
+"""
+
+# 번역(다시 묻기의 번역과 대안 번역 포함)에 숫자 자리표시자를 옮기는 규칙
+NUMBER_RULES = """\
 Numbers in the sentence are replaced with placeholders such as ⟨N1⟩ and ⟨N2⟩.
-Copy every placeholder into translation_ko exactly as written, with the same brackets and number.
-Do not turn a placeholder into digits or words, drop it, or add a placeholder that is not
-in the sentence. Example: "⟨N1⟩人で行く" → "⟨N1⟩명이서 간다".
+Copy every placeholder into each Korean translation exactly as written, with the same brackets
+and number. Do not turn a placeholder into digits or words, drop it, or add a placeholder that
+is not in the sentence. Example: "⟨N1⟩人で行く" → "⟨N1⟩명이서 간다".
 The same translation is reused for sentences that differ only in their numbers, so keep
 number notation exactly as in the sentence. Do not turn "⟨N1⟩:⟨N2⟩", "⟨N1⟩/⟨N2⟩" or
 "⟨N1⟩.⟨N2⟩" into words such as 시/분, 월/일 or 대: "⟨N1⟩:⟨N2⟩です" → "⟨N1⟩:⟨N2⟩입니다".
 """
 
-# 후보 구간 판정. usage는 후보 하나를 고른 것(decided)이다.
-SPAN_VERDICTS = ("usage", "not_applicable", "unfound")
+# 후보 구간 판정. usage는 후보 하나를 고른 것(decided)이다. divergent는 문장만으로 해석이
+# 갈리는 것(주 용법은 번역과 같은 해석), unresolved는 판단하지 못한 것이다(#40).
+SPAN_VERDICTS = ("usage", "not_applicable", "unfound", "divergent", "unresolved")
 # 새 구문 토큰 표시: lemma 고정 / 활용형도 고정 / 아무거나
 TOKEN_FIXES = ("lemma", "form", "any")
 
-# 후보 구간마다의 판정. 첫 분석과 다시 묻기가 함께 쓴다.
-SPAN_ANSWERS_SCHEMA = {
-    "type": "array",
-    "items": {
+# 해석 갈림의 대안. 다시 묻기에서만 받는다. 근거(basis)는 비었는지만 보고 버린다.
+ALTERNATIVES_SCHEMA = {
+    "anyOf": [
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "candidate_id": {"type": "integer"},
+                    "translation_ko": {"type": "string"},
+                    "basis": {"type": "string"},
+                },
+                "required": ["candidate_id", "translation_ko", "basis"],
+                "additionalProperties": False,
+            },
+        },
+        {"type": "null"},
+    ]
+}
+
+
+def span_answers_schema(with_alternatives):
+    """후보 구간마다의 판정. 첫 분석과 다시 묻기가 함께 쓰고, 다시 묻기만 대안을 받는다."""
+    item = {
         "type": "object",
         "properties": {
             "span_id": {"type": "integer"},
@@ -94,14 +124,18 @@ SPAN_ANSWERS_SCHEMA = {
         },
         "required": ["span_id", "verdict", "candidate_id", "new_usage"],
         "additionalProperties": False,
-    },
-}
+    }
+    if with_alternatives:
+        item["properties"]["alternatives"] = ALTERNATIVES_SCHEMA
+        item["required"].append("alternatives")
+    return {"type": "array", "items": item}
+
 
 RESPONSE_SCHEMA = {
     "type": "object",
     "properties": {
         "translation_ko": {"type": "string"},
-        "spans": SPAN_ANSWERS_SCHEMA,
+        "spans": span_answers_schema(False),
         "new_patterns": {
             "type": "array",
             "items": {
@@ -229,7 +263,7 @@ class OpenAILLMClient:
         try:
             stream = self._client.responses.create(
                 model=settings.OPENAI_MODEL,
-                instructions=INSTRUCTIONS,
+                instructions=INSTRUCTIONS + NUMBER_RULES,
                 input=json.dumps(
                     {
                         "sentence": sentence,
@@ -264,15 +298,28 @@ class OpenAILLMClient:
             raise BusinessError(AnalysisError.FAILED, "LLM 호출 실패") from e
         yield "result", parser.result()
 
-    def judge_spans(self, sentence, tokens, translation_ko, spans):
-        """후보 구간만 다시 묻는다. 스트림 없이 받은 검증 전 응답을 돌려준다."""
+    def judge_spans(self, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans):
+        """후보 구간만 다시 묻는다. 스트림 없이 받은 검증 전 응답을 돌려준다.
+
+        recheck_spans는 첫 응답에서 해석 갈림·미확정이었던 구간, spans는 같은 형태소 조건의
+        기존 패턴으로 다시 묻는 구간이다. recheck_spans가 있을 때만 문장 번역을 함께 받는다.
+        decided_spans는 해석이 정해진 구간이라 답을 받지 않는다.
+        """
         payload = {
             "sentence": sentence,
             "tokens": tokens,
             "translation_ko": translation_ko,
+            "decided_spans": decided_spans,
+            "recheck_spans": recheck_spans,
             "spans": spans,
         }
-        return self._ask("다시 묻기", JUDGE_INSTRUCTIONS, payload, "span_judgement", JUDGE_SCHEMA)
+        return self._ask(
+            "다시 묻기",
+            JUDGE_INSTRUCTIONS + NUMBER_RULES,
+            payload,
+            "span_judgement",
+            judge_schema(bool(recheck_spans)),
+        )
 
     def rewrite_examples(self, sentence, examples):
         """원문을 베껴 거부된 예문들을 한 번에 다시 쓰게 한다. 검증 전 응답을 돌려준다."""
@@ -315,32 +362,53 @@ class OpenAILLMClient:
             raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 응답이 JSON이 아님") from e
 
 
-# 같은 형태소 조건의 패턴이 이미 있을 때, 그 구간을 기존 용법 목록으로 다시 묻는 지침
+# 첫 응답의 해석 갈림·미확정 구간과, 같은 형태소 조건의 패턴이 이미 있는 구간을 한 번에 다시
+# 묻는 지침(#40). 이 호출이 마지막이라 여기서 받은 해석 갈림·미확정은 다시 묻지 않는다.
 JUDGE_INSTRUCTIONS = """\
 You help a Korean learner of Japanese read one Japanese sentence.
-You receive the sentence, its tokens, each with an id, its Korean translation (translation_ko)
-and spans. A span is a run of tokens (start_token_id to end_token_id) that matched a
-registered grammar pattern, with candidate usages of that pattern.
-In spans, answer every span you received, reading each span the same way as the translation.
-For each span give its span_id and a verdict:
+You receive the sentence, its tokens, each with an id, its Korean translation (translation_ko),
+decided_spans, recheck_spans and spans. A span is a run of tokens (start_token_id to
+end_token_id) that matched a registered grammar pattern, with candidate usages of that pattern.
+decided_spans are already explained (with the usage name). Do not answer them, and keep their
+reading as it is.
+Answer every span in recheck_spans and in spans, each by its span_id. Give a verdict:
 - "usage": one candidate explains the span. Give its candidate_id.
 - "not_applicable": there is no grammar to learn at that place.
-- "unfound": the span has grammar to learn but no candidate explains it. Give new_usage: a
-  short Korean name of the usage (usage_name), a Korean explanation of the usage in general so
-  that it fits every sentence with this usage, not of this sentence (explanation_ko), and a new
-  short Japanese example sentence of your own with the same usage (example_ja).
-Use null for candidate_id unless the verdict is "usage", and null for new_usage unless the
-verdict is "unfound". Use only candidate ids given for that span.
+- "unfound": only for spans in spans. The span has grammar to learn but no candidate explains
+  it. Give new_usage: a short Korean name of the usage (usage_name), a Korean explanation of the
+  usage in general so that it fits every sentence with this usage, not of this sentence
+  (explanation_ko), and a new short Japanese example sentence of your own with the same usage
+  (example_ja).
+- "divergent": the sentence alone can really be read with more than one candidate. Give the
+  candidate_id of the main reading and, in alternatives, each other candidate that also fits:
+  its candidate_id, the Korean translation of the whole sentence read that way
+  (translation_ko), and basis: in Korean, what earlier context would make that reading right.
+- "unresolved": you cannot tell which candidate explains the span, or you cannot write a basis
+  for the other readings.
+If something in the sentence decides the reading, choose one candidate with "usage". Use
+"divergent" only when the readings truly split, and write a basis for every alternative.
+Use null for candidate_id unless the verdict is "usage" or "divergent", null for new_usage
+unless the verdict is "unfound", and null for alternatives unless the verdict is "divergent".
+Use only candidate ids given for that span. An alternative must be a candidate other than the
+main one, and its translation must differ from the translation of the whole sentence.
+If you receive recheck_spans, also return in translation_ko the Korean translation of the
+whole sentence with your main readings.
 In usage_name and explanation_ko, quote Japanese only from that span's own tokens. Never quote
 the whole sentence or long parts of it. Do not write number placeholders (⟨N1⟩) there.
 """
 
-JUDGE_SCHEMA = {
-    "type": "object",
-    "properties": {"spans": SPAN_ANSWERS_SCHEMA},
-    "required": ["spans"],
-    "additionalProperties": False,
-}
+
+def judge_schema(with_translation):
+    """다시 묻기 응답. 첫 응답의 해석 갈림·미확정 구간을 다시 물을 때만 번역을 받는다."""
+    properties = {"spans": span_answers_schema(True)}
+    if with_translation:
+        properties = {"translation_ko": {"type": "string"}, **properties}
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(properties),
+        "additionalProperties": False,
+    }
 
 
 # 원문을 베껴 거부된 새 예문을 다시 쓰게 하는 지침

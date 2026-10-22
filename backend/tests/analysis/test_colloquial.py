@@ -1115,3 +1115,13 @@ def test_merging_while_another_pattern_event_locks_the_same_analyses_does_not_de
 
     assert result.get("rejected")
     assert fresh(variant).variant_of == base
+
+
+def test_linking_without_own_usages_leaves_analyses_of_the_base_fresh(fake_llm):
+    # 원형의 후보는 그대로라 원형 분석까지 다시 분석하지 않는다(#63과 같다).
+    base, variant = base_and_variant(fake_llm)
+    SentenceAnalysis.objects.update(is_stale=False)
+
+    review.link_variant(variant, base)
+
+    assert not SentenceAnalysis.objects.get(span_matches__pattern=base).is_stale

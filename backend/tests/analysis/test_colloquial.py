@@ -1019,3 +1019,44 @@ def test_link_action_without_a_choice_for_every_usage_shows_the_reason(admin_cli
 
     assert fresh(variant).variant_of is None
     assert "골라야" in html.unescape(response.content.decode())
+
+
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_merging_while_an_analysis_adds_a_base_usage_does_not_deadlock(fake_llm, monkeypatch):
+    # 분석이 원형 てしまう 구간에 새 용법을 더하며 원형을 잠근 사이, 관리자가 자기 용법이 남은
+    # ちゃう를 연결하며 그 용법을 원형 용법으로 합친다.
+    base, variant, done, own = with_own_usage(fake_llm)
+    result = {}
+    matchable_family = patterns.matchable_family
+
+    def link():
+        try:
+            review.link_variant(variant, base, {own.pk: done.pk})
+            result["linked"] = True
+        finally:
+            connection.close()
+
+    def link_meanwhile(pattern):
+        monkeypatch.setattr(patterns, "matchable_family", matchable_family)
+        thread = threading.Thread(target=link)
+        thread.start()
+        wait_until_blocked()
+        result["thread"] = thread
+        return matchable_family(pattern)
+
+    monkeypatch.setattr(patterns, "matchable_family", link_meanwhile)
+    fake_llm.response = {
+        "translation_ko": "다 먹어 버렸다",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage("유감", "아쉬움", "本を忘れてしまった"))
+        ],
+    }
+
+    response = analyze(Client(), "全部食べてしまった")
+    result["thread"].join()
+
+    assert "error" not in response.json()
+    assert result.get("linked")
+    assert not GrammarUsage.objects.filter(pk=own.pk).exists()
+    assert GrammarUsage.objects.filter(pattern=base, name="유감").exists()

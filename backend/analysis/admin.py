@@ -50,7 +50,7 @@ class GrammarPatternForm(forms.ModelForm):
 
     class Meta:
         model = GrammarPattern
-        fields = ["name", "test_cases"]
+        fields = ["name", "test_cases", "show_parts"]
 
     def clean_test_cases(self):
         cases = self.cleaned_data["test_cases"]
@@ -215,6 +215,7 @@ class GrammarPatternAdmin(_ReviewedAdmin):
     fields = [
         "name",
         "test_cases",
+        "show_parts",
         "status",
         "is_active",
         "usage_closed",
@@ -233,8 +234,9 @@ class GrammarPatternAdmin(_ReviewedAdmin):
     inlines = [PatternMorphemeInline]
 
     def save_model(self, request, obj, form, change):
-        # test_cases는 활성 상태·패턴 세트 버전과 함께 바꾼다.
-        GrammarPattern.objects.filter(pk=obj.pk).update(name=obj.name)
+        # show_parts는 조회할 때만 읽는 표시 칸이라 그대로 쓴다(#65). test_cases는 활성 상태·
+        # 패턴 세트 버전과 함께 바꾼다.
+        GrammarPattern.objects.filter(pk=obj.pk).update(name=obj.name, show_parts=obj.show_parts)
         review.update_test_cases(obj, form.cleaned_data["test_cases"])
 
     actions = [

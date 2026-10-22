@@ -9,6 +9,7 @@ from django.db.models import F
 from django.test import Client
 
 from analysis import patterns, review
+from analysis.admin import GrammarUsageAdmin
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -1146,3 +1147,26 @@ def test_usage_transition_checks_the_pattern_a_usage_was_moved_to(fake_llm):
         review.approve_usage(own)
 
     assert GrammarUsage.objects.get(pk=own.pk).status == "pending"
+
+
+USAGES = "/admin/analysis/grammarusage/"
+
+
+@pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])
+def test_usage_form_opened_before_merging_is_not_saved(admin_client, fake_llm, monkeypatch, moved):
+    # 회화체 용법의 변경 화면을 연 뒤 그 용법이 원형으로 합쳐지거나 옮겨졌다. 화면은 회화체
+    # 조건으로 예문을 검사하므로, 저장하면 원형 소속 용법에 원형에 걸리지 않는 예문이 남는다.
+    base, variant, done, own = with_own_usage(fake_llm)
+    stale = GrammarUsage.objects.get(pk=own.pk)
+    review.link_variant(variant, base, {own.pk: None if moved else done.pk})
+    monkeypatch.setattr(GrammarUsageAdmin, "get_object", lambda *args: stale)
+
+    response = admin_client.post(
+        f"{USAGES}{own.pk}/change/",
+        {"explanation_ko": "새 설명", "example_ja": "本を忘れちゃった"},
+    )
+
+    assert response.status_code == 200
+    assert "옮겨졌습니다" in html.unescape(response.content.decode())
+    if moved:
+        assert GrammarUsage.objects.get(pk=own.pk).example_ja is None

@@ -259,6 +259,22 @@ class GrammarUsageForm(forms.ModelForm):
             raise forms.ValidationError("예문이 이 용법의 패턴에 걸리지 않습니다")
         return example
 
+    def clean(self):
+        # admin 변경 화면은 한 트랜잭션이라, 여기서 잠근 용법을 저장(save_model)까지 붙든다. 예문은
+        # 화면이 읽어 둔 패턴의 조건으로 검사했으므로, 그사이 용법이 원형 용법으로 합쳐지거나
+        # 원형 아래로 옮겨졌으면 저장하지 않는다(#64).
+        current = (
+            GrammarUsage.objects.select_for_update(no_key=True)
+            .filter(pk=self.instance.pk)
+            .values_list("pattern_id", flat=True)
+            .first()
+        )
+        if current != self.instance.pattern_id:
+            raise forms.ValidationError(
+                "그사이 용법이 원형 용법으로 합쳐지거나 원형 아래로 옮겨졌습니다(다시 엽니다)"
+            )
+        return super().clean()
+
 
 @admin.register(GrammarUsage)
 class GrammarUsageAdmin(_ReviewedAdmin):

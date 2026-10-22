@@ -242,8 +242,9 @@ def link_variant(pattern, base):
     base, pattern = locked[base.pk], locked[pattern.pk]
     if pattern.variant_of_id is not None:
         raise Refused("이미 원형에 연결돼 있습니다(바꾸려면 먼저 해제합니다)")
-    if base.variant_of_id is not None:
-        raise Refused("원형도 다른 패턴의 회화체입니다")
+    # 연결된 회화체는 늘 register가 회화체이고, 연결을 푼 회화체도 회화체로 남는다.
+    if base.register == GrammarPattern.Register.COLLOQUIAL:
+        raise Refused("회화체 패턴은 원형이 될 수 없습니다")
     if GrammarPattern.objects.filter(variant_of=pattern).exists():
         raise Refused("이 패턴을 원형으로 가리키는 회화체가 있습니다")
     if ReviewStatus.REJECTED in {base.status, pattern.status}:

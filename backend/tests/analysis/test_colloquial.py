@@ -102,6 +102,13 @@ def base_is_a_variant(base, variant, teru):
     return variant, teru
 
 
+def base_was_a_variant(base, variant, teru):
+    # 연결했다가 해제한 회화체는 register가 회화체로 남아 원형이 될 수 없다.
+    review.link_variant(teru, base)
+    review.unlink_variant(teru)
+    return variant, teru
+
+
 def pattern_is_a_base(base, variant, teru):
     review.link_variant(teru, variant)
     return variant, base
@@ -130,6 +137,7 @@ def own_usage_left(base, variant, teru):
 REFUSALS = [
     self_link,
     base_is_a_variant,
+    base_was_a_variant,
     pattern_is_a_base,
     base_rejected,
     variant_rejected,

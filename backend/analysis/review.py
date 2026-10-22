@@ -267,6 +267,7 @@ def link_variant(pattern, base, mapping=None):
         raise Refused("반려된 패턴은 연결할 수 없습니다")
     mapping = mapping or {}
     merges = {source: target for source, target in mapping.items() if target is not None}
+    moves = mapping.keys() - merges.keys()
     # 자기 용법과 합칠 원형 용법을 한 번에 id 순서로 잠근다(패턴 → 용법 순서).
     locked = (
         GrammarUsage.objects.select_for_update(no_key=True)
@@ -284,7 +285,7 @@ def link_variant(pattern, base, mapping=None):
         raise Refused("합칠 용법은 원형의 반려되지 않은 용법이어야 합니다")
     # 용법 이름은 패턴 안에서 유일하다(반려된 용법 포함). 반려된 용법으로는 합칠 수 없다.
     taken = dict(GrammarUsage.objects.filter(pattern=base).values_list("name", "status"))
-    for source in mapping.keys() - merges.keys():
+    for source in moves:
         name = own[source].name
         if taken.get(name) == ReviewStatus.REJECTED:
             raise Refused(
@@ -300,7 +301,7 @@ def link_variant(pattern, base, mapping=None):
     pattern.variant_of = base
     pattern.register = GrammarPattern.Register.COLLOQUIAL
     pattern.save(update_fields=["variant_of", "register"])
-    for source in mapping.keys() - merges.keys():
+    for source in moves:
         _move_usage(own[source], base)
     # 버전은 분석 행을 잠그기(합침, stale) 전에 올린다.
     if patterns.matchable_family(base) - was_matchable:
@@ -314,7 +315,7 @@ def link_variant(pattern, base, mapping=None):
         patterns.make_stale(pattern=base, usages=own.values(), candidates=True)
     for source, target in merges.items():
         patterns.merge_usage(own[source], targets[target])
-    if mapping.keys() - merges.keys():
+    if moves:
         # 옮김은 원형에 용법을 더한 것과 같다. 원형과 그 회화체들의 용법 완결을 뗀다.
         patterns.clear_usage_closed(base)
     patterns.clear_usage_closed(pattern)

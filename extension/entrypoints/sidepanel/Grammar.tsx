@@ -239,9 +239,15 @@ function GrammarCard({
           {text.slice(item.start, item.end)}
         </span>
         <h3>{item.name}</h3>
+        {item.register === "colloquial" && (
+          <span className="badge-neutral">회화체</span>
+        )}
         {item.review_status === "pending" && <PendingBadge />}
         {dragged && <span className="card-meta">드래그한 부분</span>}
       </div>
+      {item.variant_of !== null && (
+        <p className="variant-note">「{item.variant_of}」의 회화체</p>
+      )}
       {item.state === "unresolved" ? (
         <p className="grammar-explanation unresolved-note">판단하지 못함</p>
       ) : (

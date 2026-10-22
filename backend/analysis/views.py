@@ -511,7 +511,7 @@ def _grammar_response(analysis, offsets, origins, utf16, restore):
     alternative_usages = GrammarUsage.objects.select_related("pattern").in_bulk(
         [alt["usage_id"] for span in spans for alt in span.alternatives or []]
     )
-    grammar = []
+    entries = []
     for span in spans:
         if span.state == SpanMatch.State.UNRESOLVED:
             item = _unresolved_item(span, offsets, origins, utf16)
@@ -541,7 +541,52 @@ def _grammar_response(analysis, offsets, origins, utf16, restore):
                             "review_status": review_status,
                         }
                     )
-        grammar.append(item)
+        entries.append((item, span.pattern.show_parts))
+    return _with_parts(entries)
+
+
+# 구성 문법의 바깥 카드가 될 수 있는 판정 상태(#65). 미확정은 설명 없는 카드 뒤로 설명을 숨기지
+# 않도록 바깥이 되지 않는다.
+_OUTER_STATES = (SpanMatch.State.DECIDED, SpanMatch.State.DIVERGENT)
+
+
+def _with_parts(entries):
+    """(항목, 매칭된 패턴의 show_parts) 목록(원문 순서)에서 구성 문법을 바깥 항목의 parts로 옮긴다.
+
+    구성 문법은 범위가 다르고 완전히 들어가는 결정·해석 갈림 항목 가운데 가장 작은 것(크기가
+    같으면 원문 순서로 앞선 것)에 붙는다. 하위 박스는 한 단이라, 그 바깥이 다시 구성 문법이면 가장
+    바깥 항목 아래로 놓는다. 위로 이어지는 바깥 가운데 하나라도 show_parts가 꺼져 있으면 응답에서
+    뺀다(#65).
+    """
+
+    def contains(outer, inner):
+        return (outer["start"], outer["end"]) != (inner["start"], inner["end"]) and (
+            outer["start"] <= inner["start"] and inner["end"] <= outer["end"]
+        )
+
+    items = [item for item, _ in entries]
+    parents = [
+        min(
+            (
+                i
+                for i, outer in enumerate(items)
+                if outer["state"] in _OUTER_STATES and contains(outer, item)
+            ),
+            key=lambda i: items[i]["end"] - items[i]["start"],
+            default=None,
+        )
+        for item in items
+    ]
+    grammar = []
+    for i, item in enumerate(items):
+        top, shown = i, True
+        while parents[top] is not None:
+            top = parents[top]
+            shown = shown and entries[top][1]
+        if top == i:
+            grammar.append(item)
+        elif shown:
+            items[top].setdefault("parts", []).append(item)
     return grammar
 
 

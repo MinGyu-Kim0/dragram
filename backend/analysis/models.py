@@ -69,6 +69,9 @@ class GrammarPattern(models.Model):
     variant_of = models.ForeignKey(
         "self", on_delete=models.PROTECT, null=True, related_name="variants"
     )
+    # 이 패턴 구간 안의 구성 문법을 화면에 하위 박스로 보일지(#65). 조회할 때만 읽는 표시 칸이라
+    # 바꿔도 stale·세대 번호·패턴 세트 버전을 건드리지 않는다.
+    show_parts = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

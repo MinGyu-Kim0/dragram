@@ -2,6 +2,8 @@
 
 import pytest
 
+from analysis import patterns
+from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from tests.analysis.helpers import analyze, new_pattern
 
 pytestmark = pytest.mark.django_db
@@ -57,3 +59,27 @@ def test_grammar_inside_a_longer_grammar_is_shown_in_its_parts(client, fake_llm)
             ],
         }
     ]
+
+
+def outline(grammar):
+    """(이름, 구성 문법 이름들) 목록."""
+    return [(item["name"], [part["name"] for part in item.get("parts", [])]) for item in grammar]
+
+
+def test_turning_show_parts_off_hides_the_parts_on_the_next_read_without_reanalysis(
+    client, fake_llm
+):
+    analyze_with(client, fake_llm, TESHIMAU, TE)
+    analysis = SentenceAnalysis.objects.get()
+    version = patterns.pattern_set_version()
+
+    GrammarPattern.objects.filter(name="てしまう").update(show_parts=False)
+    response = analyze(client, TABETESHIMATTA)
+
+    assert outline(response.json()["grammar"]) == [("완료", [])]
+    assert "parts" not in response.json()["grammar"][0]
+    assert len(fake_llm.requests) == 1
+    refreshed = SentenceAnalysis.objects.get()
+    assert (refreshed.is_stale, refreshed.generation) == (False, analysis.generation)
+    assert patterns.pattern_set_version() == version
+    assert SpanMatch.objects.filter(analysis=analysis, pattern__name="て").exists()

@@ -1228,3 +1228,36 @@ test("재분석 중에 스트림이 끊겨도 옛 결과를 남기고 '재분석
   expect(await screen.findByText("재분석하지 못했습니다")).toBeInTheDocument();
   expect(screen.getByText("그가 와 있다")).toBeInTheDocument();
 });
+
+// 요청마다 차례로 다른 응답을 준다. 정한 응답이 다 떨어지면 응답하지 않는다.
+function respondInTurn(...responses: (() => Promise<Response> | Response)[]) {
+  const fetchMock = vi.fn((_url: string, _init: RequestInit) => {
+    const respond = responses.shift();
+    return respond
+      ? Promise.resolve(respond())
+      : new Promise<Response>(() => {});
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+const failed = () => json(502, { error: "ANALYSIS:FAILED" });
+
+test("번역 전에 실패한 문장은 '다시 시도'로 그 문장만 다시 요청하고, 성공하면 결과로 바뀐다", async () => {
+  const fetchMock = respondInTurn(failed, () =>
+    json(200, analysis("나는 학생입니다.")),
+  );
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+
+  expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "문법 0" })).toBeInTheDocument();
+  expect(screen.queryByText("분석하지 못했습니다")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("button", { name: "다시 시도" }),
+  ).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});

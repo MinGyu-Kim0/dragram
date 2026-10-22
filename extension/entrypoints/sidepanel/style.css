@@ -122,6 +122,21 @@ h1 {
   color: var(--color-danger-text);
 }
 
+/* 실패 문구 옆의 다시 시도 텍스트 버튼. 줄 높이는 그대로 두고 누르는 영역만 넓힌다. */
+.retry,
+.display-toggles .retry {
+  margin: -12px 0 -12px 6px;
+  padding: 12px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-brand-strong);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 /* 원문 카드 아래(탭 자리)의 대기·실패 표시 */
 .below-card {
   margin-top: 14px;

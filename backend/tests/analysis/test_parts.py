@@ -1,9 +1,11 @@
 """긴 패턴 안의 구성 문법 표시(#65)."""
 
 import pytest
+from django.test import Client
 
 from analysis import patterns
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
+from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
@@ -179,4 +181,44 @@ def test_nested_parts_are_laid_flat_under_the_outermost_card(client, fake_llm, h
 
     response = analyze(client, TABETESHIMATTA)
 
+    assert outline(response.json()["grammar"]) == expected
+
+
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (None, [("완료", ["연결"]), ("과거", [])]),
+        # 재판정이 실패하면 저장하지 않고 저장된 구간만으로 대체 응답을 보낸다.
+        (BusinessError(AnalysisError.FAILED, "LLM 재판정 호출 실패"), [("완료", ["연결"])]),
+    ],
+    ids=["saved", "fallback"],
+)
+def test_rematch_sends_flat_grammar_first_and_parts_in_the_analysis(
+    client, fake_llm, error, expected
+):
+    analyze_with(client, fake_llm, TESHIMAU, TE)
+    # 다른 문장으로 た를 등록하면 패턴 세트 버전이 올라 캐시 문장을 다시 매칭한다(#41).
+    analyze_with(
+        Client(),
+        fake_llm,
+        new_pattern(
+            (1, "lemma"),
+            pattern_name="た",
+            usage_name="과거",
+            explanation_ko="지난 일을 나타낸다",
+            example_ja="食べた",
+        ),
+        sentence="見た",
+    )
+    fake_llm.forget_requests()
+    # 새 구간 た의 후보 번호는 저장 구간의 후보(て 1, てしまう 2) 다음인 3이다.
+    fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 3)]}
+    fake_llm.rematch_error = error
+
+    response = analyze(client, TABETESHIMATTA)
+
+    assert response.types() == ["grammar", "translation", "analysis"]
+    first = response.events[0]["grammar"]
+    assert outline(first) == [("연결", []), ("완료", [])]
+    assert all("parts" not in item for item in first)
     assert outline(response.json()["grammar"]) == expected

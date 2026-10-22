@@ -495,7 +495,13 @@ _SHOWN_STATES = (
 
 
 def _grammar_response(analysis, offsets, origins, utf16, restore):
+    """analysis 이벤트의 문법: 저장 구간을 보이고, 구성 문법은 바깥 항목의 parts에 넣는다(#65)."""
+    return _with_parts(_grammar_entries(analysis, offsets, origins, utf16, restore))
+
+
+def _grammar_entries(analysis, offsets, origins, utf16, restore):
     """용법이 정해진 구간, 해석 갈림, 미확정 구간을 이 요청 원문의 UTF-16 위치로 보인다.
+    (항목, 매칭된 패턴의 show_parts) 목록(원문 순서)이다.
 
     같은 분석을 표기가 다른 원문(앞 공백, 괄호, 숫자 자릿수 등)이 함께 쓰므로, 요청마다
     그 원문 기준으로 다시 계산한다. 검수 상태는 저장하지 않고 볼 때마다 정한다(ADR 0003):
@@ -542,7 +548,7 @@ def _grammar_response(analysis, offsets, origins, utf16, restore):
                         }
                     )
         entries.append((item, span.pattern.show_parts))
-    return _with_parts(entries)
+    return entries
 
 
 # 구성 문법의 바깥 카드가 될 수 있는 판정 상태(#65). 미확정은 설명 없는 카드 뒤로 설명을 숨기지
@@ -1498,12 +1504,13 @@ def analyze(request):
         return (span.pattern.id, *key_span(span.start_token, span.end_token))
 
     def rematch_grammar(analysis, new_closed):
-        """저장 구간(조회 규칙 적용)에, 아직 저장되지 않은 새 DB 확정 구간을 더한 문법(원문 순서).
+        """저장 구간(조회 규칙 적용)에, 아직 저장되지 않은 새 DB 확정 구간을 더한 문법.
+        _grammar_entries와 같은 (항목, show_parts) 목록(원문 순서)이다.
 
         확정 구간의 패턴·용법 상태는 DB에서 다시 읽어 반려됐으면 뺀다. 매칭할 때 읽은 상태라
         그사이 반려됐을 수 있다.
         """
-        grammar = _grammar_response(analysis, offsets, origins, utf16, restore)
+        grammar = _grammar_entries(analysis, offsets, origins, utf16, restore)
         stored_keys = _stored_keys(analysis)
         usages = GrammarUsage.objects.select_related("pattern").in_bulk(
             [usage.id for _, _, usage in new_closed]
@@ -1516,12 +1523,11 @@ def analyze(request):
             if span_key(span) in stored_keys or current is None:
                 continue
             start, end = key_span(span.start_token, span.end_token)
-            item = _grammar_item(
-                matched[span.pattern.id], current, start, end, offsets, origins, utf16
-            )
+            pattern = matched[span.pattern.id]
+            item = _grammar_item(pattern, current, start, end, offsets, origins, utf16)
             if item is not None:
-                grammar.append(item)
-        return sorted(grammar, key=lambda item: (item["start"], item["end"]))
+                grammar.append((item, pattern.show_parts))
+        return sorted(grammar, key=lambda entry: (entry[0]["start"], entry[0]["end"]))
 
     def rematch_fallback(new_closed):
         """다시 매칭한 결과를 저장하지 못했을 때의 analysis 이벤트.
@@ -1534,7 +1540,7 @@ def analyze(request):
             row = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=cached.pk)
             event = analysis_event(row)
             if _is_fresh(row) and row.generation == started_generation:
-                event["grammar"] = rematch_grammar(row, new_closed)
+                event["grammar"] = _with_parts(rematch_grammar(row, new_closed))
             return event
 
     def save_rematch(new_closed, span_list=(), answers=(), alternatives=None):
@@ -1676,9 +1682,10 @@ def analyze(request):
         재판정이나 저장이 실패하면 아무것도 저장하지 않고 error 대신 대체 응답을 보낸다. 다음
         조회가 다시 시도한다. 로그에는 원문 없이 목적·분석 ID·오류 코드만 남긴다.
         """
+        # 먼저 오는 grammar 이벤트는 평평하게 둔다. 하위 박스는 analysis에만 있다(#65).
         yield {
             "type": "grammar",
-            "grammar": rematch_grammar(cached, new_closed),
+            "grammar": [item for item, _ in rematch_grammar(cached, new_closed)],
             "checking": checking(new_spans),
         }
         yield translation_event(cached.translation_ko)

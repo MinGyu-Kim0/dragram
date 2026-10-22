@@ -1,8 +1,9 @@
 """패턴·용법 검수 화면(#38).
 
 원문이나 원문 위치를 담은 테이블(sentence_analysis, span_match)은 등록하지 않는다. 패턴·용법은
-LLM이 만들므로 여기서 더하거나 지우지 않는다. 상태는 필드가 아니라 액션으로만 바꾸고, 액션은
-analysis.review의 상태 전이를 부른다.
+LLM이 만들므로 여기서 더하거나 지우지 않는다(회화체를 연결하며 자기 용법을 원형 용법으로 합칠
+때만 그 용법을 지운다, #64). 상태는 필드가 아니라 액션으로만 바꾸고, 액션은 analysis.review의
+상태 전이를 부른다.
 """
 
 import json
@@ -10,9 +11,10 @@ import json
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
+from django.template.response import TemplateResponse
 
 from analysis import patterns, review
-from analysis.models import GrammarPattern, GrammarUsage, PatternMorpheme
+from analysis.models import GrammarPattern, GrammarUsage, PatternMorpheme, ReviewStatus
 from analysis.normalize import has_only_known_placeholders
 
 
@@ -122,17 +124,67 @@ class GrammarPatternActionForm(ActionForm):
     base_pattern_id = forms.CharField(required=False, label="원형 패턴 ID")
 
 
+def _usage_mapping(data):
+    """중간 화면에서 고른 대응표 {자기 용법 ID: 합칠 원형 용법 ID, 옮기면 None}. 고르지 않은
+    용법이 있거나 값이 잘못됐으면 None이다.
+    """
+    mapping = {}
+    for key, value in data.items():
+        if not key.startswith("usage_"):
+            continue
+        source = key.removeprefix("usage_")
+        if not source.isdecimal() or not (value == "move" or value.isdecimal()):
+            return None
+        mapping[int(source)] = None if value == "move" else int(value)
+    return mapping
+
+
 @admin.action(description="원형에 연결(원형 패턴 ID를 넣고)")
 def link_variant(model_admin, request, queryset):
-    """선택한 회화체 패턴을 원형 패턴 ID 칸의 패턴에 연결한다(#63)."""
+    """선택한 회화체 패턴을 원형 패턴 ID 칸의 패턴에 연결한다(#63).
+
+    패턴 하나를 골랐고 반려되지 않은 자기 용법이 남았으면, 먼저 용법마다 합칠 원형 용법이나
+    옮김을 고르는 화면을 보인다. 이름으로 자동 대응하지 않는다(#64).
+    """
     raw = request.POST.get("base_pattern_id", "").strip()
     base = GrammarPattern.objects.filter(pk=int(raw)).first() if raw.isdecimal() else None
     if base is None:
         model_admin.message_user(
             request, "원형 패턴 ID 칸에 있는 패턴의 ID를 넣어야 합니다", messages.ERROR
         )
-        return
-    _apply(model_admin, request, queryset, lambda obj: review.link_variant(obj, base))
+        return None
+    if "apply" in request.POST:
+        mapping = _usage_mapping(request.POST)
+        if mapping is None:
+            model_admin.message_user(
+                request, "용법마다 합칠 원형 용법이나 옮김을 골라야 합니다", messages.ERROR
+            )
+            return None
+        _apply(model_admin, request, queryset, lambda obj: review.link_variant(obj, base, mapping))
+        return None
+    chosen = list(queryset)
+    usages = (
+        GrammarUsage.objects.filter(pattern=chosen[0]).exclude(status=ReviewStatus.REJECTED)
+        if len(chosen) == 1
+        else GrammarUsage.objects.none()
+    )
+    if not usages:
+        # 여러 개를 골랐으면 자기 용법이 남은 패턴은 거부 이유를 보인다(하나씩 연결한다).
+        _apply(model_admin, request, chosen, lambda obj: review.link_variant(obj, base))
+        return None
+    return TemplateResponse(
+        request,
+        "admin/analysis/grammarpattern/link_variant.html",
+        {
+            **model_admin.admin_site.each_context(request),
+            "title": "원형에 연결",
+            "opts": model_admin.model._meta,
+            "pattern": chosen[0],
+            "base": base,
+            "usages": usages.order_by("id"),
+            "targets": base.usages.exclude(status=ReviewStatus.REJECTED).order_by("id"),
+        },
+    )
 
 
 @admin.register(GrammarPattern)

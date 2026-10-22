@@ -976,3 +976,46 @@ def test_rejected_own_usage_stays_with_the_variant_and_stays_hidden(client, fake
     SentenceAnalysis.objects.update(is_stale=False)
     response = analyze(client, MICHAU)
     assert response.json()["grammar"] == []
+
+
+def test_link_action_asks_what_to_do_with_each_own_usage(admin_client, fake_llm):
+    base, variant, done, own = with_own_usage(fake_llm)
+    with transaction.atomic():
+        regret, _ = patterns.add_usage(variant, "유감", "아쉬운 마음을 담는다", None)
+
+    page = act(admin_client, "link_variant", variant, base_pattern_id=str(base.pk))
+
+    assert fresh(variant).variant_of is None
+    text = html.unescape(page.content.decode())
+    assert "완료(회화체)" in text
+    assert f'name="usage_{own.pk}"' in text
+    assert f'<option value="{done.pk}">' in text
+
+    act(
+        admin_client,
+        "link_variant",
+        variant,
+        base_pattern_id=str(base.pk),
+        apply="1",
+        **{f"usage_{own.pk}": str(done.pk), f"usage_{regret.pk}": "move"},
+    )
+
+    assert fresh(variant).variant_of == base
+    assert not GrammarUsage.objects.filter(pk=own.pk).exists()
+    assert GrammarUsage.objects.get(pk=regret.pk).pattern == base
+
+
+def test_link_action_without_a_choice_for_every_usage_shows_the_reason(admin_client, fake_llm):
+    base, variant, _, own = with_own_usage(fake_llm)
+
+    response = act(
+        admin_client,
+        "link_variant",
+        variant,
+        base_pattern_id=str(base.pk),
+        apply="1",
+        **{f"usage_{own.pk}": ""},
+    )
+
+    assert fresh(variant).variant_of is None
+    assert "골라야" in html.unescape(response.content.decode())

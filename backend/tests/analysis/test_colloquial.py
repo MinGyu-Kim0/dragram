@@ -159,6 +159,21 @@ def test_link_is_refused_and_changes_nothing(fake_llm, case):
     assert (version(), pattern.variant_of_id, pattern.register) == before
 
 
+def test_sentence_cached_before_linking_gets_the_variant_span(client, fake_llm):
+    base, variant = base_and_variant(fake_llm)
+    # 회화체의 자기 용법이 반려돼 매칭되지 않을 때 캐시된 문장
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다"}
+    analyze(client, "全部見ちゃった")
+
+    review.link_variant(variant, base)
+    fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
+    response = analyze(client, "全部見ちゃった")
+
+    [request] = fake_llm.rematch_requests
+    assert [span["colloquial_of"] for span in request["spans"]] == ["てしまう"]
+    assert [item["variant_of"] for item in response.json()["grammar"]] == ["てしまう"]
+
+
 def test_unlinking_keeps_the_register_and_makes_analyses_stale(fake_llm):
     base, variant = base_and_variant(fake_llm)
     review.link_variant(variant, base)

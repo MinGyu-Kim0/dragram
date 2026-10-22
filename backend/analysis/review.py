@@ -282,10 +282,15 @@ def link_variant(pattern, base, mapping=None):
         raise Refused("고른 용법이 지금의 반려되지 않은 자기 용법과 다릅니다")
     if any(target not in targets for target in merges.values()):
         raise Refused("합칠 용법은 원형의 반려되지 않은 용법이어야 합니다")
-    # 용법 이름은 패턴 안에서 유일하다(반려된 용법 포함).
-    taken = set(GrammarUsage.objects.filter(pattern=base).values_list("name", flat=True))
+    # 용법 이름은 패턴 안에서 유일하다(반려된 용법 포함). 반려된 용법으로는 합칠 수 없다.
+    taken = dict(GrammarUsage.objects.filter(pattern=base).values_list("name", "status"))
     for source in mapping.keys() - merges.keys():
         name = own[source].name
+        if taken.get(name) == ReviewStatus.REJECTED:
+            raise Refused(
+                "원형의 같은 이름 용법이 반려돼 있어 옮길 수 없습니다(그 용법을 반려 취소한 뒤"
+                f" 합치거나, 다른 용법으로 합치거나, 이 용법을 반려합니다): {name}"
+            )
         if name in taken:
             raise Refused(
                 f"원형에 같은 이름의 용법이 있어 옮길 수 없습니다(합침을 고릅니다): {name}"

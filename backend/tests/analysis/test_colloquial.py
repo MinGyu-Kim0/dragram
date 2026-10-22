@@ -832,13 +832,20 @@ def test_moved_usage_joins_the_base_and_keeps_its_status(fake_llm, example_ja, s
     assert (own.pattern, own.status, own.example_ja) == (base, "approved", stored)
 
 
-def test_moving_a_usage_named_like_a_base_usage_is_refused_and_changes_nothing(fake_llm):
+@pytest.mark.parametrize(
+    ("base_usage_rejected", "reason"), [(False, "합침을 고릅니다"), (True, "반려 취소")]
+)
+def test_moving_a_usage_named_like_a_base_usage_is_refused_and_changes_nothing(
+    fake_llm, base_usage_rejected, reason
+):
     base, variant, done, own = with_own_usage(fake_llm)
-    # 반려된 원형 용법과 이름이 같아도 옮기지 않는다(이름은 패턴 안에서 유일하다).
-    review.reject_usage(done)
+    # 반려된 원형 용법과 이름이 같아도 옮기지 않는다(이름은 패턴 안에서 유일하다). 반려된 용법으로는
+    # 합칠 수도 없어, 다른 길을 알려 준다.
+    if base_usage_rejected:
+        review.reject_usage(done)
     GrammarUsage.objects.filter(pk=own.pk).update(name="완료")
 
-    with pytest.raises(review.Refused, match="합침"):
+    with pytest.raises(review.Refused, match=reason):
         review.link_variant(variant, base, {own.pk: None})
 
     own.refresh_from_db()

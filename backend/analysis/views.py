@@ -668,19 +668,21 @@ def _reading_changed(first, again):
     return again[1] != first[1]
 
 
-def _outside_family(rows):
-    """구간 용법이 매칭된 패턴이나 지금 그 패턴이 연결된 원형 소속이 아닌 행이 있는가(#63).
+def _links_changed(rows):
+    """구간마다 분석할 때 읽은 원형 연결이 지금과 다른가(#63). 판정 상태와 상관없이 모두 본다.
 
-    분석하는 사이 연결·해제가 일어나면 생긴다. 그대로 저장하면 조회에서는 빠지지만, 연결·해제의
-    stale 처리가 저장 전에 지나가 다시 분석될 계기가 없다. 그래서 저장하지 않는다.
+    분석하는 사이 연결·해제가 일어나면 후보·용법이 바뀐 패턴 기준이 된다. 그대로 저장하면 연결·
+    해제의 stale 처리가 저장 전에 지나가 다시 분석될 계기가 없어서 저장하지 않는다. 저장하는
+    트랜잭션은 맨 처음 patterns.lock_links()로 연결·해제와 직렬화하므로, 여기서 읽은 연결은
+    커밋할 때까지 바뀌지 않는다.
     """
-    pairs = [(row.pattern_id, row.usage.pattern_id) for row in rows if row.pattern_id and row.usage]
-    links = dict(
-        GrammarPattern.objects.filter(pk__in={pattern for pattern, _ in pairs}).values_list(
+    read = [(row.pattern_id, row.pattern.variant_of_id) for row in rows if row.pattern_id]
+    current = dict(
+        GrammarPattern.objects.filter(pk__in={pk for pk, _ in read}).values_list(
             "pk", "variant_of_id"
         )
     )
-    return any(owner not in {pattern, links.get(pattern)} for pattern, owner in pairs)
+    return any(current.get(pk) != base for pk, base in read)
 
 
 def _stored_keys(analysis):
@@ -1128,10 +1130,10 @@ def analyze(request):
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
             owner = _usage_owner(span.pattern)
-            # 분석을 시작한 뒤 연결 상태가 바뀌었으면 더하지 않는다(미발견으로 남음). 같은
-            # (패턴, 이름)이라도 매칭된 패턴마다 연결 상태를 따로 본다.
-            if (owner.id, name, span.pattern.id) not in added:
-                added[owner.id, name, span.pattern.id], matchable = patterns.add_usage(
+            # 같은 원형을 가리키는 회화체 구간들은 같은 새 용법을 함께 쓴다. 나머지 구간의 연결
+            # 상태는 저장 직전에 함께 본다(_links_changed).
+            if (owner.id, name) not in added:
+                added[owner.id, name], matchable = patterns.add_usage(
                     owner,
                     name,
                     new_usage["explanation_ko"],
@@ -1139,7 +1141,7 @@ def analyze(request):
                     matched=span.pattern,
                 )
                 activated |= matchable
-            new_usages[index] = added[owner.id, name, span.pattern.id]
+            new_usages[index] = added[owner.id, name]
         rows = []
         for index, (span, (state, usage, new_usage)) in enumerate(judged):
             start, end = key_span(span.start_token, span.end_token)
@@ -1298,9 +1300,10 @@ def analyze(request):
             return save(ask_again(validated), final=True)
 
     def save_once(validated, draft, final):
-        """분석 행을 만들거나 다시 채우고 구간 매칭을 저장한다. (행, 시작 뒤 세대 번호가
-        바뀌었는가)를 돌려준다. 호출하는 쪽이 트랜잭션을 연다.
+        """분석 행을 만들거나 다시 채우고 구간 매칭을 저장한다. (행, 시작 뒤 세대 번호나 원형
+        연결이 바뀌었는가)를 돌려준다. 호출하는 쪽이 트랜잭션을 연다.
         """
+        patterns.lock_links()
         saved, created = SentenceAnalysis.objects.get_or_create(
             sentence_hash=sentence_hash,
             defaults={
@@ -1316,7 +1319,7 @@ def analyze(request):
             # 이 트랜잭션에서 만든 행이라 다른 요청은 아직 보지도 잠그지도 못한다.
             rows = span_matches(saved, validated, final)
             SpanMatch.objects.bulk_create(rows)
-            return saved, _outside_family(rows)
+            return saved, _links_changed(rows)
         if _is_fresh(saved):
             return saved, False
         # 임시 분석을 받기 전에 저장된 행이나 stale 행이면 이번 결과로 통째로 바꾼다. 상태
@@ -1353,7 +1356,7 @@ def analyze(request):
                 "updated_at",
             ]
         )
-        return locked, locked.generation != started_generation or _outside_family(rows)
+        return locked, locked.generation != started_generation or _links_changed(rows)
 
     def closed_grammar():
         """용법 완결로 확정한 구간의 응답 항목(원문 순서)."""
@@ -1459,6 +1462,7 @@ def analyze(request):
         저장되지 않았는지 다시 본다. 하나라도 어긋나면 모두 되돌리고 None이다.
         """
         with transaction.atomic():
+            patterns.lock_links()
             rows, activated = judged_rows(cached, list(span_list), list(answers), alternatives)
             rows = closed_rows(cached, new_closed) + rows
             if activated:
@@ -1470,7 +1474,7 @@ def analyze(request):
                 or locked.generation != started_generation
                 or locked.matcher_version >= matcher_version
                 or new_keys & _stored_keys(locked)
-                or _outside_family(rows)
+                or _links_changed(rows)
             ):
                 transaction.set_rollback(True)
                 return None

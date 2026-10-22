@@ -7,7 +7,7 @@
 import hashlib
 from typing import NamedTuple
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import Exists, F, OuterRef, Prefetch, Q
 from django.utils import timezone
 
@@ -214,6 +214,20 @@ def raise_pattern_set_version():
     PatternSetVersion.objects.filter(id=1).update(
         version=F("version") + 1, updated_at=timezone.now()
     )
+
+
+# 원형 연결 상태의 advisory 잠금 열쇠(#63)
+_LINKS_LOCK = 63_000_001
+
+
+def lock_links(exclusive=False):
+    """원형 연결 상태를 트랜잭션이 끝날 때까지 잠근다. 연결·해제는 배타로, 구간을 저장하는 분석은
+    공유로 잡아 분석끼리는 막지 않는다. 연결·해제가 저장 중인(커밋 전) 구간을 stale로 만들지
+    못하고 지나가지 않게 한다. 다른 잠금보다 먼저, 트랜잭션 맨 처음에 잡는다(#63).
+    """
+    function = "pg_advisory_xact_lock" if exclusive else "pg_advisory_xact_lock_shared"
+    with connection.cursor() as cursor:
+        cursor.execute(f"SELECT {function}(%s)", [_LINKS_LOCK])
 
 
 def lock_families(*patterns):

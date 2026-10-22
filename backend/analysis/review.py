@@ -237,6 +237,7 @@ def link_variant(pattern, base):
     """
     if pattern.pk == base.pk:
         raise Refused("원형으로 자기 자신을 고를 수 없습니다")
+    patterns.lock_links(exclusive=True)
     locked = patterns.lock_families(base, pattern)
     base, pattern = locked[base.pk], locked[pattern.pk]
     if pattern.variant_of_id is not None:
@@ -265,6 +266,7 @@ def unlink_variant(pattern):
     사라진다). 원형으로 간 용법은 돌려받지 않아 자기 용법 0개로 매칭에서 빠진다. 자격을 잃는
     쪽이라 패턴 세트 버전은 올리지 않는다.
     """
+    patterns.lock_links(exclusive=True)
     pattern, base = _locked_with_base(pattern)
     if base is None:
         raise Refused("원형에 연결돼 있지 않습니다")

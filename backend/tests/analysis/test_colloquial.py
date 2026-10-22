@@ -621,3 +621,47 @@ def test_example_spreading_the_colloquial_form_into_the_base_still_counts_as_cop
 
     assert len(fake_llm.rewrite_requests) == 1
     assert GrammarUsage.objects.get(name="유감").example_ja == "本を忘れてしまった"
+
+
+def test_unresolved_variant_span_is_not_saved_when_the_variant_is_unlinked_meanwhile(
+    client, fake_llm
+):
+    _, variant = linked(fake_llm)
+    fake_llm.response = {
+        "translation_ko": "전부 봐 버렸다",
+        "spans": [span_answer(0, "unresolved")],
+    }
+    fake_llm.rejudge_response = {
+        "translation_ko": "전부 봐 버렸다",
+        "spans": [span_answer(0, "unresolved")],
+    }
+    fake_llm.before_respond = lambda: review.unlink_variant(variant)
+
+    analyze(client, MICHAU)
+
+    assert not SentenceAnalysis.objects.filter(translation_ko="전부 봐 버렸다").exists()
+
+
+def test_variants_of_one_base_share_the_new_usage_added_in_one_sentence(client, fake_llm):
+    base, _ = linked(fake_llm)
+    # 토큰: 0 食べ / 1 ちまっ / 2 た
+    chimau = register(
+        fake_llm,
+        "食べちまった",
+        new_pattern((1, "lemma"), pattern_name="ちまう", example_ja="全部見ちまった"),
+    )
+    review.reject_usage(chimau.usages.get())
+    review.link_variant(chimau, base)
+    # 토큰: 0 見 / 1 ちゃっ / 2 て / 3 食べ / 4 ちまっ / 5 た
+    fake_llm.response = {
+        "translation_ko": "봐 버리고 먹어 버렸다",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage("유감", "아쉬움", "本を忘れてしまった")),
+            span_answer(1, "unfound", new_usage=new_usage("유감", "아쉬움", "本を忘れてしまった")),
+        ],
+    }
+
+    response = analyze(client, "見ちゃって食べちまった")
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["유감", "유감"]
+    assert GrammarUsage.objects.filter(name="유감", pattern=base).count() == 1

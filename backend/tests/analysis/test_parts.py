@@ -26,6 +26,24 @@ TESHIMAU = new_pattern(
     example_ja="見てしまう",
 )
 
+SHIMATTA = new_pattern(
+    (2, "lemma"),
+    (3, "lemma"),
+    pattern_name="しまった",
+    usage_name="아쉬움",
+    explanation_ko="해 버려서 아쉽다",
+    example_ja="忘れてしまった",
+)
+# てしまう와 범위가 같고 しまっ의 활용형까지 고정한 패턴
+TESHIMAT = new_pattern(
+    (1, "lemma"),
+    (2, "form"),
+    pattern_name="てしまっ",
+    usage_name="완료 연용형",
+    explanation_ko="끝까지 해 버린 뒤 다음 말로 잇는다",
+    example_ja="見てしまった",
+)
+
 
 def analyze_with(client, fake_llm, *proposals, sentence=TABETESHIMATTA):
     fake_llm.response = {"translation_ko": "먹어 버렸다", "new_patterns": list(proposals)}
@@ -118,3 +136,20 @@ def test_grammar_inside_a_rejected_pattern_is_a_card_of_its_own(client, fake_llm
     response = analyze(client, TABETESHIMATTA)
 
     assert outline(response.json()["grammar"]) == [("연결", [])]
+
+
+@pytest.mark.parametrize(
+    ("proposals", "expected"),
+    [
+        # てしまう(しまっ까지)와 しまった(て 다음부터)는 일부만 겹친다.
+        ([TESHIMAU, SHIMATTA], [("완료", []), ("아쉬움", [])]),
+        ([TESHIMAU, TESHIMAT], [("완료", []), ("완료 연용형", [])]),
+    ],
+    ids=["partly-overlapping", "same-range"],
+)
+def test_partly_overlapping_or_same_range_grammar_are_cards_of_their_own(
+    client, fake_llm, proposals, expected
+):
+    response = analyze_with(client, fake_llm, *proposals)
+
+    assert outline(response.json()["grammar"]) == expected

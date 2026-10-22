@@ -829,3 +829,16 @@ def test_moved_usage_joins_the_base_and_keeps_its_status(fake_llm, example_ja, s
     own.refresh_from_db()
     # 회화체 형태로 쓴 예문은 원형 조건에 걸리지 않아 비운다.
     assert (own.pattern, own.status, own.example_ja) == (base, "approved", stored)
+
+
+def test_moving_a_usage_named_like_a_base_usage_is_refused_and_changes_nothing(fake_llm):
+    base, variant, done, own = with_own_usage(fake_llm)
+    # 반려된 원형 용법과 이름이 같아도 옮기지 않는다(이름은 패턴 안에서 유일하다).
+    review.reject_usage(done)
+    GrammarUsage.objects.filter(pk=own.pk).update(name="완료")
+
+    with pytest.raises(review.Refused, match="합침"):
+        review.link_variant(variant, base, {own.pk: None})
+
+    own.refresh_from_db()
+    assert (own.pattern, fresh(variant).variant_of) == (variant, None)

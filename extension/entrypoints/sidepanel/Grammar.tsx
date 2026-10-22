@@ -14,8 +14,8 @@ function sortGrammar(grammar: GrammarItem[]): GrammarItem[] {
   return [...grammar].sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
-// 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다
-// (겹침 표시 방식은 DESIGN.md 7장에서 아직 정하지 않았다).
+// 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다.
+// 구성 문법(parts)은 받지 않으므로 그 글자는 바깥 카드 색이 된다(DESIGN.md 형광펜).
 // 실제로 드래그한 범위는 형광펜과 다른 층으로, 시작·끝 자리에 핸들만 끼워 넣는다(DESIGN.md).
 // 핸들을 끄면 dragHandles가 undefined다. 루비는 형광펜 안에 단다(끄면 빈 목록).
 // 형광펜을 범위 경계에서 쪼개면 조각마다 여백과 모서리가 생기므로 형광펜 안에 넣는다.

@@ -49,6 +49,10 @@ class ReviewStatus(models.TextChoices):
 class GrammarPattern(models.Model):
     """문법 패턴. 승인·용법 완결·회화체 칼럼은 그것을 쓰는 티켓에서 더한다(#35)."""
 
+    class Register(models.TextChoices):
+        STANDARD = "standard"
+        COLLOQUIAL = "colloquial"
+
     name = models.CharField(max_length=255)
     # 형태소 조건(lemma|pos1|pos2|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256
     morpheme_key = models.CharField(max_length=64, unique=True)
@@ -59,10 +63,26 @@ class GrammarPattern(models.Model):
     status = models.CharField(max_length=30, choices=ReviewStatus.choices)
     # 용법 완결: 관리자가 용법이 하나뿐이라고 확인한 패턴(#38)
     usage_closed = models.BooleanField(default=False)
+    # 회화체 패턴(ちゃう 등)은 관리자가 원형(てしまう 등)에 연결한다. 연결된 회화체는 자기 용법
+    # 없이 원형의 용법을 쓴다. register는 연결할 때만 colloquial이 되고 해제해도 남는다(#63).
+    register = models.CharField(max_length=30, choices=Register.choices, default=Register.STANDARD)
+    variant_of = models.ForeignKey(
+        "self", on_delete=models.PROTECT, null=True, related_name="variants"
+    )
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = "grammar_pattern"
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(variant_of=models.F("id")),
+                name="grammar_pattern_variant_not_self",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(variant_of__isnull=True) | models.Q(register="colloquial"),
+                name="grammar_pattern_variant_is_colloquial",
+            ),
+        ]
 
     def __str__(self):
         return self.name

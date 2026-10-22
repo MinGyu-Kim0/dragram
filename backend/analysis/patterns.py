@@ -80,19 +80,44 @@ def _open_usages():
 
 
 def _with_candidates(patterns):
-    """패턴마다 형태소 조건(seq 순서)과 반려되지 않은 용법(등록 순서)을 함께 읽는다."""
-    return patterns.prefetch_related(
-        Prefetch("morphemes", queryset=PatternMorpheme.objects.order_by("seq")),
-        Prefetch("usages", queryset=_open_usages().order_by("id")),
-    ).order_by("id")
+    """패턴마다 형태소 조건(seq 순서)과 반려되지 않은 용법(등록 순서)을 함께 읽는다. 연결된
+    회화체면 원형과 원형의 형태소 조건·용법도 읽는다.
+    """
+    morphemes = PatternMorpheme.objects.order_by("seq")
+    usages = _open_usages().order_by("id")
+    return (
+        patterns.select_related("variant_of")
+        .prefetch_related(
+            Prefetch("morphemes", queryset=morphemes),
+            Prefetch("usages", queryset=usages),
+            Prefetch("variant_of__morphemes", queryset=morphemes),
+            Prefetch("variant_of__usages", queryset=usages),
+        )
+        .order_by("id")
+    )
+
+
+def candidate_usages(pattern):
+    """후보가 될 용법(등록 순서). 연결된 회화체면 원형의 반려되지 않은 용법이고 원형이 반려됐으면
+    없다. 그 밖에는 자기 반려되지 않은 용법이다(#63). _with_candidates로 읽은 패턴에 쓴다.
+    """
+    base = pattern.variant_of
+    if base is None:
+        return list(pattern.usages.all())
+    if base.status == ReviewStatus.REJECTED:
+        return []
+    return list(base.usages.all())
 
 
 def matchable_patterns():
-    """매칭 자격이 있는 패턴: 활성이고 반려되지 않은 용법이 하나 이상이다. candidate_spans가
-    매칭에 쓰는 패턴이고, 이 판정이 거짓에서 참이 되면 패턴 세트 버전을 올린다(#41).
+    """매칭 자격이 있는 패턴: 활성이고 후보가 될 용법(candidate_usages)이 하나 이상이다.
+    candidate_spans가 매칭에 쓰는 패턴이고, 이 판정이 거짓에서 참이 되면 패턴 세트 버전을
+    올린다(#41, #63).
     """
-    return GrammarPattern.objects.filter(
-        Exists(_open_usages().filter(pattern=OuterRef("pk"))), is_active=True
+    own = Exists(_open_usages().filter(pattern=OuterRef("pk")))
+    base = Exists(_open_usages().filter(pattern=OuterRef("variant_of")))
+    return GrammarPattern.objects.filter(is_active=True).filter(
+        Q(own, variant_of__isnull=True) | (Q(base) & ~Q(variant_of__status=ReviewStatus.REJECTED))
     )
 
 
@@ -118,7 +143,7 @@ def candidate_spans(morphs):
     spans = []
     next_id = 1
     for pattern in _with_candidates(matchable_patterns()):
-        usages = list(pattern.usages.all())
+        usages = candidate_usages(pattern)
         # 용법은 따로 읽으므로 그사이 모두 반려됐을 수 있다.
         if not usages:
             continue
@@ -147,7 +172,7 @@ def existing_patterns(conditions_list):
 def span_of(pattern, start, next_id):
     """이미 있는 패턴을 start 토큰에서 시작하는 구간으로 다시 물을 때의 구간과 후보."""
     conditions = conditions_of(pattern)
-    usages = list(pattern.usages.all())
+    usages = candidate_usages(pattern)
     return Span(pattern, conditions, start, start + len(conditions) - 1, _numbered(usages, next_id))
 
 

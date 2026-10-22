@@ -9,6 +9,7 @@ import json
 
 from django import forms
 from django.contrib import admin, messages
+from django.contrib.admin.helpers import ActionForm
 
 from analysis import patterns, review
 from analysis.models import GrammarPattern, GrammarUsage, PatternMorpheme
@@ -111,14 +112,60 @@ class _ReviewedAdmin(admin.ModelAdmin):
         return actions
 
 
+class GrammarPatternActionForm(ActionForm):
+    # '원형에 연결' 액션이 쓰는 원형 패턴 ID(#63)
+    base_pattern_id = forms.CharField(required=False, label="원형 패턴 ID")
+
+
+def _link_variant(model_admin, request, queryset):
+    raw = request.POST.get("base_pattern_id", "").strip()
+    base = GrammarPattern.objects.filter(pk=int(raw)).first() if raw.isdecimal() else None
+    if base is None:
+        model_admin.message_user(
+            request, "원형 패턴 ID 칸에 있는 패턴의 ID를 넣어야 합니다", messages.ERROR
+        )
+        return
+    link = _review_action("link", lambda obj: review.link_variant(obj, base), "")
+    link(model_admin, request, queryset)
+
+
+_link_variant.__name__ = "link_variant"
+
+
 @admin.register(GrammarPattern)
 class GrammarPatternAdmin(_ReviewedAdmin):
     form = GrammarPatternForm
-    list_display = ["id", "name", "status", "is_active", "usage_closed", "created_at"]
-    list_filter = ["status", "is_active", "usage_closed"]
+    action_form = GrammarPatternActionForm
+    list_display = [
+        "id",
+        "name",
+        "status",
+        "is_active",
+        "usage_closed",
+        "register",
+        "variant_of",
+        "created_at",
+    ]
+    list_filter = ["status", "is_active", "usage_closed", "register"]
     search_fields = ["name"]
-    fields = ["name", "test_cases", "status", "is_active", "usage_closed", "morpheme_key"]
-    readonly_fields = ["status", "is_active", "usage_closed", "morpheme_key"]
+    fields = [
+        "name",
+        "test_cases",
+        "status",
+        "is_active",
+        "usage_closed",
+        "register",
+        "variant_of",
+        "morpheme_key",
+    ]
+    readonly_fields = [
+        "status",
+        "is_active",
+        "usage_closed",
+        "register",
+        "variant_of",
+        "morpheme_key",
+    ]
     inlines = [PatternMorphemeInline]
 
     def save_model(self, request, obj, form, change):
@@ -133,6 +180,8 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         _review_action("unapprove", review.unapprove_pattern, "승인 취소(미검수로)"),
         _review_action("close_usages", review.close_usages, "용법 완결 표시"),
         _review_action("open_usages", review.open_usages, "용법 완결 해제"),
+        admin.action(description="원형에 연결(원형 패턴 ID를 넣고)")(_link_variant),
+        _review_action("unlink_variant", review.unlink_variant, "원형 연결 해제"),
     ]
 
 

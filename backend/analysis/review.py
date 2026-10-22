@@ -212,6 +212,56 @@ def unapprove_usage(usage):
     _open_usages(pattern)
 
 
+@transaction.atomic
+def link_variant(pattern, base):
+    """회화체 패턴을 원형에 연결한다(#63). 연결된 회화체는 원형의 용법을 후보로 쓴다.
+
+    원형 → 회화체 순서로 잠근다. 원형 쪽 사건이 연결된 회화체들까지 바꾸므로 모든 경로가 이
+    순서를 지킨다. 그 회화체의 구간이 있는 분석은 stale이 되고, 매칭 자격이 새로 생기면 패턴
+    세트 버전을 올린다. 자기 용법이 남은 회화체의 용법 병합은 하지 않는다(#64).
+    """
+    if pattern.pk == base.pk:
+        raise Refused("원형으로 자기 자신을 고를 수 없습니다")
+    base, pattern = _locked(base), _locked(pattern)
+    if pattern.variant_of_id is not None:
+        raise Refused("이미 원형에 연결돼 있습니다(바꾸려면 먼저 해제합니다)")
+    if base.variant_of_id is not None:
+        raise Refused("원형도 다른 패턴의 회화체입니다")
+    if GrammarPattern.objects.filter(variant_of=pattern).exists():
+        raise Refused("이 패턴을 원형으로 가리키는 회화체가 있습니다")
+    if ReviewStatus.REJECTED in {base.status, pattern.status}:
+        raise Refused("반려된 패턴은 연결할 수 없습니다")
+    if GrammarUsage.objects.filter(pattern=pattern).exclude(status=ReviewStatus.REJECTED).exists():
+        raise Refused("반려되지 않은 자기 용법이 남아 있습니다")
+    was_matchable = patterns.is_matchable(pattern)
+    pattern.variant_of = base
+    pattern.register = GrammarPattern.Register.COLLOQUIAL
+    pattern.save(update_fields=["variant_of", "register"])
+    if not was_matchable and patterns.is_matchable(pattern):
+        patterns.raise_pattern_set_version()
+    _open_usages(pattern)
+    patterns.make_stale(pattern=pattern)
+
+
+@transaction.atomic
+def unlink_variant(pattern):
+    """회화체 패턴의 원형 연결을 푼다. register는 회화체로 남긴다(배지는 남고 안내 한 줄만
+    사라진다). 원형으로 간 용법은 돌려받지 않아 자기 용법 0개로 매칭에서 빠진다. 자격을 잃는
+    쪽이라 패턴 세트 버전은 올리지 않는다.
+    """
+    base_id = GrammarPattern.objects.values_list("variant_of_id", flat=True).get(pk=pattern.pk)
+    if base_id is None:
+        raise Refused("원형에 연결돼 있지 않습니다")
+    _locked(GrammarPattern(pk=base_id))
+    pattern = _locked(pattern)
+    if pattern.variant_of_id != base_id:
+        raise Refused("그사이 연결 상태가 바뀌었습니다")
+    pattern.variant_of = None
+    pattern.save(update_fields=["variant_of"])
+    _open_usages(pattern)
+    patterns.make_stale(pattern=pattern)
+
+
 def test_cases_refusal(pattern, cases):
     """패턴의 test_cases를 cases로 바꿀 수 없는 이유. 바꿀 수 있으면 None.
 

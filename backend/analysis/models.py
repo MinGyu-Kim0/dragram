@@ -65,7 +65,7 @@ class GrammarPattern(models.Model):
     usage_closed = models.BooleanField(default=False)
     # 회화체 패턴(ちゃう 등)은 관리자가 원형(てしまう 등)에 연결한다. 연결된 회화체는 자기 용법
     # 없이 원형의 용법을 쓴다. register는 연결할 때만 colloquial이 되고 해제해도 남는다(#63).
-    register = models.CharField(max_length=30, choices=Register.choices, default=Register.STANDARD)
+    register = models.CharField(max_length=20, choices=Register.choices, default=Register.STANDARD)
     variant_of = models.ForeignKey(
         "self", on_delete=models.PROTECT, null=True, related_name="variants"
     )

@@ -550,9 +550,7 @@ def _unresolved_item(span, offsets, origins, utf16):
     """미확정 구간의 응답 항목. 이름은 매칭된 패턴의 것이고 설명은 없다. 매칭된 패턴이나 연결된
     원형이 반려됐으면 None, 하나라도 미검수면 pending이다.
     """
-    statuses = {span.pattern.status}
-    if span.pattern.variant_of is not None:
-        statuses.add(span.pattern.variant_of.status)
+    statuses = _pattern_statuses(span.pattern)
     if ReviewStatus.REJECTED in statuses:
         return None
     start, end = to_original(
@@ -574,15 +572,18 @@ def _review_status(pattern, usage):
     매칭된 패턴이 연결된 원형 중 하나라도 반려됐으면 None(보이지 않음), 미검수면 pending이다.
     용법이 매칭된 패턴이나 그 원형 소속이 아니면(연결 해제 뒤 재분석 전) 역시 None이다(#63).
     """
-    base = pattern.variant_of
-    if usage.pattern_id not in {pattern.id, base.id if base else None}:
+    if usage.pattern_id not in {pattern.id, pattern.variant_of_id}:
         return None
-    statuses = {usage.status, usage.pattern.status, pattern.status}
-    if base is not None:
-        statuses.add(base.status)
+    statuses = {usage.status, usage.pattern.status, *_pattern_statuses(pattern)}
     if ReviewStatus.REJECTED in statuses:
         return None
     return "pending" if ReviewStatus.PENDING in statuses else "approved"
+
+
+def _pattern_statuses(pattern):
+    """매칭된 패턴과, 연결됐으면 그 원형의 검수 상태들(#63)."""
+    base = pattern.variant_of
+    return {pattern.status} | ({base.status} if base else set())
 
 
 def _closed_usage(span):
@@ -591,10 +592,8 @@ def _closed_usage(span):
     표시가 보장하지만 분석 때도 다시 본다.
     """
     pattern = span.pattern
-    if not pattern.usage_closed or pattern.status != ReviewStatus.APPROVED:
-        return None
     # 연결된 회화체는 원형도 승인돼야 한다. 후보는 원형의 용법이다(#63).
-    if pattern.variant_of is not None and pattern.variant_of.status != ReviewStatus.APPROVED:
+    if not pattern.usage_closed or _pattern_statuses(pattern) != {ReviewStatus.APPROVED}:
         return None
     if len(span.candidates) != 1:
         return None
@@ -657,6 +656,21 @@ def _reading_changed(first, again):
     if first[0] == SpanMatch.State.UNRESOLVED:
         return True
     return again[1] != first[1]
+
+
+def _outside_family(rows):
+    """구간 용법이 매칭된 패턴이나 지금 그 패턴이 연결된 원형 소속이 아닌 행이 있는가(#63).
+
+    분석하는 사이 연결·해제가 일어나면 생긴다. 그대로 저장하면 조회에서는 빠지지만, 연결·해제의
+    stale 처리가 저장 전에 지나가 다시 분석될 계기가 없다. 그래서 저장하지 않는다.
+    """
+    pairs = [(row.pattern_id, row.usage.pattern_id) for row in rows if row.pattern_id and row.usage]
+    links = dict(
+        GrammarPattern.objects.filter(pk__in={pattern for pattern, _ in pairs}).values_list(
+            "pk", "variant_of_id"
+        )
+    )
+    return any(owner not in {pattern, links.get(pattern)} for pattern, owner in pairs)
 
 
 def _stored_keys(analysis):
@@ -754,17 +768,19 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
     ]
     # 새 용법은 그 용법이 들어갈 패턴(연결된 회화체면 원형)의 조건에 걸려야 한다. 원문에서 고정한
     # 토큰은 실제로 매칭된 패턴의 것이다(#63).
-    targets += [
-        (
-            n,
-            (_usage_owner(span.pattern).id, n["usage_name"]),
-            _usage_owner(span.pattern).name,
-            patterns.conditions_of(_usage_owner(span.pattern)),
-            fixed_spans(span.start_token, span.conditions),
+    for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True):
+        if n is None or "checked_example" in n:
+            continue
+        owner = _usage_owner(span.pattern)
+        targets.append(
+            (
+                n,
+                (owner.id, n["usage_name"]),
+                owner.name,
+                patterns.conditions_of(owner),
+                fixed_spans(span.start_token, span.conditions),
+            )
         )
-        for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True)
-        if n is not None and "checked_example" not in n
-    ]
     # 기존 패턴에 이미 있는 이름의 새 용법은 더하지 않으므로(patterns.add_usage) 검사하지
     # 않는다. 다시 쓰기를 보내도 버려진다.
     taken = set(
@@ -971,7 +987,7 @@ def analyze(request):
                 pattern = existing.get(patterns.morpheme_key(proposal["conditions"]))
             if pattern is None:
                 rest.append(proposal)
-            elif ReviewStatus.REJECTED in {pattern.status, _usage_owner(pattern).status}:
+            elif ReviewStatus.REJECTED in _pattern_statuses(pattern):
                 rest.append({**proposal, "existing": pattern})
             else:
                 span = patterns.span_of(pattern, proposal["tokens"][0][0], next_id)
@@ -1079,6 +1095,12 @@ def analyze(request):
             for index, (span, (_, _, new_usage)) in enumerate(judged)
             if new_usage is not None
         )
+        # 새 용법을 더할 패턴들(과 그 회화체들)을 처음에 한 번에 잠근다. 하나씩 잠그면 연결·해제나
+        # 다른 분석과 잠금 순서가 엇갈릴 수 있다(#63).
+        if additions:
+            patterns.lock_families(
+                *(_usage_owner(judged[index][0].pattern) for *_, index in additions)
+            )
         # 용법 예문은 같은 (패턴, 이름)의 답 중 검사를 통과한 첫 예문이다(check_examples).
         usage_examples = {}
         for _, name, index in additions:
@@ -1277,8 +1299,9 @@ def analyze(request):
         )
         if created:
             # 이 트랜잭션에서 만든 행이라 다른 요청은 아직 보지도 잠그지도 못한다.
-            SpanMatch.objects.bulk_create(span_matches(saved, validated, final))
-            return saved, False
+            rows = span_matches(saved, validated, final)
+            SpanMatch.objects.bulk_create(rows)
+            return saved, _outside_family(rows)
         if _is_fresh(saved):
             return saved, False
         # 임시 분석을 받기 전에 저장된 행이나 stale 행이면 이번 결과로 통째로 바꾼다. 상태
@@ -1315,7 +1338,7 @@ def analyze(request):
                 "updated_at",
             ]
         )
-        return locked, locked.generation != started_generation
+        return locked, locked.generation != started_generation or _outside_family(rows)
 
     def closed_grammar():
         """용법 완결로 확정한 구간의 응답 항목(원문 순서)."""
@@ -1432,6 +1455,7 @@ def analyze(request):
                 or locked.generation != started_generation
                 or locked.matcher_version >= matcher_version
                 or new_keys & _stored_keys(locked)
+                or _outside_family(rows)
             ):
                 transaction.set_rollback(True)
                 return None

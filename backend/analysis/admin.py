@@ -79,20 +79,25 @@ class PatternMorphemeInline(admin.TabularInline):
         return False
 
 
+def _apply(model_admin, request, queryset, transition):
+    """선택한 행마다 상태 전이를 부른다. 거부되면 그 행은 바꾸지 않고 이유를 보인다."""
+    done = 0
+    for obj in queryset:
+        try:
+            transition(obj)
+        except review.Refused as refused:
+            model_admin.message_user(request, f"{obj}: {refused}", messages.ERROR)
+        else:
+            done += 1
+    if done:
+        model_admin.message_user(request, f"{done}개를 처리했습니다", messages.SUCCESS)
+
+
 def _review_action(name, transition, description):
-    """선택한 행마다 상태 전이를 부르는 admin 액션. 거부되면 그 행은 바꾸지 않고 이유를 보인다."""
+    """선택한 행마다 상태 전이를 부르는 admin 액션."""
 
     def action(model_admin, request, queryset):
-        done = 0
-        for obj in queryset:
-            try:
-                transition(obj)
-            except review.Refused as refused:
-                model_admin.message_user(request, f"{obj}: {refused}", messages.ERROR)
-            else:
-                done += 1
-        if done:
-            model_admin.message_user(request, f"{done}개를 처리했습니다", messages.SUCCESS)
+        _apply(model_admin, request, queryset, transition)
 
     action.__name__ = name
     return admin.action(description=description)(action)
@@ -117,7 +122,9 @@ class GrammarPatternActionForm(ActionForm):
     base_pattern_id = forms.CharField(required=False, label="원형 패턴 ID")
 
 
-def _link_variant(model_admin, request, queryset):
+@admin.action(description="원형에 연결(원형 패턴 ID를 넣고)")
+def link_variant(model_admin, request, queryset):
+    """선택한 회화체 패턴을 원형 패턴 ID 칸의 패턴에 연결한다(#63)."""
     raw = request.POST.get("base_pattern_id", "").strip()
     base = GrammarPattern.objects.filter(pk=int(raw)).first() if raw.isdecimal() else None
     if base is None:
@@ -125,11 +132,7 @@ def _link_variant(model_admin, request, queryset):
             request, "원형 패턴 ID 칸에 있는 패턴의 ID를 넣어야 합니다", messages.ERROR
         )
         return
-    link = _review_action("link", lambda obj: review.link_variant(obj, base), "")
-    link(model_admin, request, queryset)
-
-
-_link_variant.__name__ = "link_variant"
+    _apply(model_admin, request, queryset, lambda obj: review.link_variant(obj, base))
 
 
 @admin.register(GrammarPattern)
@@ -180,7 +183,7 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         _review_action("unapprove", review.unapprove_pattern, "승인 취소(미검수로)"),
         _review_action("close_usages", review.close_usages, "용법 완결 표시"),
         _review_action("open_usages", review.open_usages, "용법 완결 해제"),
-        admin.action(description="원형에 연결(원형 패턴 ID를 넣고)")(_link_variant),
+        link_variant,
         _review_action("unlink_variant", review.unlink_variant, "원형 연결 해제"),
     ]
 

@@ -523,3 +523,75 @@ def test_unlinking_while_an_analysis_adds_a_base_usage_does_not_deadlock(fake_ll
     assert "error" not in response.json()
     assert result.get("unlinked")
     assert fresh(variant).variant_of is None
+
+
+def test_own_usage_of_a_linked_variant_cannot_be_unrejected(fake_llm):
+    _, variant = linked(fake_llm)
+
+    with pytest.raises(review.Refused):
+        review.unreject_usage(variant.usages.get())
+
+    assert variant.usages.get().status == "rejected"
+
+
+def test_analysis_is_not_saved_when_the_variant_is_unlinked_meanwhile(client, fake_llm):
+    _, variant = linked(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    # 원형 용법을 고른 회화체 구간이 연결이 풀린 뒤 저장되면 소속이 어긋난 채 fresh로 남는다.
+    fake_llm.before_respond = lambda: review.unlink_variant(variant)
+
+    response = analyze(client, MICHAU)
+
+    assert "error" not in response.json()
+    assert not SentenceAnalysis.objects.filter(translation_ko="전부 봐 버렸다").exists()
+
+
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_linking_while_an_analysis_adds_usages_to_both_patterns_does_not_deadlock(
+    fake_llm, monkeypatch
+):
+    # 연결되지 않은 ちゃう와 てしまう(둘 다 자기 용법 있음)가 한 문장에 걸리고, 분석이 두 패턴에
+    # 새 용법을 더하는 사이 관리자가 둘을 연결한다. 분석이 먼저 새 용법을 더한 패턴을 다른
+    # 패턴에 연결해, 연결이 원형을 먼저 잠그면 분석과 서로 엇갈리게 한다.
+    chosen = [
+        register(fake_llm, "食べてしまった", TESHIMAU, "먹어 버렸다"),
+        register(fake_llm, "食べちゃった", CHAU, "먹어 버렸다"),
+    ]
+    result = {}
+    matchable_family = patterns.matchable_family
+
+    def link(variant, base):
+        try:
+            review.link_variant(variant, base)
+            result["link"] = "linked"
+        except review.Refused:
+            result["link"] = "refused"
+        finally:
+            connection.close()
+
+    def link_meanwhile(pattern):
+        monkeypatch.setattr(patterns, "matchable_family", matchable_family)
+        [other] = [p for p in chosen if p.pk != pattern.pk]
+        thread = threading.Thread(target=link, args=(pattern, other))
+        thread.start()
+        wait_until_blocked()
+        result["thread"] = thread
+        return matchable_family(pattern)
+
+    monkeypatch.setattr(patterns, "matchable_family", link_meanwhile)
+    # 토큰: 0 見 / 1 ちゃっ / 2 て / 3 忘れ / 4 て / 5 しまっ / 6 た
+    fake_llm.response = {
+        "translation_ko": "봐 버리고 잊어 버렸다",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage("유감", "아쉬움", "本を忘れちゃった")),
+            span_answer(1, "unfound", new_usage=new_usage("유감", "아쉬움", "本を忘れてしまった")),
+        ],
+    }
+
+    response = analyze(Client(), "見ちゃって忘れてしまった")
+    result["thread"].join()
+
+    assert "error" not in response.json()
+    # 연결할 패턴에 자기 용법이 있어 연결은 거부된다.
+    assert result["link"] == "refused"

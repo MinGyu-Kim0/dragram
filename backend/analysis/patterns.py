@@ -121,10 +121,6 @@ def matchable_patterns():
     )
 
 
-def is_matchable(pattern):
-    return matchable_patterns().filter(pk=pattern.pk).exists()
-
-
 def conditions_of(pattern):
     """패턴의 형태소 조건(seq 순서). 미리 읽어 둔 형태소가 있으면 그것을 쓴다."""
     morphemes = sorted(pattern.morphemes.all(), key=lambda m: m.seq)
@@ -220,6 +216,19 @@ def raise_pattern_set_version():
     )
 
 
+def lock_families(*patterns):
+    """패턴들과, 그 패턴을 원형으로 가리키는 회화체들을 한 번에 id 순서로 잠근다(#63).
+
+    원형 쪽 사건은 연결된 회화체까지 바꾸고, 연결·해제와 한 문장의 새 용법들은 여러 패턴을 함께
+    잠근다. 패턴을 잠그는 모든 경로가 이 함수로 한 번에 잠가 순서를 맞춘다. 잠금은 FOR NO KEY
+    UPDATE다(analysis.review). {id: 잠근 패턴}을 돌려준다.
+    """
+    ids = {pattern.pk for pattern in patterns}
+    family = Q(pk__in=ids) | Q(variant_of__in=ids)
+    rows = GrammarPattern.objects.select_for_update(no_key=True).filter(family).order_by("id")
+    return {row.pk: row for row in rows}
+
+
 def matchable_family(pattern):
     """그 패턴과 그 패턴을 원형으로 가리키는 회화체 중 매칭 자격이 있는 것의 ID들(#63)."""
     family = matchable_patterns().filter(Q(pk=pattern.pk) | Q(variant_of=pattern))
@@ -237,15 +246,18 @@ def add_usage(pattern, name, explanation_ko, example_ja, matched=None):
 
     example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 열고,
     매칭 자격을 새로 얻었으면 분석 행을 잠그기 전에 패턴 세트 버전을 한 번 올린다(잠금 순서:
-    원형 패턴 → 회화체 → 용법 → 버전 → 분석).
+    패턴과 그 회화체(lock_families) → 용법 → 버전 → 분석).
     """
     # 패턴을 먼저 잠가, 용법 완결 표시(analysis.review)가 커밋 전 용법을 못 본 채 하나라고
-    # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다. 연결·해제도 원형을 먼저 잠그므로
+    # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다. 연결·해제도 이 패턴을 잠그므로
     # 그 뒤 읽은 연결 상태는 이 트랜잭션이 끝날 때까지 바뀌지 않는다.
-    GrammarPattern.objects.select_for_update(no_key=True).filter(pk=pattern.pk).exists()
+    lock_families(pattern)
     matched_id = (matched or pattern).pk
+    # 자기 패턴에 더하면 그 패턴은 아직 회화체로 연결되지 않아야 하고, 원형에 더하면 매칭된
+    # 회화체가 아직 그 원형에 연결돼 있어야 한다.
+    expected_base = None if matched_id == pattern.pk else pattern.pk
     linked_to = GrammarPattern.objects.values_list("variant_of_id", flat=True).get(pk=matched_id)
-    if linked_to != (None if matched_id == pattern.pk else pattern.pk):
+    if linked_to != expected_base:
         return None, False
     was_matchable = matchable_family(pattern)
     try:
@@ -262,14 +274,14 @@ def add_usage(pattern, name, explanation_ko, example_ja, matched=None):
     except IntegrityError:
         return None, False
     # 용법이 둘이 되면 더는 용법 완결이 아니다(그 패턴에 연결된 회화체도).
-    open_usages(pattern)
+    clear_usage_closed(pattern)
     return usage, bool(matchable_family(pattern) - was_matchable)
 
 
-def open_usages(pattern):
+def clear_usage_closed(pattern):
     """그 패턴과, 그 패턴을 원형으로 가리키는 회화체의 용법 완결을 뗀다. 회화체의 용법 완결은
     원형의 용법에 기대므로 원형 쪽 사건이 함께 뗀다(#63). 뗐으면 그 패턴(과 회화체)의 구간이
-    있는 분석을 stale로 만든다. 원형을 잠근 뒤 회화체를 바꾼다(원형 → 회화체 순서).
+    있는 분석을 stale로 만든다. 호출하는 쪽이 lock_families로 회화체까지 잠가 둔다.
     """
     family = Q(pk=pattern.pk) | Q(variant_of=pattern)
     if GrammarPattern.objects.filter(family, usage_closed=True).update(usage_closed=False):

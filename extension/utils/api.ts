@@ -81,6 +81,9 @@ export class AnalysisFailed extends Error {
 // grammar(확정 문법, 판별 대상 구간)를 보낸다. 실패(AnalysisFailed)에는 받은 확정 문법만 싣고,
 // 판별 대상 구간은 싣지 않는다(화면에서 지운다). stale 분석이면 맨 먼저 previous(옛 번역, 루비,
 // 문법, 단어)를 보내고 onPrevious를 부른다. 이어지는 이벤트는 다시 분석하는 흐름 그대로다.
+// 패턴 세트 버전이 올라 다시 매칭한 캐시 문장에 판별 대상 새 구간이 있으면 같은 순서로
+// grammar(저장 문법과 새 확정 문법, 새 판별 대상 구간) → translation(저장 번역) → analysis를
+// 보낸다. 재판정이 실패해도 error 없이 저장 결과로 analysis를 보낸다(#41).
 // grammar가 오면 onEarlyGrammar를, 번역이 오면 onTranslation을 부르고, 다 오면 분석 전체를
 // 돌려준다. analysis의 번역은 문법·단어와 짝인 저장된 번역이라 그것을 쓴다.
 export async function analyzeSentence(

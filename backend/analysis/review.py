@@ -278,17 +278,18 @@ def link_variant(pattern, base, mapping=None):
             raise Refused(
                 f"원형에 같은 이름의 용법이 있어 옮길 수 없습니다(합침을 고릅니다): {name}"
             )
-    was_matchable = patterns.matchable_family(pattern)
+    # 원형도 본다. 옮긴 용법으로 원형(과 그 회화체들)이 매칭 자격을 얻을 수 있다(#64).
+    was_matchable = patterns.matchable_family(pattern) | patterns.matchable_family(base)
     pattern.variant_of = base
     pattern.register = GrammarPattern.Register.COLLOQUIAL
     pattern.save(update_fields=["variant_of", "register"])
-    if patterns.matchable_family(pattern) - was_matchable:
+    for source in mapping.keys() - merges.keys():
+        _move_usage(own[source], base)
+    # 버전은 분석 행을 잠그기(합침, stale) 전에 올린다.
+    if patterns.matchable_family(base) - was_matchable:
         patterns.raise_pattern_set_version()
-    for source, target in mapping.items():
-        if target is None:
-            _move_usage(own[source], base)
-        else:
-            patterns.merge_usage(own[source], targets[target])
+    for source, target in merges.items():
+        patterns.merge_usage(own[source], targets[target])
     patterns.clear_usage_closed(pattern)
     patterns.make_stale(pattern=pattern)
 

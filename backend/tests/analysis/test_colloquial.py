@@ -842,3 +842,14 @@ def test_moving_a_usage_named_like_a_base_usage_is_refused_and_changes_nothing(f
 
     own.refresh_from_db()
     assert (own.pattern, fresh(variant).variant_of) == (variant, None)
+
+
+def test_moving_into_a_base_without_open_usages_raises_the_version(fake_llm):
+    base, variant, done, own = with_own_usage(fake_llm)
+    # 원형은 반려되지 않은 용법이 없어 매칭에서 빠져 있다. 옮긴 용법으로 자격을 얻는다.
+    review.reject_usage(done)
+    before = version()
+
+    review.link_variant(variant, base, {own.pk: None})
+
+    assert version() == before + 1

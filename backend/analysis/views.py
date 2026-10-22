@@ -602,8 +602,10 @@ def _review_status(pattern, usage):
     """화면에 보일 검수 상태(ADR 0003). 고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴,
     매칭된 패턴이 연결된 원형 중 하나라도 반려됐으면 None(보이지 않음), 미검수면 pending이다.
     용법이 매칭된 패턴이나 그 원형 소속이 아니면(연결 해제 뒤 재분석 전) 역시 None이다(#63).
+    용법이 없어도 None이다. 저장을 되돌릴 결과로 응답하는 사이 그 용법이 다른 용법으로 합쳐져
+    지워진 경우다(#64).
     """
-    if usage.pattern_id not in {pattern.id, pattern.variant_of_id}:
+    if usage is None or usage.pattern_id not in {pattern.id, pattern.variant_of_id}:
         return None
     statuses = {usage.status, usage.pattern.status, *_pattern_statuses(pattern)}
     if ReviewStatus.REJECTED in statuses:

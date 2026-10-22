@@ -910,3 +910,18 @@ def test_moving_makes_other_analyses_referring_to_the_usage_stale(client, fake_l
     review.link_variant(chau, base, {own.pk: None})
 
     assert generations()["전부 봐 버렸다"] > before
+
+
+@pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])
+def test_analysis_started_before_merging_is_not_saved(client, fake_llm, moved):
+    base, variant, done, own = with_own_usage(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    # 회화체의 자기 용법을 고른 사이 관리자가 그 용법을 원형으로 합치거나 옮기며 연결한다.
+    fake_llm.before_respond = lambda: review.link_variant(
+        variant, base, {own.pk: None if moved else done.pk}
+    )
+
+    response = analyze(client, MICHAU)
+
+    assert "error" not in response.json()
+    assert not SentenceAnalysis.objects.filter(translation_ko="전부 봐 버렸다").exists()

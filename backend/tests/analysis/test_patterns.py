@@ -657,6 +657,27 @@ def test_voiced_function_word_after_sound_change_matches_unvoiced_pattern(
             "食べちゃう",
             new_pattern((1, "lemma"), pattern_name="ちゃう", example_ja="全部見ちゃう"),
         ),
+        # どく → とく, じまう → ちまう, でく → てく, じゃ(接続助詞) → ちゃ(#63)
+        (
+            "飲んどく",
+            "言っとく",
+            new_pattern((1, "lemma"), pattern_name="とく", example_ja="手紙を書いとく"),
+        ),
+        (
+            "飲んじまった",
+            "食べちまった",
+            new_pattern((1, "lemma"), pattern_name="ちまう", example_ja="全部見ちまった"),
+        ),
+        (
+            "読んでく",
+            "食べてく",
+            new_pattern((1, "lemma"), pattern_name="てく", example_ja="パンを買ってく"),
+        ),
+        (
+            "読んじゃいけない",
+            "食べちゃいけない",
+            new_pattern((1, "lemma"), pattern_name="ちゃ", example_ja="ここで見ちゃ駄目"),
+        ),
     ],
 )
 def test_other_voiced_auxiliaries_after_sound_change_match_unvoiced_patterns(

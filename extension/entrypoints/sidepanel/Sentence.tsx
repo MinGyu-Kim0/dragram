@@ -12,7 +12,8 @@ import { WordList } from "./Words";
 // grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별 대상 구간 checking)만 와서
 // 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다. failed에 번역이
 // 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar는 analysis가 오기 전까지 보이고,
-// checking은 실패하면 지운다.
+// checking은 실패하면 지운다. reanalyzing은 stale 분석의 옛 결과(previous)를 보이며 새 결과를
+// 기다리는 중(재분석 중)이고, 그러다 실패하면 failed에 옛 결과만 남는다.
 export type SentenceResult =
   | { status: "early"; earlyGrammar: GrammarItem[]; checking: CheckingItem[] }
   | {
@@ -22,11 +23,22 @@ export type SentenceResult =
       checking?: CheckingItem[];
     }
   | { status: "done"; analysis: Analysis }
+  | { status: "reanalyzing"; previous: Analysis }
   | {
       status: "failed";
       translation?: Translation;
       earlyGrammar?: GrammarItem[];
+      previous?: Analysis;
     };
+
+// 지금 보일 완성된 분석. 분석이 끝났으면 그 결과, 다시 분석하는 중이거나 그러다 실패했으면 옛 결과다.
+function analysisOf(result: SentenceResult | undefined) {
+  if (result?.status === "done") return result.analysis;
+  if (result?.status === "reanalyzing" || result?.status === "failed") {
+    return result.previous;
+  }
+  return undefined;
+}
 
 // 지금 보일 판별 대상 구간(확인 중). 분석이 끝나거나 실패하면 없다.
 function checkingOf(result: SentenceResult | undefined) {
@@ -38,15 +50,16 @@ function checkingOf(result: SentenceResult | undefined) {
 
 // 지금 보일 문법. 분석이 끝나기 전에는 먼저 온 문법만 보인다.
 function grammarOf(result: SentenceResult | undefined) {
-  if (result?.status === "done") return result.analysis.grammar;
-  return result?.earlyGrammar ?? [];
+  const analysis = analysisOf(result);
+  if (analysis) return analysis.grammar;
+  return result && "earlyGrammar" in result ? (result.earlyGrammar ?? []) : [];
 }
 
 // 지금 보일 번역과 루비
 function translationOf(result: SentenceResult | undefined) {
-  if (result?.status === "done") return result.analysis;
-  if (result?.status === "early") return undefined;
-  return result?.translation;
+  const analysis = analysisOf(result);
+  if (analysis) return analysis;
+  return result && "translation" in result ? result.translation : undefined;
 }
 
 export type ResultTab = "grammar" | "words";
@@ -73,6 +86,7 @@ export function SentenceView({
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
 }) {
+  const analysis = analysisOf(result);
   const translation = translationOf(result);
   const grammar = grammarOf(result);
   const checking = checkingOf(result);
@@ -80,6 +94,14 @@ export function SentenceView({
     <>
       <section className="sentence-card">
         <div className="display-toggles">
+          {result?.status === "reanalyzing" && (
+            <p role="status" aria-label="재분석 중" className="reanalysis">
+              재분석 중
+            </p>
+          )}
+          {result?.status === "failed" && result.previous && (
+            <p className="reanalysis error">재분석하지 못했습니다</p>
+          )}
           <button type="button" aria-pressed={showRuby} onClick={onToggleRuby}>
             루비
           </button>
@@ -118,7 +140,7 @@ export function SentenceView({
           <p className="error">분석하지 못했습니다</p>
         )}
       </section>
-      {result?.status !== "done" && grammar.length + checking.length > 0 && (
+      {!analysis && grammar.length + checking.length > 0 && (
         <div className="below-card">
           <GrammarCards
             text={text}
@@ -138,10 +160,10 @@ export function SentenceView({
           <span />
         </div>
       )}
-      {result?.status === "failed" && translation && (
+      {result?.status === "failed" && !analysis && translation && (
         <p className="error below-card">문법·단어를 분석하지 못했습니다</p>
       )}
-      {result?.status === "done" && (
+      {analysis && (
         <>
           <div role="tablist" className="tabs">
             <button
@@ -150,7 +172,7 @@ export function SentenceView({
               aria-selected={tab === "grammar"}
               onClick={() => onTabChange("grammar")}
             >
-              문법 {result.analysis.grammar.length}
+              문법 {analysis.grammar.length}
             </button>
             <button
               type="button"
@@ -158,18 +180,18 @@ export function SentenceView({
               aria-selected={tab === "words"}
               onClick={() => onTabChange("words")}
             >
-              단어 {result.analysis.words.length}
+              단어 {analysis.words.length}
             </button>
           </div>
           <div role="tabpanel">
             {tab === "grammar" ? (
               <GrammarCards
                 text={text}
-                grammar={result.analysis.grammar}
+                grammar={analysis.grammar}
                 selection={selection}
               />
             ) : (
-              <WordList words={result.analysis.words} selection={selection} />
+              <WordList words={analysis.words} selection={selection} />
             )}
           </div>
         </>

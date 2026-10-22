@@ -109,6 +109,19 @@ h1 {
   color: var(--color-danger-text);
 }
 
+/* 원문 카드 맨 위 줄 왼쪽의 문장 단위 상태(재분석 중, 재분석하지 못했습니다) */
+.display-toggles .reanalysis {
+  margin: 0 auto 0 0;
+  align-self: center;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.display-toggles .reanalysis.error {
+  color: var(--color-danger-text);
+}
+
 /* 원문 카드 아래(탭 자리)의 대기·실패 표시 */
 .below-card {
   margin-top: 14px;

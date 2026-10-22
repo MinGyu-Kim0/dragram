@@ -1120,3 +1120,69 @@ test("확인 중 카드의 후보에 미검수 용법이 있으면 'AI 생성·�
   expect(within(card!).getByText("확인 중")).toBeInTheDocument();
   expect(within(card!).getByText("AI 생성·미검수")).toBeInTheDocument();
 });
+
+// stale 분석의 옛 결과(번역, 루비, 문법, 단어)
+function previousEvent() {
+  return {
+    type: "previous",
+    translation_ko: "그가 와 있다",
+    ruby: [{ start: 2, end: 3, reading: "き" }],
+    grammar: [grammarItem(3, 6, "진행")],
+    words: [
+      {
+        start: 0,
+        end: 1,
+        lemma: "彼",
+        reading: "かれ",
+        meaning_ko: "그",
+        review_status: "approved",
+      },
+    ],
+  };
+}
+
+test("stale 분석은 옛 결과를 '재분석 중'으로 먼저 보이고, 중간 이벤트는 반영하지 않다가 분석이 오면 새 결과로 바꾼다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "彼が来ている");
+
+  stream.push(previousEvent());
+
+  expect(
+    await screen.findByRole("status", { name: "재분석 중" }),
+  ).toHaveTextContent("재분석 중");
+  expect(screen.getByText("그가 와 있다")).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "단어 1" })).toBeInTheDocument();
+  expect(document.querySelector(".original rt")?.textContent).toBe("き");
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [checkingItem(3, 6, "진행", "결과 상태")],
+  });
+  stream.push({ type: "translation", translation_ko: "새 번역", ruby: [] });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // 옛 결과·탭이 그대로이고, 새 번역·확인 중·스켈레톤은 보이지 않는다.
+  expect(screen.getByText("그가 와 있다")).toBeInTheDocument();
+  expect(screen.queryByText("새 번역")).not.toBeInTheDocument();
+  expect(screen.queryByText("확인 중")).not.toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
+  expect(
+    screen.queryByRole("status", { name: "문법·단어를 불러오는 중" }),
+  ).not.toBeInTheDocument();
+
+  stream.push({
+    type: "analysis",
+    translation_ko: "새 번역",
+    grammar: [],
+    words: [],
+  });
+  stream.end();
+
+  expect(await screen.findByText("새 번역")).toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: "문법 0" })).toBeInTheDocument();
+  expect(screen.queryByText("재분석 중")).not.toBeInTheDocument();
+});

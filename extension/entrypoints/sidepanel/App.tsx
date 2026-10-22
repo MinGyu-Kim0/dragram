@@ -6,6 +6,7 @@ import {
 import {
   AnalysisFailed,
   analyzeSentence,
+  type Analysis,
   type CheckingItem,
   type GrammarItem,
 } from "@/utils/api";
@@ -82,22 +83,31 @@ function App() {
       // LLM 없이 확정한 문법은 번역보다 먼저 와서, 번역이 와도 함께 보인다.
       let earlyGrammar: GrammarItem[] | undefined;
       let checking: CheckingItem[] | undefined;
+      // stale 분석의 옛 결과. 있으면 새 결과가 다 올 때까지 그것만 보이고 중간 이벤트는 버린다.
+      let previous: Analysis | undefined;
       limiter
         .schedule(
           () =>
             analyzeSentence(
               text,
-              (translation) =>
+              (translation) => {
+                if (previous) return;
                 saveAll({
                   status: "translated",
                   translation,
                   earlyGrammar,
                   checking,
-                }),
+                });
+              },
               (grammar, waiting) => {
+                if (previous) return;
                 earlyGrammar = grammar;
                 checking = waiting;
                 saveAll({ status: "early", earlyGrammar, checking });
+              },
+              (old) => {
+                previous = old;
+                saveAll({ status: "reanalyzing", previous });
               },
             ),
           () => !current,
@@ -107,11 +117,14 @@ function App() {
           (error: unknown) =>
             saveAll({
               status: "failed",
+              // 다시 분석하다 실패하면 옛 결과만 남기고 그사이 받은 새 번역·문법은 버린다.
               ...(error instanceof AnalysisFailed
-                ? {
-                    translation: error.translation,
-                    earlyGrammar: error.earlyGrammar,
-                  }
+                ? error.previous
+                  ? { previous: error.previous }
+                  : {
+                      translation: error.translation,
+                      earlyGrammar: error.earlyGrammar,
+                    }
                 : {}),
             }),
         );

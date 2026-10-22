@@ -29,6 +29,10 @@ For each span give its span_id and a verdict:
   what you can judge.
 Use null for candidate_id unless the verdict is "usage" or "divergent", and null for new_usage
 unless the verdict is "unfound". Use only candidate ids given for that span.
+A span with colloquial_of matched a colloquial form (such as ちゃう) of that standard pattern
+(such as てしまう), and its candidates are usages of the standard pattern. For such a span,
+explain a new usage as a usage of the standard pattern in general, and write its example_ja
+with the standard form, not the colloquial form.
 
 In new_patterns, list grammar points of the sentence that no span explains: particles,
 auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
@@ -407,6 +411,10 @@ Use null for candidate_id unless the verdict is "usage" or "divergent", null for
 unless the verdict is "unfound", and null for alternatives unless the verdict is "divergent".
 Use only candidate ids given for that span. An alternative must be a candidate other than the
 main one, and its translation must differ from the translation of the whole sentence.
+A span with colloquial_of matched a colloquial form (such as ちゃう) of that standard pattern
+(such as てしまう), and its candidates are usages of the standard pattern. For such a span,
+explain a new usage as a usage of the standard pattern in general, and write its example_ja
+with the standard form, not the colloquial form.
 If you receive recheck_spans, also return in translation_ko the Korean translation of the
 whole sentence with your main readings.
 In usage_name and explanation_ko, quote Japanese only from that span's own tokens. Never quote

@@ -11,7 +11,7 @@ from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from analysis import llm, patterns
-from analysis.models import GrammarUsage, ReviewStatus, SentenceAnalysis, SpanMatch
+from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus, SentenceAnalysis, SpanMatch
 from analysis.morphology import morphemes
 from analysis.normalize import (
     NORMALIZE_VERSION,
@@ -474,7 +474,7 @@ def _grammar_response(analysis, offsets, origins, utf16, restore):
     """
     spans = list(
         analysis.span_matches.filter(state__in=_SHOWN_STATES)
-        .select_related("pattern", "usage__pattern")
+        .select_related("pattern__variant_of", "usage__pattern")
         .order_by("start_offset", "end_offset", "id")
     )
     alternative_usages = GrammarUsage.objects.select_related("pattern").in_bulk(
@@ -536,12 +536,24 @@ def _grammar_item(
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
         "review_status": review_status,
+        **_register_fields(pattern),
     }
 
 
+def _register_fields(pattern):
+    """회화체 표시 칸: 매칭된 패턴의 register와, 연결된 원형 패턴 이름(없으면 null, #63)."""
+    base = pattern.variant_of
+    return {"register": pattern.register, "variant_of": base.name if base else None}
+
+
 def _unresolved_item(span, offsets, origins, utf16):
-    """미확정 구간의 응답 항목. 이름은 매칭된 패턴의 것이고 설명은 없다. 패턴이 반려됐으면 None."""
-    if span.pattern.status == ReviewStatus.REJECTED:
+    """미확정 구간의 응답 항목. 이름은 매칭된 패턴의 것이고 설명은 없다. 매칭된 패턴이나 연결된
+    원형이 반려됐으면 None, 하나라도 미검수면 pending이다.
+    """
+    statuses = {span.pattern.status}
+    if span.pattern.variant_of is not None:
+        statuses.add(span.pattern.variant_of.status)
+    if ReviewStatus.REJECTED in statuses:
         return None
     start, end = to_original(
         origins, utf16, *to_analysis(offsets, span.start_offset, span.end_offset)
@@ -552,15 +564,22 @@ def _unresolved_item(span, offsets, origins, utf16):
         "state": SpanMatch.State.UNRESOLVED,
         "name": span.pattern.name,
         "explanation_ko": None,
-        "review_status": ("pending" if span.pattern.status == ReviewStatus.PENDING else "approved"),
+        "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
+        **_register_fields(span.pattern),
     }
 
 
 def _review_status(pattern, usage):
-    """화면에 보일 검수 상태(ADR 0003). 고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴 중
-    하나라도 반려됐으면 None(보이지 않음), 미검수면 pending이다.
+    """화면에 보일 검수 상태(ADR 0003). 고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴,
+    매칭된 패턴이 연결된 원형 중 하나라도 반려됐으면 None(보이지 않음), 미검수면 pending이다.
+    용법이 매칭된 패턴이나 그 원형 소속이 아니면(연결 해제 뒤 재분석 전) 역시 None이다(#63).
     """
+    base = pattern.variant_of
+    if usage.pattern_id not in {pattern.id, base.id if base else None}:
+        return None
     statuses = {usage.status, usage.pattern.status, pattern.status}
+    if base is not None:
+        statuses.add(base.status)
     if ReviewStatus.REJECTED in statuses:
         return None
     return "pending" if ReviewStatus.PENDING in statuses else "approved"
@@ -573,6 +592,9 @@ def _closed_usage(span):
     """
     pattern = span.pattern
     if not pattern.usage_closed or pattern.status != ReviewStatus.APPROVED:
+        return None
+    # 연결된 회화체는 원형도 승인돼야 한다. 후보는 원형의 용법이다(#63).
+    if pattern.variant_of is not None and pattern.variant_of.status != ReviewStatus.APPROVED:
         return None
     if len(span.candidates) != 1:
         return None
@@ -601,12 +623,15 @@ def _words_response(stored, offsets, origins, utf16, restore):
 
 
 def _llm_spans(spans):
-    """LLM에 줄 후보 구간. 구간 ID는 이 목록의 순번이다."""
+    """LLM에 줄 후보 구간. 구간 ID는 이 목록의 순번이다. 원형에 연결된 회화체 구간은 원형 패턴
+    이름(colloquial_of)을 함께 준다. 후보는 원형의 용법이다(#63).
+    """
     return [
         {
             "span_id": span_id,
             "start_token_id": span.start_token,
             "end_token_id": span.end_token,
+            **({"colloquial_of": span.pattern.variant_of.name} if span.pattern.variant_of else {}),
             "candidates": [
                 {"candidate_id": candidate_id, "name": u.name, "explanation_ko": u.explanation_ko}
                 for candidate_id, u in span.candidates
@@ -614,6 +639,11 @@ def _llm_spans(spans):
         }
         for span_id, span in enumerate(spans)
     ]
+
+
+def _usage_owner(pattern):
+    """그 패턴의 구간에 새 용법을 더할 패턴. 연결된 회화체면 원형이다(#63)."""
+    return pattern.variant_of or pattern
 
 
 def _reading_changed(first, again):
@@ -722,12 +752,14 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
         for p in validated["new_patterns"]
         if "checked_example" not in p and p["existing"] is None and p["conditions"] is not None
     ]
+    # 새 용법은 그 용법이 들어갈 패턴(연결된 회화체면 원형)의 조건에 걸려야 한다. 원문에서 고정한
+    # 토큰은 실제로 매칭된 패턴의 것이다(#63).
     targets += [
         (
             n,
-            (span.pattern.id, n["usage_name"]),
-            span.pattern.name,
-            span.conditions,
+            (_usage_owner(span.pattern).id, n["usage_name"]),
+            _usage_owner(span.pattern).name,
+            patterns.conditions_of(_usage_owner(span.pattern)),
             fixed_spans(span.start_token, span.conditions),
         )
         for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True)
@@ -737,7 +769,7 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
     # 않는다. 다시 쓰기를 보내도 버려진다.
     taken = set(
         GrammarUsage.objects.filter(
-            pattern__in=[span.pattern for span in validated["span_list"]]
+            pattern__in=[_usage_owner(span.pattern) for span in validated["span_list"]]
         ).values_list("pattern_id", "name")
     )
     copied, usable = [], set()
@@ -939,7 +971,7 @@ def analyze(request):
                 pattern = existing.get(patterns.morpheme_key(proposal["conditions"]))
             if pattern is None:
                 rest.append(proposal)
-            elif pattern.status == ReviewStatus.REJECTED:
+            elif ReviewStatus.REJECTED in {pattern.status, _usage_owner(pattern).status}:
                 rest.append({**proposal, "existing": pattern})
             else:
                 span = patterns.span_of(pattern, proposal["tokens"][0][0], next_id)
@@ -1041,8 +1073,9 @@ def analyze(request):
         # 기존 용법으로 설명되지 않는 구간은 같은 패턴 아래 새 용법을 더한다. 동시 요청이 같은
         # 이름의 용법을 서로 다른 순서로 더하면 유일성 대기가 엇갈려 교착이 나므로 (패턴, 이름)
         # 순서로 더한다. 이 응답에서 이미 더한 (패턴, 이름)이면 그 용법을 함께 쓴다.
+        # 연결된 회화체 구간의 새 용법은 원형 아래에 더하고, 이름과 순서도 원형 기준이다(#63).
         additions = sorted(
-            (span.pattern.morpheme_key, new_usage["usage_name"], index)
+            (_usage_owner(span.pattern).morpheme_key, new_usage["usage_name"], index)
             for index, (span, (_, _, new_usage)) in enumerate(judged)
             if new_usage is not None
         )
@@ -1050,21 +1083,26 @@ def analyze(request):
         usage_examples = {}
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
-            if usage_examples.get((span.pattern.id, name)) is None:
-                usage_examples[span.pattern.id, name] = new_usage["checked_example"]
+            owner = _usage_owner(span.pattern)
+            if usage_examples.get((owner.id, name)) is None:
+                usage_examples[owner.id, name] = new_usage["checked_example"]
         added, new_usages = {}, {}
         activated = False
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
-            if (span.pattern.id, name) not in added:
-                added[span.pattern.id, name], matchable = patterns.add_usage(
-                    span.pattern,
+            owner = _usage_owner(span.pattern)
+            # 분석을 시작한 뒤 연결 상태가 바뀌었으면 더하지 않는다(미발견으로 남음). 같은
+            # (패턴, 이름)이라도 매칭된 패턴마다 연결 상태를 따로 본다.
+            if (owner.id, name, span.pattern.id) not in added:
+                added[owner.id, name, span.pattern.id], matchable = patterns.add_usage(
+                    owner,
                     name,
                     new_usage["explanation_ko"],
-                    usage_examples[span.pattern.id, name],
+                    usage_examples[owner.id, name],
+                    matched=span.pattern,
                 )
                 activated |= matchable
-            new_usages[index] = added[span.pattern.id, name]
+            new_usages[index] = added[owner.id, name, span.pattern.id]
         rows = []
         for index, (span, (state, usage, new_usage)) in enumerate(judged):
             start, end = key_span(span.start_token, span.end_token)
@@ -1346,12 +1384,17 @@ def analyze(request):
         usages = GrammarUsage.objects.select_related("pattern").in_bulk(
             [usage.id for _, _, usage in new_closed]
         )
+        matched = GrammarPattern.objects.select_related("variant_of").in_bulk(
+            [span.pattern.id for span, _, _ in new_closed]
+        )
         for span, _, usage in new_closed:
             current = usages.get(usage.id)
             if span_key(span) in stored_keys or current is None:
                 continue
             start, end = key_span(span.start_token, span.end_token)
-            item = _grammar_item(current.pattern, current, start, end, offsets, origins, utf16)
+            item = _grammar_item(
+                matched[span.pattern.id], current, start, end, offsets, origins, utf16
+            )
             if item is not None:
                 grammar.append(item)
         return sorted(grammar, key=lambda item: (item["start"], item["end"]))
@@ -1443,7 +1486,7 @@ def analyze(request):
             cached.span_matches.filter(
                 state__in=(SpanMatch.State.DECIDED, SpanMatch.State.DIVERGENT)
             )
-            .select_related("pattern", "usage__pattern")
+            .select_related("pattern__variant_of", "usage__pattern")
             .order_by("start_offset", "end_offset", "id")
         )
         for span in stored:

@@ -35,6 +35,8 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
             "name": "주제 は",
             "explanation_ko": "주제",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         },
         {
             "start": 4,
@@ -43,6 +45,8 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
             "name": "정중 です",
             "explanation_ko": "정중",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         },
     ]
 

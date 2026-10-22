@@ -39,6 +39,8 @@ def test_new_grammar_is_registered_as_unreviewed_and_shown(client, fake_llm):
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
 
@@ -81,6 +83,8 @@ def test_same_grammar_in_another_sentence_is_offered_as_candidate_and_reused(cli
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
     assert GrammarUsage.objects.count() == 1
@@ -726,6 +730,8 @@ def test_unfound_span_adds_new_usage_under_the_same_pattern(client, fake_llm):
             "name": "역접",
             "explanation_ko": "앞 내용과 반대되는 뒤 내용을 잇는다",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
     assert GrammarPattern.objects.count() == 1

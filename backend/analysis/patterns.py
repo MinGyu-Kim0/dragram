@@ -220,18 +220,34 @@ def raise_pattern_set_version():
     )
 
 
-def add_usage(pattern, name, explanation_ko, example_ja):
-    """기존 패턴 아래 새 용법을 미검수로 더한다. (용법, 매칭 자격을 새로 얻었는가)를 돌려준다.
-    같은 이름의 용법이 이미 있으면 (None, False)다.
+def matchable_family(pattern):
+    """그 패턴과 그 패턴을 원형으로 가리키는 회화체 중 매칭 자격이 있는 것의 ID들(#63)."""
+    family = matchable_patterns().filter(Q(pk=pattern.pk) | Q(variant_of=pattern))
+    return set(family.values_list("pk", flat=True))
+
+
+def add_usage(pattern, name, explanation_ko, example_ja, matched=None):
+    """기존 패턴 아래 새 용법을 미검수로 더한다. (용법, 매칭 자격을 새로 얻은 패턴이 있는가)를
+    돌려준다. 같은 이름의 용법이 이미 있으면 (None, False)다.
+
+    matched는 이 용법이 설명할 구간의 실제로 매칭된 패턴이고, 주지 않으면 pattern이다. 연결된
+    회화체면 pattern은 그 원형이다. 패턴을 잠근 뒤 연결 상태가 그대로인지(matched가 pattern이면
+    연결되지 않음, 아니면 pattern에 연결됨) 다시 보고, 바뀌었으면 더하지 않고 (None, False)다.
+    연결된 회화체에는 자기 용법을 두지 않는다(#63).
 
     example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 열고,
     매칭 자격을 새로 얻었으면 분석 행을 잠그기 전에 패턴 세트 버전을 한 번 올린다(잠금 순서:
-    패턴 → 용법 → 버전 → 분석).
+    원형 패턴 → 회화체 → 용법 → 버전 → 분석).
     """
     # 패턴을 먼저 잠가, 용법 완결 표시(analysis.review)가 커밋 전 용법을 못 본 채 하나라고
-    # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다.
+    # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다. 연결·해제도 원형을 먼저 잠그므로
+    # 그 뒤 읽은 연결 상태는 이 트랜잭션이 끝날 때까지 바뀌지 않는다.
     GrammarPattern.objects.select_for_update(no_key=True).filter(pk=pattern.pk).exists()
-    was_matchable = is_matchable(pattern)
+    matched_id = (matched or pattern).pk
+    linked_to = GrammarPattern.objects.values_list("variant_of_id", flat=True).get(pk=matched_id)
+    if linked_to != (None if matched_id == pattern.pk else pattern.pk):
+        return None, False
+    was_matchable = matchable_family(pattern)
     try:
         # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
         with transaction.atomic():
@@ -248,7 +264,7 @@ def add_usage(pattern, name, explanation_ko, example_ja):
     # 용법이 둘이 되면 더는 용법 완결이 아니다.
     if GrammarPattern.objects.filter(pk=pattern.pk, usage_closed=True).update(usage_closed=False):
         make_stale(pattern=pattern)
-    return usage, not was_matchable and is_matchable(pattern)
+    return usage, bool(matchable_family(pattern) - was_matchable)
 
 
 def make_stale(pattern=None, usage=None):

@@ -8,8 +8,8 @@ from django.db.models import F
 from django.test import Client
 
 from analysis import review
-from analysis.models import GrammarPattern, PatternSetVersion, SentenceAnalysis
-from tests.analysis.helpers import analyze, new_pattern
+from analysis.models import GrammarPattern, GrammarUsage, PatternSetVersion, SentenceAnalysis
+from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -212,3 +212,138 @@ def test_link_action_without_a_valid_base_shows_the_reason(admin_client, fake_ll
 
     assert fresh(variant).variant_of is None
     assert "원형 패턴 ID" in html.unescape(response.content.decode())
+
+
+def linked(fake_llm):
+    base, variant = base_and_variant(fake_llm)
+    review.link_variant(variant, base)
+    return fresh(base), fresh(variant)
+
+
+# 토큰: 0 全部 / 1 見 / 2 ちゃっ / 3 た
+MICHAU = "全部見ちゃった"
+CHAU_ITEM = {
+    "start": 3,
+    "end": 6,
+    "state": "decided",
+    "name": "완료",
+    "explanation_ko": "동작이 끝나 버렸음을 나타낸다",
+    "review_status": "pending",
+    "register": "colloquial",
+    "variant_of": "てしまう",
+}
+
+
+def test_linked_variant_span_uses_the_base_usage_and_shows_colloquial(client, fake_llm):
+    linked(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+
+    response = analyze(client, MICHAU)
+
+    [span] = fake_llm.requests[-1]["spans"]
+    assert span["colloquial_of"] == "てしまう"
+    assert span["candidates"] == [
+        {"candidate_id": 1, "name": "완료", "explanation_ko": "동작이 끝나 버렸음을 나타낸다"}
+    ]
+    assert response.json()["grammar"] == [CHAU_ITEM]
+
+
+def test_standard_span_has_no_colloquial_fields_set(client, fake_llm):
+    base, _ = linked(fake_llm)
+    fake_llm.response = {"translation_ko": "다 먹어 버렸다", "spans": [span_answer(0, "usage", 1)]}
+
+    response = analyze(client, "全部食べてしまった")
+
+    [item] = response.json()["grammar"]
+    assert (item["register"], item["variant_of"]) == ("standard", None)
+    assert "colloquial_of" not in fake_llm.requests[-1]["spans"][0]
+
+
+def test_variant_span_disappears_when_the_base_is_rejected(client, fake_llm):
+    base, _ = linked(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, MICHAU)
+    review.reject_pattern(base)
+    # 재분석 전에도 반려된 원형의 회화체 구간은 보이지 않는다.
+    SentenceAnalysis.objects.update(is_stale=False)
+
+    response = analyze(client, MICHAU)
+
+    assert response.json()["grammar"] == []
+
+
+@pytest.mark.parametrize(("base_status", "shown"), [("pending", "pending"), ("rejected", None)])
+def test_unresolved_variant_span_follows_the_base_status(client, fake_llm, base_status, shown):
+    base, variant = linked(fake_llm)
+    GrammarPattern.objects.filter(pk=variant.pk).update(status="approved")
+    fake_llm.response = {
+        "translation_ko": "전부 봐 버렸다",
+        "spans": [span_answer(0, "unresolved")],
+    }
+    fake_llm.rejudge_response = {
+        "translation_ko": "전부 봐 버렸다",
+        "spans": [span_answer(0, "unresolved")],
+    }
+    analyze(client, MICHAU)
+    GrammarPattern.objects.filter(pk=base.pk).update(status=base_status)
+
+    response = analyze(client, MICHAU)
+
+    statuses = [item["review_status"] for item in response.json()["grammar"]]
+    assert statuses == ([] if shown is None else [shown])
+
+
+def test_span_whose_usage_left_the_family_is_hidden_before_reanalysis(client, fake_llm):
+    _, variant = linked(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, MICHAU)
+
+    review.unlink_variant(variant)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다"}
+    response = analyze(client, MICHAU)
+
+    # 재분석하는 동안 먼저 보이는 옛 결과에서 원형 용법을 쓰던 구간이 빠진다.
+    assert response.events[0]["type"] == "previous"
+    assert response.events[0]["grammar"] == []
+
+
+@pytest.mark.parametrize(
+    ("example_ja", "stored"),
+    [("本を忘れてしまった", "本を忘れてしまった"), ("本を忘れちゃった", None)],
+)
+def test_new_usage_of_a_variant_span_is_added_under_the_base(client, fake_llm, example_ja, stored):
+    base, variant = linked(fake_llm)
+    fake_llm.response = {
+        "translation_ko": "전부 봐 버렸다",
+        "spans": [
+            span_answer(
+                0, "unfound", new_usage=new_usage("유감", "아쉬운 마음을 담는다", example_ja)
+            )
+        ],
+    }
+
+    response = analyze(client, MICHAU)
+
+    usage = GrammarUsage.objects.get(name="유감")
+    # 예문은 원형 조건으로 검사한다. 회화체 형태로 쓴 예문은 원형에 걸리지 않아 버린다.
+    assert (usage.pattern, usage.example_ja) == (base, stored)
+    assert [item["name"] for item in response.json()["grammar"]] == ["유감"]
+
+
+def test_new_usage_is_not_added_when_the_link_changed_meanwhile(client, fake_llm):
+    _, variant = linked(fake_llm)
+    fake_llm.response = {
+        "translation_ko": "전부 봐 버렸다",
+        "spans": [
+            span_answer(
+                0,
+                "unfound",
+                new_usage=new_usage("유감", "아쉬운 마음을 담는다", "本を忘れてしまった"),
+            )
+        ],
+    }
+    fake_llm.before_respond = lambda: review.unlink_variant(variant)
+
+    analyze(client, MICHAU)
+
+    assert not GrammarUsage.objects.filter(name="유감").exists()

@@ -364,6 +364,8 @@ def test_new_span_of_a_usage_closed_pattern_is_saved_without_llm(client, fake_ll
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "review_status": "approved",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
@@ -422,6 +424,8 @@ def test_new_span_after_a_pattern_is_activated_is_judged_once_and_saved(client, 
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "review_status": "pending",
+            "register": "standard",
+            "variant_of": None,
         }
     ]
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")

@@ -394,8 +394,8 @@ def _grammar_response(analysis, offsets, origins, utf16):
 
 def _grammar_item(pattern, usage, start_offset, end_offset, offsets, origins, utf16):
     """용법이 정해진 구간 하나를 응답 항목으로 만든다. 반려됐으면 None(ADR 0003)."""
-    statuses = {usage.status, usage.pattern.status, pattern.status}
-    if ReviewStatus.REJECTED in statuses:
+    review_status = _review_status(pattern, usage)
+    if review_status is None:
         return None
     start, end = to_original(origins, utf16, *to_analysis(offsets, start_offset, end_offset))
     return {
@@ -403,8 +403,18 @@ def _grammar_item(pattern, usage, start_offset, end_offset, offsets, origins, ut
         "end": end,
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
-        "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
+        "review_status": review_status,
     }
+
+
+def _review_status(pattern, usage):
+    """화면에 보일 검수 상태(ADR 0003). 고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴 중
+    하나라도 반려됐으면 None(보이지 않음), 미검수면 pending이다.
+    """
+    statuses = {usage.status, usage.pattern.status, pattern.status}
+    if ReviewStatus.REJECTED in statuses:
+        return None
+    return "pending" if ReviewStatus.PENDING in statuses else "approved"
 
 
 def _closed_usage(span):
@@ -972,13 +982,29 @@ def analyze(request):
             grammar.append(_grammar_item(span.pattern, usage, start, end, offsets, origins, utf16))
         return grammar
 
+    def checking():
+        """판별 대상 구간의 원문 위치와 후보 용법의 이름·검수 상태(원문 순서). 후보 이름도 LLM이
+        만든 지식이라 미검수면 미검수로 보인다(불변식). 반려된 용법은 후보에 없다.
+        """
+        items = []
+        for span in sorted(spans, key=lambda span: (span.start_token, span.end_token)):
+            key_start, key_end = key_span(span.start_token, span.end_token)
+            start, end = to_original(origins, utf16, *to_analysis(offsets, key_start, key_end))
+            candidates = [
+                {"name": usage.name, "review_status": _review_status(span.pattern, usage)}
+                for _, usage in span.candidates
+            ]
+            items.append({"start": start, "end": end, "candidates": candidates})
+        return items
+
     def analyze_and_save():
         """LLM 결과를 나오는 대로 낸다. 번역을 검증해 먼저 내고, 문법·단어까지 검증해 저장한
         뒤 이어 낸다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
         """
-        if closed_spans:
-            # LLM을 부르기 전에 확정 구간부터 보낸다. 이 뒤 실패는 error 이벤트로 알린다.
-            yield {"type": "grammar", "grammar": closed_grammar()}
+        if closed_spans or spans:
+            # LLM을 부르기 전에 확정 구간과 판별 대상 구간(화면의 확인 중)부터 보낸다. 이 뒤
+            # 실패는 error 이벤트로 알린다(#39, #44).
+            yield {"type": "grammar", "grammar": closed_grammar(), "checking": checking()}
         translation_sent = False
         result = None
         for kind, value in client.analyze_stream(key_text, tokens, llm_spans, decided_spans):

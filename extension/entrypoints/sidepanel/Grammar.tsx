@@ -1,5 +1,5 @@
 import { Fragment, type ReactNode } from "react";
-import type { GrammarItem, RubyItem } from "@/utils/api";
+import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
 import { draggedFirst, type DragRange } from "./drag-range";
 
 // 형광펜은 4색을 돌아가며 쓴다(DESIGN.md 형광펜). 원문 형광펜과 카드 칩이 같은 색이다.
@@ -19,24 +19,33 @@ function sortGrammar(grammar: GrammarItem[]): GrammarItem[] {
 // 실제로 드래그한 범위는 형광펜과 다른 층으로, 시작·끝 자리에 핸들만 끼워 넣는다(DESIGN.md).
 // 핸들을 끄면 dragHandles가 undefined다. 루비는 형광펜 안에 단다(끄면 빈 목록).
 // 형광펜을 범위 경계에서 쪼개면 조각마다 여백과 모서리가 생기므로 형광펜 안에 넣는다.
+// 판별 대상 구간(checking, 확인 중)은 형광펜 대신 점선 밑줄로 표시하고, 문법 구간과 겹치면 형광펜을
+// 쓴다. 판별 대상 구간의 경계가 문법 구간 안에 있으면 형광펜이 쪼개지지 않게 그 경계는 쓰지 않는다.
 export function HighlightedText({
   text,
   grammar,
+  checking = [],
   ruby,
   dragHandles,
 }: {
   text: string;
   grammar: GrammarItem[];
+  checking?: CheckingItem[];
   ruby: RubyItem[];
   dragHandles: DragRange | undefined;
 }) {
   const sorted = sortGrammar(grammar);
   const sortedRuby = [...ruby].sort((a, b) => a.start - b.start);
+  const insideGrammar = (at: number) =>
+    sorted.some((item) => item.start < at && at < item.end);
   const bounds = [
     ...new Set([
       0,
       text.length,
       ...sorted.flatMap((item) => [item.start, item.end]),
+      ...checking
+        .flatMap((item) => [item.start, item.end])
+        .filter((at) => !insideGrammar(at)),
     ]),
   ].sort((a, b) => a - b);
 
@@ -45,10 +54,18 @@ export function HighlightedText({
       {bounds.slice(0, -1).map((start, i) => {
         const end = bounds[i + 1]!;
         const segment = withRuby(text, start, end, sortedRuby, dragHandles);
-        const index = sorted.findIndex(
-          (item) => item.start <= start && end <= item.end,
-        );
-        if (index === -1) return <Fragment key={start}>{segment}</Fragment>;
+        const covers = (item: { start: number; end: number }) =>
+          item.start <= start && end <= item.end;
+        const index = sorted.findIndex(covers);
+        if (index === -1) {
+          const waiting = checking.some(covers);
+          if (!waiting) return <Fragment key={start}>{segment}</Fragment>;
+          return (
+            <mark key={start} className="checking">
+              {segment}
+            </mark>
+          );
+        }
         return (
           <mark key={start} className={`highlight ${highlightClass(index)}`}>
             {segment}
@@ -133,46 +150,132 @@ function withHandles(
 
 // 드래그 범위와 겹치는 카드를 먼저, 나머지를 그 뒤에 둔다. 각 묶음 안은 원문 순서이고,
 // 칩 색은 카드 순서가 아니라 원문 순서로 매겨 형광펜과 맞춘다.
+// 판별 대상 구간은 "확인 중" 점선 대기 카드로 원문 순서에 함께 넣는다(DESIGN.md).
 export function GrammarCards({
   text,
   grammar,
+  checking = [],
   selection,
 }: {
   text: string;
   grammar: GrammarItem[];
+  checking?: CheckingItem[];
   selection: DragRange;
 }) {
-  if (grammar.length === 0) {
+  if (grammar.length === 0 && checking.length === 0) {
     return <p className="no-grammar">문법 요소 없음</p>;
   }
-  const ordered = draggedFirst(
-    // 칩 색 번호는 원문 순서로 미리 매긴다.
-    sortGrammar(grammar).map((item, index) => ({ ...item, index })),
-    selection,
-  );
+  const cards: Card[] = [
+    // 칩 색 번호는 문법 카드끼리 원문 순서로 미리 매긴다.
+    ...sortGrammar(grammar).map((item, index): Card => ({
+      kind: "grammar",
+      item,
+      index,
+      ...span(item),
+    })),
+    ...checking.map((item, index): Card => ({
+      kind: "checking",
+      item,
+      index,
+      ...span(item),
+    })),
+  ].sort((a, b) => a.start - b.start || a.end - b.end);
   return (
     <ul className="grammar-cards" aria-label="문법">
-      {ordered.map(({ item, dragged }) => (
-        <li
-          key={`${item.start}-${item.end}-${item.index}`}
-          className={dragged ? "grammar-card dragged" : "grammar-card"}
-        >
-          <div className="grammar-card-head">
-            <span
-              lang="ja"
-              className={`grammar-chip ${highlightClass(item.index)}`}
-            >
-              {text.slice(item.start, item.end)}
-            </span>
-            <h3>{item.name}</h3>
-            {item.review_status === "pending" && (
-              <span className="badge-warn">AI 생성·미검수</span>
-            )}
-            {dragged && <span className="drag-meta">드래그한 부분</span>}
-          </div>
-          <p className="grammar-explanation">{item.explanation_ko}</p>
-        </li>
-      ))}
+      {draggedFirst(cards, selection).map(({ item: card, dragged }) =>
+        card.kind === "checking" ? (
+          <CheckingCard
+            key={`checking-${card.index}`}
+            text={text}
+            item={card.item}
+            dragged={dragged}
+          />
+        ) : (
+          <GrammarCard
+            key={`grammar-${card.index}`}
+            text={text}
+            item={card.item}
+            index={card.index}
+            dragged={dragged}
+          />
+        ),
+      )}
     </ul>
+  );
+}
+
+// 문법 카드 목록의 한 장. index는 같은 종류 안의 원문 순서다(문법 카드는 칩 색 번호로 쓴다).
+type Card = { start: number; end: number; index: number } & (
+  | { kind: "grammar"; item: GrammarItem }
+  | { kind: "checking"; item: CheckingItem }
+);
+
+function span(item: { start: number; end: number }) {
+  return { start: item.start, end: item.end };
+}
+
+function GrammarCard({
+  text,
+  item,
+  index,
+  dragged,
+}: {
+  text: string;
+  item: GrammarItem;
+  index: number;
+  dragged: boolean;
+}) {
+  return (
+    <li className={dragged ? "grammar-card dragged" : "grammar-card"}>
+      <div className="grammar-card-head">
+        <span lang="ja" className={`grammar-chip ${highlightClass(index)}`}>
+          {text.slice(item.start, item.end)}
+        </span>
+        <h3>{item.name}</h3>
+        {item.review_status === "pending" && (
+          <span className="badge-warn">AI 생성·미검수</span>
+        )}
+        {dragged && <span className="card-meta">드래그한 부분</span>}
+      </div>
+      <p className="grammar-explanation">{item.explanation_ko}</p>
+    </li>
+  );
+}
+
+// 판별 대상 구간(확인 중). 아직 용법을 고르지 않아 후보 이름만 잇는다. 후보 이름도 LLM이 만든
+// 지식이라 미검수 후보가 하나라도 있으면 'AI 생성·미검수' 배지를 단다(PR #61 리뷰).
+function CheckingCard({
+  text,
+  item,
+  dragged,
+}: {
+  text: string;
+  item: CheckingItem;
+  dragged: boolean;
+}) {
+  return (
+    <li
+      className={
+        dragged ? "grammar-card checking dragged" : "grammar-card checking"
+      }
+    >
+      <div className="grammar-card-head">
+        <span lang="ja" className="grammar-chip checking-chip">
+          {text.slice(item.start, item.end)}
+        </span>
+        <h3>
+          {item.candidates.map((candidate) => candidate.name).join(" · ")}
+        </h3>
+        {item.candidates.some(
+          (candidate) => candidate.review_status === "pending",
+        ) && <span className="badge-warn">AI 생성·미검수</span>}
+        <span className="card-meta">확인 중</span>
+        {dragged && <span className="card-meta-next">드래그한 부분</span>}
+      </div>
+      {/* 설명 자리 표시. 상태는 위 '확인 중' 글자로 읽힌다. */}
+      <div aria-hidden="true" className="skeleton checking-skeleton">
+        <span />
+      </div>
+    </li>
   );
 }

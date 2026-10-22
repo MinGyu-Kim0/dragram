@@ -3,7 +3,12 @@ import {
   receiveAnalysisRequests,
   type AnalysisRequest,
 } from "@/utils/analysis-request";
-import { AnalysisFailed, analyzeSentence, type GrammarItem } from "@/utils/api";
+import {
+  AnalysisFailed,
+  analyzeSentence,
+  type CheckingItem,
+  type GrammarItem,
+} from "@/utils/api";
 import { createLimiter } from "@/utils/limiter";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 import { usePreference } from "./use-preference";
@@ -76,16 +81,23 @@ function App() {
         indices.forEach((index) => save(index, result));
       // LLM 없이 확정한 문법은 번역보다 먼저 와서, 번역이 와도 함께 보인다.
       let earlyGrammar: GrammarItem[] | undefined;
+      let checking: CheckingItem[] | undefined;
       limiter
         .schedule(
           () =>
             analyzeSentence(
               text,
               (translation) =>
-                saveAll({ status: "translated", translation, earlyGrammar }),
-              (grammar) => {
+                saveAll({
+                  status: "translated",
+                  translation,
+                  earlyGrammar,
+                  checking,
+                }),
+              (grammar, waiting) => {
                 earlyGrammar = grammar;
-                saveAll({ status: "early", earlyGrammar });
+                checking = waiting;
+                saveAll({ status: "early", earlyGrammar, checking });
               },
             ),
           () => !current,

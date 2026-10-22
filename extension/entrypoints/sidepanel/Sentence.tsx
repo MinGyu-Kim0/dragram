@@ -64,6 +64,15 @@ function translationOf(result: SentenceResult | undefined) {
 
 export type ResultTab = "grammar" | "words";
 
+// 실패 문구 바로 옆에 두는 다시 시도 버튼
+function RetryButton({ onRetry }: { onRetry: () => void }) {
+  return (
+    <button type="button" className="retry" onClick={onRetry}>
+      다시 시도
+    </button>
+  );
+}
+
 // 문장 한 페이지: 원문 카드(원문, 번역) → 문법·단어 탭 → 탭 내용
 export function SentenceView({
   text,
@@ -75,6 +84,7 @@ export function SentenceView({
   result,
   tab,
   onTabChange,
+  onRetry,
 }: {
   text: string;
   selection: DragRange;
@@ -85,6 +95,8 @@ export function SentenceView({
   result: SentenceResult | undefined;
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
+  // 실패한 문장을 처음부터 다시 분석한다.
+  onRetry: () => void;
 }) {
   const analysis = analysisOf(result);
   const translation = translationOf(result);
@@ -100,7 +112,9 @@ export function SentenceView({
             </p>
           )}
           {result?.status === "failed" && result.previous && (
-            <p className="reanalysis error">재분석하지 못했습니다</p>
+            <p className="reanalysis error">
+              재분석하지 못했습니다 <RetryButton onRetry={onRetry} />
+            </p>
           )}
           <button type="button" aria-pressed={showRuby} onClick={onToggleRuby}>
             루비
@@ -137,7 +151,9 @@ export function SentenceView({
           <p className="translation">{translation.translation_ko}</p>
         )}
         {result?.status === "failed" && !translation && (
-          <p className="error">분석하지 못했습니다</p>
+          <p className="error">
+            분석하지 못했습니다 <RetryButton onRetry={onRetry} />
+          </p>
         )}
       </section>
       {!analysis && grammar.length + checking.length > 0 && (
@@ -161,7 +177,9 @@ export function SentenceView({
         </div>
       )}
       {result?.status === "failed" && !analysis && translation && (
-        <p className="error below-card">문법·단어를 분석하지 못했습니다</p>
+        <p className="error below-card">
+          문법·단어를 분석하지 못했습니다 <RetryButton onRetry={onRetry} />
+        </p>
       )}
       {analysis && (
         <>

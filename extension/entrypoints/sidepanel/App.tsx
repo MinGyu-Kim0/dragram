@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   receiveAnalysisRequests,
   type AnalysisRequest,
@@ -22,7 +22,7 @@ const MAX_CONCURRENT_REQUESTS = 5;
 // 결과와 페이지에 회차 ID를 붙여, 지금 요청의 것만 쓴다.
 interface Results {
   requestId: string;
-  bySentence: Record<number, SentenceResult>;
+  bySentence: Record<number, SentenceResult | undefined>;
 }
 
 interface Page {
@@ -39,6 +39,8 @@ function App() {
   const [showRuby, toggleRuby] = usePreference("showRuby");
   // 패널 하나에서 모든 회차가 함께 쓰는 동시 요청 한도
   const [limiter] = useState(() => createLimiter(MAX_CONCURRENT_REQUESTS));
+  // 지금 회차에서 실패한 문장을 다시 분석한다(문장 번호). 회차마다 새로 정한다.
+  const retry = useRef<(index: number) => void>(undefined);
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.
@@ -62,7 +64,7 @@ function App() {
     // 새 요청이 오면 이전 요청의 늦은 응답은 버리고 남은 문장도 보내지 않는다.
     let current = true;
     const requestId = request.id;
-    const save = (index: number, result: SentenceResult) => {
+    const save = (index: number, result: SentenceResult | undefined) => {
       if (!current) return;
       setResults((previous) => ({
         requestId,
@@ -77,8 +79,9 @@ function App() {
     request.sentences.forEach(({ text }, index) => {
       indicesByText.set(text, [...(indicesByText.get(text) ?? []), index]);
     });
-    indicesByText.forEach((indices, text) => {
-      const saveAll = (result: SentenceResult) =>
+    const analyze = (text: string) => {
+      const indices = indicesByText.get(text)!;
+      const saveAll = (result: SentenceResult | undefined) =>
         indices.forEach((index) => save(index, result));
       // LLM 없이 확정한 문법은 번역보다 먼저 와서, 번역이 와도 함께 보인다.
       let earlyGrammar: GrammarItem[] | undefined;
@@ -128,7 +131,15 @@ function App() {
                 : {}),
             }),
         );
-    });
+    };
+    indicesByText.forEach((_, text) => analyze(text));
+    // 다시 시도는 처음 분석과 같은 규칙(같은 문장 묶기, 동시 요청 한도, 회차)으로 보낸다.
+    // 결과는 처음처럼 비우고 다시 받는다. 비어 있는 동안은 버튼이 없어 겹쳐 보내지 않는다.
+    retry.current = (index) => {
+      const { text } = request.sentences[index]!;
+      indicesByText.get(text)!.forEach((i) => save(i, undefined));
+      analyze(text);
+    };
     return () => {
       current = false;
     };
@@ -179,6 +190,7 @@ function App() {
           result={result}
           tab={tab}
           onTabChange={setTab}
+          onRetry={() => retry.current?.(pageIndex)}
         />
       )}
     </main>

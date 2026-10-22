@@ -27,7 +27,7 @@ def teiru_with_two_usages(client, fake_llm):
     analyze(client, "走っている")
     pattern = GrammarPattern.objects.get()
     with transaction.atomic():
-        result = patterns.add_usage(pattern, "결과 상태", "동작의 결과가 남아 있다", None)
+        result, _ = patterns.add_usage(pattern, "결과 상태", "동작의 결과가 남아 있다", None)
     return pattern, pattern.usages.get(name="진행"), result
 
 

@@ -305,6 +305,22 @@ class OpenAILLMClient:
         기존 패턴으로 다시 묻는 구간이다. recheck_spans가 있을 때만 문장 번역을 함께 받는다.
         decided_spans는 해석이 정해진 구간이라 답을 받지 않는다.
         """
+        return self._judge(
+            "다시 묻기", sentence, tokens, translation_ko, decided_spans, recheck_spans, spans
+        )
+
+    def rematch_judge(self, sentence, tokens, translation_ko, decided_spans, spans):
+        """패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간을 판정한다(#41).
+
+        다시 묻기의 같은 형태소 조건 구간과 지침·스키마를 함께 쓰고 호출 목적만 다르다. 번역은
+        저장된 것을 주고 받지 않는다. 검증 전 응답을 돌려준다.
+        """
+        return self._judge("재판정", sentence, tokens, translation_ko, decided_spans, [], spans)
+
+    def _judge(
+        self, purpose, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans
+    ):
+        """다시 묻기와 재판정이 함께 쓰는 구간 판정. recheck_spans가 있을 때만 번역을 받는다."""
         payload = {
             "sentence": sentence,
             "tokens": tokens,
@@ -314,7 +330,7 @@ class OpenAILLMClient:
             "spans": spans,
         }
         return self._ask(
-            "다시 묻기",
+            purpose,
             JUDGE_INSTRUCTIONS + NUMBER_RULES,
             payload,
             "span_judgement",

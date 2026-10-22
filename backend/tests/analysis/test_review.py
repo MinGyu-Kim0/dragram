@@ -333,7 +333,7 @@ def test_usage_closed_needs_an_approved_pattern_and_exactly_one_approved_usage(
 
 def test_rejected_second_usage_does_not_count_for_usage_closed(client, fake_llm):
     pattern, _ = approved_teiru(client, fake_llm)
-    review.reject_usage(patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None))
+    review.reject_usage(patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None)[0])
 
     review.close_usages(pattern)
 
@@ -359,7 +359,7 @@ def unreject_second_usage(pattern):
 )
 def test_usage_closed_is_removed_automatically(client, fake_llm, event):
     pattern, usage = approved_teiru(client, fake_llm)
-    review.reject_usage(patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None))
+    review.reject_usage(patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None)[0])
     review.close_usages(pattern)
     using = SentenceAnalysis.objects.get()
     SentenceAnalysis.objects.update(is_stale=False)

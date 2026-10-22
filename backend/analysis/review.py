@@ -191,8 +191,12 @@ def unreject_usage(usage):
     용법을 다시 후보로 검토하게). 반려되지 않은 용법이 늘므로 용법 완결도 뗀다."""
     pattern, usage = _locked_usage(usage)
     _require(usage, ReviewStatus.REJECTED)
+    was_matchable = patterns.is_matchable(pattern)
     usage.status = ReviewStatus.PENDING
     usage.save(update_fields=["status", "updated_at"])
+    if not was_matchable and patterns.is_matchable(pattern):
+        # 매칭 자격을 다시 얻으면, 용법이 없는 동안 캐시된 문장에도 이 패턴의 구간이 생긴다(#41).
+        patterns.raise_pattern_set_version()
     _open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 

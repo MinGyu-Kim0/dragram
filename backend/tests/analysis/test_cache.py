@@ -31,11 +31,13 @@ def test_same_sentence_is_reused_without_llm(client, fake_llm):
     fake_llm.response = {"translation_ko": "나는 학생입니다."}
     analyze(client, "私は学生です。")
 
+    fake_llm.forget_requests()
+
     response = analyze(client, "私は学生です。")
 
     assert response.status_code == 200
     assert response.json()["translation_ko"] == "나는 학생입니다."
-    assert len(fake_llm.requests) == 1
+    assert fake_llm.all_requests() == []
 
 
 def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
@@ -69,6 +71,7 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
         "translation_ko",
         "is_stale",
         "generation",
+        "matcher_version",
         "created_at",
         "updated_at",
     }

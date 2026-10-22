@@ -8,7 +8,7 @@ import hashlib
 from typing import NamedTuple
 
 from django.db import IntegrityError, transaction
-from django.db.models import F, Prefetch, Q
+from django.db.models import Exists, F, OuterRef, Prefetch, Q
 from django.utils import timezone
 
 from analysis.models import (
@@ -75,15 +75,29 @@ class Span(NamedTuple):
     candidates: list
 
 
+def _open_usages():
+    return GrammarUsage.objects.exclude(status=ReviewStatus.REJECTED)
+
+
 def _with_candidates(patterns):
     """패턴마다 형태소 조건(seq 순서)과 반려되지 않은 용법(등록 순서)을 함께 읽는다."""
     return patterns.prefetch_related(
         Prefetch("morphemes", queryset=PatternMorpheme.objects.order_by("seq")),
-        Prefetch(
-            "usages",
-            queryset=GrammarUsage.objects.exclude(status=ReviewStatus.REJECTED).order_by("id"),
-        ),
+        Prefetch("usages", queryset=_open_usages().order_by("id")),
     ).order_by("id")
+
+
+def matchable_patterns():
+    """매칭 자격이 있는 패턴: 활성이고 반려되지 않은 용법이 하나 이상이다. candidate_spans가
+    매칭에 쓰는 패턴이고, 이 판정이 거짓에서 참이 되면 패턴 세트 버전을 올린다(#41).
+    """
+    return GrammarPattern.objects.filter(
+        Exists(_open_usages().filter(pattern=OuterRef("pk"))), is_active=True
+    )
+
+
+def is_matchable(pattern):
+    return matchable_patterns().filter(pk=pattern.pk).exists()
 
 
 def conditions_of(pattern):
@@ -103,8 +117,9 @@ def candidate_spans(morphs):
     """
     spans = []
     next_id = 1
-    for pattern in _with_candidates(GrammarPattern.objects.filter(is_active=True)):
+    for pattern in _with_candidates(matchable_patterns()):
         usages = list(pattern.usages.all())
+        # 용법은 따로 읽으므로 그사이 모두 반려됐을 수 있다.
         if not usages:
             continue
         conditions = conditions_of(pattern)
@@ -181,13 +196,17 @@ def raise_pattern_set_version():
 
 
 def add_usage(pattern, name, explanation_ko, example_ja):
-    """기존 패턴 아래 새 용법을 미검수로 더한다. 같은 이름의 용법이 이미 있으면 None.
+    """기존 패턴 아래 새 용법을 미검수로 더한다. (용법, 매칭 자격을 새로 얻었는가)를 돌려준다.
+    같은 이름의 용법이 이미 있으면 (None, False)다.
 
-    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 연다.
+    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 열고,
+    매칭 자격을 새로 얻었으면 분석 행을 잠그기 전에 패턴 세트 버전을 한 번 올린다(잠금 순서:
+    패턴 → 용법 → 버전 → 분석).
     """
     # 패턴을 먼저 잠가, 용법 완결 표시(analysis.review)가 커밋 전 용법을 못 본 채 하나라고
     # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다.
     GrammarPattern.objects.select_for_update(no_key=True).filter(pk=pattern.pk).exists()
+    was_matchable = is_matchable(pattern)
     try:
         # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
         with transaction.atomic():
@@ -200,11 +219,11 @@ def add_usage(pattern, name, explanation_ko, example_ja):
                 origin=GrammarUsage.Origin.LLM,
             )
     except IntegrityError:
-        return None
+        return None, False
     # 용법이 둘이 되면 더는 용법 완결이 아니다.
     if GrammarPattern.objects.filter(pk=pattern.pk, usage_closed=True).update(usage_closed=False):
         make_stale(pattern=pattern)
-    return usage
+    return usage, not was_matchable and is_matchable(pattern)
 
 
 def make_stale(pattern=None, usage=None):

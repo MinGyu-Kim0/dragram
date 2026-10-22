@@ -7,8 +7,15 @@ import pytest
 from django.db import IntegrityError, connection, transaction
 from django.test import Client
 
-from analysis.models import PatternSetVersion, SentenceAnalysis, SpanMatch
-from tests.analysis.helpers import analyze, new_pattern, span_answer
+from analysis import patterns, review
+from analysis.models import (
+    GrammarPattern,
+    GrammarUsage,
+    PatternSetVersion,
+    SentenceAnalysis,
+    SpanMatch,
+)
+from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -125,3 +132,102 @@ def test_stale_replacement_conflicting_on_the_same_span_uses_the_other_result(fa
 
     assert result["response"].json()["translation_ko"] == "먼저 저장된 번역"
     assert analysis.span_matches.count() == 1
+
+
+def teiru_without_usages(fake_llm):
+    """하나뿐인 용법이 반려돼 매칭 자격이 없는(활성이지만 용법 0개) ている."""
+    register(fake_llm, "走っている", TEIRU)
+    pattern = GrammarPattern.objects.get(name="ている")
+    usage = pattern.usages.get()
+    review.reject_usage(usage)
+    return pattern, usage
+
+
+def test_unrejecting_the_only_usage_raises_the_version(client, fake_llm):
+    _, usage = teiru_without_usages(fake_llm)
+    before = version()
+
+    review.unreject_usage(usage)
+
+    assert version() == before + 1
+
+
+def test_unrejecting_another_usage_does_not_raise_the_version(client, fake_llm):
+    register(fake_llm, "走っている", TEIRU)
+    pattern = GrammarPattern.objects.get()
+    with transaction.atomic():
+        second, _ = patterns.add_usage(pattern, "결과 상태", "결과가 남아 있다", None)
+    review.reject_usage(second)
+    before = version()
+
+    review.unreject_usage(second)
+
+    assert version() == before
+
+
+def test_first_usage_added_by_asking_again_raises_the_version(client, fake_llm):
+    teiru_without_usages(fake_llm)
+    before = version()
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과 상태")],
+    }
+    fake_llm.rejudge_response = {
+        "spans": [
+            span_answer(
+                0,
+                "unfound",
+                new_usage=new_usage("결과 상태", "동작의 결과가 남아 있다", "窓が開いている"),
+            )
+        ]
+    }
+
+    analyze(client, KITEIRU)
+
+    assert GrammarUsage.objects.filter(name="결과 상태").exists()
+    assert version() == before + 1
+
+
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_first_usage_raises_the_version_before_locking_the_analysis(fake_llm):
+    # 彼が来ている의 が 구간이 저장된 stale 분석. ている는 용법이 0개다.
+    teiru_without_usages(fake_llm)
+    register(fake_llm, "雨が降る", GA)
+    ga = GrammarPattern.objects.get(name="が")
+    fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(Client(), KITEIRU)
+    analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
+    SentenceAnalysis.objects.filter(pk=analysis.pk).update(is_stale=True)
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "spans": [span_answer(0, "usage", 1)],
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과 상태")],
+    }
+    fake_llm.rejudge_response = {
+        "spans": [
+            span_answer(
+                0, "unfound", new_usage=new_usage("결과 상태", "결과가 남아 있다", "窓が開いている")
+            )
+        ]
+    }
+    result = {}
+
+    def reanalysis():
+        try:
+            result["response"] = analyze(Client(), KITEIRU)
+        finally:
+            connection.close()
+
+    # 관리자 전이가 패턴 → 버전을 잠근 채, 다시 분석하는 요청이 ている에 첫 용법을 붙이고 버전을
+    # 기다린다. 그 뒤 전이가 분석 행을 잠근다. 분석 요청이 분석 행을 먼저 잠갔다면 교착이다.
+    thread = threading.Thread(target=reanalysis)
+    with transaction.atomic():
+        GrammarPattern.objects.select_for_update(no_key=True).get(pk=ga.pk)
+        patterns.raise_pattern_set_version()
+        thread.start()
+        wait_until_blocked()
+        patterns.make_stale(pattern=ga)
+    thread.join()
+
+    assert "error" not in result["response"].json()

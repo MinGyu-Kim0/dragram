@@ -1032,15 +1032,18 @@ def analyze(request):
             if usage_examples.get((span.pattern.id, name)) is None:
                 usage_examples[span.pattern.id, name] = new_usage["checked_example"]
         added, new_usages = {}, {}
+        # 용법 0개 패턴에 첫 용법을 붙이거나 새 패턴을 활성화하면 패턴 세트 버전을 올린다.
+        activated = False
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
             if (span.pattern.id, name) not in added:
-                added[span.pattern.id, name] = patterns.add_usage(
+                added[span.pattern.id, name], matchable = patterns.add_usage(
                     span.pattern,
                     name,
                     new_usage["explanation_ko"],
                     usage_examples[span.pattern.id, name],
                 )
+                activated |= matchable
             new_usages[index] = added[span.pattern.id, name]
         for index, (span, (state, usage, new_usage)) in enumerate(judged):
             start, end = key_span(span.start_token, span.end_token)
@@ -1077,7 +1080,6 @@ def analyze(request):
             conditions = proposal["conditions"]
             return patterns.morpheme_key(conditions) if conditions is not None else ""
 
-        activated = False
         # 같은 조건이 이 응답에서 두 번 나오면 패턴은 한 번만 등록한다. 뒤 자리는 용법 이름이
         # 같으면 그 용법을 함께 쓰고, 다르면 같은 패턴 아래 새 용법으로 더한다. 이 패턴은 이번
         # 트랜잭션에서 만들어 다른 요청이 용법을 더할 수 없으므로 순서를 맞출 필요가 없다.
@@ -1101,7 +1103,7 @@ def analyze(request):
                 pattern, usages = registered[order(proposal)]
                 name = proposal["usage_name"]
                 if name not in usages and usages:
-                    usages[name] = patterns.add_usage(
+                    usages[name], _ = patterns.add_usage(
                         pattern, name, proposal["explanation_ko"], example
                     )
                 usage = usages.get(name)

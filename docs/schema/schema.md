@@ -95,7 +95,7 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | name | 패턴명 | varchar(255) |  |  | 예: 명사+で |
-| morpheme_key | 형태소 열 키 | char(64) |  |  | 형태소 행(lemma\|pos1\|pos2\|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256. UNIQUE(morpheme_key). lemma 규칙: 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리). 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1). 동시 생성은 get_or_create |
+| morpheme_key | 형태소 열 키 | char(64) |  |  | 형태소 행(lemma\|pos1\|pos2\|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256. UNIQUE(morpheme_key). lemma 규칙: 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리), どく→とく, じまう→ちまう, でく→てく, じゃ(接続助詞)→ちゃ. 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1, 42절 14). 동시 생성은 get_or_create |
 | register | 말투 | varchar(20) |  |  | standard / colloquial, 기본 standard. 관리자가 원형에 연결할 때만 colloquial이 되고 해제해도 남음(admin 폼에서 따로 고치지 않음). colloquial이면 '회화체' 배지. colloquial인 패턴은 원형으로 고를 수 없음. 설명·용법은 variant_of 원형 것을 참조 / variant_of가 있으면 colloquial(CHECK) |
 | usage_closed | 용법 완결 여부 | boolean |  |  | 관리자가 용법이 하나뿐이라고 확인한 패턴. 활용형 조건 검토 필수. 패턴 승인 + test_cases 통과 + 반려되지 않은 용법이 정확히 하나이고 승인 상태일 때만 true. 새 용법 추가·용법 반려 취소·용법이나 패턴의 승인 취소·반려 때 같은 트랜잭션에서 false로 바꾸고 그 패턴의 분석을 stale로. 원형에 연결된 회화체는 원형 승인 + 원형의 반려되지 않은 용법이 승인된 하나뿐이어야 하고, 원형 쪽 위 사건과 연결·해제 때도 false로 바꿈(design-decisions 42절) |
 | revision | 패턴 판 번호 | integer |  |  | 용법 완결 여부·형태소 조건·용법 구성이 바뀌면 증가. span_match.basis_revision과 조회 시 비교 |
@@ -121,7 +121,7 @@
 | id | ID | bigint |  | PK |  |
 | pattern_id | 문법 패턴 ID | bigint |  | → grammar_pattern |  |
 | seq | 순서 | smallint |  |  | UNIQUE(pattern_id, seq) |
-| lemma | 표제어 | varchar(255) | Y |  | 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리). 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1). null이면 아무거나(정확히 1토큰) |
+| lemma | 표제어 | varchar(255) | Y |  | 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리), どく→とく, じまう→ちまう, でく→てく, じゃ(接続助詞)→ちゃ. 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1, 42절 14). null이면 아무거나(정확히 1토큰) |
 | pos1 | 품사 대분류 | varchar(30) | Y |  | null이면 아무거나 |
 | pos2 | 품사 중분류 | varchar(30) | Y |  |  |
 | conjugation_form | 활용형 | varchar(30) | Y |  | 과거/조건(終止形 vs 仮定形)처럼 구분이 필요한 패턴은 필수 |
@@ -188,12 +188,12 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| analysis_id | 문장 분석 ID | bigint |  | → sentence_analysis | UNIQUE(analysis_id, pattern_id, start_offset, end_offset) WHERE pattern_id IS NOT NULL: 같은 자리의 같은 패턴 구간은 하나(중복 카드 방지 백스톱). 구간을 쓰는 모든 경로는 분석 행을 잠근 뒤 씀(재매칭은 저장 열쇠가 없는지, stale 교체는 행이 아직 fresh가 아닌지 확인). 잠금 순서는 패턴(·용법) → (올릴 때) 패턴 세트 버전 → 분석 행(design-decisions 41절) |
+| analysis_id | 문장 분석 ID | bigint |  | → sentence_analysis | UNIQUE(analysis_id, pattern_id, start_offset, end_offset) WHERE pattern_id IS NOT NULL: 같은 자리의 같은 패턴 구간은 하나(중복 카드 방지 백스톱). 구간을 쓰는 모든 경로는 분석 행을 잠근 뒤 씀(재매칭은 저장 열쇠가 없는지, stale 교체는 행이 아직 fresh가 아닌지 확인). 잠금 순서는 원형 연결 advisory 잠금 → 패턴과 그 패턴을 원형으로 가리키는 회화체(id 순) → 용법 → (올릴 때) 패턴 세트 버전 → 분석 행(design-decisions 41절, 42절) |
 | pattern_id | 문법 패턴 ID | bigint | Y | → grammar_pattern | 미발견 구간에서 새 패턴 등록에 실패해 패턴이 없으면 null |
 | usage_id | 확정 용법 ID | bigint | Y | → grammar_usage | 회화체 패턴이 원형에 연결됐으면(variant_of) 원형 용법만, 미연결이면 자기 용법만 허용(서버 검증). usage_closed·usage_rule 확정은 실제 매칭된 패턴 기준 / 그 패턴 또는 variant_of 원형 소속. 조회 때 어긋나면 뺌. 저장 때는 분석할 때 읽은 원형 연결이 저장 직전과 다르면 저장하지 않음(design-decisions 42절) |
 | start_offset | 시작 위치 | integer |  |  | 키 텍스트 코드포인트 기준 [start, end). 원문 위치는 서버가 변환 / 0 ≤ start < end (CHECK) |
 | end_offset | 끝 위치 | integer |  |  | 0 ≤ start < end (CHECK) |
-| state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status, 그 용법이 속한 패턴(grammar_usage.pattern_id, 회화체 구간이면 원형)의 status, pattern_id(실제 매칭된 패턴)의 status, pattern_id가 연결된 원형(variant_of)의 status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌. alternatives의 각 usage_id도 주 용법과 같은 세 가지(그 용법, 그 용법의 소속 패턴, pattern_id)로 따로 검사(pending이면 그 대안에 배지, rejected면 그 대안만 뺌). 주 용법 쪽이 rejected면 구간째 뺌(대안을 주 용법으로 올리지 않음). unresolved는 pattern_id와 그 원형(연결됐으면)의 status만 봄(이름은 매칭된 패턴 이름, 설명 없음) / 상태별 칸(CHECK): decided면 usage_id 필수, divergent면 usage_id 필수이고 alternatives가 비어 있지 않음, unresolved면 usage_id·alternatives 모두 NULL(candidates·pattern_id는 남김), 그 밖에는 alternatives NULL |
+| state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status, 그 용법이 속한 패턴(grammar_usage.pattern_id, 회화체 구간이면 원형)의 status, pattern_id(실제 매칭된 패턴)의 status, pattern_id가 연결된 원형(variant_of)의 status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌. alternatives의 각 usage_id도 주 용법과 같은 네 가지(그 용법, 그 용법의 소속 패턴, pattern_id, pattern_id가 연결된 원형)와 소속(pattern_id나 그 원형)으로 따로 검사(pending이면 그 대안에 배지, rejected면 그 대안만 뺌). 주 용법 쪽이 rejected면 구간째 뺌(대안을 주 용법으로 올리지 않음). unresolved는 pattern_id와 그 원형(연결됐으면)의 status만 봄(이름은 매칭된 패턴 이름, 설명 없음) / 상태별 칸(CHECK): decided면 usage_id 필수, divergent면 usage_id 필수이고 alternatives가 비어 있지 않음, unresolved면 usage_id·alternatives 모두 NULL(candidates·pattern_id는 남김), 그 밖에는 alternatives NULL |
 | decided_by | 판정 근거 | varchar(30) | Y |  | single_usage / rule / llm / admin. 지금 구현은 single_usage(승인된 용법 완결 패턴의 단일 후보, #39)와 llm만 씀 |
 | rule_id | 판별 규칙 ID | bigint | Y | → usage_rule | decided_by가 rule일 때만 |
 | basis_revision | 근거 판 번호 | integer | Y |  | single_usage면 grammar_pattern.revision, rule이면 usage_rule.revision. 판 번호를 두기 전까지(지금 구현, #39) 칼럼을 만들지 않고, 다시 판정은 is_stale(design-decisions 35절)에 맡김 |
@@ -212,7 +212,7 @@
 | end_offset | 끝 위치 | integer |  |  |  |
 | before_usage_id | 정정 전 용법 ID | bigint | Y | → grammar_usage | 미발견 구간이었으면 null |
 | after_usage_id | 정정 후 용법 ID | bigint | Y | → grammar_usage | null이면 매칭 해제 |
-| status | 적용 상태 | varchar(30) |  |  | active / suspended. active만 우선 적용, 오답으로 확인된 결과는 재분석 중에도 노출 안 함. 관리자가 직접 바꿀 때만 변경. after_usage_id 용법, 그 소속 패턴, 같은 위치 span_match의 실제 매칭 패턴(pattern_id, 회화체면 회화체 패턴) 중 하나라도 rejected면 적용할 때 건너뜀(상태는 그대로) |
+| status | 적용 상태 | varchar(30) |  |  | active / suspended. active만 우선 적용, 오답으로 확인된 결과는 재분석 중에도 노출 안 함. 관리자가 직접 바꿀 때만 변경. after_usage_id 용법, 그 소속 패턴, 같은 위치 span_match의 실제 매칭 패턴(pattern_id, 회화체면 회화체 패턴), 그 패턴이 연결된 원형 중 하나라도 rejected면 적용할 때 건너뜀(상태는 그대로, 조회 규칙과 같은 네 가지) |
 | corrected_by | 정정자 ID | bigint |  | → users |  |
 | created_at | 정정일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |

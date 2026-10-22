@@ -261,19 +261,32 @@ def add_usage(pattern, name, explanation_ko, example_ja, matched=None):
             )
     except IntegrityError:
         return None, False
-    # 용법이 둘이 되면 더는 용법 완결이 아니다.
-    if GrammarPattern.objects.filter(pk=pattern.pk, usage_closed=True).update(usage_closed=False):
-        make_stale(pattern=pattern)
+    # 용법이 둘이 되면 더는 용법 완결이 아니다(그 패턴에 연결된 회화체도).
+    open_usages(pattern)
     return usage, bool(matchable_family(pattern) - was_matchable)
 
 
+def open_usages(pattern):
+    """그 패턴과, 그 패턴을 원형으로 가리키는 회화체의 용법 완결을 뗀다. 회화체의 용법 완결은
+    원형의 용법에 기대므로 원형 쪽 사건이 함께 뗀다(#63). 뗐으면 그 패턴(과 회화체)의 구간이
+    있는 분석을 stale로 만든다. 원형을 잠근 뒤 회화체를 바꾼다(원형 → 회화체 순서).
+    """
+    family = Q(pk=pattern.pk) | Q(variant_of=pattern)
+    if GrammarPattern.objects.filter(family, usage_closed=True).update(usage_closed=False):
+        pattern.usage_closed = False
+        make_stale(pattern=pattern)
+
+
 def make_stale(pattern=None, usage=None):
-    """그 패턴으로 매칭된 구간, 또는 그 용법으로 정해진 구간이나 그 용법을 대안으로 쓴 해석 갈림
-    구간이 있는 분석을 stale로 만들고 세대 번호를 올린다(#38, #40). 동시에 여러 사건이 겹쳐도
-    교착하지 않게 id 순서로 잠근 뒤 바꾼다.
+    """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 또는 그 용법으로 정해진
+    구간이나 그 용법을 대안으로 쓴 해석 갈림 구간이 있는 분석을 stale로 만들고 세대 번호를
+    올린다(#38, #40, #63). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은 따로 넓히지 않는다. 동시에
+    여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다.
     """
     if usage is None:
-        span_filter = Q(span_matches__pattern=pattern)
+        span_filter = Q(span_matches__pattern=pattern) | Q(
+            span_matches__pattern__variant_of=pattern
+        )
     else:
         span_filter = Q(span_matches__usage=usage) | Q(
             span_matches__alternatives__contains=[{"usage_id": usage.id}]

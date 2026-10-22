@@ -1,6 +1,9 @@
 """분석 API 테스트 도우미."""
 
 import json
+import time
+
+from django.db import connection
 
 
 class Analyzed:
@@ -84,3 +87,19 @@ def new_usage(
 ):
     """미발견 구간에 더할 새 용법."""
     return {"usage_name": usage_name, "explanation_ko": explanation_ko, "example_ja": example_ja}
+
+
+def wait_until_blocked():
+    """다른 연결이 잠금을 기다릴 때까지 기다린다."""
+    for _ in range(100):
+        with connection.cursor() as cursor:
+            # 트랜잭션 안에서는 통계 뷰를 처음 읽은 값으로 고정하므로 매번 비운다.
+            cursor.execute("SELECT pg_stat_clear_snapshot()")
+            cursor.execute(
+                "SELECT count(*) FROM pg_stat_activity"
+                " WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()"
+            )
+            if cursor.fetchone()[0]:
+                return
+        time.sleep(0.05)
+    raise AssertionError("다른 연결이 잠금을 기다리지 않음")

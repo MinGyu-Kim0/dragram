@@ -1,15 +1,22 @@
 """회화체 패턴을 원형에 연결하기(#63)."""
 
 import html
+import threading
 
 import pytest
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.db.models import F
 from django.test import Client
 
-from analysis import review
+from analysis import patterns, review
 from analysis.models import GrammarPattern, GrammarUsage, PatternSetVersion, SentenceAnalysis
-from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
+from tests.analysis.helpers import (
+    analyze,
+    new_pattern,
+    new_usage,
+    span_answer,
+    wait_until_blocked,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -347,3 +354,157 @@ def test_new_usage_is_not_added_when_the_link_changed_meanwhile(client, fake_llm
     analyze(client, MICHAU)
 
     assert not GrammarUsage.objects.filter(name="유감").exists()
+
+
+CASES = [
+    {"text": "宿題を忘れてしまった", "should_match": True},
+    {"text": "宿題を忘れた", "should_match": False},
+]
+VARIANT_CASES = [
+    {"text": "宿題を忘れちゃった", "should_match": True},
+    {"text": "宿題を忘れた", "should_match": False},
+]
+
+
+def approved(pattern, cases):
+    review.update_test_cases(pattern, cases)
+    review.approve_pattern(pattern)
+    return fresh(pattern)
+
+
+def closed_variant(fake_llm):
+    """승인된 원형(승인된 용법 하나)에 연결된, 승인·용법 완결 회화체."""
+    base, variant = linked(fake_llm)
+    base = approved(base, CASES)
+    review.approve_usage(base.usages.get())
+    variant = approved(variant, VARIANT_CASES)
+    review.close_usages(variant)
+    return fresh(base), fresh(variant)
+
+
+def test_variant_is_closed_only_with_an_approved_base(fake_llm):
+    base, variant = linked(fake_llm)
+    review.approve_usage(base.usages.get())
+    variant = approved(variant, VARIANT_CASES)
+
+    with pytest.raises(review.Refused):
+        review.close_usages(variant)
+
+    approved(base, CASES)
+    review.close_usages(variant)
+    assert fresh(variant).usage_closed
+
+
+def test_closed_variant_span_is_decided_without_llm_only_while_the_base_is_approved(
+    client, fake_llm
+):
+    base, _ = closed_variant(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다"}
+    analyze(client, MICHAU)
+    assert fake_llm.requests[-1]["spans"] == []
+
+    # 원형만 미검수가 되어도(사건 연쇄를 거치지 않은 경우까지) LLM 없이 정하지 않는다.
+    GrammarPattern.objects.filter(pk=base.pk).update(status="pending")
+    analyze(client, "全部読んじゃった")
+    assert len(fake_llm.requests[-1]["spans"]) == 1
+
+
+def base_events():
+    def add_usage(base):
+        with transaction.atomic():
+            patterns.add_usage(base, "유감", "아쉬움", None)
+
+    return {
+        "용법 추가": add_usage,
+        "용법 반려": lambda base: review.reject_usage(base.usages.get()),
+        "용법 승인 취소": lambda base: review.unapprove_usage(base.usages.get()),
+        "패턴 반려": review.reject_pattern,
+        "패턴 승인 취소": review.unapprove_pattern,
+    }
+
+
+@pytest.mark.parametrize("event", base_events().values(), ids=base_events().keys())
+def test_base_events_open_the_variant_and_make_its_analyses_stale(client, fake_llm, event):
+    base, variant = closed_variant(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다"}
+    analyze(client, MICHAU)
+    SentenceAnalysis.objects.update(is_stale=False)
+
+    event(base)
+
+    assert not fresh(variant).usage_closed
+    assert SentenceAnalysis.objects.get(translation_ko="전부 봐 버렸다").is_stale
+
+
+@pytest.mark.parametrize(
+    "event",
+    [review.reject_pattern, review.unapprove_pattern, "unreject"],
+)
+def test_base_pattern_events_reach_analyses_of_its_variants(client, fake_llm, event):
+    base, _ = linked(fake_llm)
+    base = approved(base, CASES)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, MICHAU)
+    if event == "unreject":
+        review.reject_pattern(base)
+        event = review.unreject_pattern
+    SentenceAnalysis.objects.update(is_stale=False)
+
+    event(fresh(base))
+
+    assert SentenceAnalysis.objects.get(translation_ko="전부 봐 버렸다").is_stale
+
+
+def test_unrejecting_the_base_raises_the_version_for_its_variants(fake_llm):
+    base, _ = linked(fake_llm)
+    # 활성화 근거가 없어 반려 취소 뒤에도 원형은 비활성이다. 회화체는 원형의 용법으로 다시
+    # 매칭 자격을 얻는다.
+    GrammarPattern.objects.filter(pk=base.pk).update(test_cases=[])
+    review.reject_pattern(base)
+    before = version()
+
+    review.unreject_pattern(fresh(base))
+
+    assert not fresh(base).is_active
+    assert version() == before + 1
+
+
+# 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
+def test_unlinking_while_an_analysis_adds_a_base_usage_does_not_deadlock(fake_llm, monkeypatch):
+    # 용법 완결 회화체에 연결된 원형 てしまう 구간에 분석이 새 용법을 더한다. 새 용법은 원형을
+    # 잠근 뒤 회화체의 용법 완결을 뗀다. 그사이 관리자가 연결을 푼다.
+    _, variant = closed_variant(fake_llm)
+    result = {}
+    matchable_family = patterns.matchable_family
+
+    def unlink():
+        try:
+            review.unlink_variant(variant)
+            result["unlinked"] = True
+        finally:
+            connection.close()
+
+    def unlink_meanwhile(pattern):
+        # 분석이 원형을 잠근 채 회화체를 바꾸기 직전에 연결 해제가 시작되게 한다.
+        monkeypatch.setattr(patterns, "matchable_family", matchable_family)
+        thread = threading.Thread(target=unlink)
+        thread.start()
+        wait_until_blocked()
+        result["thread"] = thread
+        return matchable_family(pattern)
+
+    monkeypatch.setattr(patterns, "matchable_family", unlink_meanwhile)
+    fake_llm.response = {
+        "translation_ko": "다 먹어 버렸다",
+        "spans": [
+            span_answer(0, "unfound", new_usage=new_usage("유감", "아쉬움", "本を忘れてしまった"))
+        ],
+    }
+
+    response = analyze(Client(), "全部食べてしまった")
+    result["thread"].join()
+
+    assert "error" not in response.json()
+    assert result.get("unlinked")
+    assert fresh(variant).variant_of is None

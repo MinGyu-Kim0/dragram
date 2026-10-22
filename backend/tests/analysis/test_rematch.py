@@ -1,7 +1,6 @@
 """패턴 세트 버전이 오른 뒤 캐시 문장을 다시 매칭하기(#41)."""
 
 import threading
-import time
 
 import pytest
 from django.db import IntegrityError, connection, transaction
@@ -17,7 +16,13 @@ from analysis.models import (
     SpanMatch,
 )
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
+from tests.analysis.helpers import (
+    analyze,
+    new_pattern,
+    new_usage,
+    span_answer,
+    wait_until_blocked,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -89,22 +94,6 @@ def test_same_span_cannot_be_stored_twice(client, fake_llm):
 
     with pytest.raises(IntegrityError), transaction.atomic():
         span.save()
-
-
-def wait_until_blocked():
-    """다른 연결이 잠금을 기다릴 때까지 기다린다."""
-    for _ in range(100):
-        with connection.cursor() as cursor:
-            # 트랜잭션 안에서는 통계 뷰를 처음 읽은 값으로 고정하므로 매번 비운다.
-            cursor.execute("SELECT pg_stat_clear_snapshot()")
-            cursor.execute(
-                "SELECT count(*) FROM pg_stat_activity"
-                " WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid()"
-            )
-            if cursor.fetchone()[0]:
-                return
-        time.sleep(0.05)
-    raise AssertionError("다른 연결이 잠금을 기다리지 않음")
 
 
 # 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.

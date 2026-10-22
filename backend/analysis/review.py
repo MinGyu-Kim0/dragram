@@ -65,21 +65,23 @@ def approve_pattern(pattern):
 
 
 def _set_active(pattern, active):
-    """is_active를 바꾼다. 실제로 바뀌면 같은 트랜잭션에서 패턴 세트 버전을 올린다."""
+    """is_active를 바꾼다. 실제로 바뀌면 같은 트랜잭션에서 패턴 세트 버전을 올리고 True다."""
     if pattern.is_active == active:
-        return
+        return False
     pattern.is_active = active
     pattern.save(update_fields=["is_active"])
     patterns.raise_pattern_set_version()
+    return True
 
 
-def _open_usages(pattern):
-    """용법 완결을 뗀다. 붙어 있었으면 그 패턴의 구간이 있는 분석을 stale로 만든다."""
-    if not pattern.usage_closed:
-        return
-    pattern.usage_closed = False
-    pattern.save(update_fields=["usage_closed"])
-    patterns.make_stale(pattern=pattern)
+def _locked_with_base(pattern):
+    """패턴과, 연결됐으면 그 원형을 원형 → 회화체 순서로 잠근다. (패턴, 원형 또는 None)이다."""
+    base_id = GrammarPattern.objects.values_list("variant_of_id", flat=True).get(pk=pattern.pk)
+    base = _locked(GrammarPattern(pk=base_id)) if base_id else None
+    pattern = _locked(pattern)
+    if pattern.variant_of_id != base_id:
+        raise Refused("그사이 원형 연결 상태가 바뀌었습니다")
+    return pattern, base
 
 
 @transaction.atomic
@@ -90,7 +92,7 @@ def reject_pattern(pattern):
     pattern.status = ReviewStatus.REJECTED
     pattern.save(update_fields=["status"])
     _set_active(pattern, False)
-    _open_usages(pattern)
+    patterns.open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 
 
@@ -107,9 +109,13 @@ def unreject_pattern(pattern):
     """반려를 취소해 미검수로 되돌린다. 활성화 근거가 있으면 다시 매칭에 쓴다."""
     pattern = _locked(pattern)
     _require(pattern, ReviewStatus.REJECTED)
+    was_matchable = patterns.matchable_family(pattern)
     pattern.status = ReviewStatus.PENDING
     pattern.save(update_fields=["status"])
-    _set_active(pattern, _has_activation_basis(pattern))
+    activated = _set_active(pattern, _has_activation_basis(pattern))
+    # 원형이 비활성으로 남아도 연결된 회화체는 원형의 용법으로 매칭 자격을 되찾을 수 있다(#63).
+    if not activated and patterns.matchable_family(pattern) - was_matchable:
+        patterns.raise_pattern_set_version()
     patterns.make_stale(pattern=pattern)
 
 
@@ -120,7 +126,7 @@ def unapprove_pattern(pattern):
     _require(pattern, ReviewStatus.APPROVED)
     pattern.status = ReviewStatus.PENDING
     pattern.save(update_fields=["status"])
-    _open_usages(pattern)
+    patterns.open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 
 
@@ -134,16 +140,19 @@ def _locked_usage(usage):
 @transaction.atomic
 def close_usages(pattern):
     """용법 완결을 표시한다. 패턴이 승인됐고 test_cases를 통과하며, 반려되지 않은 용법이
-    정확히 하나이고 그 용법이 승인됐을 때만 한다."""
-    pattern = _locked(pattern)
+    정확히 하나이고 그 용법이 승인됐을 때만 한다. 연결된 회화체는 원형도 승인돼야 하고, 용법은
+    원형의 것을 본다(#63)."""
+    pattern, base = _locked_with_base(pattern)
     if pattern.status != ReviewStatus.APPROVED:
         raise Refused("승인된 패턴만 용법 완결로 표시할 수 있습니다")
+    if base is not None and base.status != ReviewStatus.APPROVED:
+        raise Refused("원형 패턴이 승인돼야 합니다")
     failure = test_cases_failure(pattern)
     if failure:
         raise Refused(failure)
     usages = list(
         GrammarUsage.objects.select_for_update(no_key=True)
-        .filter(pattern=pattern)
+        .filter(pattern=base or pattern)
         .exclude(status=ReviewStatus.REJECTED)
     )
     if len(usages) != 1:
@@ -160,7 +169,7 @@ def close_usages(pattern):
 @transaction.atomic
 def open_usages(pattern):
     """용법 완결 표시를 뗀다."""
-    _open_usages(_locked(pattern))
+    patterns.open_usages(_locked(pattern))
 
 
 @transaction.atomic
@@ -182,7 +191,7 @@ def reject_usage(usage):
     usage.status = ReviewStatus.REJECTED
     usage.save(update_fields=["status", "updated_at"])
     patterns.make_stale(usage=usage)
-    _open_usages(pattern)
+    patterns.open_usages(pattern)
 
 
 @transaction.atomic
@@ -191,13 +200,13 @@ def unreject_usage(usage):
     용법을 다시 후보로 검토하게). 반려되지 않은 용법이 늘므로 용법 완결도 뗀다."""
     pattern, usage = _locked_usage(usage)
     _require(usage, ReviewStatus.REJECTED)
-    was_matchable = patterns.is_matchable(pattern)
+    was_matchable = patterns.matchable_family(pattern)
     usage.status = ReviewStatus.PENDING
     usage.save(update_fields=["status", "updated_at"])
-    if not was_matchable and patterns.is_matchable(pattern):
+    if patterns.matchable_family(pattern) - was_matchable:
         # 매칭 자격을 다시 얻으면, 용법이 없는 동안 캐시된 문장에도 이 패턴의 구간이 생긴다(#41).
         patterns.raise_pattern_set_version()
-    _open_usages(pattern)
+    patterns.open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 
 
@@ -209,7 +218,7 @@ def unapprove_usage(usage):
     usage.status = ReviewStatus.PENDING
     usage.save(update_fields=["status", "updated_at"])
     patterns.make_stale(usage=usage)
-    _open_usages(pattern)
+    patterns.open_usages(pattern)
 
 
 @transaction.atomic
@@ -239,7 +248,7 @@ def link_variant(pattern, base):
     pattern.save(update_fields=["variant_of", "register"])
     if not was_matchable and patterns.is_matchable(pattern):
         patterns.raise_pattern_set_version()
-    _open_usages(pattern)
+    patterns.open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 
 
@@ -249,16 +258,12 @@ def unlink_variant(pattern):
     사라진다). 원형으로 간 용법은 돌려받지 않아 자기 용법 0개로 매칭에서 빠진다. 자격을 잃는
     쪽이라 패턴 세트 버전은 올리지 않는다.
     """
-    base_id = GrammarPattern.objects.values_list("variant_of_id", flat=True).get(pk=pattern.pk)
-    if base_id is None:
+    pattern, base = _locked_with_base(pattern)
+    if base is None:
         raise Refused("원형에 연결돼 있지 않습니다")
-    _locked(GrammarPattern(pk=base_id))
-    pattern = _locked(pattern)
-    if pattern.variant_of_id != base_id:
-        raise Refused("그사이 연결 상태가 바뀌었습니다")
     pattern.variant_of = None
     pattern.save(update_fields=["variant_of"])
-    _open_usages(pattern)
+    patterns.open_usages(pattern)
     patterns.make_stale(pattern=pattern)
 
 

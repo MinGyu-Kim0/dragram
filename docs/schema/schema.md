@@ -96,7 +96,7 @@
 | id | ID | bigint |  | PK |  |
 | name | 패턴명 | varchar(255) |  |  | 예: 명사+で |
 | morpheme_key | 형태소 열 키 | char(64) |  |  | 형태소 행(lemma\|pos1\|pos2\|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256. UNIQUE(morpheme_key). lemma 규칙: 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리), どく→とく, じまう→ちまう, でく→てく, じゃ(接続助詞)→ちゃ. 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1, 42절 14). 동시 생성은 get_or_create |
-| register | 말투 | varchar(20) |  |  | standard / colloquial, 기본 standard. 관리자가 원형에 연결할 때만 colloquial이 되고 해제해도 남음(admin 폼에서 따로 고치지 않음). colloquial이면 '회화체' 배지. colloquial인 패턴은 원형으로 고를 수 없음. 설명·용법은 variant_of 원형 것을 참조 / variant_of가 있으면 colloquial(CHECK) |
+| register | 말투 | varchar(20) |  |  | standard / colloquial, 기본 standard. 관리자가 원형에 연결할 때만 colloquial이 되고 해제해도 남음(admin 폼에서 따로 고치지 않음). colloquial이면 '회화체' 배지. colloquial인 패턴은 원형으로 고를 수 없음. variant_of가 있을 때(연결된 회화체)만 원형의 설명·용법을 쓰고, 해제된 회화체는 자기 용법을 씀 / variant_of가 있으면 colloquial(CHECK) |
 | usage_closed | 용법 완결 여부 | boolean |  |  | 관리자가 용법이 하나뿐이라고 확인한 패턴. 활용형 조건 검토 필수. 패턴 승인 + test_cases 통과 + 반려되지 않은 용법이 정확히 하나이고 승인 상태일 때만 true. 새 용법 추가·용법 반려 취소·용법이나 패턴의 승인 취소·반려 때 같은 트랜잭션에서 false로 바꾸고 그 패턴의 분석을 stale로. 원형에 연결된 회화체는 원형 승인 + 원형의 반려되지 않은 용법이 승인된 하나뿐이어야 하고, 원형 쪽 위 사건과 연결·해제 때도 false로 바꿈(design-decisions 42절) |
 | revision | 패턴 판 번호 | integer |  |  | 용법 완결 여부·형태소 조건·용법 구성이 바뀌면 증가. span_match.basis_revision과 조회 시 비교 |
 | show_parts | 구성 문법 표시 여부 | boolean |  |  | 긴 패턴 안의 구성 문법을 화면에서 펼쳐 보일지. 화면 접기 전용, 분석 후보는 항상 보존 |

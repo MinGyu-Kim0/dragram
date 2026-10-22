@@ -252,6 +252,7 @@ function grammarItem(start: number, end: number, name: string) {
   return {
     start,
     end,
+    state: "decided",
     name,
     explanation_ko: `${name} 설명`,
     review_status: "pending",
@@ -1513,4 +1514,146 @@ test("재분석이 실패한 문장에도 다시 시도 버튼이 있고, 누르
   ).toBeInTheDocument();
   expect(screen.getByText("그가 와 있다")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+// 해석 갈림 구간: 주 용법(진행)과 대안
+function divergentItem(...alternatives: object[]) {
+  return { ...grammarItem(3, 6, "진행"), state: "divergent", alternatives };
+}
+
+function alternativeItem(
+  name: string,
+  translation: string,
+  status = "pending",
+) {
+  return { name, translation_ko: translation, review_status: status };
+}
+
+test("해석 갈림 구간은 점선 카드 아래에 '다른 해석: 대안 — 대안 번역' 줄을 대안마다 보이고, 미검수 대안에 배지를 단다", async () => {
+  respondWith(200, {
+    translation_ko: "그가 와 있다",
+    grammar: [
+      divergentItem(
+        alternativeItem("결과 상태", "그가 와 있는 상태다"),
+        alternativeItem("완료", "그가 와 버렸다", "approved"),
+      ),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "彼が来ている");
+
+  const [card] = await screen.findAllByRole("listitem");
+  expect(card).toHaveClass("divergent");
+  expect(within(card!).getByRole("heading").textContent).toBe("진행");
+  const lines = within(card!).getAllByText(/^다른 해석:/);
+  expect(lines.map((line) => line.textContent)).toEqual([
+    "다른 해석: 결과 상태 — 그가 와 있는 상태다",
+    "다른 해석: 완료 — 그가 와 버렸다",
+  ]);
+  // 주 용법 배지 하나와 미검수 대안 배지 하나
+  expect(within(card!).getAllByText("AI 생성·미검수")).toHaveLength(2);
+  expect(
+    within(lines[0]!.closest("li.alternative")!).getByText("AI 생성·미검수"),
+  ).toBeInTheDocument();
+  expect(
+    within(lines[1]!.closest("li.alternative")!).queryByText("AI 생성·미검수"),
+  ).not.toBeInTheDocument();
+});
+
+test("대안이 모두 빠진 해석 갈림 구간은 점선 없는 보통 카드로 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "그가 와 있다",
+    grammar: [divergentItem()],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "彼が来ている");
+
+  const [card] = await screen.findAllByRole("listitem");
+  expect(card).not.toHaveClass("divergent");
+  expect(within(card!).queryByText(/^다른 해석:/)).not.toBeInTheDocument();
+});
+
+test("미확정 구간은 패턴 이름과 '판단하지 못함'으로 보이고 문법 개수에 들어간다", async () => {
+  respondWith(200, {
+    translation_ko: "그가 와 있다",
+    grammar: [
+      grammarItem(1, 2, "주격 が"),
+      {
+        start: 3,
+        end: 6,
+        state: "unresolved",
+        name: "ている",
+        explanation_ko: null,
+        review_status: "pending",
+      },
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "彼が来ている");
+
+  expect(
+    await screen.findByRole("tab", { name: "문법 2" }),
+  ).toBeInTheDocument();
+  const card = screen.getAllByRole("listitem")[1]!;
+  expect(card).not.toHaveClass("divergent");
+  expect(within(card).getByRole("heading").textContent).toBe("ている");
+  expect(within(card).getByText("판단하지 못함")).toHaveClass(
+    "unresolved-note",
+  );
+  expect(within(card).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(
+    [...document.querySelectorAll(".original mark.highlight")].map(
+      (mark) => mark.textContent,
+    ),
+  ).toEqual(["が", "ている"]);
+});
+
+test("확인 중 카드는 분석이 오면 해석 갈림 카드로 바뀌고, 번역도 분석의 번역으로 바뀐다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "彼が来ている");
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [checkingItem(3, 6, "진행", "결과 상태")],
+  });
+  stream.push({
+    type: "translation",
+    translation_ko: "그가 와 있다",
+    ruby: [],
+  });
+  expect(await screen.findByText("확인 중")).toBeInTheDocument();
+
+  stream.push({
+    type: "analysis",
+    translation_ko: "그가 와 있는 상태다",
+    grammar: [
+      {
+        ...grammarItem(3, 6, "결과 상태"),
+        state: "divergent",
+        alternatives: [alternativeItem("진행", "그가 오고 있다")],
+      },
+    ],
+    words: [],
+  });
+  stream.end();
+
+  expect(
+    await screen.findByRole("tab", { name: "문법 1" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("확인 중")).not.toBeInTheDocument();
+  expect(screen.getByText("그가 와 있는 상태다")).toBeInTheDocument();
+  expect(screen.queryByText("그가 와 있다")).not.toBeInTheDocument();
+  const [card] = screen
+    .getAllByRole("listitem")
+    .filter((li) => li.classList.contains("grammar-card"));
+  expect(card).toHaveClass("divergent");
 });

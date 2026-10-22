@@ -6,9 +6,20 @@ export interface GrammarItem {
   // 원문(보낸 문장) 기준 UTF-16 위치 [start, end). 자바스크립트 문자열 위치와 같다.
   start: number;
   end: number;
+  // decided는 용법이 정해진 구간, divergent는 해석 갈림(name·explanation_ko는 주 용법),
+  // unresolved는 미확정(name은 패턴 이름, 설명 없음)이다.
+  state: "decided" | "divergent" | "unresolved";
   name: string;
-  explanation_ko: string;
+  explanation_ko: string | null;
   // pending은 LLM이 썼고 아직 검수되지 않은 문법이다.
+  review_status: "pending" | "approved";
+  // 해석 갈림의 대안 해석(대안 용법 이름, 그 해석으로 옮긴 문장 전체 번역). 반려된 대안은 빠진다.
+  alternatives?: Alternative[];
+}
+
+export interface Alternative {
+  name: string;
+  translation_ko: string;
   review_status: "pending" | "approved";
 }
 

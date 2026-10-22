@@ -853,3 +853,18 @@ def test_moving_into_a_base_without_open_usages_raises_the_version(fake_llm):
     review.link_variant(variant, base, {own.pk: None})
 
     assert version() == before + 1
+
+
+def test_moving_opens_the_base_and_its_linked_variants(fake_llm):
+    base, chau = closed_variant(fake_llm)
+    review.close_usages(base)
+    chimau = register(
+        fake_llm,
+        "食べちまった",
+        new_pattern((1, "lemma"), pattern_name="ちまう", example_ja="全部見ちまった"),
+    )
+
+    review.link_variant(chimau, base, {chimau.usages.get().pk: None})
+
+    # 원형에 용법을 더한 것과 같다. 원형의 용법이 둘이 되어 용법 완결이 아니다.
+    assert (fresh(base).usage_closed, fresh(chau).usage_closed) == (False, False)

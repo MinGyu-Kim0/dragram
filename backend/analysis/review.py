@@ -290,6 +290,9 @@ def link_variant(pattern, base, mapping=None):
         patterns.raise_pattern_set_version()
     for source, target in merges.items():
         patterns.merge_usage(own[source], targets[target])
+    if mapping.keys() - merges.keys():
+        # 옮김은 원형에 용법을 더한 것과 같다. 원형과 그 회화체들의 용법 완결을 뗀다.
+        patterns.clear_usage_closed(base)
     patterns.clear_usage_closed(pattern)
     patterns.make_stale(pattern=pattern)
 

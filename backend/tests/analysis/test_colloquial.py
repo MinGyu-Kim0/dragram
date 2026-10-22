@@ -1125,3 +1125,24 @@ def test_linking_without_own_usages_leaves_analyses_of_the_base_fresh(fake_llm):
     review.link_variant(variant, base)
 
     assert not SentenceAnalysis.objects.get(span_matches__pattern=base).is_stale
+
+
+def test_usage_transition_on_a_usage_merged_away_meanwhile_is_refused(fake_llm):
+    # admin이 용법 목록을 읽은 뒤 그 용법이 원형 용법으로 합쳐져 지워졌다.
+    base, variant, done, own = with_own_usage(fake_llm)
+    review.link_variant(variant, base, {own.pk: done.pk})
+
+    with pytest.raises(review.Refused):
+        review.approve_usage(own)
+
+
+def test_usage_transition_checks_the_pattern_a_usage_was_moved_to(fake_llm):
+    # admin이 용법 목록을 읽은 뒤 그 용법이 원형 아래로 옮겨졌고, 원형은 반려됐다.
+    base, variant, _, own = with_own_usage(fake_llm)
+    review.link_variant(variant, base, {own.pk: None})
+    review.reject_pattern(fresh(base))
+
+    with pytest.raises(review.Refused):
+        review.approve_usage(own)
+
+    assert GrammarUsage.objects.get(pk=own.pk).status == "pending"

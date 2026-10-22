@@ -290,11 +290,16 @@ def link_variant(pattern, base, mapping=None):
         patterns.raise_pattern_set_version()
     for source, target in merges.items():
         patterns.merge_usage(own[source], targets[target])
-    if mapping.keys() - merges.keys():
+    moved = [own[source] for source in mapping.keys() - merges.keys()]
+    if moved:
         # 옮김은 원형에 용법을 더한 것과 같다. 원형과 그 회화체들의 용법 완결을 뗀다.
         patterns.clear_usage_closed(base)
     patterns.clear_usage_closed(pattern)
-    patterns.make_stale(pattern=pattern)
+    # 용법을 합치거나 옮겼으면 원형과 그 회화체들(이번에 연결한 것 포함)의 분석, 옮긴 용법을
+    # 가리키던 분석도 다시 분석한다. 병합 전에 시작한 분석이 옛 소속으로 저장하지 못하게 한다.
+    patterns.make_stale(pattern=base if mapping else pattern)
+    for usage in moved:
+        patterns.make_stale(usage=usage, candidates=True)
 
 
 def _move_usage(usage, base):

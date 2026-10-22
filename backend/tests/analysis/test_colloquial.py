@@ -868,3 +868,45 @@ def test_moving_opens_the_base_and_its_linked_variants(fake_llm):
 
     # 원형에 용법을 더한 것과 같다. 원형의 용법이 둘이 되어 용법 완결이 아니다.
     assert (fresh(base).usage_closed, fresh(chau).usage_closed) == (False, False)
+
+
+def generations():
+    return dict(SentenceAnalysis.objects.values_list("translation_ko", "generation"))
+
+
+@pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])
+def test_merging_makes_analyses_of_the_base_and_its_variants_stale(fake_llm, moved):
+    base = register(fake_llm, "食べてしまった", TESHIMAU, "먹어 버렸다")
+    variant = register(fake_llm, "食べちゃった", CHAU, "먹어 치웠다")
+    own = variant.usages.get()
+    SentenceAnalysis.objects.update(is_stale=False)
+    before = generations()
+
+    review.link_variant(variant, base, {own.pk: None if moved else base.usages.get().pk})
+
+    # 한 사건에서 여러 번 오를 수 있어 올랐는지만 본다.
+    after = generations()
+    assert all(after[translation] > n for translation, n in before.items())
+    assert not SentenceAnalysis.objects.filter(is_stale=False).exists()
+
+
+def test_moving_makes_other_analyses_referring_to_the_usage_stale(client, fake_llm):
+    base = register(fake_llm, "食べてしまった", TESHIMAU, "먹어 버렸다")
+    chau = register(fake_llm, "食べちゃった", CHAU, "먹어 치웠다")
+    own = chau.usages.get()
+    # ちまう를 ちゃう에 연결했다가 푼다. 재분석 전까지 ちまう 구간은 ちゃう의 용법을 가리킨다.
+    chimau = register(
+        fake_llm,
+        "食べちまった",
+        new_pattern((1, "lemma"), pattern_name="ちまう", example_ja="全部見ちまった"),
+    )
+    review.reject_usage(chimau.usages.get())
+    review.link_variant(chimau, chau)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, "全部見ちまった")
+    review.unlink_variant(chimau)
+    before = generations()["전부 봐 버렸다"]
+
+    review.link_variant(chau, base, {own.pk: None})
+
+    assert generations()["전부 봐 버렸다"] > before

@@ -21,7 +21,7 @@
             <option value="">고르세요</option>
             <option value="move">원형 아래로 옮김</option>
             {% for target in targets %}
-            <option value="{{ target.pk }}">합침: 「{{ target.name }}」</option>
+            <option value="{{ target.pk }}">합침: 「{{ target.name }}」({{ target.get_status_display }})</option>
             {% endfor %}
           </select>
         </td>

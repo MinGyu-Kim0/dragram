@@ -997,7 +997,11 @@ def test_link_action_asks_what_to_do_with_each_own_usage(admin_client, fake_llm)
     text = html.unescape(page.content.decode())
     assert "완료(회화체)" in text
     assert f'name="usage_{own.pk}"' in text
-    assert f'<option value="{done.pk}">' in text
+    # 합칠 원형 용법의 검수 상태도 보인다. 합치면 그 상태를 쓴다.
+    assert f'<option value="{done.pk}">합침: 「완료」(Pending)</option>' in text
+    assert 'name="csrfmiddlewaretoken"' in text
+    # 원문(그 패턴을 등록한 문장)은 보이지 않는다.
+    assert "食べちゃった" not in text
 
     act(
         admin_client,

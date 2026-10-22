@@ -254,6 +254,32 @@ def test_judge_spans_asks_for_the_translation_only_when_rechecking(llm_client, m
     assert request["text"]["format"]["schema"]["required"] == ["translation_ko", "spans"]
 
 
+def test_rematch_judge_sends_the_stored_translation_and_new_spans_without_asking_translation(
+    llm_client, monkeypatch
+):
+    answer = '{"spans": [{"span_id": 0, "verdict": "usage", "candidate_id": 1, "new_usage": null}]}'
+    requests = judge_with(
+        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+    )
+    decided = [{"start_token_id": 1, "end_token_id": 1, "name": "주격"}]
+
+    result = llm_client.rematch_judge("は", [], "는", decided, SPANS)
+
+    assert result == json.loads(answer)
+    [request] = requests
+    assert json.loads(request["input"]) == {
+        "sentence": "は",
+        "tokens": [],
+        "translation_ko": "는",
+        "decided_spans": decided,
+        "recheck_spans": [],
+        "spans": SPANS,
+    }
+    # 다시 묻기와 같은 지침·스키마를 쓰고, 번역은 받지 않는다.
+    assert request["instructions"] == llm.JUDGE_INSTRUCTIONS + llm.NUMBER_RULES
+    assert request["text"]["format"]["schema"]["required"] == ["spans"]
+
+
 @pytest.mark.parametrize(
     "response",
     [

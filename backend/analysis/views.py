@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import re
 import unicodedata
 from itertools import chain
@@ -25,6 +26,8 @@ from analysis.positions import key_offsets, to_analysis, to_key, to_original, ut
 from analysis.ruby import ruby_pieces
 from errors import AnalysisError, BusinessError
 from errors.handler import log_business_error
+
+logger = logging.getLogger(__name__)
 
 
 def _numbers_before_particle(text, morphs):
@@ -626,6 +629,21 @@ def _reading_changed(first, again):
     return again[1] != first[1]
 
 
+def _stored_keys(analysis):
+    """저장된 구간의 열쇠 (패턴 ID, 키 텍스트 start, end)들. 패턴이 있는 모든 상태를 센다(#41)."""
+    return set(
+        analysis.span_matches.filter(pattern__isnull=False).values_list(
+            "pattern_id", "start_offset", "end_offset"
+        )
+    )
+
+
+def _is_place_conflict(error):
+    """같은 자리의 같은 패턴 구간을 두 번 넣어 구간 유일성 제약에 걸렸는가(#41)."""
+    diag = getattr(error.__cause__, "diag", None)
+    return getattr(diag, "constraint_name", None) == "span_match_place_unique"
+
+
 def _is_fresh(analysis):
     """다시 분석하지 않고 쓸 수 있는 분석인가."""
     return analysis.draft_analysis is not None and not analysis.is_stale
@@ -667,6 +685,101 @@ def _errors_as_event(events):
     except BusinessError as e:
         log_business_error(e)
         yield {"type": "error", "error": e.error_code.code}
+
+
+def _check_examples(validated, client, key_text, content_tokens, key_span, discarded):
+    """새 패턴·새 용법의 예문을 저장 전에 검사해, 쓸 수 있는 예문을 "checked_example"에
+    둔다(없으면 None). validated 안의 제안·새 용법을 제자리에서 고친다.
+
+    원문을 베껴 거부된 예문은 한 번에 묶어 한 번만 다시 쓰게 하고, 다시 쓴 예문도 같은
+    검사를 통과해야 쓴다. 같은 용법에 이미 통과한 예문이 있으면 다시 쓰지 않는다(그 예문을
+    쓴다). 다시 쓰기가 실패하면 예문 없이 둔다. 보조 호출 하나 때문에 분석 전체를 버리지
+    않는다. 이미 검사한 예문은 다시 보지 않는다(다시 묻기 뒤 재시도). LLM 호출이라 저장
+    트랜잭션 밖에서 부른다.
+
+    discarded()가 참이면 이 결과가 버려질 것이라 다시 쓰기를 보내지 않는다. 첫 분석은 다른
+    요청이 이 문장의 분석을 먼저 저장했는지, 재매칭은 이번 새 구간이 이미 저장됐는지 본다(#41).
+    """
+
+    def fixed_spans(start_token, conditions):
+        """패턴에서 고정한 토큰의 (패턴 안 순서, 키 텍스트 start, end)들"""
+        return [
+            (i, *key_span(start_token + i, start_token + i))
+            for i, c in enumerate(conditions)
+            if c != patterns.ANY
+        ]
+
+    # (예문을 담은 제안·새 용법, 같은 용법인지 가르는 열쇠, 패턴 이름, 형태소 조건,
+    #  고정 토큰 구간)
+    targets = [
+        (
+            p,
+            (patterns.morpheme_key(p["conditions"]), p["usage_name"]),
+            p["pattern_name"],
+            p["conditions"],
+            fixed_spans(p["tokens"][0][0], p["conditions"]),
+        )
+        for p in validated["new_patterns"]
+        if "checked_example" not in p and p["existing"] is None and p["conditions"] is not None
+    ]
+    targets += [
+        (
+            n,
+            (span.pattern.id, n["usage_name"]),
+            span.pattern.name,
+            span.conditions,
+            fixed_spans(span.start_token, span.conditions),
+        )
+        for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True)
+        if n is not None and "checked_example" not in n
+    ]
+    # 기존 패턴에 이미 있는 이름의 새 용법은 더하지 않으므로(patterns.add_usage) 검사하지
+    # 않는다. 다시 쓰기를 보내도 버려진다.
+    taken = set(
+        GrammarUsage.objects.filter(
+            pattern__in=[span.pattern for span in validated["span_list"]]
+        ).values_list("pattern_id", "name")
+    )
+    copied, usable = [], set()
+    for holder, usage_key, pattern_name, conditions, fixed in targets:
+        if usage_key in taken:
+            holder["checked_example"] = None
+            continue
+        verdict = _example_verdict(
+            holder["example_ja"], conditions, key_text, content_tokens, fixed
+        )
+        holder["checked_example"] = holder["example_ja"] if verdict == _EXAMPLE_OK else None
+        if verdict == _EXAMPLE_OK:
+            usable.add(usage_key)
+        elif verdict == _EXAMPLE_COPIED:
+            copied.append((holder, usage_key, pattern_name, conditions, fixed))
+    copied = [item for item in copied if item[1] not in usable]
+    if not copied or discarded():
+        return
+    try:
+        result = client.rewrite_examples(
+            key_text,
+            [
+                {
+                    "example_id": example_id,
+                    "pattern_name": pattern_name,
+                    "usage_name": holder["usage_name"],
+                    "explanation_ko": holder["explanation_ko"],
+                    "rejected_example": holder["example_ja"],
+                }
+                for example_id, (holder, _, pattern_name, _, _) in enumerate(copied)
+            ],
+        )
+        rewritten = _validate_rewrites(result, len(copied))
+        if rewritten is None:
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 예문 다시 쓰기")
+    except BusinessError as e:
+        log_business_error(e)
+        return
+    for (holder, _, _, conditions, fixed), text in zip(copied, rewritten, strict=True):
+        verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed)
+        if verdict == _EXAMPLE_OK:
+            holder["checked_example"] = text
 
 
 # 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
@@ -718,7 +831,10 @@ def analyze(request):
     cached = existing if existing is not None and _is_fresh(existing) else None
     # 다시 분석하는 동안 영향 범위의 패턴·용법 상태가 바뀌면 이 값이 올라 저장하지 않는다.
     started_generation = existing.generation if existing is not None else 0
-    if cached:
+    # 분석에는 매칭(candidate_spans) 직전에 읽은 패턴 세트 버전을 기록한다. 그 뒤에 활성화된
+    # 패턴은 다음 조회가 다시 매칭해 찾는다. 캐시 분석의 버전이 이보다 낮으면 다시 매칭한다(#41).
+    matcher_version = patterns.pattern_set_version()
+    if cached and cached.matcher_version >= matcher_version:
         # 이미 다 있으니 한 번에 보낸다.
         events = [translation_event(cached.translation_ko), analysis_event(cached)]
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
@@ -726,7 +842,7 @@ def analyze(request):
     # 저장된 임시 분석을 그대로 내보내지 않고 analysis 이벤트와 같은 경로로 만들어, 반려된 구간은
     # 빠지고 검수 상태는 지금 지식 상태로 다시 계산된다.
     previous = None
-    if existing is not None and existing.draft_analysis is not None:
+    if not cached and existing is not None and existing.draft_analysis is not None:
         previous = {**analysis_event(existing), "type": "previous", "ruby": ruby}
 
     # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
@@ -744,9 +860,7 @@ def analyze(request):
 
     # 등록된 패턴에 걸린 구간과 후보 용법. LLM은 서버가 매긴 구간·후보 ID로만 답한다.
     # 승인된 용법 완결 패턴의 구간은 LLM 없이 확정하고, 나머지만 후보로 묻는다. 확정 구간은 LLM이
-    # 새 구문으로 다시 내지 않도록 알리기만 한다(#39). 분석에는 매칭 직전에 읽은 패턴 세트 버전을
-    # 기록한다. 그 뒤에 활성화된 패턴은 다음 조회가 다시 매칭해 찾는다(#41).
-    matcher_version = patterns.pattern_set_version()
+    # 새 구문으로 다시 내지 않도록 알리기만 한다(#39).
     matched = patterns.candidate_spans(morphs)
     # (구간, 후보 ID, 용법)
     closed_spans, spans = [], []
@@ -789,97 +903,6 @@ def analyze(request):
         return SentenceAnalysis.objects.filter(
             sentence_hash=sentence_hash, draft_analysis__isnull=False, is_stale=False
         ).exists()
-
-    def check_examples(validated):
-        """새 패턴·새 용법의 예문을 저장 전에 검사해, 쓸 수 있는 예문을 "checked_example"에
-        둔다(없으면 None). validated 안의 제안·새 용법을 제자리에서 고친다.
-
-        원문을 베껴 거부된 예문은 한 번에 묶어 한 번만 다시 쓰게 하고, 다시 쓴 예문도 같은
-        검사를 통과해야 쓴다. 같은 용법에 이미 통과한 예문이 있으면 다시 쓰지 않는다(그 예문을
-        쓴다). 다시 쓰기가 실패하면 예문 없이 둔다. 보조 호출 하나 때문에 분석 전체를 버리지
-        않는다. 이미 검사한 예문은 다시 보지 않는다(다시 묻기 뒤 재시도). LLM 호출이라 저장
-        트랜잭션 밖에서 부른다.
-        """
-
-        def fixed_spans(start_token, conditions):
-            """패턴에서 고정한 토큰의 (패턴 안 순서, 키 텍스트 start, end)들"""
-            return [
-                (i, *key_span(start_token + i, start_token + i))
-                for i, c in enumerate(conditions)
-                if c != patterns.ANY
-            ]
-
-        # (예문을 담은 제안·새 용법, 같은 용법인지 가르는 열쇠, 패턴 이름, 형태소 조건,
-        #  고정 토큰 구간)
-        targets = [
-            (
-                p,
-                (patterns.morpheme_key(p["conditions"]), p["usage_name"]),
-                p["pattern_name"],
-                p["conditions"],
-                fixed_spans(p["tokens"][0][0], p["conditions"]),
-            )
-            for p in validated["new_patterns"]
-            if "checked_example" not in p and p["existing"] is None and p["conditions"] is not None
-        ]
-        targets += [
-            (
-                n,
-                (span.pattern.id, n["usage_name"]),
-                span.pattern.name,
-                span.conditions,
-                fixed_spans(span.start_token, span.conditions),
-            )
-            for span, (_, _, n) in zip(validated["span_list"], validated["spans"], strict=True)
-            if n is not None and "checked_example" not in n
-        ]
-        # 기존 패턴에 이미 있는 이름의 새 용법은 더하지 않으므로(patterns.add_usage) 검사하지
-        # 않는다. 다시 쓰기를 보내도 버려진다.
-        taken = set(
-            GrammarUsage.objects.filter(
-                pattern__in=[span.pattern for span in validated["span_list"]]
-            ).values_list("pattern_id", "name")
-        )
-        copied, usable = [], set()
-        for holder, usage_key, pattern_name, conditions, fixed in targets:
-            if usage_key in taken:
-                holder["checked_example"] = None
-                continue
-            verdict = _example_verdict(
-                holder["example_ja"], conditions, key_text, content_tokens, fixed
-            )
-            holder["checked_example"] = holder["example_ja"] if verdict == _EXAMPLE_OK else None
-            if verdict == _EXAMPLE_OK:
-                usable.add(usage_key)
-            elif verdict == _EXAMPLE_COPIED:
-                copied.append((holder, usage_key, pattern_name, conditions, fixed))
-        copied = [item for item in copied if item[1] not in usable]
-        if not copied or saved_by_another():
-            return
-        try:
-            result = client.rewrite_examples(
-                key_text,
-                [
-                    {
-                        "example_id": example_id,
-                        "pattern_name": pattern_name,
-                        "usage_name": holder["usage_name"],
-                        "explanation_ko": holder["explanation_ko"],
-                        "rejected_example": holder["example_ja"],
-                    }
-                    for example_id, (holder, _, pattern_name, _, _) in enumerate(copied)
-                ],
-            )
-            rewritten = _validate_rewrites(result, len(copied))
-            if rewritten is None:
-                raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 예문 다시 쓰기")
-        except BusinessError as e:
-            log_business_error(e)
-            return
-        for (holder, _, _, conditions, fixed), text in zip(copied, rewritten, strict=True):
-            verdict = _example_verdict(text, conditions, key_text, content_tokens, fixed)
-            if verdict == _EXAMPLE_OK:
-                holder["checked_example"] = text
 
     def ask_again(validated):
         """첫 응답의 해석 갈림·미확정 구간과, 형태소 조건이 같은 패턴이 이미 있는 새 구문을 한
@@ -988,21 +1011,10 @@ def analyze(request):
             "rechecked": True,
         }
 
-    def span_matches(saved, validated, final):
-        """판정한 후보 구간과 새 구문을 구간 매칭으로 만든다. 새 구문은 이때 등록한다.
-
-        패턴 생성 규칙을 어긴 새 구문은 미발견으로 남겨 보이지 않는다. 그사이 다른 요청이 같은
-        조건의 패턴을 먼저 등록했으면 _PatternTaken을 던져 다시 묻게 한다(final이면 미발견).
-        """
-        # 다른 요청이 먼저 저장해 다시 묻기를 건너뛰었는데, 그 행이 저장 전에 stale이 되어 이
-        # 결과로 다시 채우게 된 경우다. 다시 묻지 않은 해석 갈림·미확정은 저장하지 않는다.
-        if not validated.get("rechecked") and any(
-            state in (SpanMatch.State.DIVERGENT, SpanMatch.State.UNRESOLVED)
-            for state, _, _ in validated["spans"]
-        ):
-            raise BusinessError(AnalysisError.FAILED, "다시 묻지 않은 해석 갈림·미확정 구간")
+    def closed_rows(saved, closed):
+        """용법 완결로 LLM 없이 확정한 구간(구간, 후보 ID, 용법)들의 구간 매칭."""
         rows = []
-        for span, candidate_id, usage in closed_spans:
+        for span, candidate_id, usage in closed:
             start, end = key_span(span.start_token, span.end_token)
             rows.append(
                 SpanMatch(
@@ -1016,7 +1028,16 @@ def analyze(request):
                     candidates=[{"candidate_id": candidate_id, "usage_id": usage.id}],
                 )
             )
-        judged = list(zip(validated["span_list"], validated["spans"], strict=True))
+        return rows
+
+    def judged_rows(saved, span_list, answers, alternatives):
+        """LLM이 판정한 후보 구간들의 구간 매칭. 미발견 구간의 새 용법은 이때 더한다.
+
+        (구간 매칭들, 매칭 자격을 새로 얻은 패턴이 있는가)를 돌려준다. 자격을 얻었으면 호출하는
+        쪽이 분석 행을 잠그기 전에 패턴 세트 버전을 올린다. alternatives는 해석 갈림 구간의
+        {순번: [(대안 용법, 대안 번역)]}이다.
+        """
+        judged = list(zip(span_list, answers, strict=True))
         # 기존 용법으로 설명되지 않는 구간은 같은 패턴 아래 새 용법을 더한다. 동시 요청이 같은
         # 이름의 용법을 서로 다른 순서로 더하면 유일성 대기가 엇갈려 교착이 나므로 (패턴, 이름)
         # 순서로 더한다. 이 응답에서 이미 더한 (패턴, 이름)이면 그 용법을 함께 쓴다.
@@ -1032,7 +1053,6 @@ def analyze(request):
             if usage_examples.get((span.pattern.id, name)) is None:
                 usage_examples[span.pattern.id, name] = new_usage["checked_example"]
         added, new_usages = {}, {}
-        # 용법 0개 패턴에 첫 용법을 붙이거나 새 패턴을 활성화하면 패턴 세트 버전을 올린다.
         activated = False
         for _, name, index in additions:
             span, (_, _, new_usage) = judged[index]
@@ -1045,17 +1065,18 @@ def analyze(request):
                 )
                 activated |= matchable
             new_usages[index] = added[span.pattern.id, name]
+        rows = []
         for index, (span, (state, usage, new_usage)) in enumerate(judged):
             start, end = key_span(span.start_token, span.end_token)
             if new_usage is not None:
                 usage = new_usages[index]
                 if usage is not None:
                     state = SpanMatch.State.DECIDED
-            alternatives = None
+            alts = None
             if state == SpanMatch.State.DIVERGENT:
-                alternatives = [
+                alts = [
                     {"usage_id": alt.id, "translation_ko": translation}
-                    for alt, translation in validated["alternatives"][index]
+                    for alt, translation in alternatives[index]
                 ]
             rows.append(
                 SpanMatch(
@@ -1070,9 +1091,29 @@ def analyze(request):
                         {"candidate_id": candidate_id, "usage_id": u.id}
                         for candidate_id, u in span.candidates
                     ],
-                    alternatives=alternatives,
+                    alternatives=alts,
                 )
             )
+        return rows, activated
+
+    def span_matches(saved, validated, final):
+        """판정한 후보 구간과 새 구문을 구간 매칭으로 만든다. 새 구문은 이때 등록한다. 넣을 구간
+        매칭을 돌려주고, 호출하는 쪽이 분석 행을 잠근 뒤 넣는다.
+
+        패턴 생성 규칙을 어긴 새 구문은 미발견으로 남겨 보이지 않는다. 그사이 다른 요청이 같은
+        조건의 패턴을 먼저 등록했으면 _PatternTaken을 던져 다시 묻게 한다(final이면 미발견).
+        """
+        # 다른 요청이 먼저 저장해 다시 묻기를 건너뛰었는데, 그 행이 저장 전에 stale이 되어 이
+        # 결과로 다시 채우게 된 경우다. 다시 묻지 않은 해석 갈림·미확정은 저장하지 않는다.
+        if not validated.get("rechecked") and any(
+            state in (SpanMatch.State.DIVERGENT, SpanMatch.State.UNRESOLVED)
+            for state, _, _ in validated["spans"]
+        ):
+            raise BusinessError(AnalysisError.FAILED, "다시 묻지 않은 해석 갈림·미확정 구간")
+        rows, activated = judged_rows(
+            saved, validated["span_list"], validated["spans"], validated.get("alternatives", {})
+        )
+        rows = closed_rows(saved, closed_spans) + rows
 
         # 동시 요청이 같은 패턴들을 서로 다른 순서로 등록하면 morpheme_key 유일성 대기가
         # 엇갈려 교착이 나므로, 등록은 morpheme_key 순서로 한다.
@@ -1137,7 +1178,7 @@ def analyze(request):
         if activated:
             # 버전 행은 등록을 모두 마친 뒤 마지막에 잠근다(잠근 채 다른 패턴을 기다리지 않게).
             patterns.raise_pattern_set_version()
-        SpanMatch.objects.bulk_create(rows)
+        return rows
 
     def reject_quotes(validated):
         """LLM이 쓴 글이 문장 전체를 인용했으면 ANALYSIS:FAILED다."""
@@ -1163,7 +1204,7 @@ def analyze(request):
         """
         # 다시 물어 받은 새 용법도 공용 테이블에 들어가므로 다시 본다.
         reject_quotes(validated)
-        check_examples(validated)
+        _check_examples(validated, client, key_text, content_tokens, key_span, saved_by_another)
         draft = {"words": _stored_words(validated["words"], morphs, offsets)}
 
         # 분석 행과 구간·새 패턴을 함께 저장하고 응답을 만든다. 다른 요청이 먼저 저장한 문장이면
@@ -1197,23 +1238,30 @@ def analyze(request):
             },
         )
         if created:
-            span_matches(saved, validated, final)
+            # 이 트랜잭션에서 만든 행이라 다른 요청은 아직 보지도 잠그지도 못한다.
+            SpanMatch.objects.bulk_create(span_matches(saved, validated, final))
             return saved, False
         if _is_fresh(saved):
             return saved, False
         # 임시 분석을 받기 전에 저장된 행이나 stale 행이면 이번 결과로 통째로 바꾼다. 상태
         # 전이(analysis.review)가 패턴 → 패턴 세트 버전 → 분석 순서로 잠그므로, 분석 행은 패턴
-        # 쪽을 다 쓴 뒤 마지막에 잠근다.
+        # 쪽을 다 쓴 뒤 잠근다. 구간은 분석 행을 잠근 뒤 지우고 넣는다. 구간을 쓰는 모든 경로가
+        # 이 순서라 같은 구간이 겹쳐 들어가지 않는다(#41).
         try:
             with transaction.atomic():
-                saved.span_matches.all().delete()
-                span_matches(saved, validated, final)
+                rows = span_matches(saved, validated, final)
                 locked = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=saved.pk)
                 if _is_fresh(locked):
                     raise _SavedByAnother
-        except _SavedByAnother, IntegrityError:
-            # 그사이 다른 요청이 먼저 채웠다. 이번에 쓴 구간·패턴은 되돌리고 그 값을 쓴다. 같은
-            # 구간을 먼저 넣은 요청이 있으면 구간 유일성 제약에 걸린다(#41).
+                saved.span_matches.all().delete()
+                SpanMatch.objects.bulk_create(rows)
+        except _SavedByAnother:
+            # 그사이 다른 요청이 먼저 채웠다. 이번에 쓴 구간·패턴은 되돌리고 그 값을 쓴다.
+            return SentenceAnalysis.objects.get(pk=saved.pk), False
+        except IntegrityError as e:
+            # 순서를 지키지 않은 쓰기가 같은 구간을 먼저 넣었다. 다른 요청이 저장한 것과 같다.
+            if not _is_place_conflict(e):
+                raise
             return SentenceAnalysis.objects.get(pk=saved.pk), False
         locked.translation_ko = validated["translation_ko"]
         locked.draft_analysis = draft
@@ -1241,12 +1289,12 @@ def analyze(request):
             grammar.append(_grammar_item(span.pattern, usage, start, end, offsets, origins, utf16))
         return grammar
 
-    def checking():
+    def checking(span_list):
         """판별 대상 구간의 원문 위치와 후보 용법의 이름·검수 상태(원문 순서). 후보 이름도 LLM이
         만든 지식이라 미검수면 미검수로 보인다(불변식). 반려된 용법은 후보에 없다.
         """
         items = []
-        for span in sorted(spans, key=lambda span: (span.start_token, span.end_token)):
+        for span in sorted(span_list, key=lambda span: (span.start_token, span.end_token)):
             key_start, key_end = key_span(span.start_token, span.end_token)
             start, end = to_original(origins, utf16, *to_analysis(offsets, key_start, key_end))
             candidates = [
@@ -1265,7 +1313,7 @@ def analyze(request):
         if closed_spans or spans:
             # LLM을 부르기 전에 확정 구간과 판별 대상 구간(화면의 확인 중)부터 보낸다. 이 뒤
             # 실패는 error 이벤트로 알린다(#39, #44).
-            yield {"type": "grammar", "grammar": closed_grammar(), "checking": checking()}
+            yield {"type": "grammar", "grammar": closed_grammar(), "checking": checking(spans)}
         translation_sent = False
         result = None
         for kind, value in client.analyze_stream(key_text, tokens, llm_spans, decided_spans):
@@ -1282,6 +1330,202 @@ def analyze(request):
         reject_quotes(validated)
         # 다시 묻기는 번역을 보낸 뒤, 저장 트랜잭션 밖에서 한다.
         yield save(ask_again(prepare(validated)))
+
+    def span_key(span):
+        """구간의 열쇠: (패턴 ID, 키 텍스트 start, end)."""
+        return (span.pattern.id, *key_span(span.start_token, span.end_token))
+
+    def rematch_grammar(analysis, new_closed):
+        """저장 구간(조회 규칙 적용)에, 아직 저장되지 않은 새 DB 확정 구간을 더한 문법(원문 순서).
+
+        확정 구간의 패턴·용법 상태는 DB에서 다시 읽어 반려됐으면 뺀다. 매칭할 때 읽은 상태라
+        그사이 반려됐을 수 있다.
+        """
+        grammar = _grammar_response(analysis, offsets, origins, utf16, restore)
+        stored_keys = _stored_keys(analysis)
+        usages = GrammarUsage.objects.select_related("pattern").in_bulk(
+            [usage.id for _, _, usage in new_closed]
+        )
+        for span, _, usage in new_closed:
+            current = usages.get(usage.id)
+            if span_key(span) in stored_keys or current is None:
+                continue
+            start, end = key_span(span.start_token, span.end_token)
+            item = _grammar_item(current.pattern, current, start, end, offsets, origins, utf16)
+            if item is not None:
+                grammar.append(item)
+        return sorted(grammar, key=lambda item: (item["start"], item["end"]))
+
+    def rematch_fallback(new_closed):
+        """다시 매칭한 결과를 저장하지 못했을 때의 analysis 이벤트.
+
+        분석 행을 잠가 행과 구간을 한 시점에서 다시 읽는다(구간을 쓰는 모든 경로가 분석 행을
+        잠근 뒤 커밋한다). 시작 때 읽은 행은 쓰지 않는다. 오래 기다린 뒤라 옛 번역과 새 구간이
+        섞일 수 있다. 그 행이 그대로(fresh이고 세대 번호가 같음)일 때만 새 DB 확정 구간을 더한다.
+        """
+        with transaction.atomic():
+            row = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=cached.pk)
+            event = analysis_event(row)
+            if _is_fresh(row) and row.generation == started_generation:
+                event["grammar"] = rematch_grammar(row, new_closed)
+            return event
+
+    def save_rematch(new_closed, span_list=(), answers=(), alternatives=None):
+        """다시 매칭해 새로 생긴 구간을 캐시 분석에 더하고 analysis 이벤트를 돌려준다.
+
+        새 용법 → (자격을 얻었으면) 패턴 세트 버전 → 분석 행 순서로 잠근다. 분석 행을 잠근 뒤
+        fresh인지, 세대 번호가 같은지, 아직 이 버전으로 다시 매칭하지 않았는지, 새 열쇠가 아직
+        저장되지 않았는지 다시 본다. 하나라도 어긋나면 모두 되돌리고 None이다.
+        """
+        with transaction.atomic():
+            rows, activated = judged_rows(cached, list(span_list), list(answers), alternatives)
+            rows = closed_rows(cached, new_closed) + rows
+            if activated:
+                patterns.raise_pattern_set_version()
+            locked = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=cached.pk)
+            new_keys = {(row.pattern_id, row.start_offset, row.end_offset) for row in rows}
+            if (
+                not _is_fresh(locked)
+                or locked.generation != started_generation
+                or locked.matcher_version >= matcher_version
+                or new_keys & _stored_keys(locked)
+            ):
+                transaction.set_rollback(True)
+                return None
+            try:
+                with transaction.atomic():
+                    SpanMatch.objects.bulk_create(rows)
+            except IntegrityError as e:
+                if not _is_place_conflict(e):
+                    raise
+                transaction.set_rollback(True)
+                return None
+            locked.matcher_version = matcher_version
+            locked.save(update_fields=["matcher_version", "updated_at"])
+            return analysis_event(locked)
+
+    def rematch():
+        """패턴 세트 버전이 오른 캐시 분석을 이 요청의 원문으로 다시 매칭한다(#41).
+
+        저장 구간은 지우거나 바꾸지 않고, 저장 열쇠에 없는 새 구간만 더한다. 승인된 용법 완결
+        패턴의 구간은 LLM 없이 정한다. 일괄 재처리는 하지 않아 다시 조회한 문장에만 비용이 든다.
+        """
+        stored_keys = _stored_keys(cached)
+        new_closed = [closed for closed in closed_spans if span_key(closed[0]) not in stored_keys]
+        new_spans = [span for span in spans if span_key(span) not in stored_keys]
+        if new_spans:
+            # 판정을 기다리는 동안 새 구간은 '확인 중'으로 보인다.
+            events = rematch_and_judge(new_closed, new_spans)
+            first = next(events)
+            return StreamingHttpResponse(map(_ndjson, chain([first], events)), content_type=_NDJSON)
+        # LLM이 필요 없으면 클라이언트를 만들지 않고 한 번에 보낸다.
+        event = save_rematch(new_closed) or rematch_fallback(new_closed)
+        events = [
+            {"type": "translation", "translation_ko": event["translation_ko"], "ruby": ruby},
+            event,
+        ]
+        return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
+
+    def rematch_decided(new_closed):
+        """재판정에 알릴, 해석이 정해진 구간(이 요청 형태소의 토큰 범위).
+
+        조회 규칙을 거친 저장 결정 구간, 해석 갈림의 주 용법, 새 DB 확정 구간이다. 숫자 표기가
+        달라 형태소 경계가 다른 원문이면 저장 위치를 토큰으로 되돌리지 못할 수 있고, 그 구간은
+        뺀다.
+        """
+        starts, ends = {}, {}
+        for token in range(len(morphs)):
+            start, end = key_span(token, token)
+            starts.setdefault(start, token)
+            ends[end] = token
+        decided = []
+        stored = (
+            cached.span_matches.filter(
+                state__in=(SpanMatch.State.DECIDED, SpanMatch.State.DIVERGENT)
+            )
+            .select_related("pattern", "usage__pattern")
+            .order_by("start_offset", "end_offset", "id")
+        )
+        for span in stored:
+            first, last = starts.get(span.start_offset), ends.get(span.end_offset)
+            if first is None or last is None or first > last:
+                continue
+            if _review_status(span.pattern, span.usage) is not None:
+                decided.append(
+                    {"start_token_id": first, "end_token_id": last, "name": span.usage.name}
+                )
+        decided += [
+            {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
+            for span, _, usage in new_closed
+        ]
+        return decided
+
+    def judge_rematched(new_closed, new_spans):
+        """새 판별 대상 구간을 재판정 한 번으로 정하고 저장한다. 저장하지 못했으면 None.
+
+        첫 분석의 판정 규칙(해석 갈림 대안 포함)으로 검증한다. 이 호출이 마지막이라 다시 묻지
+        않는다. 번역은 저장된 것으로 "번역과 같은 해석"을 고르게 하고 바꾸지 않는다. LLM 호출과
+        검증은 저장 트랜잭션 밖에서 한다.
+        """
+        client = llm.get_client()
+        result = client.rematch_judge(
+            key_text,
+            tokens,
+            cached.translation_ko,
+            rematch_decided(new_closed),
+            _llm_spans(new_spans),
+        )
+        if not isinstance(result, dict):
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 재판정")
+        checked = _validate_recheck_answers(
+            result.get("spans"), new_spans, [FIRST_VERDICTS] * len(new_spans), numbers
+        )
+        if checked is None:
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 재판정")
+        answers, alternatives = checked
+        # 대안 번역이 저장 번역과 같으면 갈린 해석이 아니다.
+        if any(
+            alt.strip() == cached.translation_ko.strip()
+            for alts in alternatives.values()
+            for _, alt in alts
+        ):
+            raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 대안 번역")
+        validated = {"new_patterns": [], "words": [], "span_list": new_spans, "spans": answers}
+        reject_quotes(validated)
+        new_keys = {span_key(span) for span in new_spans}
+
+        def discarded():
+            return bool(new_keys & _stored_keys(cached))
+
+        _check_examples(validated, client, key_text, content_tokens, key_span, discarded)
+        return save_rematch(new_closed, new_spans, answers, alternatives)
+
+    def rematch_and_judge(new_closed, new_spans):
+        """판별 대상 새 구간이 있는 재매칭의 이벤트. 저장 구간과 새 DB 확정 구간, 판별 대상(확인
+        중) → 저장 번역 → 재판정·저장 → analysis 순서다.
+
+        재판정이나 저장이 실패하면 아무것도 저장하지 않고 error 대신 대체 응답을 보낸다. 다음
+        조회가 다시 시도한다. 로그에는 원문 없이 목적·분석 ID·오류 코드만 남긴다.
+        """
+        yield {
+            "type": "grammar",
+            "grammar": rematch_grammar(cached, new_closed),
+            "checking": checking(new_spans),
+        }
+        yield translation_event(cached.translation_ko)
+        try:
+            event = judge_rematched(new_closed, new_spans)
+            if event is None:
+                raise BusinessError(AnalysisError.FAILED, "재판정 저장 전 분석이 바뀜")
+        except BusinessError as e:
+            logger.warning(
+                "rematch_judge 실패: analysis_id=%s error=%s", cached.pk, e.error_code.code
+            )
+            event = rematch_fallback(new_closed)
+        yield event
+
+    if cached:
+        return rematch()
 
     # 이 요청의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트로 해서 요청 전체 마감
     # 시각을 함께 쓴다.

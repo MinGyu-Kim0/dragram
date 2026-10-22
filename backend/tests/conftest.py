@@ -24,6 +24,26 @@ class FakeLLMClient:
         self.rewrite_requests = []
         self.rewrite_response = None
         self.rewrite_error = None
+        # 패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 구간을 판정하는 요청과 그 응답(#41).
+        # before_rematch는 응답하기 전에 실행할 일이다.
+        self.rematch_requests = []
+        self.rematch_response = {"spans": []}
+        self.rematch_error = None
+        self.before_rematch = None
+
+    def all_requests(self):
+        """모든 종류의 LLM 요청 기록(첫 분석, 다시 묻기, 예문 다시 쓰기, 재판정)."""
+        return self.requests + self.rejudge_requests + self.rewrite_requests + self.rematch_requests
+
+    def forget_requests(self):
+        """준비 단계의 요청 기록을 지운다."""
+        for requests in (
+            self.requests,
+            self.rejudge_requests,
+            self.rewrite_requests,
+            self.rematch_requests,
+        ):
+            requests.clear()
 
     def analyze_stream(self, sentence, tokens, spans, decided_spans):
         """실제 클라이언트처럼 번역이 문자열이면 먼저 넘기고, 이어서 응답 전체를 넘긴다."""
@@ -58,6 +78,23 @@ class FakeLLMClient:
         if self.error or self.rejudge_error:
             raise self.error or self.rejudge_error
         return self.rejudge_response
+
+    def rematch_judge(self, sentence, tokens, translation_ko, decided_spans, spans):
+        self.rematch_requests.append(
+            {
+                "sentence": sentence,
+                "tokens": tokens,
+                "translation_ko": translation_ko,
+                "decided_spans": decided_spans,
+                "spans": spans,
+            }
+        )
+        if self.before_rematch:
+            before_rematch, self.before_rematch = self.before_rematch, None
+            before_rematch()
+        if self.error or self.rematch_error:
+            raise self.error or self.rematch_error
+        return self.rematch_response
 
     def rewrite_examples(self, sentence, examples):
         self.rewrite_requests.append({"sentence": sentence, "examples": examples})

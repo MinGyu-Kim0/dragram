@@ -9,6 +9,7 @@ from django.contrib.sessions.models import Session
 from django.test import Client
 from django.utils import timezone
 
+from accounts import tokens
 from accounts import views as account_views
 from accounts.models import ExtensionToken
 from analysis import views
@@ -206,3 +207,54 @@ def test_expiry_counts_days_because_last_use_is_kept_once_a_day(fake_llm):
 
     ExtensionToken.objects.update(last_used_at=at_local(91, 23, 59))
     assert analyze(token).status_code == 401
+
+
+def dev_login(web, headers, email):
+    return web.post(
+        "/api/auth/dev-login/", {"email": email}, content_type="application/json", **headers
+    )
+
+
+@pytest.fixture
+def dev_login_on(settings):
+    settings.DEBUG = True
+    settings.DEV_LOGIN_ENABLED = True
+
+
+def fresh_csrf(web):
+    web.get("/api/auth/me/")
+    return {"HTTP_X_CSRFTOKEN": web.cookies["csrftoken"].value}
+
+
+def test_logging_in_as_someone_else_revokes_the_previous_users_tokens(fake_llm, dev_login_on):
+    web, headers = web_session("a@example.com")
+    previous = issue(web, headers)
+
+    dev_login(web, headers, "b@example.com")
+
+    assert analyze(previous).status_code == 401
+
+
+def test_logging_in_again_as_the_same_user_keeps_tokens_for_the_next_logout(fake_llm, dev_login_on):
+    web = Client(enforce_csrf_checks=True)
+    dev_login(web, fresh_csrf(web), "a@example.com")
+    token = issue(web, fresh_csrf(web))
+
+    dev_login(web, fresh_csrf(web), "a@example.com")
+
+    assert analyze(token).status_code == 200
+    # 세션 키가 바뀌어도 다음 웹 로그아웃이 그 토큰을 폐기한다.
+    web.post("/api/auth/logout/", **fresh_csrf(web))
+    assert analyze(token).status_code == 401
+
+
+def test_moved_tokens_are_revoked_by_the_new_session_logout():
+    # 다시 로그인해 세션 키가 바뀐 경우(테스트 클라이언트는 키를 바꾸지 않아 직접 옮긴다)
+    user = User.objects.create(username="a", email="a@example.com")
+    raw = tokens.issue(user, "old-session")
+
+    tokens.move_session(user, "old-session", "new-session")
+    tokens.revoke_session(user, "new-session")
+
+    assert ExtensionToken.objects.get().revoked_at is not None
+    assert raw

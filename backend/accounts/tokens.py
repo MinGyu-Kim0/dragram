@@ -45,6 +45,12 @@ def revoke_session(user, session_key):
     ).update(revoked_at=timezone.now())
 
 
+def move_session(user, old_key, new_key):
+    """같은 사용자가 다시 로그인해 세션 키가 바뀌었다. 그 세션이 발급한 토큰을 새 키로 옮긴다."""
+    if old_key != new_key:
+        ExtensionToken.objects.filter(user=user, session_key=old_key).update(session_key=new_key)
+
+
 class ExtensionTokenAuthentication(BaseAuthentication):
     """Authorization: Bearer <토큰>. 토큰이 없거나 쓸 수 없으면 AUTH:LOGIN_REQUIRED다.
 

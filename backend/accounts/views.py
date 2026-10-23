@@ -62,7 +62,21 @@ def _user_body(user):
 def _start_session(request, user):
     if not user.is_active:
         raise BusinessError(AuthError.ACCOUNT_DISABLED, "막힌 계정")
-    auth.login(request._request, user, backend="django.contrib.auth.backends.ModelBackend")
+    previous = request.user if request.user.is_authenticated else None
+    session = request._request.session
+    previous_key = session.session_key
+    with transaction.atomic():
+        if previous is not None:
+            _lock_user(previous)
+        # login은 세션 키를 바꾸고, 다른 사용자면 세션을 비운다.
+        auth.login(request._request, user, backend="django.contrib.auth.backends.ModelBackend")
+        if previous is not None:
+            if previous.pk == user.pk:
+                # 같은 사용자: 다음 웹 로그아웃이 이 세션에서 발급한 토큰을 찾도록 옮긴다.
+                tokens.move_session(user, previous_key, session.session_key)
+            else:
+                # 다른 사용자로 바뀌었다. 이전 사용자가 이 세션에서 발급한 토큰을 폐기한다.
+                tokens.revoke_session(previous, previous_key)
     return Response(_user_body(user))
 
 

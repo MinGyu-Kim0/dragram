@@ -4,6 +4,7 @@ import hashlib
 import secrets
 from datetime import timedelta
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
 
@@ -14,6 +15,12 @@ from errors.base import BusinessError
 # 마지막 사용 후 이 기간이 지나면 쓸 수 없다. 재발급·갱신은 없다. 마지막 사용 시각은 하루에
 # 한 번만 바꾸므로 날짜로 센다(그날 늦게 또 썼을 수 있다).
 EXPIRES_AFTER = timedelta(days=90)
+
+
+def lock_user(user_id):
+    """같은 사용자의 토큰 발급·첫 사용 정리와 웹 로그인·로그아웃을 직렬화한다(트랜잭션 안에서)."""
+    User = ExtensionToken._meta.get_field("user").related_model
+    User.objects.select_for_update().filter(pk=user_id).first()
 
 
 def _hash(token):
@@ -88,14 +95,19 @@ class ExtensionTokenAuthentication(BaseAuthentication):
         row = _usable_row(request)
         now = timezone.now()
         if row.last_used_at is None:
-            # 처음 쓰였다. 같은 세션의 다른(예전) 토큰을 지운다.
-            ExtensionToken.objects.filter(user=row.user, session_key=row.session_key).exclude(
-                pk=row.pk
-            ).delete()
+            # 처음 쓰였다. 같은 세션의 다른(예전) 토큰을 지운다. 재발급과 겹치면 방금 발급한
+            # 토큰을 지울 수 있어 발급과 같은 잠금 안에서 하고, 그사이 이 토큰이 지워졌으면
+            # (재발급이 쓰지 않은 토큰을 지웠다) 거부한다.
+            with transaction.atomic():
+                lock_user(row.user_id)
+                if not ExtensionToken.objects.filter(pk=row.pk, revoked_at__isnull=True).exists():
+                    raise BusinessError(AuthError.LOGIN_REQUIRED, "그사이 바뀐 토큰")
+                ExtensionToken.objects.filter(user=row.user, session_key=row.session_key).exclude(
+                    pk=row.pk
+                ).delete()
+                ExtensionToken.objects.filter(pk=row.pk).update(last_used_at=now)
         # 마지막 사용 시각은 하루에 한 번만 바꾼다.
-        if row.last_used_at is None or timezone.localdate(row.last_used_at) != timezone.localdate(
-            now
-        ):
+        elif timezone.localdate(row.last_used_at) != timezone.localdate(now):
             ExtensionToken.objects.filter(pk=row.pk).update(last_used_at=now)
         return (row.user, row)
 

@@ -310,3 +310,22 @@ def test_logging_in_over_a_disabled_users_session_still_revokes_their_tokens(
     User.objects.filter(email="a@example.com").update(is_active=True)
 
     assert analyze(previous).status_code == 401
+
+
+def test_first_use_racing_a_reissue_does_not_delete_the_new_token(monkeypatch, fake_llm):
+    # 확장이 토큰 B를 처음 쓰려고 읽은 직후, 다른 탭이 재발급해 B를 지우고 C를 만든 경우
+    web, headers = web_session()
+    b_token = issue(web, headers)
+    read = tokens._usable_row
+    reissued = {}
+
+    def reissue_after_read(request, **kwargs):
+        row = read(request, **kwargs)
+        reissued["c"] = tokens.issue(row.user, row.session_key)
+        return row
+
+    monkeypatch.setattr(tokens, "_usable_row", reissue_after_read)
+    assert analyze(b_token).status_code == 401
+
+    monkeypatch.setattr(tokens, "_usable_row", read)
+    assert analyze(reissued["c"]).status_code == 200

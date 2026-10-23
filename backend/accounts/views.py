@@ -52,8 +52,7 @@ def _field(request, name, error_code):
 
 def _lock_user(user_or_id):
     """같은 사용자의 확장 토큰 발급과 웹 로그아웃·로그인을 직렬화한다(트랜잭션 안에서 부른다)."""
-    pk = getattr(user_or_id, "pk", user_or_id)
-    User.objects.select_for_update().filter(pk=pk).first()
+    tokens.lock_user(getattr(user_or_id, "pk", user_or_id))
 
 
 def _user_body(user):

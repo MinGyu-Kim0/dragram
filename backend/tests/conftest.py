@@ -7,6 +7,10 @@ class FakeLLMClient:
     """실제 OpenAI 대신 정해 둔 응답을 돌려주고, 받은 요청을 기록한다."""
 
     def __init__(self):
+        # 실제 클라이언트처럼 호출마다 부르는 사용 기록 함수(get_client가 넘긴다)와 그때 쓸 토큰
+        # 수 (입력, 캐시된 입력, 출력)
+        self.record = None
+        self.usage = (100, 0, 10)
         self.response = {"translation_ko": "번역"}
         # 테스트가 정하지 않은 칸은 기본값으로 채운다. 칸이 빠진 응답을 시험할 때만 끈다.
         self.fill_defaults = True
@@ -31,6 +35,25 @@ class FakeLLMClient:
         self.rematch_error = None
         self.before_rematch = None
 
+    def connect(self, record):
+        """get_client 대신 쓴다. 이 요청의 사용 기록 함수를 받아 둔다."""
+        self.record = record
+        return self
+
+    def _recorded(self, purpose, error):
+        """보낸 호출 하나를 기록하고, 실패면 그 오류를 낸다."""
+        input_tokens, cached_input_tokens, output_tokens = self.usage
+        self.record(
+            purpose=purpose,
+            model="fake-model",
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            output_tokens=output_tokens,
+            success=error is None,
+        )
+        if error:
+            raise error
+
     def all_requests(self):
         """모든 종류의 LLM 요청 기록(첫 분석, 다시 묻기, 예문 다시 쓰기, 재판정)."""
         return self.requests + self.rejudge_requests + self.rewrite_requests + self.rematch_requests
@@ -53,8 +76,7 @@ class FakeLLMClient:
         if self.before_respond:
             before_respond, self.before_respond = self.before_respond, None
             before_respond()
-        if self.error:
-            raise self.error
+        self._recorded("first_response", self.error)
         response = self.response
         if self.fill_defaults and isinstance(response, dict):
             response = {"spans": [], "new_patterns": [], "words": [], **response}
@@ -75,8 +97,7 @@ class FakeLLMClient:
                 "spans": spans,
             }
         )
-        if self.error or self.rejudge_error:
-            raise self.error or self.rejudge_error
+        self._recorded("reask", self.error or self.rejudge_error)
         return self.rejudge_response
 
     def rematch_judge(self, sentence, tokens, translation_ko, decided_spans, spans):
@@ -92,14 +113,12 @@ class FakeLLMClient:
         if self.before_rematch:
             before_rematch, self.before_rematch = self.before_rematch, None
             before_rematch()
-        if self.error or self.rematch_error:
-            raise self.error or self.rematch_error
+        self._recorded("rematch_judge", self.error or self.rematch_error)
         return self.rematch_response
 
     def rewrite_examples(self, sentence, examples):
         self.rewrite_requests.append({"sentence": sentence, "examples": examples})
-        if self.error or self.rewrite_error:
-            raise self.error or self.rewrite_error
+        self._recorded("example_rewrite", self.error or self.rewrite_error)
         if self.rewrite_response is not None:
             return self.rewrite_response
         return {
@@ -113,5 +132,5 @@ class FakeLLMClient:
 @pytest.fixture
 def fake_llm(monkeypatch):
     client = FakeLLMClient()
-    monkeypatch.setattr(llm, "get_client", lambda: client)
+    monkeypatch.setattr(llm, "get_client", client.connect)
     return client

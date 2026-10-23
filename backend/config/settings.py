@@ -15,6 +15,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "accounts",
     "analysis",
 ]
 
@@ -73,6 +74,12 @@ USE_TZ = True
 STATIC_URL = "static/"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+AUTH_USER_MODEL = "accounts.User"
+
+# Google 로그인. 웹 버튼과 같은 OAuth 클라이언트 ID(공개 값)로 ID 토큰의 aud를 검증한다.
+# 클라이언트 비밀값은 쓰지 않는다. 비어 있으면 로그인을 거부한다.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 
 # LLM. 실제 호출할 때만 필요하므로 테스트·CI에서는 비어 있어도 된다.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")

@@ -60,6 +60,9 @@ def test_positions_count_from_the_span_edges():
         [{"position": -1, "lemma": "1"}],
         [{"position": -1, "lemma": "X12"}],
         [{"position": -1, "lemma": "１"}],
+        # PostgreSQL jsonb에 저장할 수 없는 글자
+        [{"position": -1, "lemma": "\ud800"}],
+        [{"position": -1, "pos3": "地\x00名"}],
     ],
 )
 def test_malformed_conditions_are_refused(condition):

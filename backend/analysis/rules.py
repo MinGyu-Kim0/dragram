@@ -29,12 +29,24 @@ def condition_problem(condition):
         unknown = set(c) - {"position", *_FIELDS}
         if unknown:
             return f"모르는 칸입니다: {', '.join(sorted(unknown))}"
-        if any(not isinstance(c[key], str) for key in _FIELDS if c.get(key) is not None):
+        values = [c[key] for key in _FIELDS if c.get(key) is not None]
+        if any(not isinstance(value, str) for value in values):
             return "칸 값은 글자여야 합니다"
+        if any(not _storable(value) for value in values):
+            return "칸 값에 저장할 수 없는 문자(짝 없는 서로게이트, NUL)가 있습니다"
         # 숫자만 다른 문장은 같은 키 텍스트(캐시)를 쓰므로 숫자에 기대는 조건은 둘 수 없다.
         if any(ch.isdigit() for ch in c.get("lemma") or ""):
             return "lemma에 숫자를 쓸 수 없습니다"
     return None
+
+
+def _storable(text):
+    """PostgreSQL jsonb에 저장할 수 있는 글자인가(UTF-8로 쓸 수 있고 NUL이 없다)."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return "\x00" not in text
 
 
 def condition_matches(condition, morphs, start_token, end_token):

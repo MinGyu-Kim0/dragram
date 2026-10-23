@@ -7,7 +7,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("analysis", "0009_colloquial_variant"),
+        ("analysis", "0010_show_parts"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 

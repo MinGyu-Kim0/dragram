@@ -1094,7 +1094,11 @@ def test_any_token_inside_grammar_span_counts_as_copying(
 def test_calls_of_one_request_share_one_client(client, fake_llm, monkeypatch):
     # 요청 전체 마감 시각을 클라이언트가 지니므로 분석·다시 쓰기가 한 클라이언트를 쓴다.
     created = []
-    monkeypatch.setattr(patterns_views.llm, "get_client", lambda: created.append(1) or fake_llm)
+    monkeypatch.setattr(
+        patterns_views.llm,
+        "get_client",
+        lambda record: created.append(1) or fake_llm.connect(record),
+    )
     fake_llm.response = {
         "translation_ko": "어제 도서관에서 책을 읽고 있다",
         "new_patterns": [

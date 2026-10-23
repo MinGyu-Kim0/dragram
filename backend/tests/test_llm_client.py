@@ -10,10 +10,20 @@ from errors import AnalysisError, BusinessError
 
 
 @pytest.fixture
-def llm_client(settings):
+def recorded():
+    """클라이언트가 남긴 LLM 호출 기록"""
+    return []
+
+
+def recorder(recorded):
+    return lambda **call: recorded.append(call)
+
+
+@pytest.fixture
+def llm_client(settings, recorded):
     # 실제 OpenAI는 부르지 않는다. SDK 호출(responses.create)만 바꿔 끼운다.
     settings.OPENAI_API_KEY = "test-key"
-    return OpenAILLMClient()
+    return OpenAILLMClient(recorder(recorded))
 
 
 def stream_with(llm_client, monkeypatch, create):
@@ -28,6 +38,21 @@ def deltas(*texts):
 def stream_of(events):
     """SDK 스트림처럼 close가 있는 이벤트 스트림"""
     yield from events
+
+
+def usage(input_tokens, cached_tokens, output_tokens):
+    """SDK 응답의 토큰 사용량"""
+    return SimpleNamespace(
+        input_tokens=input_tokens,
+        input_tokens_details=SimpleNamespace(cached_tokens=cached_tokens),
+        output_tokens=output_tokens,
+    )
+
+
+def response_with(status="completed", output_text='{"spans": []}'):
+    return SimpleNamespace(
+        status=status, output_text=output_text, model="gpt-test-2026", usage=usage(50, 0, 10)
+    )
 
 
 def test_stream_gives_translation_first_and_then_the_whole_result(llm_client, monkeypatch):
@@ -73,14 +98,22 @@ def test_openai_error_in_the_middle_of_the_stream_becomes_analysis_failure(llm_c
     assert raised.value.error_code == AnalysisError.FAILED
 
 
+def failed_event(event_type):
+    """실패·중단 이벤트. error 이벤트에는 응답이 없다."""
+    if event_type == "error":
+        return SimpleNamespace(type=event_type)
+    status = event_type.removeprefix("response.")
+    return SimpleNamespace(
+        type=event_type, response=SimpleNamespace(status=status, model="gpt-test", usage=None)
+    )
+
+
 @pytest.mark.parametrize("event_type", ["error", "response.failed", "response.incomplete"])
 def test_failed_stream_event_becomes_analysis_failure(llm_client, monkeypatch, event_type):
     stream_with(
         llm_client,
         monkeypatch,
-        lambda **_: stream_of(
-            [*deltas('{"translation_ko": "번역"'), SimpleNamespace(type=event_type)]
-        ),
+        lambda **_: stream_of([*deltas('{"translation_ko": "번역"'), failed_event(event_type)]),
     )
 
     with pytest.raises(BusinessError) as raised:
@@ -217,7 +250,7 @@ def test_judge_spans_sends_sentence_translation_and_spans_and_returns_the_answer
 ):
     answer = '{"spans": [{"span_id": 0, "verdict": "usage", "candidate_id": 1, "new_usage": null}]}'
     requests = judge_with(
-        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+        llm_client, monkeypatch, response_with(status="completed", output_text=answer)
     )
     tokens = [{"id": 0, "surface": "は"}]
 
@@ -242,7 +275,7 @@ def test_judge_spans_sends_sentence_translation_and_spans_and_returns_the_answer
 def test_judge_spans_asks_for_the_translation_only_when_rechecking(llm_client, monkeypatch):
     answer = '{"translation_ko": "는", "spans": []}'
     requests = judge_with(
-        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+        llm_client, monkeypatch, response_with(status="completed", output_text=answer)
     )
     decided = [{"start_token_id": 0, "end_token_id": 0, "name": "주제"}]
 
@@ -259,7 +292,7 @@ def test_rematch_judge_sends_the_stored_translation_and_new_spans_without_asking
 ):
     answer = '{"spans": [{"span_id": 0, "verdict": "usage", "candidate_id": 1, "new_usage": null}]}'
     requests = judge_with(
-        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+        llm_client, monkeypatch, response_with(status="completed", output_text=answer)
     )
     decided = [{"start_token_id": 1, "end_token_id": 1, "name": "주격"}]
 
@@ -284,8 +317,8 @@ def test_rematch_judge_sends_the_stored_translation_and_new_spans_without_asking
     "response",
     [
         openai.OpenAIError("timeout"),
-        SimpleNamespace(status="incomplete", output_text='{"spans": []}'),
-        SimpleNamespace(status="completed", output_text="not json"),
+        response_with(status="incomplete", output_text='{"spans": []}'),
+        response_with(status="completed", output_text="not json"),
     ],
 )
 def test_judge_spans_failure_becomes_analysis_failure(llm_client, monkeypatch, response):
@@ -301,10 +334,10 @@ def test_follow_up_call_waits_only_until_the_request_deadline(settings, monkeypa
     settings.OPENAI_API_KEY = "test-key"
     now = iter([0, llm.REQUEST_DEADLINE_SECONDS - 10])
     monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
-    llm_client = OpenAILLMClient()
+    llm_client = OpenAILLMClient(recorder([]))
     answer = '{"spans": []}'
     requests = judge_with(
-        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+        llm_client, monkeypatch, response_with(status="completed", output_text=answer)
     )
 
     llm_client.judge_spans("は", [], "는", [], [], SPANS)
@@ -317,9 +350,9 @@ def test_follow_up_call_after_the_request_deadline_is_not_sent(settings, monkeyp
     settings.OPENAI_API_KEY = "test-key"
     now = iter([0, llm.REQUEST_DEADLINE_SECONDS])
     monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
-    llm_client = OpenAILLMClient()
+    llm_client = OpenAILLMClient(recorder([]))
     requests = judge_with(
-        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text="{}")
+        llm_client, monkeypatch, response_with(status="completed", output_text="{}")
     )
 
     with pytest.raises(BusinessError) as raised:
@@ -344,7 +377,7 @@ def test_rewrite_examples_sends_sentence_and_rejected_examples_and_returns_the_a
 ):
     answer = '{"examples": [{"example_id": 0, "example_ja": "雨が降っている"}]}'
     requests = judge_with(
-        llm_client, monkeypatch, SimpleNamespace(status="completed", output_text=answer)
+        llm_client, monkeypatch, response_with(status="completed", output_text=answer)
     )
 
     result = llm_client.rewrite_examples("昨日図書館で本を読んでいる", EXAMPLES)
@@ -362,8 +395,8 @@ def test_rewrite_examples_sends_sentence_and_rejected_examples_and_returns_the_a
     "response",
     [
         openai.OpenAIError("timeout"),
-        SimpleNamespace(status="incomplete", output_text='{"examples": []}'),
-        SimpleNamespace(status="completed", output_text="not json"),
+        response_with(status="incomplete", output_text='{"examples": []}'),
+        response_with(status="completed", output_text="not json"),
     ],
 )
 def test_rewrite_examples_failure_becomes_analysis_failure(llm_client, monkeypatch, response):
@@ -372,3 +405,178 @@ def test_rewrite_examples_failure_becomes_analysis_failure(llm_client, monkeypat
     with pytest.raises(BusinessError) as raised:
         llm_client.rewrite_examples("文", EXAMPLES)
     assert raised.value.error_code == AnalysisError.FAILED
+
+
+def completed_event(model="gpt-test-2026", status="completed", type_="response.completed"):
+    return SimpleNamespace(
+        type=type_, response=SimpleNamespace(status=status, model=model, usage=usage(100, 40, 20))
+    )
+
+
+def test_stream_records_first_response_with_its_model_and_tokens(llm_client, monkeypatch, recorded):
+    stream_with(
+        llm_client,
+        monkeypatch,
+        lambda **_: stream_of([*deltas('{"translation_ko": "번역"}'), completed_event()]),
+    )
+
+    list(llm_client.analyze_stream("文", [], [], []))
+
+    assert recorded == [
+        {
+            "purpose": "first_response",
+            "model": "gpt-test-2026",
+            "input_tokens": 100,
+            "cached_input_tokens": 40,
+            "output_tokens": 20,
+            "success": True,
+        }
+    ]
+
+
+def test_failed_stream_records_failure_with_the_tokens_it_used(llm_client, monkeypatch, recorded):
+    # 끝까지 쓰지 못한 응답도 과금되므로 토큰을 남긴다.
+    event = completed_event(status="incomplete", type_="response.incomplete")
+    stream_with(
+        llm_client,
+        monkeypatch,
+        lambda **_: stream_of([*deltas('{"translation_ko": "번역"'), event]),
+    )
+
+    with pytest.raises(BusinessError):
+        list(llm_client.analyze_stream("文", [], [], []))
+
+    [call] = recorded
+    assert call["success"] is False
+    assert (call["input_tokens"], call["output_tokens"]) == (100, 20)
+
+
+def test_stream_that_could_not_be_sent_records_failure_without_tokens(
+    llm_client, monkeypatch, recorded, settings
+):
+    def fail(**_):
+        raise openai.OpenAIError("timeout")
+
+    stream_with(llm_client, monkeypatch, fail)
+
+    with pytest.raises(BusinessError):
+        list(llm_client.analyze_stream("文", [], [], []))
+
+    assert recorded == [
+        {
+            "purpose": "first_response",
+            "model": settings.OPENAI_MODEL,
+            "input_tokens": None,
+            "cached_input_tokens": None,
+            "output_tokens": None,
+            "success": False,
+        }
+    ]
+
+
+def test_stream_that_is_not_json_records_failure(llm_client, monkeypatch, recorded):
+    stream_with(
+        llm_client,
+        monkeypatch,
+        lambda **_: stream_of([*deltas("I cannot help"), completed_event()]),
+    )
+
+    with pytest.raises(BusinessError):
+        list(llm_client.analyze_stream("文", [], [], []))
+
+    [call] = recorded
+    assert call["success"] is False
+    assert call["input_tokens"] == 100
+
+
+def test_stream_closed_by_the_reader_still_records_the_call(llm_client, monkeypatch, recorded):
+    # 사이드 패널이 연결을 끊어 번역 뒤에 멈춰도 이미 보낸 호출은 남긴다.
+    stream_with(
+        llm_client,
+        monkeypatch,
+        lambda **_: stream_of(deltas('{"translation_ko": "번역"', ', "words": []}')),
+    )
+
+    stream = llm_client.analyze_stream("文", [], [], [])
+    next(stream)
+    stream.close()
+
+    [call] = recorded
+    assert call["purpose"] == "first_response"
+    assert call["success"] is False
+
+
+@pytest.mark.parametrize(
+    "call, purpose",
+    [
+        (lambda c: c.judge_spans("は", [], "는", [], [], SPANS), "reask"),
+        (lambda c: c.rematch_judge("は", [], "는", [], SPANS), "rematch_judge"),
+        (lambda c: c.rewrite_examples("文", EXAMPLES), "example_rewrite"),
+    ],
+)
+def test_follow_up_call_records_its_purpose_model_and_tokens(
+    llm_client, monkeypatch, recorded, call, purpose
+):
+    judge_with(llm_client, monkeypatch, response_with())
+
+    call(llm_client)
+
+    assert recorded == [
+        {
+            "purpose": purpose,
+            "model": "gpt-test-2026",
+            "input_tokens": 50,
+            "cached_input_tokens": 0,
+            "output_tokens": 10,
+            "success": True,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "response",
+    [response_with(status="incomplete"), response_with(output_text="not json")],
+)
+def test_failed_follow_up_call_records_failure_with_its_tokens(
+    llm_client, monkeypatch, recorded, response
+):
+    judge_with(llm_client, monkeypatch, response)
+
+    with pytest.raises(BusinessError):
+        llm_client.judge_spans("は", [], "는", [], [], SPANS)
+
+    [call] = recorded
+    assert call["success"] is False
+    assert call["input_tokens"] == 50
+
+
+def test_follow_up_call_that_raised_records_failure_without_tokens(
+    llm_client, monkeypatch, recorded
+):
+    def fail(**_):
+        raise openai.OpenAIError("timeout")
+
+    monkeypatch.setattr(llm_client._client.responses, "create", fail)
+
+    with pytest.raises(BusinessError):
+        llm_client.rewrite_examples("文", EXAMPLES)
+
+    [call] = recorded
+    assert (call["purpose"], call["success"], call["input_tokens"]) == (
+        "example_rewrite",
+        False,
+        None,
+    )
+
+
+def test_follow_up_call_not_sent_after_the_deadline_is_not_recorded(settings, monkeypatch):
+    settings.OPENAI_API_KEY = "test-key"
+    now = iter([0, llm.REQUEST_DEADLINE_SECONDS])
+    monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
+    recorded = []
+    llm_client = OpenAILLMClient(recorder(recorded))
+
+    with pytest.raises(BusinessError):
+        llm_client.rewrite_examples("文", EXAMPLES)
+
+    assert recorded == []

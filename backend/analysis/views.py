@@ -17,6 +17,7 @@ from analysis.models import (
     ReviewStatus,
     SentenceAnalysis,
     SpanMatch,
+    UsageLog,
     UsageRule,
 )
 from analysis.morphology import morphemes
@@ -32,6 +33,7 @@ from analysis.normalize import (
 from analysis.positions import key_offsets, to_analysis, to_key, to_original, utf16_offsets
 from analysis.ruby import ruby_pieces
 from analysis.rules import condition_matches
+from analysis.usage import RequestUsage
 from errors import AnalysisError, BusinessError
 from errors.handler import log_business_error
 
@@ -1053,6 +1055,7 @@ def analyze(request):
     # 패턴은 다음 조회가 다시 매칭해 찾는다. 캐시 분석의 버전이 이보다 낮으면 다시 매칭한다(#41).
     matcher_version = patterns.pattern_set_version()
     if cached and cached.matcher_version >= matcher_version:
+        RequestUsage(UsageLog.Path.CACHE, cached.pk, success=True)
         # 이미 다 있으니 한 번에 보낸다.
         events = [translation_event(cached.translation_ko), analysis_event(cached)]
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
@@ -1449,6 +1452,7 @@ def analyze(request):
         try:
             with transaction.atomic():
                 saved, outdated = save_once(validated, draft, final)
+                usage.link(saved)
                 event = analysis_event(saved)
                 if outdated:
                     # 분석하는 사이 영향 범위가 바뀌었다. 이번 결과는 보내되 저장하지 않고,
@@ -1568,7 +1572,9 @@ def analyze(request):
         # 거부될 응답이면 다시 묻지 않는다.
         reject_quotes(validated)
         # 다시 묻기는 번역을 보낸 뒤, 저장 트랜잭션 밖에서 한다.
-        yield save(ask_again(prepare(validated)))
+        event = save(ask_again(prepare(validated)))
+        usage.succeed()
+        yield event
 
     def span_key(span):
         """구간의 열쇠: (패턴 ID, 키 텍스트 start, end)."""
@@ -1661,11 +1667,14 @@ def analyze(request):
         new_spans = [span for span in spans if span_key(span) not in stored_keys]
         if new_spans:
             # 판정을 기다리는 동안 새 구간은 '확인 중'으로 보인다.
-            events = rematch_and_judge(new_closed, new_spans)
+            usage = RequestUsage(UsageLog.Path.LLM, cached.pk)
+            events = rematch_and_judge(new_closed, new_spans, usage)
             first = next(events)
             return StreamingHttpResponse(map(_ndjson, chain([first], events)), content_type=_NDJSON)
         # LLM이 필요 없으면 클라이언트를 만들지 않고 한 번에 보낸다.
-        event = save_rematch(new_closed) or rematch_fallback(new_closed)
+        event = save_rematch(new_closed)
+        RequestUsage(UsageLog.Path.DB, cached.pk, success=event is not None)
+        event = event or rematch_fallback(new_closed)
         events = [
             {"type": "translation", "translation_ko": event["translation_ko"], "ruby": ruby},
             event,
@@ -1706,14 +1715,14 @@ def analyze(request):
         ]
         return decided
 
-    def judge_rematched(new_closed, new_spans):
+    def judge_rematched(new_closed, new_spans, usage):
         """새 판별 대상 구간을 재판정 한 번으로 정하고 저장한다. 저장하지 못했으면 None.
 
         첫 분석의 판정 규칙(해석 갈림 대안 포함)으로 검증한다. 이 호출이 마지막이라 다시 묻지
         않는다. 번역은 저장된 것으로 "번역과 같은 해석"을 고르게 하고 바꾸지 않는다. LLM 호출과
         검증은 저장 트랜잭션 밖에서 한다.
         """
-        client = llm.get_client()
+        client = llm.get_client(usage.record_llm)
         result = client.rematch_judge(
             key_text,
             tokens,
@@ -1746,7 +1755,7 @@ def analyze(request):
         _check_examples(validated, client, key_text, content_tokens, key_span, discarded)
         return save_rematch(new_closed, new_spans, answers, alternatives)
 
-    def rematch_and_judge(new_closed, new_spans):
+    def rematch_and_judge(new_closed, new_spans, usage):
         """판별 대상 새 구간이 있는 재매칭의 이벤트. 저장 구간과 새 DB 확정 구간, 판별 대상(확인
         중) → 저장 번역 → 재판정·저장 → analysis 순서다.
 
@@ -1761,9 +1770,10 @@ def analyze(request):
         }
         yield translation_event(cached.translation_ko)
         try:
-            event = judge_rematched(new_closed, new_spans)
+            event = judge_rematched(new_closed, new_spans, usage)
             if event is None:
                 raise BusinessError(AnalysisError.FAILED, "재판정 저장 전 분석이 바뀜")
+            usage.succeed()
         except BusinessError as e:
             logger.warning(
                 "rematch_judge 실패: analysis_id=%s error=%s", cached.pk, e.error_code.code
@@ -1775,8 +1785,9 @@ def analyze(request):
         return rematch()
 
     # 이 요청의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트로 해서 요청 전체 마감
-    # 시각을 함께 쓴다.
-    client = llm.get_client()
+    # 시각을 함께 쓴다. stale 재분석은 이미 있는 분석 행에 바로 잇는다.
+    usage = RequestUsage(UsageLog.Path.LLM, existing.pk if existing is not None else None)
+    client = llm.get_client(usage.record_llm)
     events = analyze_and_save()
     # 첫 이벤트(옛 결과가 있으면 previous, 확정·판별 대상 구간이 있으면 grammar, 없으면 번역)까지는
     # 응답을 시작하기 전이라, 그 전에 실패하면 다른 API 오류처럼 오류 핸들러가 상태 코드로 알린다.

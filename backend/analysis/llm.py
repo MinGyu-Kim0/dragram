@@ -6,6 +6,7 @@ from contextlib import closing
 from django.conf import settings
 from openai import OpenAI, OpenAIError
 
+from analysis.models import UsageLog
 from errors import AnalysisError, BusinessError
 
 INSTRUCTIONS = """\
@@ -242,12 +243,20 @@ MAX_RETRIES = 0
 
 # 스트림이 실패했거나 끝까지 쓰지 못했음을 알리는 이벤트
 _FAILED_EVENTS = {"error", "response.failed", "response.incomplete"}
+# 응답(모델명·토큰 사용량)을 싣고 스트림을 끝내는 이벤트. error 이벤트에는 응답이 없다.
+_FINAL_EVENTS = {"response.completed", "response.failed", "response.incomplete"}
 
 
 class OpenAILLMClient:
-    """요청 하나가 쓰는 클라이언트. 그 요청의 호출들이 마감 시각 하나를 함께 쓴다."""
+    """요청 하나가 쓰는 클라이언트. 그 요청의 호출들이 마감 시각 하나를 함께 쓴다.
 
-    def __init__(self):
+    보낸 호출마다 record(purpose, model, input_tokens, cached_input_tokens, output_tokens,
+    success)를 한 번 부른다. 보내지 못했거나 응답이 없으면 토큰은 None이다. 마감이 지나 보내지
+    않은 호출은 부르지 않는다.
+    """
+
+    def __init__(self, record):
+        self._record = record
         self._deadline = time.monotonic() + REQUEST_DEADLINE_SECONDS
         self._client = OpenAI(
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
@@ -264,6 +273,8 @@ class OpenAILLMClient:
         """
         parser = TranslationFirstParser()
         deadline = time.monotonic() + STREAM_DEADLINE_SECONDS
+        # 사이드 패널이 연결을 끊어 중간에 닫혀도 보낸 호출은 기록한다.
+        final, success = None, False
         try:
             stream = self._client.responses.create(
                 model=settings.OPENAI_MODEL,
@@ -290,6 +301,8 @@ class OpenAILLMClient:
             # 사이드 패널이 연결을 끊어 중간에 멈춰도 OpenAI 연결을 닫는다.
             with closing(stream):
                 for event in stream:
+                    if event.type in _FINAL_EVENTS:
+                        final = event.response
                     if time.monotonic() > deadline:
                         raise BusinessError(AnalysisError.FAILED, "LLM 스트림 전체 시간 초과")
                     if event.type in _FAILED_EVENTS:
@@ -298,9 +311,13 @@ class OpenAILLMClient:
                         translation = parser.feed(event.delta)
                         if translation is not None:
                             yield "translation", translation
+            result = parser.result()
+            success = True
         except OpenAIError as e:
             raise BusinessError(AnalysisError.FAILED, "LLM 호출 실패") from e
-        yield "result", parser.result()
+        finally:
+            self._record_call(UsageLog.Purpose.FIRST_RESPONSE, final, success)
+        yield "result", result
 
     def judge_spans(self, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans):
         """후보 구간만 다시 묻는다. 스트림 없이 받은 검증 전 응답을 돌려준다.
@@ -310,7 +327,14 @@ class OpenAILLMClient:
         decided_spans는 해석이 정해진 구간이라 답을 받지 않는다.
         """
         return self._judge(
-            "다시 묻기", sentence, tokens, translation_ko, decided_spans, recheck_spans, spans
+            UsageLog.Purpose.REASK,
+            "다시 묻기",
+            sentence,
+            tokens,
+            translation_ko,
+            decided_spans,
+            recheck_spans,
+            spans,
         )
 
     def rematch_judge(self, sentence, tokens, translation_ko, decided_spans, spans):
@@ -319,10 +343,19 @@ class OpenAILLMClient:
         다시 묻기의 같은 형태소 조건 구간과 지침·스키마를 함께 쓰고 호출 목적만 다르다. 번역은
         저장된 것을 주고 받지 않는다. 검증 전 응답을 돌려준다.
         """
-        return self._judge("재판정", sentence, tokens, translation_ko, decided_spans, [], spans)
+        return self._judge(
+            UsageLog.Purpose.REMATCH_JUDGE,
+            "재판정",
+            sentence,
+            tokens,
+            translation_ko,
+            decided_spans,
+            [],
+            spans,
+        )
 
     def _judge(
-        self, purpose, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans
+        self, purpose, name, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans
     ):
         """다시 묻기와 재판정이 함께 쓰는 구간 판정. recheck_spans가 있을 때만 번역을 받는다."""
         payload = {
@@ -335,6 +368,7 @@ class OpenAILLMClient:
         }
         return self._ask(
             purpose,
+            name,
             JUDGE_INSTRUCTIONS + NUMBER_RULES,
             payload,
             "span_judgement",
@@ -345,18 +379,25 @@ class OpenAILLMClient:
         """원문을 베껴 거부된 예문들을 한 번에 다시 쓰게 한다. 검증 전 응답을 돌려준다."""
         payload = {"sentence": sentence, "examples": examples}
         return self._ask(
-            "예문 다시 쓰기", REWRITE_INSTRUCTIONS, payload, "example_rewrite", REWRITE_SCHEMA
+            UsageLog.Purpose.EXAMPLE_REWRITE,
+            "예문 다시 쓰기",
+            REWRITE_INSTRUCTIONS,
+            payload,
+            "example_rewrite",
+            REWRITE_SCHEMA,
         )
 
-    def _ask(self, purpose, instructions, payload, name, schema):
-        """구조화된 출력을 스트림 없이 받는다.
+    def _ask(self, purpose, label, instructions, payload, name, schema):
+        """구조화된 출력을 스트림 없이 받는다. purpose는 사용 기록의 호출 목적, label은 로그용
+        이름이다.
 
         요청 마감 시각까지 남은 시간만 기다리고, 이미 지났으면 보내지 않는다. SDK 오류, 끝까지
         쓰지 못한 응답, JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
         """
         remaining = self._deadline - time.monotonic()
         if remaining <= 0:
-            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 전에 요청 시간 초과")
+            raise BusinessError(AnalysisError.FAILED, f"LLM {label} 전에 요청 시간 초과")
+        response, success = None, False
         try:
             response = self._client.responses.create(
                 timeout=min(TIMEOUT_SECONDS, remaining),
@@ -372,14 +413,32 @@ class OpenAILLMClient:
                     }
                 },
             )
+            if response.status != "completed":
+                raise BusinessError(AnalysisError.FAILED, f"LLM {label} 실패: {response.status}")
+            try:
+                answer = json.loads(response.output_text)
+            except json.JSONDecodeError as e:
+                raise BusinessError(AnalysisError.FAILED, f"LLM {label} 응답이 JSON이 아님") from e
+            success = True
+            return answer
         except OpenAIError as e:
-            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 호출 실패") from e
-        if response.status != "completed":
-            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 실패: {response.status}")
-        try:
-            return json.loads(response.output_text)
-        except json.JSONDecodeError as e:
-            raise BusinessError(AnalysisError.FAILED, f"LLM {purpose} 응답이 JSON이 아님") from e
+            raise BusinessError(AnalysisError.FAILED, f"LLM {label} 호출 실패") from e
+        finally:
+            self._record_call(purpose, response, success)
+
+    def _record_call(self, purpose, response, success):
+        """보낸 호출 하나를 기록한다. response는 SDK 응답이고 받지 못했으면 None이다."""
+        usage = response.usage if response is not None else None
+        self._record(
+            purpose=purpose,
+            model=response.model if response is not None else settings.OPENAI_MODEL,
+            input_tokens=usage.input_tokens if usage is not None else None,
+            cached_input_tokens=usage.input_tokens_details.cached_tokens
+            if usage is not None
+            else None,
+            output_tokens=usage.output_tokens if usage is not None else None,
+            success=success,
+        )
 
 
 # 첫 응답의 해석 갈림·미확정 구간과, 같은 형태소 조건의 패턴이 이미 있는 구간을 한 번에 다시
@@ -468,5 +527,5 @@ REWRITE_SCHEMA = {
 }
 
 
-def get_client():
-    return OpenAILLMClient()
+def get_client(record):
+    return OpenAILLMClient(record)

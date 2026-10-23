@@ -1997,4 +1997,29 @@ describe("로그인과 확장 연결(#109)", () => {
     expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  test("이미 지나간 회차의 401이 늦게 와도 지금 회차를 다시 보내지 않는다", async () => {
+    let rejectOld!: (response: Response) => void;
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => {
+      const { text } = JSON.parse(init.body as string) as { text: string };
+      if (text === "古い文です。") {
+        return new Promise<Response>((resolve) => (rejectOld = resolve));
+      }
+      return Promise.resolve(json(200, analysis("새 문장")));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    await send(panelWindowId, "古い文です。");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // 다시 연결하고 새 문장을 고른다.
+    await saveToken("new-token");
+    await send(panelWindowId, "新しい文です。");
+    await screen.findByText("새 문장");
+
+    rejectOld(json(401, { error: "AUTH:LOGIN_REQUIRED" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("새 문장")).toBeInTheDocument();
+  });
 });

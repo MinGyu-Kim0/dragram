@@ -154,6 +154,8 @@ function App() {
             // 토큰이 없거나 거부됐다. api가 토큰을 지워 로그인 안내가 보이고, 연결되면 다시
             // 분석한다.
             if (error instanceof LoginRequired) {
+              // 이미 지나간 회차의 늦은 401은 지금 회차와 상관없다.
+              if (!current) return;
               waitingForLogin.current = true;
               // 401이 오기 전에 이미 다시 연결했으면 연결 알림이 지나갔으므로 바로 다시 분석한다.
               loadToken().then((token) => {

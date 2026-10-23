@@ -1,8 +1,10 @@
 import { clearTokenIfStill, loadToken, signOutIfStill } from "./auth";
 
 // 개발 빌드 기본값은 로컬 compose 백엔드다. 바꾸려면 빌드할 때 WXT_API_BASE_URL을 준다.
-export const API_BASE_URL =
-  import.meta.env.WXT_API_BASE_URL ?? "http://localhost:8000";
+// 끝 슬래시는 떼어 /api 경로를 붙일 때 //가 생기지 않게 한다(경로 접두어는 남긴다).
+export const API_BASE_URL = (
+  import.meta.env.WXT_API_BASE_URL ?? "http://localhost:8000"
+).replace(/\/+$/, "");
 
 // 확장 토큰이 없거나 서버가 AUTH:LOGIN_REQUIRED(401)로 거부했다. 저장한 토큰은 지운다.
 export class LoginRequired extends Error {

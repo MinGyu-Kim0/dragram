@@ -218,3 +218,17 @@ def test_cached_analysis_with_a_rule_decided_span_is_reused_without_the_llm(clie
 
     assert len(fake_llm.requests) == 1
     assert again.json()["grammar"] == first.json()["grammar"]
+
+
+def test_rematched_cached_sentence_gets_its_rule_decided_span_without_the_llm(client, fake_llm):
+    fake_llm.response = {"translation_ko": "도쿄에서 만난다"}
+    analyze(client, TOKYO_DE)
+    # 그 뒤 で를 등록하면 패턴 세트 버전이 올라 캐시 문장을 다시 매칭한다(#41).
+    rule(register_de(client, fake_llm, "장소"), "장소")
+
+    response = analyze(client, TOKYO_DE)
+
+    assert fake_llm.all_requests() == []
+    assert [item["name"] for item in response.json()["grammar"]] == ["장소"]
+    analysis = SentenceAnalysis.objects.get(translation_ko="도쿄에서 만난다")
+    assert analysis.span_matches.get().decided_by == "rule"

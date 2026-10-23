@@ -281,3 +281,56 @@ class PatternSetVersion(models.Model):
 
     def __str__(self):
         return str(self.version)
+
+
+class UsageLog(models.Model):
+    """분석 요청과 LLM 호출의 사용 기록(FR-A18). 원문은 저장하지 않는다(불변식).
+
+    분석 요청마다 request 행 하나, LLM 호출마다 llm 행 하나를 남긴다. LLM 호출 기록은 분석
+    저장이 되돌려져도 남도록 저장 트랜잭션 밖에서 바로 쓴다.
+    """
+
+    class Kind(models.TextChoices):
+        REQUEST = "request"
+        LLM = "llm"
+
+    class Path(models.TextChoices):
+        # 버전이 최신인 캐시 분석을 그대로 보냄
+        CACHE = "cache"
+        # 캐시 분석을 다시 매칭했고 LLM 없이 확정함
+        DB = "db"
+        # LLM을 부름(새 문장, stale 재분석, 재매칭 재판정)
+        LLM = "llm"
+
+    class Purpose(models.TextChoices):
+        FIRST_RESPONSE = "first_response"
+        REASK = "reask"
+        EXAMPLE_REWRITE = "example_rewrite"
+        REMATCH_JUDGE = "rematch_judge"
+        WORD_GLOSS = "word_gloss"
+        KANJI_GLOSS = "kanji_gloss"
+
+    # 로그인 전에는 NULL이다. 로그인 티켓에서 채운다.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+    # 새 문장은 저장에 성공했을 때 채운다. 저장이 되돌려지면 NULL로 남는다.
+    analysis = models.ForeignKey(
+        SentenceAnalysis, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+    kind = models.CharField(max_length=30, choices=Kind.choices)
+    path = models.CharField(max_length=30, choices=Path.choices, null=True)  # noqa: DJ001
+    purpose = models.CharField(max_length=30, choices=Purpose.choices, null=True)  # noqa: DJ001
+    model = models.CharField(max_length=255, null=True)  # noqa: DJ001
+    input_tokens = models.IntegerField(null=True)
+    cached_input_tokens = models.IntegerField(null=True)
+    output_tokens = models.IntegerField(null=True)
+    success = models.BooleanField()
+    attempt = models.SmallIntegerField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "usage_log"
+
+    def __str__(self):
+        return f"{self.kind} {self.path or self.purpose} #{self.pk}"

@@ -12,7 +12,7 @@ import {
   type CheckingItem,
   type GrammarItem,
 } from "@/utils/api";
-import { loadToken, watchConnected } from "@/utils/auth";
+import { loadToken, watchConnection } from "@/utils/auth";
 import { WEB_ORIGIN } from "@/utils/external-messages";
 import { createLimiter } from "@/utils/limiter";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
@@ -58,21 +58,22 @@ function App() {
 
   useEffect(
     () =>
-      watchConnected((now) => {
-        setConnected(now);
-        if (now) resumeAfterLogin();
+      watchConnection({
+        onConnected: (now) => {
+          setConnected(now);
+          if (now) resumeAfterLogin();
+        },
+        // 로그아웃(패널·웹)했다. 보던 원문과 결과를 지워, 다음에 연결한 사람에게 보이지
+        // 않게 한다. 진행 중인 회차의 늦은 응답도 버려진다.
+        onSignedOut: () => {
+          waitingForLogin.current = false;
+          setRequest(undefined);
+          setResults(undefined);
+          setPage(undefined);
+        },
       }),
     [resumeAfterLogin],
   );
-
-  // 확장 로그아웃. 보던 원문과 결과를 지워, 다음에 연결한 사람에게 보이지 않게 한다.
-  const logOut = () => {
-    waitingForLogin.current = false;
-    setRequest(undefined);
-    setResults(undefined);
-    setPage(undefined);
-    logoutExtension();
-  };
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.
@@ -210,7 +211,11 @@ function App() {
       <header className="panel-header">
         <h1>Dragram</h1>
         {connected && (
-          <button type="button" className="text-button" onClick={logOut}>
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => logoutExtension()}
+          >
             로그아웃
           </button>
         )}

@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import { requestAnalysis } from "@/utils/analysis-request";
 import { loadToken, saveToken } from "@/utils/auth";
-import { WEB_ORIGIN } from "@/utils/external-messages";
+import { handleExternalMessage, WEB_ORIGIN } from "@/utils/external-messages";
 import App from "./App";
 
 function respondWith(status: number, body: object) {
@@ -1978,5 +1978,23 @@ describe("로그인과 확장 연결(#109)", () => {
 
     expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
     expect(await loadToken()).toBe("new-token");
+  });
+
+  test("웹에서 로그아웃해도 보던 원문과 결과를 지운다", async () => {
+    const fetchMock = respondWith(200, analysis("나는 학생입니다."));
+    render(<App />);
+    await send(panelWindowId, "私は学生です。");
+    await screen.findByText("나는 학생입니다.");
+
+    await handleExternalMessage(
+      { type: "disconnect" },
+      `${WEB_ORIGIN}/connect`,
+    );
+    await screen.findByRole("heading", { name: "로그인이 필요해요" });
+    await saveToken("someone-else-token");
+
+    await screen.findByRole("button", { name: "로그아웃" });
+    expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

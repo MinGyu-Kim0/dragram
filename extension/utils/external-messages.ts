@@ -1,4 +1,4 @@
-import { clearToken, saveToken } from "./auth";
+import { saveToken, signOut } from "./auth";
 
 // 웹 '로그인·확장 연결' 화면의 출처. manifest externally_connectable에도 이 출처만 둔다.
 // 바꾸려면 빌드할 때 WXT_WEB_ORIGIN을 준다.
@@ -35,7 +35,7 @@ export function handleExternalMessage(
     return saveToken(token).then(() => ({ ok: true }));
   }
   if (type === "disconnect") {
-    return clearToken().then(() => ({ ok: true }));
+    return signOut().then(() => ({ ok: true }));
   }
   return Promise.resolve({ ok: false });
 }

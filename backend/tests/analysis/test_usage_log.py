@@ -3,6 +3,7 @@
 import pytest
 from django.db.models import F
 
+from analysis import views
 from analysis.models import SentenceAnalysis, UsageLog
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, span_answer
@@ -165,6 +166,19 @@ def test_llm_call_stays_recorded_when_the_save_is_rolled_back(client, fake_llm):
     assert (analysis.is_stale, analysis.translation_ko) == (True, "그가 와 있다")
     assert rows() == [("request", "llm", None, True), ("llm", None, "first_response", True)]
     assert set(UsageLog.objects.values_list("analysis", flat=True)) == {analysis.pk}
+
+
+def test_new_sentence_whose_save_is_rolled_back_keeps_its_calls_unlinked(
+    client, fake_llm, monkeypatch
+):
+    # 분석하는 사이 판별 규칙이 바뀌어 새 분석 행까지 되돌린다.
+    monkeypatch.setattr(views, "_basis_changed", lambda *_: True)
+
+    analyze(client, KITEIRU)
+
+    assert not SentenceAnalysis.objects.exists()
+    assert rows() == [("request", "llm", None, True), ("llm", None, "first_response", True)]
+    assert set(UsageLog.objects.values_list("analysis", flat=True)) == {None}
 
 
 def test_records_hold_no_original_text(client, fake_llm):

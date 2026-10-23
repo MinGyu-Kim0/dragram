@@ -355,7 +355,7 @@ class OpenAILLMClient:
         )
 
     def _judge(
-        self, purpose, name, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans
+        self, purpose, label, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans
     ):
         """다시 묻기와 재판정이 함께 쓰는 구간 판정. recheck_spans가 있을 때만 번역을 받는다."""
         payload = {
@@ -368,7 +368,7 @@ class OpenAILLMClient:
         }
         return self._ask(
             purpose,
-            name,
+            label,
             JUDGE_INSTRUCTIONS + NUMBER_RULES,
             payload,
             "span_judgement",
@@ -428,15 +428,22 @@ class OpenAILLMClient:
 
     def _record_call(self, purpose, response, success):
         """보낸 호출 하나를 기록한다. response는 SDK 응답이고 받지 못했으면 None이다."""
-        usage = response.usage if response is not None else None
+        model, tokens = settings.OPENAI_MODEL, (None, None, None)
+        if response is not None:
+            model = response.model
+            if (usage := response.usage) is not None:
+                tokens = (
+                    usage.input_tokens,
+                    usage.input_tokens_details.cached_tokens,
+                    usage.output_tokens,
+                )
+        input_tokens, cached_input_tokens, output_tokens = tokens
         self._record(
             purpose=purpose,
-            model=response.model if response is not None else settings.OPENAI_MODEL,
-            input_tokens=usage.input_tokens if usage is not None else None,
-            cached_input_tokens=usage.input_tokens_details.cached_tokens
-            if usage is not None
-            else None,
-            output_tokens=usage.output_tokens if usage is not None else None,
+            model=model,
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            output_tokens=output_tokens,
             success=success,
         )
 

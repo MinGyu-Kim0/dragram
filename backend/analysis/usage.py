@@ -6,16 +6,23 @@ from analysis.models import UsageLog
 class RequestUsage:
     """분석 요청 하나의 request 행과, 그 요청이 부른 LLM 호출의 llm 행들.
 
-    request 행은 처리 경로를 정했을 때 바로 남긴다. llm 행은 호출마다 바로 남겨, 뒤에 분석
+    request 행은 처리 경로를 정했을 때 start로 남긴다. llm 행은 호출마다 바로 남겨, 뒤에 분석
     저장이 되돌려져도 남는다. 분석 행이 아직 없으면(새 문장) 저장할 때 link로 잇는다.
     """
 
-    def __init__(self, path, analysis_id=None, success=False):
-        self._analysis_id = analysis_id
-        self._request = UsageLog.objects.create(
-            kind=UsageLog.Kind.REQUEST, path=path, analysis_id=analysis_id, success=success
+    def __init__(self, request):
+        self._request = request
+        self._analysis_id = request.analysis_id
+        self._ids = [request.pk]
+
+    @classmethod
+    def start(cls, path, analysis_id=None, success=False):
+        """처리 경로를 정한 요청의 request 행을 남긴다."""
+        return cls(
+            UsageLog.objects.create(
+                kind=UsageLog.Kind.REQUEST, path=path, analysis_id=analysis_id, success=success
+            )
         )
-        self._ids = [self._request.pk]
 
     def record_llm(
         self, *, purpose, model, input_tokens, cached_input_tokens, output_tokens, success

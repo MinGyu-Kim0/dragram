@@ -36,6 +36,9 @@ class Morpheme(NamedTuple):
     # 품사 중분류와 활용형. 없으면(*) None
     pos2: str | None
     conjugation_form: str | None
+    # 품사 소분류(固有名詞 아래 地名 등). 없으면(*) None. 판별 규칙 조건에만 쓰고 패턴 조건에는
+    # 넣지 않는다(#55).
+    pos3: str | None = None
 
 
 _FUNCTION_POS = {"助詞", "助動詞"}
@@ -70,8 +73,12 @@ def _after_sound_change(prev, morph):
 def _morpheme(m):
     pos = m.part_of_speech()
     lemma = m.dictionary_form() if pos[0] in _FUNCTION_POS else m.normalized_form()
-    pos2, conjugation_form = (None if value == "*" else value for value in (pos[1], pos[5]))
-    return Morpheme(m.begin(), m.end(), pos[0], m.reading_form(), lemma, pos2, conjugation_form)
+    pos2, pos3, conjugation_form = (
+        None if value == "*" else value for value in (pos[1], pos[2], pos[5])
+    )
+    return Morpheme(
+        m.begin(), m.end(), pos[0], m.reading_form(), lemma, pos2, conjugation_form, pos3
+    )
 
 
 def morphemes(text):

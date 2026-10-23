@@ -788,13 +788,17 @@ def _reading_changed(first, again):
 def _basis_changed(rows):
     """판정 근거로 읽은 상태가 저장 직전에 바뀌어 이 구간들을 저장하면 안 되는가(#63).
 
-    둘을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
-    구간의 용법 완결이 풀렸다(이번 저장이 같은 원형에 새 용법을 더해 풀었을 수 있다). 그대로
+    셋을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
+    구간의 용법 완결이 풀렸거나(이번 저장이 같은 원형에 새 용법을 더해 풀었을 수 있다), 판별
+    규칙이 폐기됐다. 그대로
     저장하면 그 stale 처리가 이 트랜잭션의 구간을 보지 못해 다시 분석될 계기가 없다.
     """
     closed = {row.pattern_id for row in rows if row.decided_by == SpanMatch.DecidedBy.SINGLE_USAGE}
     opened = GrammarPattern.objects.filter(pk__in=closed, usage_closed=False).exists()
-    return opened or _links_changed(rows)
+    # 판별 규칙으로 확정한 구간의 규칙이 그사이 폐기됐다(#55).
+    ruled = {row.rule_id for row in rows if row.rule_id is not None}
+    retired = UsageRule.objects.filter(pk__in=ruled, status=UsageRule.Status.RETIRED).exists()
+    return opened or retired or _links_changed(rows)
 
 
 def _links_changed(rows):

@@ -3,7 +3,7 @@
 import pytest
 from django.db import transaction
 
-from analysis import patterns
+from analysis import patterns, review
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -12,7 +12,7 @@ from analysis.models import (
     SpanMatch,
     UsageRule,
 )
-from tests.analysis.helpers import analyze, new_pattern
+from tests.analysis.helpers import analyze, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -232,3 +232,119 @@ def test_rematched_cached_sentence_gets_its_rule_decided_span_without_the_llm(cl
     assert [item["name"] for item in response.json()["grammar"]] == ["장소"]
     analysis = SentenceAnalysis.objects.get(translation_ko="도쿄에서 만난다")
     assert analysis.span_matches.get().decided_by == "rule"
+
+
+# 규칙 test_cases. '적용됨'은 패턴이 걸리고 조건도 맞고, '적용 안 됨'은 패턴은 걸리지만
+# 조건이 맞지 않는다.
+PASSING = [
+    {"text": "大阪で働く", "should_apply": True},
+    {"text": "電車で通う", "should_apply": False},
+]
+
+
+def pending_rule(client, fake_llm, cases=PASSING):
+    pattern = register_de(client, fake_llm, "장소")
+    return rule(pattern, "장소", status=UsageRule.Status.PENDING), pattern
+
+
+def test_approving_a_rule_makes_the_analyses_of_its_pattern_stale(client, fake_llm):
+    usage_rule, _ = pending_rule(client, fake_llm)
+    usage_rule.test_cases = PASSING
+    usage_rule.save()
+    analyses = SentenceAnalysis.objects.all()
+    generations = {a.id: a.generation for a in analyses}
+    version = patterns.pattern_set_version()
+
+    review.approve_rule(usage_rule)
+
+    usage_rule.refresh_from_db()
+    assert usage_rule.status == UsageRule.Status.APPROVED
+    assert usage_rule.approved_at is not None
+    for analysis in SentenceAnalysis.objects.all():
+        assert analysis.is_stale
+        assert analysis.generation == generations[analysis.id] + 1
+    assert patterns.pattern_set_version() == version
+
+
+@pytest.mark.parametrize(
+    "cases",
+    [
+        [],
+        PASSING[:1],
+        PASSING[1:],
+        # 패턴이 걸리지 않는 예문은 어느 쪽이든 실패다.
+        [*PASSING, {"text": "東京に行く", "should_apply": False}],
+        # 기대와 다른 예문
+        [*PASSING, {"text": "タクシーで行く", "should_apply": True}],
+        [*PASSING, {"text": "京都で遊ぶ", "should_apply": False}],
+    ],
+)
+def test_rule_without_passing_test_cases_is_not_approved(client, fake_llm, cases):
+    usage_rule, _ = pending_rule(client, fake_llm)
+    usage_rule.test_cases = cases
+    usage_rule.save()
+
+    with pytest.raises(review.Refused):
+        review.approve_rule(usage_rule)
+
+    usage_rule.refresh_from_db()
+    assert usage_rule.status == UsageRule.Status.PENDING
+
+
+@pytest.mark.parametrize("unapproved", [GrammarPattern, GrammarUsage])
+def test_rule_of_an_unapproved_pattern_or_usage_is_not_approved(client, fake_llm, unapproved):
+    usage_rule, _ = pending_rule(client, fake_llm)
+    usage_rule.test_cases = PASSING
+    usage_rule.save()
+    unapproved.objects.update(status=ReviewStatus.PENDING)
+
+    with pytest.raises(review.Refused):
+        review.approve_rule(usage_rule)
+
+    usage_rule.refresh_from_db()
+    assert usage_rule.status == UsageRule.Status.PENDING
+
+
+def test_retiring_a_rule_makes_only_the_analyses_it_decided_stale(client, fake_llm):
+    pattern = register_de(client, fake_llm, "장소")
+    place = rule(pattern, "장소")
+    fake_llm.response = {"translation_ko": "버스로 간다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, "バスで行く")
+    fake_llm.response = {"translation_ko": "도쿄에서 만난다"}
+    analyze(client, TOKYO_DE)
+    decided = SentenceAnalysis.objects.get(translation_ko="도쿄에서 만난다")
+    other = SentenceAnalysis.objects.get(translation_ko="버스로 간다")
+    version = patterns.pattern_set_version()
+
+    review.retire_rule(place)
+
+    place.refresh_from_db()
+    assert place.status == UsageRule.Status.RETIRED
+    decided.refresh_from_db()
+    other.refresh_from_db()
+    assert (decided.is_stale, other.is_stale) == (True, False)
+    assert patterns.pattern_set_version() == version
+
+
+def test_pending_rule_can_be_retired_but_a_retired_rule_cannot_come_back(client, fake_llm):
+    usage_rule, _ = pending_rule(client, fake_llm)
+    usage_rule.test_cases = PASSING
+    usage_rule.save()
+
+    review.retire_rule(usage_rule)
+
+    assert not SentenceAnalysis.objects.filter(is_stale=True).exists()
+    for transition in (review.approve_rule, review.retire_rule):
+        with pytest.raises(review.Refused):
+            transition(usage_rule)
+
+
+def test_rule_retired_while_analyzing_is_not_saved_as_the_basis(client, fake_llm):
+    place = rule(register_de(client, fake_llm, "장소"), "장소")
+    fake_llm.response = {"translation_ko": "도쿄에서 만난다"}
+    fake_llm.before_respond = lambda: review.retire_rule(place)
+
+    response = analyze(client, TOKYO_DE)
+
+    assert [item["name"] for item in response.json()["grammar"]] == ["장소"]
+    assert not SpanMatch.objects.filter(rule=place).exists()

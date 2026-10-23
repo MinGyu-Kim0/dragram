@@ -306,10 +306,10 @@ def clear_usage_closed(pattern):
         make_stale(pattern=pattern)
 
 
-def make_stale(pattern=None, usages=(), candidates=False):
-    """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 또는 그 용법들로 정해진
-    구간이나 그 용법을 대안으로 쓴 해석 갈림 구간이 있는 분석을 stale로 만들고 세대 번호를
-    올린다(#38, #40, #63). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은 따로 넓히지 않는다. 동시에
+def make_stale(pattern=None, usages=(), candidates=False, rule=None):
+    """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 그 용법들로 정해진 구간이나
+    그 용법을 대안으로 쓴 해석 갈림 구간, 또는 그 판별 규칙으로 정해진 구간이 있는 분석을 stale로
+    만들고 세대 번호를 올린다(#38, #40, #63, #55). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은 따로 넓히지 않는다. 동시에
     여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다. 잠근 분석 ID들을 돌려준다.
 
     패턴과 용법을 함께 주면 어느 쪽에든 걸리는 분석을 한 번에 잠근다. candidates면 그 용법을
@@ -328,6 +328,8 @@ def make_stale(pattern=None, usages=(), candidates=False):
         ]
         if candidates:
             span_filters.append(Q(span_matches__candidates__contains=[{"usage_id": usage.id}]))
+    if rule is not None:
+        span_filters.append(Q(span_matches__rule=rule))
     span_filter = reduce(operator.or_, span_filters)
     ids = list(
         SentenceAnalysis.objects.filter(

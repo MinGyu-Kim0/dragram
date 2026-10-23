@@ -49,6 +49,8 @@ services:
       API_PROXY_TARGET: http://backend:8000
       # 공개 값인 클라이언트 ID만 넘긴다. .env의 다른 값(LLM 키 등)은 웹 컨테이너에 넣지 않는다.
       VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+      # 연결 메시지를 보낼 확장 ID. 기본값은 extension/wxt.config.ts의 공개 키로 고정한 개발용 ID다.
+      VITE_EXTENSION_ID: ${VITE_EXTENSION_ID:-ilhnmbeleinmgfcigakmfobgngiillah}
     volumes:
       - ./web:/app
       # 이미지에 설치한 node_modules를 쓴다. 의존성을 바꾸면 build 후 `up -V`로 다시 만든다.

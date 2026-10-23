@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { currentUser, loginWithGoogle, logout, type User } from "./auth";
+import {
+  currentUser,
+  issueExtensionToken,
+  loginWithGoogle,
+  logout,
+  type User,
+} from "./auth";
+import { sendToExtension } from "./extension";
 import { renderGoogleButton } from "./google";
 import "./connect.css";
 
@@ -8,7 +15,7 @@ import "./connect.css";
 type State =
   | { kind: "loading" }
   | { kind: "signedOut"; failed: boolean }
-  | { kind: "signedIn"; user: User; logoutFailed: boolean };
+  | { kind: "signedIn"; user: User };
 
 function GoogleButton({
   onCredential,
@@ -34,7 +41,7 @@ function ConnectPage() {
     (user: User | null) =>
       setState(
         user
-          ? { kind: "signedIn", user, logoutFailed: false }
+          ? { kind: "signedIn", user }
           : { kind: "signedOut", failed: false },
       ),
     [],
@@ -81,33 +88,98 @@ function ConnectPage() {
           </>
         )}
         {state.kind === "signedIn" && (
-          <>
-            <h1>로그인했어요</h1>
-            <p className="secondary">
-              <strong>{state.user.email}</strong> 계정으로 로그인했어요.
-            </p>
-            {state.logoutFailed && (
-              <p role="alert" className="danger">
-                로그아웃하지 못했어요. 다시 시도해 주세요.
-              </p>
-            )}
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={() => {
-                const { user } = state;
-                // 실패하면 세션이 남아 있으므로 로그인한 상태를 그대로 보인다.
-                logout().then(show, () =>
-                  setState({ kind: "signedIn", user, logoutFailed: true }),
-                );
-              }}
-            >
-              로그아웃
-            </button>
-          </>
+          <SignedIn user={state.user} onLoggedOut={() => show(null)} />
         )}
       </section>
     </main>
+  );
+}
+
+type Problem = "logoutFailed" | "extensionMissing" | "connectFailed";
+
+const PROBLEMS: Record<Problem, string> = {
+  logoutFailed: "로그아웃하지 못했어요. 다시 시도해 주세요.",
+  extensionMissing:
+    "확장 프로그램을 찾지 못했어요. 설치하고 켜 둔 뒤 다시 눌러 주세요.",
+  connectFailed: "연결하지 못했어요. 다시 시도해 주세요.",
+};
+
+// 로그인 카드(로그인 뒤) → 확장 연결 → 연결 성공 카드
+function SignedIn({
+  user,
+  onLoggedOut,
+}: {
+  user: User;
+  onLoggedOut: () => void;
+}) {
+  const [connected, setConnected] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<Problem>();
+
+  const connect = async () => {
+    setBusy(true);
+    setProblem(undefined);
+    try {
+      const token = await issueExtensionToken();
+      if (await sendToExtension({ type: "connect", token })) setConnected(true);
+      else setProblem("extensionMissing");
+    } catch {
+      setProblem("connectFailed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const signOut = async () => {
+    setProblem(undefined);
+    try {
+      await logout();
+    } catch {
+      // 실패하면 세션이 남아 있으므로 로그인한 상태를 그대로 보인다.
+      setProblem("logoutFailed");
+      return;
+    }
+    // 서버가 이 세션의 토큰을 폐기했다. 확장이 바로 로그인 안내로 바뀌게 알린다(없어도 된다).
+    await sendToExtension({ type: "disconnect" });
+    onLoggedOut();
+  };
+
+  return (
+    <>
+      {connected ? (
+        <>
+          <h1>연결했어요</h1>
+          <p className="secondary">
+            이제 확장 프로그램에서 문장을 분석할 수 있어요. 이 탭은 닫아도 돼요.
+          </p>
+        </>
+      ) : (
+        <>
+          <h1>로그인했어요</h1>
+          <p className="secondary">
+            <strong>{user.email}</strong> 계정으로 로그인했어요.
+          </p>
+        </>
+      )}
+      {problem && (
+        <p role="alert" className="danger">
+          {PROBLEMS[problem]}
+        </p>
+      )}
+      {!connected && (
+        <button
+          type="button"
+          className="primary-button"
+          disabled={busy}
+          onClick={connect}
+        >
+          확장 프로그램 연결
+        </button>
+      )}
+      <button type="button" className="secondary-button" onClick={signOut}>
+        로그아웃
+      </button>
+    </>
   );
 }
 

@@ -8,6 +8,8 @@
   --color-border: #dce7e0;
   --color-border-control: #cfddd4;
   --color-danger-text: #9f1d1d;
+  --color-brand: #157a57;
+  --color-on-brand: #ffffff;
 }
 
 body {
@@ -68,4 +70,21 @@ body {
   color: var(--color-text);
   font: inherit;
   cursor: pointer;
+}
+
+.connect .primary-button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.connect .primary-button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }

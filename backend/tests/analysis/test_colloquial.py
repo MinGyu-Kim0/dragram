@@ -7,7 +7,6 @@ import pytest
 from django.contrib.auth.models import Permission
 from django.db import IntegrityError, connection, transaction
 from django.db.models import F
-from django.test import Client
 
 from analysis import patterns, review
 from analysis.admin import GrammarUsageAdmin
@@ -20,6 +19,7 @@ from analysis.models import (
 )
 from tests.analysis.helpers import (
     analyze,
+    connected_client,
     new_pattern,
     new_usage,
     span_answer,
@@ -52,7 +52,7 @@ def register(fake_llm, sentence, proposal, translation="번역"):
     """다른 문장을 분석해 새 패턴을 등록·활성화한다."""
     mine = fake_llm.response
     fake_llm.response = {"translation_ko": translation, "new_patterns": [proposal]}
-    analyze(Client(), sentence)
+    analyze(connected_client(), sentence)
     fake_llm.response = mine
     return GrammarPattern.objects.get(name=proposal["pattern_name"])
 
@@ -533,7 +533,7 @@ def test_unlinking_while_an_analysis_adds_a_base_usage_does_not_deadlock(fake_ll
         ],
     }
 
-    response = analyze(Client(), "全部食べてしまった")
+    response = analyze(connected_client(), "全部食べてしまった")
     result["thread"].join()
 
     assert "error" not in response.json()
@@ -605,7 +605,7 @@ def test_linking_while_an_analysis_adds_usages_to_both_patterns_does_not_deadloc
         ],
     }
 
-    response = analyze(Client(), "見ちゃって忘れてしまった")
+    response = analyze(connected_client(), "見ちゃって忘れてしまった")
     result["thread"].join()
 
     assert "error" not in response.json()
@@ -1066,7 +1066,7 @@ def test_merging_while_an_analysis_adds_a_base_usage_does_not_deadlock(fake_llm,
         ],
     }
 
-    response = analyze(Client(), "全部食べてしまった")
+    response = analyze(connected_client(), "全部食べてしまった")
     result["thread"].join()
 
     assert "error" not in response.json()

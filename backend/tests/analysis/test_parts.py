@@ -1,12 +1,11 @@
 """긴 패턴 안의 구성 문법 표시(#65)."""
 
 import pytest
-from django.test import Client
 
 from analysis import patterns
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.helpers import analyze, connected_client, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -199,7 +198,7 @@ def test_rematch_sends_flat_grammar_first_and_parts_in_the_analysis(
     analyze_with(client, fake_llm, TESHIMAU, TE)
     # 다른 문장으로 た를 등록하면 패턴 세트 버전이 올라 캐시 문장을 다시 매칭한다(#41).
     analyze_with(
-        Client(),
+        connected_client(),
         fake_llm,
         new_pattern(
             (1, "lemma"),

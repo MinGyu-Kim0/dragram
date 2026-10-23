@@ -7,6 +7,7 @@ from django.contrib import auth
 from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.http import Http404
 from django.middleware.csrf import CsrfViewMiddleware
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -14,7 +15,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
-from accounts import google
+from accounts import google, tokens
 from accounts.models import User
 from errors.auth import AuthError
 from errors.base import BusinessError
@@ -49,6 +50,11 @@ def _field(request, name, error_code):
     return request.data.get(name)
 
 
+def _lock_user(user_or_id):
+    """같은 사용자의 확장 토큰 발급과 웹 로그아웃·로그인을 직렬화한다(트랜잭션 안에서 부른다)."""
+    tokens.lock_user(getattr(user_or_id, "pk", user_or_id))
+
+
 def _user_body(user):
     return {"user": {"email": user.email} if user.is_authenticated else None}
 
@@ -56,7 +62,19 @@ def _user_body(user):
 def _start_session(request, user):
     if not user.is_active:
         raise BusinessError(AuthError.ACCOUNT_DISABLED, "막힌 계정")
-    auth.login(request._request, user, backend="django.contrib.auth.backends.ModelBackend")
+    session = request._request.session
+    previous_key = session.session_key
+    # 세션에 로그인해 있던 사용자. 막힌 계정은 인증되지 않지만 세션에는 남아 있어 함께 본다.
+    previous_id = session.get(auth.SESSION_KEY)
+    with transaction.atomic():
+        if previous_id is not None:
+            _lock_user(previous_id)
+        # login은 세션 키를 바꾸고, 다른 사용자면 세션을 비운다.
+        auth.login(request._request, user, backend="django.contrib.auth.backends.ModelBackend")
+        if previous_key:
+            # 이전 세션이 발급한 토큰: 다른 사용자 것은 폐기하고, 같은 사용자 것은 다음 웹
+            # 로그아웃이 찾도록 새 세션 키로 옮긴다.
+            tokens.hand_over_session(user, previous_key, session.session_key)
     return Response(_user_body(user))
 
 
@@ -93,8 +111,14 @@ def google_login(request):
 @authentication_classes([SessionUser])
 @permission_classes([])
 def logout(request):
+    """웹 로그아웃. 이 세션이 발급한 확장 토큰도 폐기한다(다른 세션의 연결은 남긴다)."""
     require_csrf(request)
-    auth.logout(request._request)
+    with transaction.atomic():
+        if request.user.is_authenticated:
+            _lock_user(request.user)
+            tokens.revoke_session(request.user, request._request.session.session_key)
+        # 세션 행도 같은 트랜잭션에서 지워, 기다리던 토큰 발급이 끝난 세션을 보게 한다.
+        auth.logout(request._request)
     return Response(_user_body(request._request.user))
 
 
@@ -119,3 +143,32 @@ def dev_login(request):
         username=f"dev:{email}", defaults={"email": email, "password": make_password(None)}
     )
     return _start_session(request, user)
+
+
+@api_view(["POST"])
+@authentication_classes([SessionUser])
+@permission_classes([])
+def issue_extension_token(request):
+    """로그인한 웹 세션이 확장에 넘길 토큰을 발급한다. 원본은 이 응답에만 있다."""
+    require_csrf(request)
+    if not request.user.is_authenticated:
+        raise BusinessError(AuthError.LOGIN_REQUIRED, "로그인하지 않은 세션")
+    session = request._request.session
+    with transaction.atomic():
+        # 같은 세션의 로그아웃이 먼저 끝났으면 세션이 없다. 그 세션 이름으로 토큰을 남기지 않는다.
+        _lock_user(request.user)
+        if not session.exists(session.session_key):
+            raise BusinessError(AuthError.LOGIN_REQUIRED, "로그아웃한 세션")
+        token = tokens.issue(request.user, session.session_key)
+    # account: 확장이 다른 계정의 연결인지 가릴 때 쓰는 바뀌지 않는 식별자(이메일은 바뀌거나
+    # 겹칠 수 있다).
+    return Response({"token": token, "account": str(request.user.pk)}, status=201)
+
+
+@api_view(["POST"])
+@authentication_classes([tokens.ExtensionTokenRevocation])
+@permission_classes([])
+def revoke_extension_token(request):
+    """확장 로그아웃: 요청한 토큰만 폐기한다. 웹 세션과 다른 토큰은 그대로다."""
+    tokens.revoke(request.auth)
+    return Response(status=204)

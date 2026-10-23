@@ -4,7 +4,6 @@ import threading
 
 import pytest
 from django.db import connection
-from django.test import Client
 
 from analysis import patterns
 from analysis import views as patterns_views
@@ -18,7 +17,7 @@ from analysis.models import (
     SpanMatch,
 )
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
+from tests.analysis.helpers import analyze, connected_client, new_pattern, new_usage, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -437,7 +436,7 @@ def test_sentence_saved_by_another_request_is_not_asked_again(client, fake_llm):
             "translation_ko": "먼저 저장된 번역",
             "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"))],
         }
-        analyze(Client(), "彼が来ている")
+        analyze(connected_client(), "彼が来ている")
         fake_llm.response = mine
 
     fake_llm.before_respond = other_request_saves_first
@@ -466,7 +465,7 @@ def test_pattern_created_concurrently_is_asked_again_with_its_usages(fake_llm, m
 
         def other_request():
             try:
-                register_teiru(Client(), fake_llm)
+                register_teiru(connected_client(), fake_llm)
             finally:
                 connection.close()
 
@@ -484,7 +483,7 @@ def test_pattern_created_concurrently_is_asked_again_with_its_usages(fake_llm, m
     }
     fake_llm.rejudge_response = {"spans": [span_answer(0, "usage", 1)]}
 
-    response = analyze(Client(), "彼が来ている")
+    response = analyze(connected_client(), "彼が来ている")
 
     assert len(fake_llm.rejudge_requests) == 1
     assert [item["name"] for item in response.json()["grammar"]] == ["진행"]

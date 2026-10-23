@@ -1,6 +1,34 @@
+import { clearTokenIfStill, loadToken, signOutIfStill } from "./auth";
+
 // 개발 빌드 기본값은 로컬 compose 백엔드다. 바꾸려면 빌드할 때 WXT_API_BASE_URL을 준다.
-export const API_BASE_URL =
-  import.meta.env.WXT_API_BASE_URL ?? "http://localhost:8000";
+// 끝 슬래시는 떼어 /api 경로를 붙일 때 //가 생기지 않게 한다(경로 접두어는 남긴다).
+export const API_BASE_URL = (
+  import.meta.env.WXT_API_BASE_URL ?? "http://localhost:8000"
+).replace(/\/+$/, "");
+
+// 확장 토큰이 없거나 서버가 AUTH:LOGIN_REQUIRED(401)로 거부했다. 저장한 토큰은 지운다.
+export class LoginRequired extends Error {
+  constructor() {
+    super("로그인 필요");
+  }
+}
+
+// 확장 로그아웃: 저장한 토큰을 먼저 지운 뒤 서버에서 이 토큰만 폐기한다. 서버가 응답하지
+// 않아도 로컬 로그아웃은 끝난다.
+export async function logoutExtension(): Promise<void> {
+  const token = await loadToken();
+  if (!token) return;
+  // 그사이 웹에서 다시 연결해 새 토큰이 왔으면 그것은 지우지 않는다.
+  await signOutIfStill(token);
+  try {
+    await fetch(`${API_BASE_URL}/api/auth/extension-tokens/revoke/`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // 서버에 남은 토큰은 마지막 사용 후 90일이 지나면 쓸 수 없다.
+  }
+}
 
 export interface GrammarItem {
   // 원문(보낸 문장) 기준 UTF-16 위치 [start, end). 자바스크립트 문자열 위치와 같다.
@@ -99,11 +127,20 @@ export async function analyzeSentence(
   onEarlyGrammar?: (grammar: GrammarItem[], checking: CheckingItem[]) => void,
   onPrevious?: (previous: Analysis) => void,
 ): Promise<Analysis> {
+  const token = await loadToken();
+  if (!token) throw new LoginRequired();
   const response = await fetch(`${API_BASE_URL}/api/analyses/`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
     body: JSON.stringify({ text }),
   });
+  if (response.status === 401) {
+    await clearTokenIfStill(token);
+    throw new LoginRequired();
+  }
   if (!response.ok || !response.body) throw new AnalysisFailed();
   let translation: Translation | undefined;
   let earlyGrammar: GrammarItem[] | undefined;

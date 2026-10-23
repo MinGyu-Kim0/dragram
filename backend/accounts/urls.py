@@ -7,4 +7,6 @@ urlpatterns = [
     path("google/", views.google_login),
     path("logout/", views.logout),
     path("dev-login/", views.dev_login),
+    path("extension-tokens/", views.issue_extension_token),
+    path("extension-tokens/revoke/", views.revoke_extension_token),
 ]

@@ -493,3 +493,57 @@ h1 {
   opacity: 0.4;
   cursor: default;
 }
+
+/* 헤더: 제목과 로그아웃(#109). 설정 화면이 생기면 로그아웃은 그리로 옮긴다. */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.text-button {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* 로그인 전(DESIGN 사이드 패널 '로그인 전') */
+.login-prompt {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.login-prompt h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.login-prompt p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.login-prompt .muted {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.primary-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}

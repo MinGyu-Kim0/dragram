@@ -3,6 +3,9 @@ from errors.base import error_domain
 AuthError = error_domain(
     "AUTH",
     {
+        # 로그인이 필요하다: 로그인하지 않은 웹 세션, 또는 확장 토큰이 없거나 모르거나 만료·폐기됨.
+        # 확장과의 약속이다(#109).
+        "LOGIN_REQUIRED": 401,
         # Google ID 토큰이 없거나 검증(서명, 만료, aud, iss)을 통과하지 못했다.
         "GOOGLE_TOKEN_INVALID": 401,
         # Google 계정의 이메일이 인증되지 않았다.

@@ -2,8 +2,13 @@
 
 import json
 import time
+import uuid
 
+from django.contrib.auth import get_user_model
 from django.db import connection
+from django.test import Client
+
+from accounts import tokens
 
 
 class Analyzed:
@@ -39,6 +44,16 @@ class Analyzed:
 
     def types(self):
         return [event["type"] for event in self.events]
+
+
+def connected_client():
+    """확장처럼 Bearer 토큰을 붙여 요청하는 클라이언트. 분석 API는 로그인해야 쓴다(#109)."""
+    user, _ = get_user_model().objects.get_or_create(
+        username="analyst", defaults={"email": "analyst@example.com"}
+    )
+    # 같은 세션이 발급한 이전 토큰은 지워지므로 클라이언트마다 세션을 따로 둔다.
+    token = tokens.issue(user, uuid.uuid4().hex)
+    return Client(HTTP_AUTHORIZATION=f"Bearer {token}")
 
 
 def analyze(client, text):

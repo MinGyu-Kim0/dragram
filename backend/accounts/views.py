@@ -14,7 +14,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
-from accounts import google
+from accounts import google, tokens
 from accounts.models import User
 from errors.auth import AuthError
 from errors.base import BusinessError
@@ -93,7 +93,10 @@ def google_login(request):
 @authentication_classes([SessionUser])
 @permission_classes([])
 def logout(request):
+    """웹 로그아웃. 이 세션이 발급한 확장 토큰도 폐기한다(다른 세션의 연결은 남긴다)."""
     require_csrf(request)
+    if request.user.is_authenticated:
+        tokens.revoke_session(request.user, request._request.session.session_key)
     auth.logout(request._request)
     return Response(_user_body(request._request.user))
 
@@ -119,3 +122,24 @@ def dev_login(request):
         username=f"dev:{email}", defaults={"email": email, "password": make_password(None)}
     )
     return _start_session(request, user)
+
+
+@api_view(["POST"])
+@authentication_classes([SessionUser])
+@permission_classes([])
+def issue_extension_token(request):
+    """로그인한 웹 세션이 확장에 넘길 토큰을 발급한다. 원본은 이 응답에만 있다."""
+    require_csrf(request)
+    if not request.user.is_authenticated:
+        raise BusinessError(AuthError.LOGIN_REQUIRED, "로그인하지 않은 세션")
+    token = tokens.issue(request.user, request._request.session.session_key)
+    return Response({"token": token}, status=201)
+
+
+@api_view(["POST"])
+@authentication_classes([tokens.ExtensionTokenAuthentication])
+@permission_classes([])
+def revoke_extension_token(request):
+    """확장 로그아웃: 요청한 토큰만 폐기한다. 웹 세션과 다른 토큰은 그대로다."""
+    tokens.revoke(request.auth)
+    return Response(status=204)

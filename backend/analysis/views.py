@@ -10,6 +10,7 @@ from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
+from accounts.tokens import ExtensionTokenAuthentication
 from analysis import llm, patterns
 from analysis.models import (
     GrammarPattern,
@@ -1002,9 +1003,10 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
             holder["checked_example"] = text
 
 
-# 테스트 단계라 로그인 없이 연다. 로그인 없는 사용을 정식으로 허용한다는 결정은 아니다(#10).
+# 확장 토큰으로 로그인한 사용자만 쓴다. 토큰이 없거나 쓸 수 없으면 형태소 분석·LLM 전에
+# AUTH:LOGIN_REQUIRED로 거부한다(#109).
 @api_view(["POST"])
-@authentication_classes([])
+@authentication_classes([ExtensionTokenAuthentication])
 @permission_classes([])
 def analyze(request):
     sentence = request.data.get("text") if isinstance(request.data, dict) else None
@@ -1055,7 +1057,7 @@ def analyze(request):
     # 패턴은 다음 조회가 다시 매칭해 찾는다. 캐시 분석의 버전이 이보다 낮으면 다시 매칭한다(#41).
     matcher_version = patterns.pattern_set_version()
     if cached and cached.matcher_version >= matcher_version:
-        RequestUsage.start(UsageLog.Path.CACHE, cached.pk, success=True)
+        RequestUsage.start(UsageLog.Path.CACHE, request.user, cached.pk, success=True)
         # 이미 다 있으니 한 번에 보낸다.
         events = [translation_event(cached.translation_ko), analysis_event(cached)]
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
@@ -1667,13 +1669,13 @@ def analyze(request):
         new_spans = [span for span in spans if span_key(span) not in stored_keys]
         if new_spans:
             # 판정을 기다리는 동안 새 구간은 '확인 중'으로 보인다.
-            usage = RequestUsage.start(UsageLog.Path.LLM, cached.pk)
+            usage = RequestUsage.start(UsageLog.Path.LLM, request.user, cached.pk)
             events = rematch_and_judge(new_closed, new_spans, usage)
             first = next(events)
             return StreamingHttpResponse(map(_ndjson, chain([first], events)), content_type=_NDJSON)
         # LLM이 필요 없으면 클라이언트를 만들지 않고 한 번에 보낸다.
         event = save_rematch(new_closed)
-        RequestUsage.start(UsageLog.Path.DB, cached.pk, success=event is not None)
+        RequestUsage.start(UsageLog.Path.DB, request.user, cached.pk, success=event is not None)
         event = event or rematch_fallback(new_closed)
         events = [
             {"type": "translation", "translation_ko": event["translation_ko"], "ruby": ruby},
@@ -1786,7 +1788,9 @@ def analyze(request):
 
     # 이 요청의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트로 해서 요청 전체 마감
     # 시각을 함께 쓴다. stale 재분석은 이미 있는 분석 행에 바로 잇는다.
-    usage = RequestUsage.start(UsageLog.Path.LLM, existing.pk if existing is not None else None)
+    usage = RequestUsage.start(
+        UsageLog.Path.LLM, request.user, existing.pk if existing is not None else None
+    )
     client = llm.get_client(usage.record_llm)
     events = analyze_and_save()
     # 첫 이벤트(옛 결과가 있으면 previous, 확정·판별 대상 구간이 있으면 grammar, 없으면 번역)까지는

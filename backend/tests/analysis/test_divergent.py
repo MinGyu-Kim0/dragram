@@ -4,12 +4,11 @@ import threading
 
 import pytest
 from django.db import connection, transaction
-from django.test import Client
 
 from analysis import patterns, review
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
+from tests.analysis.helpers import analyze, connected_client, new_pattern, new_usage, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -396,7 +395,7 @@ def test_same_condition_span_alone_is_asked_without_rechecking(client, fake_llm)
 # 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
 def test_second_call_after_pattern_taken_does_not_recheck_again(fake_llm, monkeypatch):
-    teiru_with_two_usages(Client(), fake_llm)
+    teiru_with_two_usages(connected_client(), fake_llm)
     register = patterns.register
 
     def other_request_registers_first(*args):
@@ -405,7 +404,7 @@ def test_second_call_after_pattern_taken_does_not_recheck_again(fake_llm, monkey
 
         def other_request():
             try:
-                register_inactive_ga(Client(), fake_llm)
+                register_inactive_ga(connected_client(), fake_llm)
             finally:
                 connection.close()
 
@@ -434,7 +433,7 @@ def test_second_call_after_pattern_taken_does_not_recheck_again(fake_llm, monkey
         "spans": [divergent(0, 1, alternative(2, "그가 와 있는 상태다"))],
     }
 
-    response = analyze(Client(), KITEIRU)
+    response = analyze(connected_client(), KITEIRU)
 
     first, second = fake_llm.rejudge_requests
     assert len(first["recheck_spans"]) == 1
@@ -582,7 +581,7 @@ def test_divergent_span_not_asked_again_is_never_saved(client, fake_llm, monkeyp
         "translation_ko": "그가 와 있다",
         "spans": [divergent(0, 1, alternative(2, "그가 와 있는 상태다"))],
     }
-    fake_llm.before_respond = lambda: analyze(Client(), KITEIRU)
+    fake_llm.before_respond = lambda: analyze(connected_client(), KITEIRU)
     get_or_create = SentenceAnalysis.objects.get_or_create
 
     def made_stale_before_saving(**kwargs):

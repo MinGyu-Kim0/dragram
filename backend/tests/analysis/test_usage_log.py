@@ -27,7 +27,7 @@ def forget_rows(fake_llm):
     fake_llm.forget_requests()
 
 
-def test_new_sentence_records_the_request_and_its_llm_call(client, fake_llm):
+def test_new_sentence_records_the_request_and_its_llm_call(client, fake_llm, analyst):
     fake_llm.usage = (120, 30, 15)
 
     analyze(client, KITEIRU)
@@ -43,8 +43,8 @@ def test_new_sentence_records_the_request_and_its_llm_call(client, fake_llm):
         15,
     )
     assert call.attempt == 1
-    # 로그인 전이다.
-    assert request.user is None and call.user is None
+    # 확장 토큰의 주인이 요청과 LLM 호출 기록에 남는다(#109).
+    assert request.user == call.user == analyst
 
 
 def test_asking_again_records_each_follow_up_call(client, fake_llm):

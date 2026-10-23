@@ -5,7 +5,6 @@ import threading
 import pytest
 from django.db import IntegrityError, connection, transaction
 from django.db.models import F
-from django.test import Client
 
 from analysis import patterns, review
 from analysis.models import (
@@ -18,6 +17,7 @@ from analysis.models import (
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import (
     analyze,
+    connected_client,
     new_pattern,
     new_usage,
     span_answer,
@@ -44,7 +44,7 @@ def register(fake_llm, sentence, proposal, translation="번역"):
     """다른 문장을 분석해 새 패턴을 등록·활성화한다(패턴 세트 버전이 1 오른다)."""
     mine = fake_llm.response
     fake_llm.response = {"translation_ko": translation, "new_patterns": [proposal]}
-    analyze(Client(), sentence)
+    analyze(connected_client(), sentence)
     fake_llm.response = mine
 
 
@@ -101,7 +101,7 @@ def test_same_span_cannot_be_stored_twice(client, fake_llm):
 def test_stale_replacement_conflicting_on_the_same_span_uses_the_stored_result(fake_llm):
     register(fake_llm, "走っている", TEIRU)
     fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "usage", 1)]}
-    analyze(Client(), KITEIRU)
+    analyze(connected_client(), KITEIRU)
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
     SentenceAnalysis.objects.filter(pk=analysis.pk).update(is_stale=True)
     fake_llm.response = {"translation_ko": "늦게 끝난 번역", "spans": [span_answer(0, "usage", 1)]}
@@ -109,7 +109,7 @@ def test_stale_replacement_conflicting_on_the_same_span_uses_the_stored_result(f
 
     def reanalysis():
         try:
-            result["response"] = analyze(Client(), KITEIRU)
+            result["response"] = analyze(connected_client(), KITEIRU)
         finally:
             connection.close()
 
@@ -134,7 +134,7 @@ def test_stale_replacement_conflicting_on_the_same_span_uses_the_stored_result(f
 # 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
 def test_rematch_conflicting_on_the_same_span_saves_nothing_and_falls_back(fake_llm):
-    cache_then_register_teiru(Client(), fake_llm)
+    cache_then_register_teiru(connected_client(), fake_llm)
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
     usage = GrammarUsage.objects.get(name="진행")
     fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
@@ -142,7 +142,7 @@ def test_rematch_conflicting_on_the_same_span_saves_nothing_and_falls_back(fake_
 
     def rematch():
         try:
-            result["response"] = analyze(Client(), KITEIRU)
+            result["response"] = analyze(connected_client(), KITEIRU)
         finally:
             connection.close()
 
@@ -232,7 +232,7 @@ def test_first_usage_raises_the_version_before_locking_the_analysis(fake_llm):
     register(fake_llm, "雨が降る", GA)
     ga = GrammarPattern.objects.get(name="が")
     fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "usage", 1)]}
-    analyze(Client(), KITEIRU)
+    analyze(connected_client(), KITEIRU)
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
     SentenceAnalysis.objects.filter(pk=analysis.pk).update(is_stale=True)
     fake_llm.response = {
@@ -251,7 +251,7 @@ def test_first_usage_raises_the_version_before_locking_the_analysis(fake_llm):
 
     def reanalysis():
         try:
-            result["response"] = analyze(Client(), KITEIRU)
+            result["response"] = analyze(connected_client(), KITEIRU)
         finally:
             connection.close()
 
@@ -637,7 +637,7 @@ def test_rematch_saved_first_by_another_request_is_rolled_back(client, fake_llm)
 
     def other_request_saves_first():
         fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
-        analyze(Client(), KITEIRU)
+        analyze(connected_client(), KITEIRU)
         fake_llm.rematch_response = {
             "spans": [
                 span_answer(

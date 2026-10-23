@@ -12,15 +12,20 @@ class RequestUsage:
 
     def __init__(self, request):
         self._request = request
+        self._user = request.user
         self._analysis_id = request.analysis_id
         self._ids = [request.pk]
 
     @classmethod
-    def start(cls, path, analysis_id=None, success=False):
-        """처리 경로를 정한 요청의 request 행을 남긴다."""
+    def start(cls, path, user, analysis_id=None, success=False):
+        """처리 경로를 정한 요청의 request 행을 남긴다. user는 요청한 사용자다."""
         return cls(
             UsageLog.objects.create(
-                kind=UsageLog.Kind.REQUEST, path=path, analysis_id=analysis_id, success=success
+                kind=UsageLog.Kind.REQUEST,
+                path=path,
+                user=user,
+                analysis_id=analysis_id,
+                success=success,
             )
         )
 
@@ -30,6 +35,7 @@ class RequestUsage:
         """LLM 클라이언트가 보낸 호출마다 부른다. 재시도는 하지 않아 시도 차수는 1이다."""
         row = UsageLog.objects.create(
             kind=UsageLog.Kind.LLM,
+            user=self._user,
             analysis_id=self._analysis_id,
             purpose=purpose,
             model=model,

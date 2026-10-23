@@ -4,7 +4,6 @@ import threading
 
 import pytest
 from django.db import connection
-from django.test import Client
 
 from analysis.models import (
     GrammarPattern,
@@ -13,7 +12,7 @@ from analysis.models import (
     SentenceAnalysis,
     SpanMatch,
 )
-from tests.analysis.helpers import analyze, new_pattern
+from tests.analysis.helpers import analyze, connected_client, new_pattern
 
 pytestmark = pytest.mark.django_db
 
@@ -123,7 +122,7 @@ def test_first_saved_analysis_wins_when_same_sentence_is_saved_concurrently(clie
     # 첫 요청이 LLM 응답을 기다리는 사이에 같은 문장의 다른 요청이 먼저 저장한다.
     def other_request_saves_first():
         fake_llm.response = {"translation_ko": "먼저 저장된 번역"}
-        analyze(Client(), "私は学生です。")
+        analyze(connected_client(), "私は学生です。")
         fake_llm.response = {"translation_ko": "늦게 끝난 번역"}
 
     fake_llm.before_respond = other_request_saves_first
@@ -149,7 +148,7 @@ def test_first_filled_grammar_wins_when_row_without_grammar_is_filled_concurrent
         monkeypatch.setattr(SentenceAnalysis.objects, "get_or_create", get_or_create)
         result = get_or_create(**kwargs)
         fake_llm.response = {"translation_ko": "먼저 채운 번역"}
-        analyze(Client(), "私は学生です。")
+        analyze(connected_client(), "私は学生です。")
         return result
 
     fake_llm.response = {"translation_ko": "늦게 끝난 번역"}
@@ -169,7 +168,7 @@ def test_concurrent_requests_all_succeed(fake_llm):
     statuses = []
 
     def send_requests():
-        thread_client = Client()
+        thread_client = connected_client()
         try:
             for _ in range(10):
                 statuses.append(analyze(thread_client, long_sentence).status_code)

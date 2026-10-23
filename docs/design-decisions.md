@@ -728,8 +728,8 @@ grill-with-docs 세션에서 정했다.
 
 ## 49. Google 로그인과 확장 연결 (2026-10-23) — #92·#109, PR #111·#113, 앞 절과 충돌 시 우선
 #92(계정과 웹 로그인)와 #109(확장 연결, 분석 API 로그인 필수화)에서 정했다. 표시가 없는 내용은 두 티켓의 트리아지(Agent Brief)에서 사용자가 정했다. 사용자 모델을 커스텀 모델로 둔 이유는 ADR 0004에 있다. '(PR #111 리뷰)'·'(PR #113 리뷰)'는 리뷰 지적을 고치며 구현이 정했고 리뷰를 통과한 것이다(35절과 같은 표시). 구현이 정한 동작은 아래 '구현이 정한 것 (확인 필요)'에 따로 둔다. 바꾸는 앞 절과 문서는 다음과 같다.
-- 1은 28절 10(테스트 단계)의 "로그인 없이 구현"을 끝낸다. requirements의 '로그인 없이도 분석을 쓸 수 있게 할지'와 DESIGN §7의 같은 항목을 결정으로 옮긴다.
-- 2·3은 schema `users`의 `email` UNIQUE와 `google_sub` NOT NULL을 바꾼다.
+- 1은 28절 10(테스트 단계)의 "로그인 없이 구현"과 31절 11의 "분석 API는 로그인 없이 열려 있고"를 끝낸다. 31절 11이 #28 전 외부 공개를 막은 근거 가운데 '로그인 없음'은 사라지고, 사용량 한도가 없다는 근거는 남는다. requirements의 '로그인 없이도 분석을 쓸 수 있게 할지'와 DESIGN §7의 같은 항목을 결정으로 옮긴다.
+- 2는 schema `users`의 `email` UNIQUE를 없앤다(같은 사람은 `google_sub`로 판단). `google_sub` NULL 허용은 `createsuperuser` 관리자(2)와 구현이 정한 개발 로그인 사용자 때문이다.
 
 1. **분석은 로그인한 사용자만**(사용자 결정, #91): 분석 API는 확장 토큰(Bearer)으로만 인증한다. 토큰이 없거나, 모르거나, 폐기됐거나, 만료됐거나, 계정이 막혔으면 형태소 분석·LLM보다 먼저 `AUTH:LOGIN_REQUIRED`(401)로 거부한다. 웹 세션으로 분석 API를 쓰는 것은 열지 않았다. 분석 요청과 그 LLM 호출의 `usage_log.user`에 토큰 주인을 남긴다.
 2. **사용자 모델**: `AbstractUser` + `google_sub`(UNIQUE). 같은 사람인지는 `google_sub`로 판단하고, 이메일은 로그인할 때마다 Google 값으로 갱신한다. 처음 로그인하면 자동으로 만들고 비밀번호는 쓸 수 없게 둔다. 이메일이 인증되지 않은 계정은 거부한다. 허용 목록은 없다. admin은 `createsuperuser` 비밀번호 계정으로 들어가고, `is_staff`는 관리자가 준다.
@@ -749,18 +749,18 @@ grill-with-docs 세션에서 정했다.
    - 명시적 로그아웃(패널·웹)과 다른 계정의 연결은 '비우라는 표시'를 남겨, 패널이 보던 원문·결과·페이지와 재분석 대기를 지운다. 그 표시보다 먼저 시작한 분석 요청(패널이 닫힌 동안 남은 요청, 늦게 끝난 문장 추출)도 버린다. 401로 끊긴 것은 로그아웃이 아니라 기다리던 문장을 이어 분석한다.
    - 다시 연결한 뒤에 옛 토큰의 401이 늦게 오면 새 토큰으로 다시 분석하고, 이미 지나간 회차의 401은 무시한다.
 10. **웹의 연결·로그아웃**(PR #113 리뷰): 확장 연결(발급·전달)과 로그아웃은 같은 출처의 모든 탭에서 Web Locks로 한 번에 하나만 한다.
+11. **세션마다 토큰 하나**(PR #113 보안 리뷰): 발급할 때 같은 세션의 아직 쓰지 않은 토큰을 지우고, 새 토큰이 처음 쓰일 때 같은 세션의 다른 토큰을 지운다. 확장에 새 토큰을 넘기지 못해도 쓰던 연결은 남고, 세션마다 행은 많아야 둘이다. 첫 사용 정리는 발급과 같은 잠금 안에서 행을 다시 읽고 한다.
 
 **구현이 정한 것 (확인 필요)**
 - API(`/api/auth/` 아래)
   - `GET me/`: 현재 사용자를 돌려주고 CSRF 쿠키도 준다.
   - `POST google/`(`{credential}`), `POST logout/`, `POST dev-login/`(`{email}`)
   - `POST extension-tokens/`(세션+CSRF, 201, `{token, account}`), `POST extension-tokens/revoke/`(Bearer, 204)
-- 오류 코드(`AUTH`): `LOGIN_REQUIRED`(401), `GOOGLE_TOKEN_INVALID`(401, 객체가 아닌 본문 포함), `EMAIL_NOT_VERIFIED`(403), `ACCOUNT_DISABLED`(403), `CSRF_FAILED`(403), `GOOGLE_UNAVAILABLE`(502, Google 공개 키를 못 받음), `LOGIN_UNAVAILABLE`(503, 클라이언트 ID가 비면 `aud`를 검사하지 않으므로 거부), `DEV_EMAIL_INVALID`(400)
+- 오류 코드(`AUTH`): `LOGIN_REQUIRED`(401, 분석 API의 토큰 거부와 로그인하지 않은·로그아웃한 웹 세션의 토큰 발급), `GOOGLE_TOKEN_INVALID`(401, 객체가 아닌 본문 포함), `EMAIL_NOT_VERIFIED`(403), `ACCOUNT_DISABLED`(403), `CSRF_FAILED`(403), `GOOGLE_UNAVAILABLE`(502, Google 공개 키를 못 받음), `LOGIN_UNAVAILABLE`(503, 클라이언트 ID가 비면 `aud`를 검사하지 않으므로 거부), `DEV_EMAIL_INVALID`(400)
 - 개발 로그인: `DEBUG`이고 `DEV_LOGIN_ENABLED`일 때만 열고 그 밖에는 404다(브리프 선택지 가운데 '무시'). 이메일만으로 로그인하고 `google_sub`는 비운다.
 - `username`: Google 사용자는 `google-<무작위>`(PR #111 리뷰: sub는 255자까지 될 수 있어 150자 칸에 넣지 않는다), 개발 로그인은 `dev:<이메일>`(이메일 140자까지).
 - 같은 출처: Vite 프록시는 `changeOrigin: false`다(켜면 Host가 바뀌어 Django가 출처 검사로 POST를 거부한다). Vite는 루트 `.env`를 읽고(`envDir`), compose의 웹 컨테이너에는 공개 값 `VITE_GOOGLE_CLIENT_ID`·`VITE_EXTENSION_ID`만 넘긴다.
-- 개발용 확장 ID(`ilhnmbeleinmgfcigakmfobgngiillah`)를 manifest `key`(공개 키)로 고정하고, 웹 `VITE_EXTENSION_ID` 기본값으로 쓴다. 확장의 웹 출처는 `WXT_WEB_ORIGIN`(출처로 정규화), API 주소 `WXT_API_BASE_URL`은 끝 슬래시를 뗀다.
-- 세션마다 토큰 하나(PR #113 보안 리뷰): 발급할 때 같은 세션의 아직 쓰지 않은 토큰을 지우고, 새 토큰이 처음 쓰일 때 같은 세션의 다른 토큰을 지운다. 확장에 새 토큰을 넘기지 못해도 쓰던 연결은 남고, 세션마다 행은 많아야 둘이다. 첫 사용 정리는 발급과 같은 잠금 안에서 행을 다시 읽고 한다.
+- 개발용 확장 ID(`ilhnmbeleinmgfcigakmfobgngiillah`)를 manifest `key`(공개 키)로 고정하고, compose와 `.env.example`의 `VITE_EXTENSION_ID` 기본값으로 쓴다(웹 코드에는 기본값이 없어 비면 연결하지 못함). 확장의 웹 출처는 `WXT_WEB_ORIGIN`(출처로 정규화), API 주소 `WXT_API_BASE_URL`은 끝 슬래시를 뗀다.
 - 계정 식별자: 발급 응답의 `account`(사용자 ID)를 웹이 `connect` 메시지에 함께 보내고, 확장은 저장된 값과 다르면 패널을 비운다(PR #113 리뷰: 이메일은 바뀌거나 겹칠 수 있다).
 - 확장 연결 응답 대기는 3초다. 연결과 로그아웃이 진행 중이면 두 버튼을 모두 막는다.
 - 패널 로그아웃은 헤더 오른쪽 텍스트 버튼이다(설정 화면이 생기면 옮긴다).

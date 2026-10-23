@@ -25,11 +25,11 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| token_hash | 토큰 해시 | char(64) |  |  | 토큰 원본의 SHA-256, UNIQUE. 원본은 발급 응답에만 싣고 저장하지 않는다 |
+| token_hash | 토큰 해시 | varchar(64) |  |  | 토큰 원본의 SHA-256, UNIQUE. 원본은 발급 응답에만 싣고 저장하지 않는다 |
 | user_id | 사용자 ID | bigint |  | → users |  |
 | session_key | 발급 세션 | varchar(40) |  |  | 발급한 웹 로그인 세션. 웹 로그아웃이 이 세션이 발급한 토큰을 폐기한다. 인덱스 |
 | created_at | 발급일시 | timestamptz |  |  |  |
-| last_used_at | 마지막 사용 일시 | timestamptz | Y |  | 한 번도 쓰지 않았으면 NULL. 날짜가 바뀔 때만 갱신한다. 이 날짜(없으면 발급 날짜)부터 90일째 날까지 쓰고 그 뒤 만료 |
+| last_used_at | 마지막 사용 일시 | timestamptz | Y |  | 한 번도 쓰지 않았으면 NULL. 처음 쓸 때 채우고, 그 뒤에는 날짜가 바뀔 때만 갱신한다. 이 날짜(없으면 발급 날짜)부터 90일째 날까지 쓰고 그 뒤 만료 |
 | revoked_at | 폐기일시 | timestamptz | Y |  | 확장 로그아웃, 웹 로그아웃, 같은 세션의 다른 사용자 로그인 때 채운다 |
 
 세션마다 토큰은 많아야 둘이다(쓰던 토큰과 아직 쓰지 않은 새 토큰, design-decisions 49절).

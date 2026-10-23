@@ -11,7 +11,8 @@ from accounts.models import ExtensionToken
 from errors.auth import AuthError
 from errors.base import BusinessError
 
-# 마지막 사용 후 이 기간이 지나면 쓸 수 없다. 재발급·갱신은 없다.
+# 마지막 사용 후 이 기간이 지나면 쓸 수 없다. 재발급·갱신은 없다. 마지막 사용 시각은 하루에
+# 한 번만 바꾸므로 날짜로 센다(그날 늦게 또 썼을 수 있다).
 EXPIRES_AFTER = timedelta(days=90)
 
 
@@ -60,10 +61,15 @@ class ExtensionTokenAuthentication(BaseAuthentication):
             .first()
         )
         now = timezone.now()
-        if row is None or row.last_used_at < now - EXPIRES_AFTER or not row.user.is_active:
+        today = timezone.localdate(now)
+        if (
+            row is None
+            or timezone.localdate(row.last_used_at) < today - EXPIRES_AFTER
+            or not row.user.is_active
+        ):
             raise BusinessError(AuthError.LOGIN_REQUIRED, "쓸 수 없는 토큰")
         # 마지막 사용 시각은 하루에 한 번만 바꾼다.
-        if timezone.localdate(row.last_used_at) != timezone.localdate(now):
+        if timezone.localdate(row.last_used_at) != today:
             ExtensionToken.objects.filter(pk=row.pk).update(last_used_at=now)
         return (row.user, row)
 

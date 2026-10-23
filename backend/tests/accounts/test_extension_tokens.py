@@ -1,7 +1,7 @@
 """확장 토큰: 웹 세션이 발급하고 확장이 Bearer로 분석 API를 부른다(#109)."""
 
 import hashlib
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -188,3 +188,21 @@ def test_issuing_is_refused_when_the_session_logged_out_while_waiting(monkeypatc
 
     assert (response.status_code, response.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})
     assert not ExtensionToken.objects.exists()
+
+
+def at_local(days_ago, hour, minute):
+    """현지 날짜로 days_ago일 전 hour:minute"""
+    day = timezone.localdate() - timedelta(days=days_ago)
+    return timezone.make_aware(datetime.combine(day, time(hour, minute)))
+
+
+def test_expiry_counts_days_because_last_use_is_kept_once_a_day(fake_llm):
+    # 마지막 사용 시각은 그날 처음 쓴 때라, 그날 늦게 또 썼을 수 있다. 90일째 날까지는 쓴다.
+    web, headers = web_session()
+    token = issue(web, headers)
+
+    ExtensionToken.objects.update(last_used_at=at_local(90, 0, 1))
+    assert analyze(token).status_code == 200
+
+    ExtensionToken.objects.update(last_used_at=at_local(91, 23, 59))
+    assert analyze(token).status_code == 401

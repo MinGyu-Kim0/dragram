@@ -348,9 +348,18 @@ class UsageRuleForm(forms.ModelForm):
     def clean(self):
         cleaned = super().clean()
         pattern, usage = cleaned.get("pattern"), cleaned.get("usage")
-        # 용법은 그 패턴 소속이다. 연결된 회화체 패턴이면 원형의 용법이다(#63).
-        if pattern and usage and usage.pattern_id != (pattern.variant_of_id or pattern.pk):
-            self.add_error("usage", "고른 패턴의 용법이어야 합니다")
+        if pattern and usage:
+            # 용법은 그 패턴 소속이다. 연결된 회화체 패턴이면 원형의 용법이다(#63). 원형 연결·
+            # 용법 병합(#64)과 직렬화하도록 연결 잠금을 공유로 잡은 뒤 DB에서 다시 읽는다. admin
+            # 변경 화면은 한 트랜잭션이라 저장(save_model)까지 잠금이 이어진다.
+            patterns.lock_links()
+            base_id = GrammarPattern.objects.values_list("variant_of_id", flat=True).get(
+                pk=pattern.pk
+            )
+            if not GrammarUsage.objects.filter(
+                pk=usage.pk, pattern_id=base_id or pattern.pk
+            ).exists():
+                self.add_error("usage", "고른 패턴의 용법이어야 합니다")
         return cleaned
 
 

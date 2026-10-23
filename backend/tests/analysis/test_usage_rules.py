@@ -635,3 +635,31 @@ def test_rule_approved_while_analyzing_keeps_the_result_from_being_saved(client,
 
     assert response.json()["translation_ko"] == "도쿄에서 만난다"
     assert not SentenceAnalysis.objects.filter(translation_ko="도쿄에서 만난다").exists()
+
+
+def test_rule_form_refuses_a_usage_merged_away_after_it_was_chosen(
+    admin_client, fake_llm, monkeypatch
+):
+    base = register(fake_llm, "食べてしまった", TESHIMAU, "먹어 버렸다")
+    variant = register(fake_llm, "食べちゃった", CHAU, "먹어 버렸다")
+    own, done = variant.usages.get(), base.usages.get()
+    lock_links = patterns.lock_links
+
+    def merged_first(*args, **kwargs):
+        # 폼이 용법을 고른 뒤, 검증이 잠금을 잡기 직전에 그 용법이 원형으로 합쳐졌다.
+        monkeypatch.setattr(patterns, "lock_links", lock_links)
+        review.link_variant(variant, base, {own.pk: done.pk})
+        return lock_links(*args, **kwargs)
+
+    monkeypatch.setattr(patterns, "lock_links", merged_first)
+    form = {
+        "pattern": variant.pk,
+        "usage": own.pk,
+        "condition": json.dumps([{"position": -1, "pos1": "動詞"}]),
+        "test_cases": json.dumps([{"text": "全部食べちゃった", "should_apply": True}]),
+    }
+
+    response = admin_client.post(f"{RULES}add/", form)
+
+    assert response.status_code == 200
+    assert not UsageRule.objects.exists()

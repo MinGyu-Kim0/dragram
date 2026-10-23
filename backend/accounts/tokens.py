@@ -21,7 +21,12 @@ def _hash(token):
 
 
 def issue(user, session_key):
-    """새 토큰을 만들어 원본을 돌려준다. 원본은 저장하지 않는다."""
+    """새 토큰을 만들어 원본을 돌려준다. 원본은 저장하지 않는다.
+
+    같은 세션(같은 브라우저의 확장)이 예전에 발급한 토큰은 지운다. 확장은 마지막 토큰만 쓰고,
+    발급을 되풀이해도 행이 쌓이지 않게 세션마다 하나만 남긴다.
+    """
+    ExtensionToken.objects.filter(user=user, session_key=session_key).delete()
     token = secrets.token_urlsafe(32)
     ExtensionToken.objects.create(
         token_hash=_hash(token),

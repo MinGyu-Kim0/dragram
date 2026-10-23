@@ -2,6 +2,7 @@
 
 import json
 import time
+import uuid
 
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -50,7 +51,9 @@ def connected_client():
     user, _ = get_user_model().objects.get_or_create(
         username="analyst", defaults={"email": "analyst@example.com"}
     )
-    return Client(HTTP_AUTHORIZATION=f"Bearer {tokens.issue(user, 'test-session')}")
+    # 같은 세션이 발급한 이전 토큰은 지워지므로 클라이언트마다 세션을 따로 둔다.
+    token = tokens.issue(user, uuid.uuid4().hex)
+    return Client(HTTP_AUTHORIZATION=f"Bearer {token}")
 
 
 def analyze(client, text):

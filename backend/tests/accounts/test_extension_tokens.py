@@ -60,9 +60,20 @@ def test_logged_in_web_session_gets_a_token_and_only_its_hash_is_stored():
     assert token not in {stored.token_hash, stored.session_key}
     assert stored.user.email == "me@example.com"
     assert stored.session_key == web.session.session_key
-    # 연결할 때마다 새 토큰이다.
+    # 연결할 때마다 새 토큰이다. 같은 세션(같은 브라우저의 확장)이 예전에 발급한 토큰은 지워
+    # 세션마다 하나만 남긴다.
     assert issue(web, headers) != token
-    assert ExtensionToken.objects.count() == 2
+    assert ExtensionToken.objects.count() == 1
+
+
+def test_issuing_again_in_the_same_session_replaces_the_previous_token(fake_llm):
+    web, headers = web_session()
+    previous = issue(web, headers)
+
+    current = issue(web, headers)
+
+    assert analyze(previous).status_code == 401
+    assert analyze(current).status_code == 200
 
 
 def test_issuing_needs_a_login_and_csrf():
@@ -148,8 +159,10 @@ def test_last_used_time_changes_once_a_day(fake_llm):
 
 
 def test_extension_logout_revokes_only_that_token(fake_llm):
+    # 같은 사용자가 두 브라우저에서 연결했다.
     web, headers = web_session()
-    first, second = issue(web, headers), issue(web, headers)
+    other_web, other_headers = web_session()
+    first, second = issue(web, headers), issue(other_web, other_headers)
 
     response = Client().post(REVOKE, **bearer(first))
 

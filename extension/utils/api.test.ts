@@ -222,6 +222,21 @@ describe("확장 토큰(#109)", () => {
     expect(await loadToken()).toBeUndefined();
   });
 
+  test("로그아웃하는 사이 다시 연결한 새 토큰은 지우지 않는다", async () => {
+    await saveToken("old-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        await saveToken("new-token");
+        return new Response(null, { status: 204 });
+      }),
+    );
+
+    await logoutExtension();
+
+    expect(await loadToken()).toBe("new-token");
+  });
+
   test("서버에 닿지 않아도 확장 로그아웃은 저장한 토큰을 지운다", async () => {
     await saveToken("extension-token");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));

@@ -1,4 +1,4 @@
-import { clearToken, clearTokenIfStill, loadToken } from "./auth";
+import { clearTokenIfStill, loadToken } from "./auth";
 
 // 개발 빌드 기본값은 로컬 compose 백엔드다. 바꾸려면 빌드할 때 WXT_API_BASE_URL을 준다.
 export const API_BASE_URL =
@@ -24,7 +24,8 @@ export async function logoutExtension(): Promise<void> {
   } catch {
     // 서버에 남은 토큰은 마지막 사용 후 90일이 지나면 쓸 수 없다.
   } finally {
-    await clearToken();
+    // 그사이 웹에서 다시 연결해 새 토큰이 왔으면 그것은 지우지 않는다.
+    if (token) await clearTokenIfStill(token);
   }
 }
 

@@ -2,8 +2,10 @@ import { clearToken, saveToken } from "./auth";
 
 // 웹 '로그인·확장 연결' 화면의 출처. manifest externally_connectable에도 이 출처만 둔다.
 // 바꾸려면 빌드할 때 WXT_WEB_ORIGIN을 준다.
-export const WEB_ORIGIN: string =
-  import.meta.env.WXT_WEB_ORIGIN ?? "http://localhost:5173";
+// manifest처럼 출처로 정규화한다(끝 슬래시·경로를 떼어 낸다).
+export const WEB_ORIGIN: string = new URL(
+  import.meta.env.WXT_WEB_ORIGIN ?? "http://localhost:5173",
+).origin;
 
 export type ExternalReply = { ok: boolean };
 

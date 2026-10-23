@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   receiveAnalysisRequests,
   type AnalysisRequest,
@@ -12,7 +12,7 @@ import {
   type CheckingItem,
   type GrammarItem,
 } from "@/utils/api";
-import { watchConnected } from "@/utils/auth";
+import { loadToken, watchConnected } from "@/utils/auth";
 import { WEB_ORIGIN } from "@/utils/external-messages";
 import { createLimiter } from "@/utils/limiter";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
@@ -49,21 +49,30 @@ function App() {
   const [connected, setConnected] = useState<boolean>();
   // 로그인이 필요해 분석하지 못한 요청이 있다. 연결되면 다시 분석한다.
   const waitingForLogin = useRef(false);
+  // 기다리던 요청이 있으면 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
+  const resumeAfterLogin = useCallback(() => {
+    if (!waitingForLogin.current) return;
+    waitingForLogin.current = false;
+    setRequest((current) => current && { ...current, id: crypto.randomUUID() });
+  }, []);
 
   useEffect(
     () =>
       watchConnected((now) => {
         setConnected(now);
-        if (now && waitingForLogin.current) {
-          waitingForLogin.current = false;
-          // 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
-          setRequest(
-            (current) => current && { ...current, id: crypto.randomUUID() },
-          );
-        }
+        if (now) resumeAfterLogin();
       }),
-    [],
+    [resumeAfterLogin],
   );
+
+  // 확장 로그아웃. 보던 원문과 결과를 지워, 다음에 연결한 사람에게 보이지 않게 한다.
+  const logOut = () => {
+    waitingForLogin.current = false;
+    setRequest(undefined);
+    setResults(undefined);
+    setPage(undefined);
+    logoutExtension();
+  };
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.
@@ -145,6 +154,10 @@ function App() {
             // 분석한다.
             if (error instanceof LoginRequired) {
               waitingForLogin.current = true;
+              // 401이 오기 전에 이미 다시 연결했으면 연결 알림이 지나갔으므로 바로 다시 분석한다.
+              loadToken().then((token) => {
+                if (token) resumeAfterLogin();
+              });
               return;
             }
             saveAll({
@@ -173,7 +186,7 @@ function App() {
     return () => {
       current = false;
     };
-  }, [request, limiter]);
+  }, [request, limiter, resumeAfterLogin]);
 
   const pageIndex = page && page.requestId === request?.id ? page.index : 0;
   const sentence = request?.sentences[pageIndex];
@@ -197,11 +210,7 @@ function App() {
       <header className="panel-header">
         <h1>Dragram</h1>
         {connected && (
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => logoutExtension()}
-          >
+          <button type="button" className="text-button" onClick={logOut}>
             로그아웃
           </button>
         )}

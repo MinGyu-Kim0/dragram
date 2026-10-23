@@ -1934,4 +1934,49 @@ describe("로그인과 확장 연결(#109)", () => {
     );
     expect(await loadToken()).toBeUndefined();
   });
+
+  test("로그아웃하면 보던 원문과 결과를 지워, 다음에 연결한 사람에게 보이지 않는다", async () => {
+    const fetchMock = vi.fn((url: string) =>
+      Promise.resolve(
+        url.endsWith("/revoke/")
+          ? new Response(null, { status: 204 })
+          : json(200, analysis("나는 학생입니다.")),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    await send(panelWindowId, "私は学生です。");
+    await screen.findByText("나는 학생입니다.");
+
+    fireEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await screen.findByRole("heading", { name: "로그인이 필요해요" });
+    await saveToken("someone-else-token");
+
+    await screen.findByRole("button", { name: "로그아웃" });
+    expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
+    expect(screen.queryByText("나는 학생입니다.")).not.toBeInTheDocument();
+    // 다시 분석하지도 않는다.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("다시 연결한 뒤에 옛 토큰의 401이 와도 그 문장을 새 토큰으로 다시 분석한다", async () => {
+    let rejectOld!: (response: Response) => void;
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => {
+      const auth = (init.headers as Record<string, string>).Authorization;
+      if (auth === "Bearer extension-token") {
+        return new Promise<Response>((resolve) => (rejectOld = resolve));
+      }
+      return Promise.resolve(json(200, analysis("나는 학생입니다.")));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<App />);
+    await send(panelWindowId, "私は学生です。");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await saveToken("new-token");
+    rejectOld(json(401, { error: "AUTH:LOGIN_REQUIRED" }));
+
+    expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
+    expect(await loadToken()).toBe("new-token");
+  });
 });

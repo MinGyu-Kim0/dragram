@@ -136,15 +136,11 @@ def unapprove_pattern(pattern):
 def _locked_usage(usage):
     """용법과 그 소속 패턴을 잠근다. 패턴을 먼저 잠가 패턴 쪽 전이와 순서를 맞춘다.
 
-    소속은 DB에서 다시 읽는다. 용법을 읽어 둔 뒤 그 용법이 원형 용법으로 합쳐져 지워졌거나 원형
-    아래로 옮겨졌으면 거부한다(#64).
+    용법을 읽어 둔 뒤 그 용법이 원형 용법으로 합쳐져 지워졌거나 원형 아래로 옮겨졌으면, 읽어 둔
+    소속에서 고른 상태 변경이라 거부한다(#64).
     """
     moved = Refused("그사이 용법이 원형 용법으로 합쳐지거나 원형 아래로 옮겨졌습니다")
-    pattern_id = (
-        GrammarUsage.objects.filter(pk=usage.pk).values_list("pattern_id", flat=True).first()
-    )
-    if pattern_id is None:
-        raise moved
+    pattern_id = usage.pattern_id
     pattern = _locked(GrammarPattern(pk=pattern_id))
     usage = GrammarUsage.objects.select_for_update(no_key=True).filter(pk=usage.pk).first()
     if usage is None or usage.pattern_id != pattern_id:

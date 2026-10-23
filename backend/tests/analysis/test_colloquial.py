@@ -1148,6 +1148,18 @@ def test_usage_transition_on_a_usage_merged_away_meanwhile_is_refused(fake_llm):
         review.approve_usage(own)
 
 
+def test_usage_transition_on_a_usage_moved_meanwhile_is_refused(fake_llm):
+    # admin이 회화체 소속으로 읽은 용법이 그사이 원형 아래로 옮겨졌다. 회화체 목록에서 고른
+    # 상태 변경을 원형과 그 회화체들이 함께 쓰는 용법에 적용하지 않는다.
+    base, variant, _, own = with_own_usage(fake_llm)
+    review.link_variant(variant, base, {own.pk: None})
+
+    with pytest.raises(review.Refused):
+        review.approve_usage(own)
+
+    assert GrammarUsage.objects.get(pk=own.pk).status == "pending"
+
+
 def test_usage_transition_checks_the_pattern_a_usage_was_moved_to(fake_llm):
     # admin이 용법 목록을 읽은 뒤 그 용법이 원형 아래로 옮겨졌고, 원형은 반려됐다.
     base, variant, _, own = with_own_usage(fake_llm)

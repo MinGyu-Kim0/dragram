@@ -620,3 +620,18 @@ def test_rule_whose_usage_left_the_pattern_is_not_approved(fake_llm):
 
     with pytest.raises(review.Refused, match="용법"):
         review.approve_rule(pending)
+
+
+def test_rule_approved_while_analyzing_keeps_the_result_from_being_saved(client, fake_llm):
+    # 분석이 규칙을 미검수로 읽은 뒤 저장 전에 승인되면, 승인의 stale 처리가 저장 전 구간을
+    # 보지 못해 새 규칙이 적용되지 않은 결과가 fresh로 남는다.
+    pending = rule(register_de(client, fake_llm, "장소"), "장소", status=UsageRule.Status.PENDING)
+    fake_llm.response = {"translation_ko": "도쿄에서 만난다", "spans": [span_answer(0, "usage", 1)]}
+    fake_llm.before_respond = lambda: UsageRule.objects.filter(pk=pending.pk).update(
+        status=UsageRule.Status.APPROVED
+    )
+
+    response = analyze(client, TOKYO_DE)
+
+    assert response.json()["translation_ko"] == "도쿄에서 만난다"
+    assert not SentenceAnalysis.objects.filter(translation_ko="도쿄에서 만난다").exists()

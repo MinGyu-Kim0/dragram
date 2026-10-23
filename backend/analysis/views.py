@@ -785,12 +785,13 @@ def _reading_changed(first, again):
     return again[1] != first[1]
 
 
-def _basis_changed(rows):
+def _basis_changed(rows, rules):
     """판정 근거로 읽은 상태가 저장 직전에 바뀌어 이 구간들을 저장하면 안 되는가(#63).
 
-    셋을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
+    넷을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
     구간의 용법 완결이 풀렸거나(이번 저장이 같은 원형에 새 용법을 더해 풀었을 수 있다), 판별
-    규칙으로 확정한 근거(규칙·패턴·용법의 승인)가 무너졌다. 그대로
+    규칙으로 확정한 근거(규칙·패턴·용법의 승인)가 무너졌거나, 분석할 때 읽은 승인된 판별
+    규칙(rules, _approved_rules)에 없던 규칙이 그 구간들의 패턴에 승인됐다. 그대로
     저장하면 그 stale 처리가 이 트랜잭션의 구간을 보지 못해 다시 분석될 계기가 없다.
     """
     closed = {row.pattern_id for row in rows if row.decided_by == SpanMatch.DecidedBy.SINGLE_USAGE}
@@ -805,7 +806,16 @@ def _basis_changed(rows):
         or _pattern_statuses(rule.pattern) != {ReviewStatus.APPROVED}
         for rule in ruled
     )
-    return opened or unusable or _links_changed(rows)
+    read = {rule.pk for pattern_rules in rules.values() for rule in pattern_rules}
+    approved = (
+        UsageRule.objects.filter(
+            status=UsageRule.Status.APPROVED,
+            pattern__in={row.pattern_id for row in rows if row.pattern_id},
+        )
+        .exclude(pk__in=read)
+        .exists()
+    )
+    return opened or unusable or approved or _links_changed(rows)
 
 
 def _links_changed(rows):
@@ -1469,7 +1479,7 @@ def analyze(request):
             # 이 트랜잭션에서 만든 행이라 다른 요청은 아직 보지도 잠그지도 못한다.
             rows = span_matches(saved, validated, final)
             SpanMatch.objects.bulk_create(rows)
-            return saved, _basis_changed(rows)
+            return saved, _basis_changed(rows, rules)
         if _is_fresh(saved):
             return saved, False
         # 임시 분석을 받기 전에 저장된 행이나 stale 행이면 이번 결과로 통째로 바꾼다. 상태
@@ -1506,7 +1516,7 @@ def analyze(request):
                 "updated_at",
             ]
         )
-        return locked, locked.generation != started_generation or _basis_changed(rows)
+        return locked, locked.generation != started_generation or _basis_changed(rows, rules)
 
     def closed_grammar():
         """LLM 없이 확정한 구간의 응답 항목(원문 순서)."""
@@ -1624,7 +1634,7 @@ def analyze(request):
                 or locked.generation != started_generation
                 or locked.matcher_version >= matcher_version
                 or new_keys & _stored_keys(locked)
-                or _basis_changed(rows)
+                or _basis_changed(rows, rules)
             ):
                 transaction.set_rollback(True)
                 return None

@@ -100,12 +100,16 @@ class ExtensionTokenAuthentication(BaseAuthentication):
             # (재발급이 쓰지 않은 토큰을 지웠다) 거부한다.
             with transaction.atomic():
                 lock_user(row.user_id)
-                if not ExtensionToken.objects.filter(pk=row.pk, revoked_at__isnull=True).exists():
+                # 잠근 뒤 다시 읽는다. 같은 토큰의 다른 요청이 먼저 첫 사용을 마쳤으면(그 뒤
+                # 재발급된 토큰이 있을 수 있다) 정리하지 않는다.
+                fresh = ExtensionToken.objects.filter(pk=row.pk, revoked_at__isnull=True).first()
+                if fresh is None:
                     raise BusinessError(AuthError.LOGIN_REQUIRED, "그사이 바뀐 토큰")
-                ExtensionToken.objects.filter(user=row.user, session_key=row.session_key).exclude(
-                    pk=row.pk
-                ).delete()
-                ExtensionToken.objects.filter(pk=row.pk).update(last_used_at=now)
+                if fresh.last_used_at is None:
+                    ExtensionToken.objects.filter(
+                        user=row.user, session_key=row.session_key
+                    ).exclude(pk=row.pk).delete()
+                    ExtensionToken.objects.filter(pk=row.pk).update(last_used_at=now)
         # 마지막 사용 시각은 하루에 한 번만 바꾼다.
         elif timezone.localdate(row.last_used_at) != timezone.localdate(now):
             ExtensionToken.objects.filter(pk=row.pk).update(last_used_at=now)

@@ -329,3 +329,33 @@ def test_first_use_racing_a_reissue_does_not_delete_the_new_token(monkeypatch, f
 
     monkeypatch.setattr(tokens, "_usable_row", read)
     assert analyze(reissued["c"]).status_code == 200
+
+
+def test_second_concurrent_first_use_does_not_delete_a_token_issued_in_between(
+    monkeypatch, fake_llm
+):
+    # 같은 새 토큰 B로 두 요청이 동시에 처음 쓰였다. 첫 요청이 정리를 마치고 재발급이 C를
+    # 만든 뒤, B를 아직 안 쓴 것으로 읽어 둔 두 번째 요청이 잠금을 잡는다.
+    web, headers = web_session()
+    b_token = issue(web, headers)
+    read = tokens._usable_row
+    stale = {}
+
+    def read_before_first_use(request, **kwargs):
+        if "row" not in stale:
+            stale["row"] = read(request, **kwargs)
+            return stale["row"]
+        return stale["row"]
+
+    b"".join(analyze(b_token).streaming_content)
+    c_token = issue(web, headers)
+    stale["row"] = ExtensionToken.objects.get(
+        token_hash=hashlib.sha256(b_token.encode()).hexdigest()
+    )
+    stale["row"].last_used_at = None
+    monkeypatch.setattr(tokens, "_usable_row", read_before_first_use)
+
+    assert analyze(b_token).status_code == 200
+
+    monkeypatch.setattr(tokens, "_usable_row", read)
+    assert analyze(c_token, "私は先生です。").status_code == 200

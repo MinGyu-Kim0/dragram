@@ -50,10 +50,14 @@ def revoke_session(user, session_key):
     ).update(revoked_at=timezone.now())
 
 
-def move_session(user, old_key, new_key):
-    """같은 사용자가 다시 로그인해 세션 키가 바뀌었다. 그 세션이 발급한 토큰을 새 키로 옮긴다."""
+def hand_over_session(user, old_key, new_key):
+    """세션에 user가 로그인했다. old_key 세션이 발급한 토큰 가운데 다른 사용자 것은 폐기하고,
+    user 것은 new_key로 옮긴다(같은 사용자가 다시 로그인해 세션 키가 바뀐 경우).
+    """
+    from_old = ExtensionToken.objects.filter(session_key=old_key)
+    from_old.exclude(user=user).filter(revoked_at__isnull=True).update(revoked_at=timezone.now())
     if old_key != new_key:
-        ExtensionToken.objects.filter(user=user, session_key=old_key).update(session_key=new_key)
+        from_old.filter(user=user).update(session_key=new_key)
 
 
 class ExtensionTokenAuthentication(BaseAuthentication):

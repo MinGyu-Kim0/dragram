@@ -50,9 +50,10 @@ def _field(request, name, error_code):
     return request.data.get(name)
 
 
-def _lock_user(user):
-    """같은 사용자의 확장 토큰 발급과 웹 로그아웃을 직렬화한다(트랜잭션 안에서 부른다)."""
-    User.objects.select_for_update().get(pk=user.pk)
+def _lock_user(user_or_id):
+    """같은 사용자의 확장 토큰 발급과 웹 로그아웃·로그인을 직렬화한다(트랜잭션 안에서 부른다)."""
+    pk = getattr(user_or_id, "pk", user_or_id)
+    User.objects.select_for_update().filter(pk=pk).first()
 
 
 def _user_body(user):
@@ -62,21 +63,19 @@ def _user_body(user):
 def _start_session(request, user):
     if not user.is_active:
         raise BusinessError(AuthError.ACCOUNT_DISABLED, "막힌 계정")
-    previous = request.user if request.user.is_authenticated else None
     session = request._request.session
     previous_key = session.session_key
+    # 세션에 로그인해 있던 사용자. 막힌 계정은 인증되지 않지만 세션에는 남아 있어 함께 본다.
+    previous_id = session.get(auth.SESSION_KEY)
     with transaction.atomic():
-        if previous is not None:
-            _lock_user(previous)
+        if previous_id is not None:
+            _lock_user(previous_id)
         # login은 세션 키를 바꾸고, 다른 사용자면 세션을 비운다.
         auth.login(request._request, user, backend="django.contrib.auth.backends.ModelBackend")
-        if previous is not None:
-            if previous.pk == user.pk:
-                # 같은 사용자: 다음 웹 로그아웃이 이 세션에서 발급한 토큰을 찾도록 옮긴다.
-                tokens.move_session(user, previous_key, session.session_key)
-            else:
-                # 다른 사용자로 바뀌었다. 이전 사용자가 이 세션에서 발급한 토큰을 폐기한다.
-                tokens.revoke_session(previous, previous_key)
+        if previous_key:
+            # 이전 세션이 발급한 토큰: 다른 사용자 것은 폐기하고, 같은 사용자 것은 다음 웹
+            # 로그아웃이 찾도록 새 세션 키로 옮긴다.
+            tokens.hand_over_session(user, previous_key, session.session_key)
     return Response(_user_body(user))
 
 

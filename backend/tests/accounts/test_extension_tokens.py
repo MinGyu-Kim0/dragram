@@ -268,8 +268,21 @@ def test_moved_tokens_are_revoked_by_the_new_session_logout():
     user = User.objects.create(username="a", email="a@example.com")
     raw = tokens.issue(user, "old-session")
 
-    tokens.move_session(user, "old-session", "new-session")
+    tokens.hand_over_session(user, "old-session", "new-session")
     tokens.revoke_session(user, "new-session")
 
     assert ExtensionToken.objects.get().revoked_at is not None
     assert raw
+
+
+def test_logging_in_over_a_disabled_users_session_still_revokes_their_tokens(
+    fake_llm, dev_login_on
+):
+    web, headers = web_session("a@example.com")
+    previous = issue(web, headers)
+    User.objects.filter(email="a@example.com").update(is_active=False)
+
+    dev_login(web, headers, "b@example.com")
+    User.objects.filter(email="a@example.com").update(is_active=True)
+
+    assert analyze(previous).status_code == 401

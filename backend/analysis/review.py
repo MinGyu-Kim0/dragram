@@ -441,7 +441,10 @@ def approve_rule(rule, user=None):
     rule.approved_by = user
     rule.approved_at = timezone.now()
     rule.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
-    patterns.make_stale(pattern=pattern, family=False)
+    # 용법 완결 패턴의 구간은 2단계에서 먼저 확정되므로 규칙이 결과를 바꾸지 않는다. 용법 완결이
+    # 풀릴 때 그 전이가 따로 stale로 만든다.
+    if not pattern.usage_closed:
+        patterns.make_stale(pattern=pattern, family=False)
 
 
 @transaction.atomic

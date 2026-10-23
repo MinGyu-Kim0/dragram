@@ -663,3 +663,26 @@ def test_rule_form_refuses_a_usage_merged_away_after_it_was_chosen(
 
     assert response.status_code == 200
     assert not UsageRule.objects.exists()
+
+
+def test_approving_a_rule_of_a_usage_closed_pattern_leaves_its_analyses_alone(client, fake_llm):
+    # 용법 완결 패턴의 구간은 2단계에서 먼저 확정되므로 새 규칙이 결과를 바꾸지 않는다.
+    usage_rule, pattern = pending_rule(client, fake_llm)
+    UsageRule.objects.filter(pk=usage_rule.pk).update(test_cases=PASSING)
+    GrammarPattern.objects.filter(pk=pattern.pk).update(usage_closed=True)
+
+    review.approve_rule(usage_rule)
+
+    assert not SentenceAnalysis.objects.filter(is_stale=True).exists()
+
+
+def test_rule_with_text_that_cannot_be_stored_is_refused_by_the_form(
+    admin_client, client, fake_llm
+):
+    pattern = register_de(client, fake_llm, "장소")
+    form = {**rule_form(pattern), "condition": '[{"position": -1, "lemma": "\\ud800"}]'}
+
+    response = admin_client.post(f"{RULES}add/", form)
+
+    assert response.status_code == 200
+    assert not UsageRule.objects.exists()

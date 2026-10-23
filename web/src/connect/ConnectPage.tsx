@@ -131,12 +131,14 @@ function SignedIn({
   };
 
   const signOut = async () => {
+    setBusy(true);
     setProblem(undefined);
     try {
       await logout();
     } catch {
       // 실패하면 세션이 남아 있으므로 로그인한 상태를 그대로 보인다.
       setProblem("logoutFailed");
+      setBusy(false);
       return;
     }
     // 서버가 이 세션의 토큰을 폐기했다. 확장이 바로 로그인 안내로 바뀌게 알린다(없어도 된다).
@@ -176,7 +178,14 @@ function SignedIn({
           확장 프로그램 연결
         </button>
       )}
-      <button type="button" className="secondary-button" onClick={signOut}>
+      {/* 연결과 로그아웃은 한 번에 하나만 한다. 로그아웃이 폐기한 토큰을 늦게 온 연결이 확장에
+          넘기지 않게 한다. */}
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={busy}
+        onClick={signOut}
+      >
         로그아웃
       </button>
     </>

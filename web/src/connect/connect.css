@@ -84,7 +84,8 @@ body {
   cursor: pointer;
 }
 
-.connect .primary-button:disabled {
+.connect .primary-button:disabled,
+.connect .secondary-button:disabled {
   opacity: 0.6;
   cursor: default;
 }

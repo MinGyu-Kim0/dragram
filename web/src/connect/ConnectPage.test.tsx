@@ -242,4 +242,28 @@ describe("확장 연결(#109)", () => {
       { extensionId: "dragram-extension-id", message: { type: "disconnect" } },
     ]);
   });
+
+  test("연결하는 동안에는 로그아웃할 수 없어, 폐기된 토큰을 확장에 넘기지 않는다", async () => {
+    let finishIssue!: () => void;
+    responses["POST /api/auth/extension-tokens/"] = () =>
+      json({ token: "extension-token" }, 201);
+    const issued = new Promise<void>((resolve) => (finishIssue = resolve));
+    const original = globalThis.fetch;
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url === "/api/auth/extension-tokens/") await issued;
+      return original(url, init);
+    });
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "확장 프로그램 연결" }),
+    );
+
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeDisabled();
+    finishIssue();
+    expect(
+      await screen.findByRole("heading", { name: "연결했어요" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "로그아웃" })).toBeEnabled();
+  });
 });

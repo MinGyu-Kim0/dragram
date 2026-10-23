@@ -8,7 +8,7 @@ import {
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import { requestAnalysis } from "@/utils/analysis-request";
-import { loadToken, saveToken } from "@/utils/auth";
+import { loadToken, saveToken, signOut } from "@/utils/auth";
 import { handleExternalMessage, WEB_ORIGIN } from "@/utils/external-messages";
 import App from "./App";
 
@@ -2021,5 +2021,39 @@ describe("로그인과 확장 연결(#109)", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.getByText("새 문장")).toBeInTheDocument();
+  });
+
+  test("로그아웃 전에 들어와 남아 있던 분석 요청은 다음에 연결한 사람에게 분석하지 않는다", async () => {
+    const fetchMock = respondWith(200, analysis("나는 학생입니다."));
+    // 패널이 닫힌 동안 들어온 요청이 세션 저장소에 남아 있다.
+    await send(panelWindowId, "私は学生です。");
+    await signOut();
+    await saveToken("someone-else-token", "someone-else");
+
+    render(<App />);
+    await screen.findByRole("button", { name: "로그아웃" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("로그아웃 전에 시작한 문장 추출이 늦게 저장돼도 버린다", async () => {
+    const fetchMock = respondWith(200, analysis("나는 학생입니다."));
+    render(<App />);
+    await screen.findByRole("button", { name: "로그아웃" });
+    const startedAt = Date.now() - 1000;
+    await signOut();
+    await saveToken("someone-else-token", "someone-else");
+
+    await requestAnalysis(
+      panelWindowId,
+      [{ text: "私は学生です。", selection: { start: 0, end: 7 } }],
+      startedAt,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

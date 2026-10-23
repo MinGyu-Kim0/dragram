@@ -1,3 +1,4 @@
+import { loadSignedOutAt } from "./auth";
 import type { ExtractedSentence } from "./extract-sentences";
 
 // 백그라운드가 넣은 분석 요청을 사이드 패널이 읽는다. 패널이 막 열려 메시지를 놓치지 않도록
@@ -12,13 +13,20 @@ export interface AnalysisRequest {
   id: string;
   // 드래그한 범위를 넓힌 문장들(문장 추출 결과). 문장마다 따로 분석한다.
   sentences: ExtractedSentence[];
+  // 분석을 시작한(메뉴를 누른) 시각. 이 뒤에 로그아웃했으면 이전 사람의 요청이라 버린다.
+  startedAt: number;
 }
 
 export async function requestAnalysis(
   windowId: number,
   sentences: ExtractedSentence[],
+  startedAt: number = Date.now(),
 ): Promise<void> {
-  const request: AnalysisRequest = { id: crypto.randomUUID(), sentences };
+  const request: AnalysisRequest = {
+    id: crypto.randomUUID(),
+    sentences,
+    startedAt,
+  };
   await browser.storage.session.set({ [keyFor(windowId)]: request });
 }
 
@@ -35,7 +43,10 @@ export function receiveAnalysisRequests(
     if (!request || request.id === lastId) return;
     lastId = request.id;
     browser.storage.session.remove(key);
-    onRequest(request);
+    // 로그아웃(또는 다른 계정의 연결) 전에 시작한 요청은 다음 사람에게 분석하지 않는다.
+    loadSignedOutAt().then((signedOutAt) => {
+      if ((request.startedAt ?? 0) > signedOutAt) onRequest(request);
+    });
   };
   const listener = (
     changes: Record<string, { newValue?: unknown }>,

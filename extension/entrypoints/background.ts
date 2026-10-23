@@ -40,9 +40,11 @@ export default defineBackground(() => {
     // 고른 범위를 문장으로 넓히고 루비 읽기를 뺀 문장 목록을 패널에 넘긴다(#16).
     const windowId = tab.windowId;
     const isLatest = startExtraction(windowId);
+    // 추출하는 사이 로그아웃하면 그 요청을 버릴 수 있게 시작 시각을 남긴다.
+    const startedAt = Date.now();
     sentencesFromPage(tab.id, info.frameId ?? 0, info.selectionText).then(
       (sentences) => {
-        if (isLatest()) requestAnalysis(windowId, sentences);
+        if (isLatest()) requestAnalysis(windowId, sentences, startedAt);
       },
     );
   });

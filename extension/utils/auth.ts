@@ -66,6 +66,14 @@ const markSignedOut = () =>
     [ACCOUNT_KEY]: null,
   });
 
+// 마지막으로 비우라는 표시를 남긴 시각(로그아웃, 다른 계정의 연결). 없으면 0이다. 이보다 먼저
+// 시작한 분석 요청은 이전 사람의 것이라 버린다.
+export async function loadSignedOutAt(): Promise<number> {
+  const stored = await browser.storage.local.get(SIGNED_OUT_KEY);
+  const at = stored[SIGNED_OUT_KEY];
+  return typeof at === "number" ? at : 0;
+}
+
 export function signOut(): Promise<void> {
   return withTokenLock(markSignedOut);
 }

@@ -85,7 +85,7 @@
 | is_common | 흔한 단어 | boolean |  |  | ke_pri·re_pri 중 news1·ichi1·spec1·spec2·gai1이 하나라도 있으면 true(구현이 정함, 확인 필요). 후보가 여럿일 때 순서 힌트 |
 | reading_restrictions | 읽기 제한 | jsonb | Y |  | `{읽기: [허용 표기]}`. re_restr: 읽기→허용 표기 목록, re_nokanji 읽기는 `[]`(한자 표기에 쓰지 않음, 구현이 정함, 확인 필요). 표기에 맞는 읽기 표시·후보 거르기용. 대부분 NULL |
 | pos | 품사 | varchar(255) |  |  | JMdict 적재: 첫 뜻의 JMdict pos 코드를 `,`로 이은 값(예: `v1,vt`). pos가 없는 뜻은 앞 뜻의 pos를 이어받음(구현이 정함, 확인 필요: design-decisions 14절 'SudachiPy 원래 값 기록용'과 충돌, 47절) |
-| tags | 단어 태그 | text[] |  |  | 영문 코드 배열. 단어 전체 태그(품사·동사 그룹·い/な형용사·고유명사·예외 활용) + 검색용 sense 태그 합집합. GIN. 허용 목록과 JMdict 변환표는 코드 상수(`analysis/jmdict.py`, design-decisions 47절) |
+| tags | 단어 태그 | text[] |  |  | 영문 코드 배열. 단어 전체 태그(품사·동사 그룹·い/な형용사·고유명사·예외 활용) + 검색용 sense 태그 합집합. GIN. 허용 목록과 JMdict 변환표는 코드 상수(`analysis/jmdict.py`). JMdict 적재는 단어 전체 태그를 모든 뜻의 JMdict pos에서 만듦(구현이 정함, 확인 필요: design-decisions 14절 '품사 태그는 SudachiPy 유래'와 충돌, 47절) |
 | jmdict_seq | JMdict 항목 번호 | integer | Y |  | UNIQUE. JMdict 항목 1개 = word 1행. 사전에 없는 단어(LLM 생성)면 NULL / 사전에 없는 단어 중복 방지: 부분 UNIQUE(dictionary_form, reading) WHERE jmdict_seq IS NULL (저장 전 가나 정규화, 빈 값 금지, 대표 표기 고정) |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 

@@ -9,27 +9,52 @@ export async function loadToken(): Promise<string | undefined> {
   return typeof token === "string" && token ? token : undefined;
 }
 
-export async function saveToken(token: string): Promise<void> {
-  await browser.storage.local.set({ [TOKEN_KEY]: token });
+// 토큰을 바꾸는 일은 백그라운드(웹의 connect·disconnect)와 사이드 패널(로그아웃, 401)에서
+// 일어난다. 확인하고 지우는 사이에 다른 쪽이 새 토큰을 저장하지 않도록 한 줄로 세운다.
+// 확장의 모든 맥락은 출처가 같아 Web Locks를 함께 쓴다. 없으면(테스트) 이 맥락 안에서만 세운다.
+const TOKEN_LOCK = "dragram-extension-token";
+let queue: Promise<unknown> = Promise.resolve();
+
+function withTokenLock<T>(task: () => Promise<T>): Promise<T> {
+  const locks = globalThis.navigator?.locks;
+  if (locks) return locks.request(TOKEN_LOCK, task) as Promise<T>;
+  const run = queue.then(task, task);
+  queue = run.catch(() => undefined);
+  return run;
 }
 
-export async function clearToken(): Promise<void> {
-  await browser.storage.local.remove(TOKEN_KEY);
+export function saveToken(token: string): Promise<void> {
+  return withTokenLock(() => browser.storage.local.set({ [TOKEN_KEY]: token }));
 }
 
 // 저장한 토큰이 token일 때만 지운다. 거부된 옛 토큰의 응답이 늦게 와도 그사이 다시 연결한
 // 새 토큰을 지우지 않는다.
-export async function clearTokenIfStill(token: string): Promise<void> {
-  if ((await loadToken()) === token) await clearToken();
+export function clearTokenIfStill(token: string): Promise<void> {
+  return withTokenLock(async () => {
+    if ((await loadToken()) === token)
+      await browser.storage.local.remove(TOKEN_KEY);
+  });
 }
 
 // 사용자가 명시적으로 로그아웃했다(패널 로그아웃, 웹 로그아웃). 401로 토큰을 지운 것과 달리
-// 패널이 보던 원문·결과를 비워야 해서 따로 알린다.
+// 패널이 보던 원문·결과를 비워야 해서 표시를 남긴다. 표시와 토큰 지우기는 한 번에 저장한다.
 const SIGNED_OUT_KEY = "signedOutAt";
 
-export async function signOut(): Promise<void> {
-  await browser.storage.local.set({ [SIGNED_OUT_KEY]: Date.now() });
-  await clearToken();
+const markSignedOut = () =>
+  browser.storage.local.set({
+    [SIGNED_OUT_KEY]: Date.now(),
+    [TOKEN_KEY]: null,
+  });
+
+export function signOut(): Promise<void> {
+  return withTokenLock(markSignedOut);
+}
+
+// 패널 로그아웃: 저장한 토큰이 token일 때만 로그아웃한다(그사이 다시 연결했으면 그대로 둔다).
+export function signOutIfStill(token: string): Promise<void> {
+  return withTokenLock(async () => {
+    if ((await loadToken()) === token) await markSignedOut();
+  });
 }
 
 // 연결 상태(토큰이 있는지)를 지금 값과 이후 바뀔 때마다 알린다. 명시적으로 로그아웃하면

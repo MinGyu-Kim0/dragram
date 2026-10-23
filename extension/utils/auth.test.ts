@@ -1,6 +1,12 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
-import { saveToken, signOut, watchConnection } from "./auth";
+import {
+  loadToken,
+  saveToken,
+  signOut,
+  signOutIfStill,
+  watchConnection,
+} from "./auth";
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -37,4 +43,25 @@ test("로그아웃하면 화면을 비우라고 알리고 연결이 끊긴다", 
   await signOut();
 
   expect(events).toEqual(["connected", "reset", "out"]);
+});
+
+test("로그아웃 확인과 지우기 사이에 새 토큰이 저장돼도 새 토큰은 남는다", async () => {
+  await saveToken("old-token");
+
+  // 로그아웃이 먼저 시작하고, 끝나기 전에 웹 연결이 새 토큰을 저장한다.
+  await Promise.all([signOutIfStill("old-token"), saveToken("new-token")]);
+
+  expect(await loadToken()).toBe("new-token");
+});
+
+test("로그아웃은 표시와 토큰 지우기를 한 번에 저장한다", async () => {
+  await saveToken("token");
+  const set = vi.spyOn(fakeBrowser.storage.local, "set");
+  const remove = vi.spyOn(fakeBrowser.storage.local, "remove");
+
+  await signOut();
+
+  expect(set).toHaveBeenCalledTimes(1);
+  expect(remove).not.toHaveBeenCalled();
+  expect(await loadToken()).toBeUndefined();
 });

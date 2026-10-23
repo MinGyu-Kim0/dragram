@@ -11,7 +11,14 @@ from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from analysis import llm, patterns
-from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus, SentenceAnalysis, SpanMatch
+from analysis.models import (
+    GrammarPattern,
+    GrammarUsage,
+    ReviewStatus,
+    SentenceAnalysis,
+    SpanMatch,
+    UsageRule,
+)
 from analysis.morphology import morphemes
 from analysis.normalize import (
     NORMALIZE_VERSION,
@@ -24,6 +31,7 @@ from analysis.normalize import (
 )
 from analysis.positions import key_offsets, to_analysis, to_key, to_original, utf16_offsets
 from analysis.ruby import ruby_pieces
+from analysis.rules import condition_matches
 from errors import AnalysisError, BusinessError
 from errors.handler import log_business_error
 
@@ -685,6 +693,41 @@ def _closed_usage(span):
     return candidate if candidate[1].status == ReviewStatus.APPROVED else None
 
 
+def _approved_rules(spans):
+    """구간들의 매칭된 패턴에 걸린 승인된 판별 규칙. {패턴 ID: [규칙](id 순서)}(#55)."""
+    rules = {}
+    approved = UsageRule.objects.filter(
+        status=UsageRule.Status.APPROVED, pattern__in={span.pattern.pk for span in spans}
+    ).order_by("id")
+    for rule in approved:
+        rules.setdefault(rule.pattern_id, []).append(rule)
+    return rules
+
+
+def _rule_usage(span, morphs, rules):
+    """승인된 판별 규칙으로 LLM 없이 확정할 구간이면 (후보 ID, 용법, 규칙), 아니면 None(구간 판정
+    절차 3단계, #55). 후보가 하나여도, 같은 패턴에 미검수 용법이 있어도 적용한다.
+
+    실제로 매칭된 패턴의 규칙 가운데 패턴(연결됐으면 원형도)과 용법이 승인됐고 용법이 후보에 있는
+    것만 본다. 분석할 때 상태를 다시 본다. 조건이 맞는 규칙들이 가리키는 후보가 정확히 하나일
+    때만 확정하고, 같은 용법을 가리키는 규칙이 여럿 맞으면 id가 가장 작은 규칙을 기록한다.
+    """
+    if _pattern_statuses(span.pattern) != {ReviewStatus.APPROVED}:
+        return None
+    candidates = {usage.id: (candidate_id, usage) for candidate_id, usage in span.candidates}
+    decided = {}
+    for rule in rules.get(span.pattern.pk, ()):
+        candidate = candidates.get(rule.usage_id)
+        if candidate is None or candidate[1].status != ReviewStatus.APPROVED:
+            continue
+        if condition_matches(rule.condition, morphs, span.start_token, span.end_token):
+            decided.setdefault(rule.usage_id, rule)
+    if len(decided) != 1:
+        return None
+    [(usage_id, rule)] = decided.items()
+    return (*candidates[usage_id], rule)
+
+
 def _words_response(stored, offsets, origins, utf16, restore):
     """저장된 단어 항목의 키 텍스트 구간을 이 요청 원문의 UTF-16 위치로 바꾼다.
 
@@ -1013,21 +1056,25 @@ def analyze(request):
         return morphs[token].pos not in _NON_WORD_POS and not overlaps_number(token)
 
     # 등록된 패턴에 걸린 구간과 후보 용법. LLM은 서버가 매긴 구간·후보 ID로만 답한다.
-    # 승인된 용법 완결 패턴의 구간은 LLM 없이 확정하고, 나머지만 후보로 묻는다. 확정 구간은 LLM이
-    # 새 구문으로 다시 내지 않도록 알리기만 한다(#39).
+    # 승인된 용법 완결 패턴의 구간(#39)과 승인된 판별 규칙으로 정해지는 구간(#55)은 LLM 없이
+    # 확정하고, 나머지만 후보로 묻는다. 확정 구간은 LLM이 새 구문으로 다시 내지 않도록 알리기만
+    # 한다.
     matched = patterns.candidate_spans(morphs)
-    # (구간, 후보 ID, 용법)
+    rules = _approved_rules(matched)
+    # (구간, 후보 ID, 용법, 판별 규칙(용법 완결 확정이면 None))
     closed_spans, spans = [], []
     for span in matched:
         closed = _closed_usage(span)
-        if closed is None:
-            spans.append(span)
+        if closed is not None:
+            closed_spans.append((span, *closed, None))
+        elif (by_rule := _rule_usage(span, morphs, rules)) is not None:
+            closed_spans.append((span, *by_rule))
         else:
-            closed_spans.append((span, *closed))
+            spans.append(span)
     llm_spans = _llm_spans(spans)
     decided_spans = [
         {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
-        for span, _, usage in closed_spans
+        for span, _, usage, _ in closed_spans
     ]
     content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
 
@@ -1166,9 +1213,9 @@ def analyze(request):
         }
 
     def closed_rows(saved, closed):
-        """용법 완결로 LLM 없이 확정한 구간(구간, 후보 ID, 용법)들의 구간 매칭."""
+        """LLM 없이 확정한 구간(구간, 후보 ID, 용법, 판별 규칙)들의 구간 매칭."""
         rows = []
-        for span, candidate_id, usage in closed:
+        for span, candidate_id, usage, rule in closed:
             start, end = key_span(span.start_token, span.end_token)
             rows.append(
                 SpanMatch(
@@ -1178,7 +1225,10 @@ def analyze(request):
                     start_offset=start,
                     end_offset=end,
                     state=SpanMatch.State.DECIDED,
-                    decided_by=SpanMatch.DecidedBy.SINGLE_USAGE,
+                    decided_by=(
+                        SpanMatch.DecidedBy.RULE if rule else SpanMatch.DecidedBy.SINGLE_USAGE
+                    ),
+                    rule=rule,
                     candidates=[{"candidate_id": candidate_id, "usage_id": usage.id}],
                 )
             )
@@ -1448,9 +1498,9 @@ def analyze(request):
         return locked, locked.generation != started_generation or _basis_changed(rows)
 
     def closed_grammar():
-        """용법 완결로 확정한 구간의 응답 항목(원문 순서)."""
+        """LLM 없이 확정한 구간의 응답 항목(원문 순서)."""
         grammar = []
-        for span, _, usage in sorted(
+        for span, _, usage, _ in sorted(
             closed_spans, key=lambda c: (c[0].start_token, c[0].end_token)
         ):
             start, end = key_span(span.start_token, span.end_token)
@@ -1513,12 +1563,12 @@ def analyze(request):
         grammar = _grammar_entries(analysis, offsets, origins, utf16, restore)
         stored_keys = _stored_keys(analysis)
         usages = GrammarUsage.objects.select_related("pattern").in_bulk(
-            [usage.id for _, _, usage in new_closed]
+            [usage.id for _, _, usage, _ in new_closed]
         )
         matched = GrammarPattern.objects.select_related("variant_of").in_bulk(
-            [span.pattern.id for span, _, _ in new_closed]
+            [span.pattern.id for span, *_ in new_closed]
         )
-        for span, _, usage in new_closed:
+        for span, _, usage, _ in new_closed:
             current = usages.get(usage.id)
             if span_key(span) in stored_keys or current is None:
                 continue
@@ -1631,7 +1681,7 @@ def analyze(request):
                 )
         decided += [
             {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
-            for span, _, usage in new_closed
+            for span, _, usage, _ in new_closed
         ]
         return decided
 

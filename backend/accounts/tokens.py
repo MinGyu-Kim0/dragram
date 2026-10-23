@@ -23,17 +23,15 @@ def _hash(token):
 def issue(user, session_key):
     """새 토큰을 만들어 원본을 돌려준다. 원본은 저장하지 않는다.
 
-    같은 세션(같은 브라우저의 확장)이 예전에 발급한 토큰은 지운다. 확장은 마지막 토큰만 쓰고,
-    발급을 되풀이해도 행이 쌓이지 않게 세션마다 하나만 남긴다.
+    같은 세션(같은 브라우저의 확장)이 발급하고 아직 한 번도 쓰지 않은 토큰은 지운다. 쓰던
+    토큰은 새 토큰이 처음 쓰일 때 지운다(확장에 새 토큰을 넘기지 못해도 쓰던 연결은 남는다).
+    그래서 세션마다 쓰던 토큰과 기다리는 토큰, 많아야 둘만 남는다.
     """
-    ExtensionToken.objects.filter(user=user, session_key=session_key).delete()
+    ExtensionToken.objects.filter(
+        user=user, session_key=session_key, last_used_at__isnull=True
+    ).delete()
     token = secrets.token_urlsafe(32)
-    ExtensionToken.objects.create(
-        token_hash=_hash(token),
-        user=user,
-        session_key=session_key,
-        last_used_at=timezone.now(),
-    )
+    ExtensionToken.objects.create(token_hash=_hash(token), user=user, session_key=session_key)
     return token
 
 
@@ -60,6 +58,26 @@ def hand_over_session(user, old_key, new_key):
         from_old.filter(user=user).update(session_key=new_key)
 
 
+def _usable_row(request, *, allow_inactive=False):
+    """Bearer 토큰의 행. 없거나 폐기·만료됐으면 AUTH:LOGIN_REQUIRED다."""
+    scheme, _, token = request.headers.get("Authorization", "").partition(" ")
+    if scheme != "Bearer" or not token:
+        raise BusinessError(AuthError.LOGIN_REQUIRED, "토큰 없음")
+    row = (
+        ExtensionToken.objects.select_related("user")
+        .filter(token_hash=_hash(token), revoked_at__isnull=True)
+        .first()
+    )
+    today = timezone.localdate()
+    if (
+        row is None
+        or timezone.localdate(row.last_used_at or row.created_at) < today - EXPIRES_AFTER
+        or not (row.user.is_active or allow_inactive)
+    ):
+        raise BusinessError(AuthError.LOGIN_REQUIRED, "쓸 수 없는 토큰")
+    return row
+
+
 class ExtensionTokenAuthentication(BaseAuthentication):
     """Authorization: Bearer <토큰>. 토큰이 없거나 쓸 수 없으면 AUTH:LOGIN_REQUIRED다.
 
@@ -67,25 +85,29 @@ class ExtensionTokenAuthentication(BaseAuthentication):
     """
 
     def authenticate(self, request):
-        scheme, _, token = request.headers.get("Authorization", "").partition(" ")
-        if scheme != "Bearer" or not token:
-            raise BusinessError(AuthError.LOGIN_REQUIRED, "토큰 없음")
-        row = (
-            ExtensionToken.objects.select_related("user")
-            .filter(token_hash=_hash(token), revoked_at__isnull=True)
-            .first()
-        )
+        row = _usable_row(request)
         now = timezone.now()
-        today = timezone.localdate(now)
-        if (
-            row is None
-            or timezone.localdate(row.last_used_at) < today - EXPIRES_AFTER
-            or not row.user.is_active
-        ):
-            raise BusinessError(AuthError.LOGIN_REQUIRED, "쓸 수 없는 토큰")
+        if row.last_used_at is None:
+            # 처음 쓰였다. 같은 세션의 다른(예전) 토큰을 지운다.
+            ExtensionToken.objects.filter(user=row.user, session_key=row.session_key).exclude(
+                pk=row.pk
+            ).delete()
         # 마지막 사용 시각은 하루에 한 번만 바꾼다.
-        if timezone.localdate(row.last_used_at) != today:
+        if row.last_used_at is None or timezone.localdate(row.last_used_at) != timezone.localdate(
+            now
+        ):
             ExtensionToken.objects.filter(pk=row.pk).update(last_used_at=now)
+        return (row.user, row)
+
+    def authenticate_header(self, request):
+        return "Bearer"
+
+
+class ExtensionTokenRevocation(BaseAuthentication):
+    """확장 로그아웃(토큰 폐기) 전용. 막힌 계정의 토큰도 찾아 폐기할 수 있게 한다."""
+
+    def authenticate(self, request):
+        row = _usable_row(request, allow_inactive=True)
         return (row.user, row)
 
     def authenticate_header(self, request):

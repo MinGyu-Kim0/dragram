@@ -66,14 +66,38 @@ def test_logged_in_web_session_gets_a_token_and_only_its_hash_is_stored():
     assert ExtensionToken.objects.count() == 1
 
 
-def test_issuing_again_in_the_same_session_replaces_the_previous_token(fake_llm):
+def test_issuing_again_keeps_the_working_token_until_the_new_one_is_used(fake_llm):
+    # 확장에 새 토큰을 넘기지 못해도(확장이 답하지 않음 등) 쓰던 연결은 끊기지 않는다.
     web, headers = web_session()
     previous = issue(web, headers)
+    b"".join(analyze(previous).streaming_content)
 
     current = issue(web, headers)
+    assert analyze(previous).status_code == 200
 
+    # 새 토큰이 처음 쓰이면 같은 세션의 예전 토큰을 지운다.
+    b"".join(analyze(current, "私は先生です。").streaming_content)
     assert analyze(previous).status_code == 401
-    assert analyze(current).status_code == 200
+    assert ExtensionToken.objects.count() == 1
+
+
+def test_repeated_issuing_without_use_does_not_pile_up_rows():
+    web, headers = web_session()
+    for _ in range(5):
+        issue(web, headers)
+
+    assert ExtensionToken.objects.count() == 1
+
+
+def test_disabled_users_extension_logout_still_revokes_the_token():
+    web, headers = web_session()
+    token = issue(web, headers)
+    User.objects.update(is_active=False)
+
+    response = Client().post(REVOKE, **bearer(token))
+
+    assert response.status_code == 204
+    assert ExtensionToken.objects.get().revoked_at is not None
 
 
 def test_issuing_needs_a_login_and_csrf():

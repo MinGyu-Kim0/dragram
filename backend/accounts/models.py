@@ -24,7 +24,8 @@ class ExtensionToken(models.Model):
     # 발급한 웹 로그인 세션. 웹 로그아웃이 그 세션이 발급한 토큰만 폐기한다.
     session_key = models.CharField(max_length=40)
     created_at = models.DateTimeField(auto_now_add=True)
-    last_used_at = models.DateTimeField()
+    # 한 번도 쓰지 않았으면 NULL이다. 만료는 마지막 사용(없으면 발급) 시각부터 센다.
+    last_used_at = models.DateTimeField(null=True)
     revoked_at = models.DateTimeField(null=True)
 
     class Meta:

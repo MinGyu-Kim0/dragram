@@ -167,7 +167,7 @@ def issue_extension_token(request):
 
 
 @api_view(["POST"])
-@authentication_classes([tokens.ExtensionTokenAuthentication])
+@authentication_classes([tokens.ExtensionTokenRevocation])
 @permission_classes([])
 def revoke_extension_token(request):
     """확장 로그아웃: 요청한 토큰만 폐기한다. 웹 세션과 다른 토큰은 그대로다."""

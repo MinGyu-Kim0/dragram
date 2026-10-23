@@ -153,7 +153,16 @@ def link_variant(model_admin, request, queryset):
             request, "원형 패턴 ID 칸에 있는 패턴의 ID를 넣어야 합니다", messages.ERROR
         )
         return None
+    # 용법을 옮기거나 합쳐 지우므로 용법 권한도 있어야 한다(패턴 권한만으로는 안 된다).
+    may_merge = request.user.has_perms(
+        ["analysis.change_grammarusage", "analysis.delete_grammarusage"]
+    )
     if "apply" in request.POST:
+        if not may_merge:
+            model_admin.message_user(
+                request, "용법을 합치거나 옮길 권한(용법 변경·삭제)이 없습니다", messages.ERROR
+            )
+            return None
         mapping = _usage_mapping(request.POST)
         if mapping is None:
             model_admin.message_user(
@@ -168,8 +177,8 @@ def link_variant(model_admin, request, queryset):
         if len(chosen) == 1
         else GrammarUsage.objects.none()
     )
-    if not usages:
-        # 여러 개를 골랐으면 자기 용법이 남은 패턴은 거부 이유를 보인다(하나씩 연결한다).
+    if not usages or not may_merge:
+        # 여러 개를 골랐거나 용법 권한이 없으면 자기 용법이 남은 패턴은 거부 이유를 보인다.
         _apply(model_admin, request, chosen, lambda obj: review.link_variant(obj, base))
         return None
     return TemplateResponse(

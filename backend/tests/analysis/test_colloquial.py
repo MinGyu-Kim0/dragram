@@ -4,6 +4,7 @@ import html
 import threading
 
 import pytest
+from django.contrib.auth.models import Permission
 from django.db import IntegrityError, connection, transaction
 from django.db.models import F
 from django.test import Client
@@ -1193,3 +1194,28 @@ def test_usage_form_opened_before_merging_is_not_saved(admin_client, fake_llm, m
     assert "옮겨졌습니다" in html.unescape(response.content.decode())
     if moved:
         assert GrammarUsage.objects.get(pk=own.pk).example_ja is None
+
+
+@pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])
+def test_staff_without_usage_permissions_cannot_merge_or_move(
+    client, django_user_model, fake_llm, moved
+):
+    # 패턴 변경 권한만 있는 스태프는 용법을 옮기거나 지울 수 없다.
+    base, variant, done, own = with_own_usage(fake_llm)
+    staff = django_user_model.objects.create_user("staff", password="pw", is_staff=True)
+    staff.user_permissions.add(
+        *Permission.objects.filter(codename__in=["view_grammarpattern", "change_grammarpattern"])
+    )
+    client.force_login(staff)
+
+    act(
+        client,
+        "link_variant",
+        variant,
+        base_pattern_id=str(base.pk),
+        apply="1",
+        **{f"usage_{own.pk}": "move" if moved else str(done.pk)},
+    )
+
+    assert fresh(variant).variant_of is None
+    assert GrammarUsage.objects.get(pk=own.pk).pattern == variant

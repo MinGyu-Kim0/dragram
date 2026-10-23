@@ -78,14 +78,14 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| dictionary_form | 원형 | varchar(255) |  |  | 대표 표기(표시용). 조회는 forms. 뜻은 word_sense |
-| reading | 읽기 | varchar(255) |  |  | 대표 읽기(표시용). 조회는 readings |
+| dictionary_form | 원형 | varchar(255) |  |  | 대표 표기(표시용). 조회는 forms. 뜻은 word_sense. JMdict 적재: 첫 keb, 없으면 첫 reb(구현이 정함, 확인 필요) / 빈 문자열 금지 CHECK(word_display_not_empty, reading과 함께) |
+| reading | 읽기 | varchar(255) |  |  | 대표 읽기(표시용). 조회는 readings. 원래 표기 그대로(コーヒー). JMdict 적재: 대표 표기에 쓰는 첫 reb(re_nokanji가 아니고 re_restr가 없거나 대표 표기를 포함), 없거나 가나만 있는 항목이면 첫 reb(구현이 정함, 확인 필요) |
 | forms | 모든 표기 | text[] |  |  | JMdict 항목의 모든 한자·가나 표기. GIN. SudachiPy 사전형으로 조회 |
 | readings | 모든 읽기 | text[] |  |  | 모든 읽기(히라가나 통일). GIN. 비활용어·가나 표기 단어 조회용 |
-| is_common | 흔한 단어 | boolean |  |  | JMdict ichi1/news1/spec1 등. 후보가 여럿일 때 순서 힌트 |
-| reading_restrictions | 읽기 제한 | jsonb | Y |  | re_restr: 읽기→허용 표기 목록. 표기에 맞는 읽기 표시·후보 거르기용. 대부분 NULL |
-| pos | 품사 | varchar(255) |  |  |  |
-| tags | 단어 태그 | text[] |  |  | 영문 코드 배열. 단어 전체 태그(품사·동사 그룹·い/な형용사·고유명사·예외 활용) + 검색용 sense 태그 합집합. GIN. 허용 목록은 코드 상수 |
+| is_common | 흔한 단어 | boolean |  |  | ke_pri·re_pri 중 news1·ichi1·spec1·spec2·gai1이 하나라도 있으면 true(구현이 정함, 확인 필요). 후보가 여럿일 때 순서 힌트 |
+| reading_restrictions | 읽기 제한 | jsonb | Y |  | `{읽기: [허용 표기]}`. re_restr: 읽기→허용 표기 목록, re_nokanji 읽기는 `[]`(한자 표기에 쓰지 않음, 구현이 정함, 확인 필요). 표기에 맞는 읽기 표시·후보 거르기용. 대부분 NULL |
+| pos | 품사 | varchar(255) |  |  | JMdict 적재: 첫 뜻의 JMdict pos 코드를 `,`로 이은 값(예: `v1,vt`). pos가 없는 뜻은 앞 뜻의 pos를 이어받음(구현이 정함, 확인 필요: design-decisions 14절 'SudachiPy 원래 값 기록용'과 충돌, 47절) |
+| tags | 단어 태그 | text[] |  |  | 영문 코드 배열. 단어 전체 태그(품사·동사 그룹·い/な형용사·고유명사·예외 활용) + 검색용 sense 태그 합집합. GIN. 허용 목록과 JMdict 변환표는 코드 상수(`analysis/jmdict.py`, design-decisions 47절) |
 | jmdict_seq | JMdict 항목 번호 | integer | Y |  | UNIQUE. JMdict 항목 1개 = word 1행. 사전에 없는 단어(LLM 생성)면 NULL / 사전에 없는 단어 중복 방지: 부분 UNIQUE(dictionary_form, reading) WHERE jmdict_seq IS NULL (저장 전 가나 정규화, 빈 값 금지, 대표 표기 고정) |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 
@@ -242,9 +242,9 @@
 | word_id | 단어 ID | bigint |  | → word | UNIQUE(word_id, jmdict_sense_index) |
 | jmdict_sense_index | JMdict 뜻 번호 | smallint | Y |  | JMdict 항목 안의 sense 순번(참고용, 식별자로 쓰지 않음). 사전에 없는 전문 용어면 null(내부 sense 1개) |
 | gloss_en | 영어 뜻 | jsonb | Y |  | JMdict 영어 뜻(CC BY-SA 4.0, 출처 표기). 한국어 뜻 생성 근거 |
-| tags | 뜻 태그 | text[] |  |  | sense 단위 태그(transitive/intransitive, honorific/humble/polite, uk 등). JMdict pos/misc 변환 |
+| tags | 뜻 태그 | text[] |  |  | sense 단위 태그(transitive/intransitive, honorific/humble/polite, uk, onomatopoeia, loanword). JMdict pos/misc 변환, loanword는 lsource가 있는 뜻(구현이 정함, 확인 필요) |
 | pair_form | 자타 대응 동사 | varchar(255) | Y |  | 이 뜻의 자타 대응 동사 표기. 화면 "타동사: 開ける"/"자동사: 開く"(라벨은 이 뜻의 자/타 태그). NULL = 짝 없음 또는 미확인. 웹페이지 단어 화면만 |
-| applies_to | 적용 제한 | jsonb | Y |  | stagk/stagr: 이 뜻이 적용되는 표기·읽기. 뜻 후보 거르기용. 대부분 NULL |
+| applies_to | 적용 제한 | jsonb | Y |  | `{"forms": stagk, "readings": stagr}` 중 있는 것만(구현이 정함, 확인 필요): 이 뜻이 적용되는 표기·읽기. 뜻 후보 거르기용. 대부분 NULL |
 | sense_origin | 뜻 출처 | varchar(10) |  |  | jmdict / llm. LLM 뜻은 JMdict 단어 아래에 붙어도 이 칸으로 구분 |
 | sense_status | 뜻 검수 상태 | varchar(20) |  |  | 이 뜻 자체의 검수 상태. llm 출처는 pending으로 시작해 'AI 생성·미검수' 표시, jmdict는 approved |
 | meaning_ko | 한국어 뜻 | text | Y |  | LLM 생성 후 관리자 검수. JMdict 기반이라 CC BY-SA 4.0·출처·변경 사실 표시 |

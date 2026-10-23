@@ -667,3 +667,34 @@ grill-with-docs 세션에서 정했다.
 **범위 밖**
 - 사용량 집계 규칙: FR-M01
 - 재시도와 '재시도' 경로: 재시도를 넣는 티켓
+
+## 47. JMdict 적재 (2026-10-23) — #95, PR #103, 앞 절과 충돌 시 우선(14절과의 `word.pos`·태그 출처 충돌은 제외, 미정)
+#95에서 `word`·`word_sense` 모델과 JMdict 1회 적재 명령을 구현하며 정했다. 24절·25절의 결정(1회 적재, 원본 미보관, 재적재 없음, 판본 이름 한 줄은 설정값, 칸 구성, 빈 값 금지)을 따른다. 그 위에 #95 Agent Brief가 "구현이 정해 PR에 적을 것"으로 넘긴 세부를 구현이 정했고, 그 세부는 아래 '구현이 정한 것 (확인 필요)'에 둔다. 앞 절보다 넓힌 곳은 다음과 같다.
+- `reading_restrictions`에 re_nokanji 읽기도 넣는다(24절은 re_restr만).
+- 빈 문자열 금지 CHECK는 사전에 없는 단어만이 아니라 모든 `word`에 건다(25절은 `jmdict_seq`가 NULL인 단어의 빈 값 금지).
+
+**구현이 정한 것 (확인 필요)**
+- `word.pos`: 첫 뜻의 JMdict pos 코드를 `,`로 이은 값이다(예: `v1,vt`). JMdict 품사는 뜻마다 있고, pos가 없는 뜻은 앞 뜻의 pos를 이어받는다.
+  - 14절의 "word.pos는 SudachiPy 원래 값 기록용", "품사 태그는 SudachiPy 유래"와 충돌한다. (이 문서를 쓰며 덧붙인 해석) 17절은 LLM 유래 태그(자타·경어·의성어·외래어)만 JMdict 우선으로 바꿨고, SudachiPy 유래 품사 태그와 `word.pos`는 다루지 않았다. 24절도 이를 명시적으로 대체하지 않는다. 지금 구현은 단어 전체 태그(품사·동사 그룹 등)도 JMdict에서 만든다. 사용자 결정 전까지 14절과 이 방식 중 무엇이 맞는지 미정이다.
+- 대표 표기·읽기:
+  - 대표 표기(`dictionary_form`): 첫 keb이고, 없으면 첫 reb다.
+  - 대표 읽기(`reading`): 대표 표기에 쓰는 첫 reb다. 즉 re_nokanji가 아니고, re_restr가 없거나 대표 표기를 포함하는 reb다. 그런 reb가 없거나 가나만 있는 항목이면 첫 reb다.
+  - `readings`는 히라가나로 통일한다. `reading`(표시용)은 원래 표기 그대로 둔다(コーヒー).
+- `is_common`: ke_pri·re_pri 중 news1·ichi1·spec1·spec2·gai1이 하나라도 있으면 true다.
+- `reading_restrictions`: `{읽기: [허용 표기]}`다. re_nokanji 읽기는 `[]`(한자 표기에 쓰지 않음)로 넣는다. 24절은 re_restr만 적었다.
+- `applies_to`: `{"forms": stagk, "readings": stagr}` 중 있는 것만 둔다.
+- 태그 어휘와 변환표(`analysis/jmdict.py`):
+  - 단어 전체 태그: noun, pronoun, verb, i_adjective, na_adjective, adverb, adnominal, conjunction, interjection, group1/2/3, proper_noun, tricky(v5aru·v5k-s·v5r-i·v5u-s·v5uru·v1-s·vk·vs-i·vs-s·vz·adj-ix)
+  - 뜻 태그: transitive(vt), intransitive(vi), honorific(hon), humble(hum), polite(pol), uk, onomatopoeia(on-mim), loanword(lsource가 있는 뜻)
+  - 단어 전체 태그는 모든 뜻의 pos(이어받은 것 포함)에서 만든다. `word.pos`가 첫 뜻만 쓰는 것과 다르다.
+  - `word.tags` = 단어 전체 태그 ∪ 모든 뜻 태그
+  - 변환하지 않는 코드: vs(する 명사), adj-no, exp, prt, aux·aux-v·aux-adj, suf, pref, ctr, cop, vn, vr, vs-c, v2*, v4*, unc, misc 중 위에 없는 것(arch, col, sl 등). `word.pos`에는 원래 코드가 남는다.
+- 판본 기록: 설정값 `JMDICT_EDITION`(환경 변수)이다. 비어 있으면 적재를 거부하고, 적재 결과에 판본 이름을 출력한다.
+- 재적재 거부와 원자성: `word`나 `word_sense`에 행이 하나라도 있으면 거부한다. 적재는 한 트랜잭션이라 실패하면 아무것도 남지 않는다.
+- 항목 검증: 번호·표기·읽기·뜻이 비었거나, 대표 표기·읽기·품사가 255자를 넘으면, 항목 번호와 함께 적재를 멈춘다.
+- 입력 파일: `.xml`과 `.gz`를 읽는다. 영어 뜻만 저장하므로 JMdict_e를 전제한다(다국어 판본이면 영어 뜻이 없는 뜻은 `gloss_en`이 빈 목록이 된다).
+- 제약: `word`의 대표 표기·읽기에 빈 문자열 금지 CHECK(`word_display_not_empty`)를 두었다(25절 '빈 값 금지').
+
+**범위 밖**
+- 단어 매칭, 새 단어 생성(두 단계), 한국어 뜻 생성(`word_gloss`): 뒤 티켓
+- 14절과 `word.pos`의 충돌 해소: 사용자 결정

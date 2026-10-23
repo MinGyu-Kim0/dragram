@@ -1,4 +1,6 @@
 from django.conf import settings
+from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 
@@ -342,3 +344,96 @@ class UsageLog(models.Model):
 
     def __str__(self):
         return f"{self.kind} {self.path or self.purpose} #{self.pk}"
+
+
+class Word(models.Model):
+    """단어. JMdict 항목 하나가 한 행이다(design-decisions 24절). 사전에 없는 단어는
+    jmdict_seq가 NULL이다(LLM 생성, 다음 티켓). 뜻은 WordSense에 둔다.
+    """
+
+    # 대표 표기·읽기(표시용). 조회는 forms·readings로 한다.
+    dictionary_form = models.CharField(max_length=255)
+    reading = models.CharField(max_length=255)
+    # 항목의 모든 한자·가나 표기
+    forms = ArrayField(models.TextField())
+    # 모든 읽기. 히라가나로 통일한다.
+    readings = ArrayField(models.TextField())
+    is_common = models.BooleanField()
+    # re_restr: {읽기: [허용 표기]}. 한자 표기에 쓰지 않는 읽기(re_nokanji)는 빈 목록이다.
+    reading_restrictions = models.JSONField(null=True)
+    pos = models.CharField(max_length=255)
+    # 단어 전체 태그 + 검색용 뜻 태그의 합집합(analysis.jmdict.WORD_TAGS·SENSE_TAGS)
+    tags = ArrayField(models.TextField())
+    jmdict_seq = models.IntegerField(null=True, unique=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "word"
+        indexes = [
+            GinIndex(fields=["forms"], name="word_forms_gin"),
+            GinIndex(fields=["readings"], name="word_readings_gin"),
+            GinIndex(fields=["tags"], name="word_tags_gin"),
+        ]
+        constraints = [
+            # 사전에 없는 단어의 동시 생성 중복 방지(design-decisions 25절)
+            models.UniqueConstraint(
+                fields=["dictionary_form", "reading"],
+                condition=models.Q(jmdict_seq__isnull=True),
+                name="word_without_jmdict_unique",
+            ),
+            models.CheckConstraint(
+                condition=~models.Q(dictionary_form="") & ~models.Q(reading=""),
+                name="word_display_not_empty",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.dictionary_form}【{self.reading}】"
+
+
+class WordSense(models.Model):
+    """단어 뜻. id가 고정 뜻 식별자이고 JMdict 뜻 번호는 참고용이다."""
+
+    class Origin(models.TextChoices):
+        JMDICT = "jmdict"
+        LLM = "llm"
+
+    class MeaningSource(models.TextChoices):
+        DICTIONARY = "dictionary"
+        LLM = "llm"
+        ADMIN = "admin"
+
+    class MeaningStatus(models.TextChoices):
+        # 검수 전. 'AI 번역'으로 보인다.
+        AI = "ai"
+        REVIEWED = "reviewed"
+
+    word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name="senses")
+    jmdict_sense_index = models.SmallIntegerField(null=True)
+    # JMdict 영어 뜻 목록(CC BY-SA 4.0)
+    gloss_en = models.JSONField(null=True)
+    tags = ArrayField(models.TextField())
+    pair_form = models.CharField(max_length=255, null=True)  # noqa: DJ001
+    # stagk/stagr: {"forms": [...], "readings": [...]} 중 있는 것만
+    applies_to = models.JSONField(null=True)
+    sense_origin = models.CharField(max_length=10, choices=Origin.choices)
+    # 이 뜻 자체의 검수 상태. jmdict는 approved, llm은 pending으로 시작한다.
+    sense_status = models.CharField(max_length=20, choices=ReviewStatus.choices)
+    meaning_ko = models.TextField(null=True)  # noqa: DJ001
+    meaning_source = models.CharField(  # noqa: DJ001
+        max_length=30, choices=MeaningSource.choices, null=True
+    )
+    meaning_status = models.CharField(max_length=20, choices=MeaningStatus.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "word_sense"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["word", "jmdict_sense_index"], name="word_sense_index_unique"
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.word_id} #{self.jmdict_sense_index}"

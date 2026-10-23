@@ -113,3 +113,16 @@ def test_godan_verb_that_looks_like_group2_is_group1_exception():
     # 모양이 어긋나지 않는 불규칙 동사는 그룹만 붙는다.
     assert tags["行く"] == ["group1", "verb"]
     assert tags["来る"] == ["group3", "verb"]
+
+
+def test_group1_exception_checks_katakana_and_every_reading_and_inherited_pos():
+    tags = tags_of(
+        verb(1, "蹴る", "ケル", "v5r"),
+        """<entry><ent_seq>2</ent_seq><k_ele><keb>切る</keb></k_ele>
+<r_ele><reb>きる</reb></r_ele><r_ele><reb>きりる</reb></r_ele>
+<sense><pos>&n;</pos><gloss>a</gloss></sense>
+<sense><pos>&v5r;</pos><gloss>b</gloss></sense><sense><gloss>c</gloss></sense></entry>""",
+    )
+
+    assert tags["蹴る"] == ["group1_exception", "verb"]
+    assert tags["切る"] == ["group1_exception", "noun", "verb"]

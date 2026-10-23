@@ -16,7 +16,7 @@ _GROUP1 = ("v5aru", "v5b", "v5g", "v5k", "v5k-s", "v5m", "v5n", "v5r", "v5r-i", 
 _GROUP1 += ("v5t", "v5u", "v5u-s", "v5uru")
 # 예외 1그룹: 모양은 2그룹(-いる·-える)인데 1그룹인 동사(帰る 등). JMdict에서는 일반
 # 5단과 같은 v5r이라 읽기 모양을 함께 본다(design-decisions 48절).
-_LOOKS_GROUP2 = re.compile(r"[いきしちにひみりぎじぢびぴぃえけせてねへめれげぜでべぺぇ]る$")
+_LOOKS_GROUP2 = re.compile(r"[いきしちにひみりぎじぢびぴぃゐえけせてねへめれげぜでべぺぇゑ]る$")
 
 # 단어 전체 태그(requirements '태그 분리'): JMdict pos 코드 → 태그. 여기에 없는 코드는
 # 태그로 옮기지 않는다(word.pos에는 남는다).

@@ -14,9 +14,9 @@ COMMON_PRIORITIES = {"news1", "ichi1", "spec1", "spec2", "gai1"}
 
 _GROUP1 = ("v5aru", "v5b", "v5g", "v5k", "v5k-s", "v5m", "v5n", "v5r", "v5r-i", "v5s")
 _GROUP1 += ("v5t", "v5u", "v5u-s", "v5uru")
-# 예외 활용: 불규칙 동사와 특수 활용 동사, いい
-_TRICKY = {"v5aru", "v5k-s", "v5r-i", "v5u-s", "v5uru", "v1-s", "vk", "vs-i", "vs-s", "vz"}
-_TRICKY |= {"adj-ix"}
+# 예외 1그룹: 모양은 2그룹(-いる·-える)인데 1그룹인 동사(帰る 등). JMdict에서는 일반
+# 5단과 같은 v5r이라 읽기 모양을 함께 본다(design-decisions 48절).
+_LOOKS_GROUP2 = re.compile(r"[いきしちにひみりぎじぢびぴぃえけせてねへめれげぜでべぺぇ]る$")
 
 # 단어 전체 태그(requirements '태그 분리'): JMdict pos 코드 → 태그. 여기에 없는 코드는
 # 태그로 옮기지 않는다(word.pos에는 남는다).
@@ -34,8 +34,7 @@ WORD_TAGS = {
     "conj": ("conjunction",),
     "int": ("interjection",),
 }
-for _code in _TRICKY:
-    WORD_TAGS[_code] = (*WORD_TAGS[_code], "tricky")
+GROUP1_EXCEPTION = "group1_exception"
 
 # 뜻마다 다른 태그: JMdict pos·misc 코드 → 태그. lsource가 있는 뜻은 loanword다.
 SENSE_TAGS = {
@@ -51,7 +50,9 @@ LOANWORD = "loanword"
 
 # 태그 허용 목록
 ALLOWED_TAGS = frozenset(
-    {tag for tags in WORD_TAGS.values() for tag in tags} | set(SENSE_TAGS.values()) | {LOANWORD}
+    {tag for tags in WORD_TAGS.values() for tag in tags}
+    | set(SENSE_TAGS.values())
+    | {GROUP1_EXCEPTION, LOANWORD}
 )
 
 # XML 기본 엔티티는 그대로 두고 나머지 엔티티 참조만 코드 이름으로 바꾼다.
@@ -162,11 +163,12 @@ def _entry(element):
     reading = _display_reading(dictionary_form, kana, bool(forms))
 
     # word.pos는 첫 뜻의 pos 코드다.
-    senses, word_tags, sense_pos, first_pos = [], [], [], []
+    senses, word_tags, sense_pos, first_pos, all_pos = [], [], [], [], set()
     for index, sense in enumerate(element.findall("sense"), start=1):
         # pos가 없는 뜻은 앞 뜻의 pos를 이어받는다(JMdict 규약).
         sense_pos = _texts(sense, "pos") or sense_pos
         first_pos = first_pos or sense_pos
+        all_pos.update(sense_pos)
         tags = [SENSE_TAGS[c] for c in sense_pos + _texts(sense, "misc") if c in SENSE_TAGS]
         if sense.find("lsource") is not None:
             tags.append(LOANWORD)
@@ -190,6 +192,9 @@ def _entry(element):
             )
         )
 
+    readings = _unique(to_hiragana(reb) for reb in rebs)
+    if "v5r" in all_pos and any(_LOOKS_GROUP2.search(r) for r in readings):
+        word_tags = [GROUP1_EXCEPTION if tag == "group1" else tag for tag in word_tags]
     pos = ",".join(first_pos)
     if max(len(dictionary_form), len(reading), len(pos)) > MAX_LENGTH:
         raise JMdictError(f"항목 {seq}: 대표 표기·읽기·품사가 {MAX_LENGTH}자를 넘음")
@@ -198,7 +203,7 @@ def _entry(element):
         dictionary_form=dictionary_form,
         reading=reading,
         forms=_unique(forms + rebs),
-        readings=_unique(to_hiragana(reb) for reb in rebs),
+        readings=readings,
         is_common=any(set(k.priorities) & COMMON_PRIORITIES for k in [*kanji, *kana]),
         reading_restrictions=restrictions or None,
         pos=pos,

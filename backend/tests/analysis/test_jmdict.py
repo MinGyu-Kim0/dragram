@@ -82,4 +82,34 @@ def test_misc_codes_become_sense_tags_and_unknown_codes_are_left_out():
     assert entry.senses[0].gloss_en == ["to come & to go (honorific)"]
     # exp·arch는 변환표에 없다.
     assert entry.senses[1].tags == []
-    assert entry.tags == ["group1", "honorific", "intransitive", "tricky", "uk", "verb"]
+    assert entry.tags == ["group1", "honorific", "intransitive", "uk", "verb"]
+
+
+def verb(seq, keb, reb, pos):
+    return f"""<entry><ent_seq>{seq}</ent_seq><k_ele><keb>{keb}</keb></k_ele>
+<r_ele><reb>{reb}</reb></r_ele><sense><pos>&{pos};</pos><gloss>g</gloss></sense></entry>"""
+
+
+def tags_of(*xml):
+    lines = ["<JMdict>", *xml, "</JMdict>"]
+    return {entry.dictionary_form: entry.tags for entry in parse(lines)}
+
+
+def test_godan_verb_that_looks_like_group2_is_group1_exception():
+    # 모양은 2그룹(-いる·-える)인데 1그룹인 동사는 group1 대신 group1_exception(#107)
+    tags = tags_of(
+        verb(1, "帰る", "かえる", "v5r"),
+        verb(2, "走る", "はしる", "v5r"),
+        verb(3, "取る", "とる", "v5r"),
+        verb(4, "食べる", "たべる", "v1"),
+        verb(5, "行く", "いく", "v5k-s"),
+        verb(6, "来る", "くる", "vk"),
+    )
+
+    assert tags["帰る"] == ["group1_exception", "verb"]
+    assert tags["走る"] == ["group1_exception", "verb"]
+    assert tags["取る"] == ["group1", "verb"]
+    assert tags["食べる"] == ["group2", "verb"]
+    # 모양이 어긋나지 않는 불규칙 동사는 그룹만 붙는다.
+    assert tags["行く"] == ["group1", "verb"]
+    assert tags["来る"] == ["group3", "verb"]

@@ -48,7 +48,7 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | user_id | 사용자 ID | bigint | Y | → users | 시스템 일괄 작업 호출이면 null |
-| analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis |  | 새 문장은 저장 트랜잭션 안에서 잇는다(저장이 되돌려지면 NULL). stale 재분석·재매칭은 처음부터 기존 분석 행에 잇는다(구현이 정함, 확인 필요) |
+| analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | 새 문장은 저장 트랜잭션 안에서 잇는다(저장이 되돌려지면 NULL). stale 재분석·재매칭은 처음부터 기존 분석 행에 잇는다(구현이 정함, 확인 필요) |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정) |
 | purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(단어 뜻·태그) / kanji_gloss(한자 한국어 뜻) |

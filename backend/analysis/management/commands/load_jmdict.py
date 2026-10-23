@@ -32,13 +32,15 @@ class Command(BaseCommand):
         try:
             # 중간에 실패하면 아무것도 남기지 않는다. 남으면 다시 적재할 수 없다.
             with transaction.atomic(), opener(path, "rt", encoding="utf-8") as lines:
-                if Word.objects.filter(jmdict_seq__isnull=False).exists():
-                    raise CommandError("JMdict가 이미 적재됨. 다시 적재하지 않는다")
+                if Word.objects.exists() or WordSense.objects.exists():
+                    raise CommandError("word·word_sense가 이미 차 있음. 다시 적재하지 않는다")
                 words, senses = 0, 0
                 for entries in batched(jmdict.parse(lines), BATCH_SIZE, strict=False):
                     words, senses = words + len(entries), senses + _save(entries)
-        except (OSError, ParseError) as e:
+        except (OSError, ParseError, UnicodeDecodeError) as e:
             raise CommandError(f"JMdict 파일을 읽지 못함: {e}") from e
+        except jmdict.JMdictError as e:
+            raise CommandError(str(e)) from e
         self.stdout.write(f"JMdict {settings.JMDICT_EDITION} 적재: 단어 {words}개, 뜻 {senses}개")
 
 

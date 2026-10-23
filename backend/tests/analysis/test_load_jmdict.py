@@ -5,6 +5,7 @@ from io import StringIO
 
 import pytest
 from django.core.management import CommandError, call_command
+from django.db import IntegrityError, transaction
 
 from analysis import jmdict
 from analysis.management.commands import load_jmdict
@@ -125,3 +126,55 @@ def test_tags_are_from_the_allowed_list():
     tags = {tag for tags in Word.objects.values_list("tags", flat=True) for tag in tags}
     tags |= {tag for tags in WordSense.objects.values_list("tags", flat=True) for tag in tags}
     assert tags <= jmdict.ALLOWED_TAGS
+
+
+def test_load_into_a_table_that_already_has_words_is_refused():
+    # 사전에 없는 단어(LLM 생성)라도 이미 있으면 적재하지 않는다.
+    Word.objects.create(
+        dictionary_form="ヤバい",
+        reading="やばい",
+        forms=[],
+        readings=[],
+        is_common=False,
+        pos="",
+        tags=[],
+    )
+
+    with pytest.raises(CommandError):
+        load()
+
+    assert Word.objects.count() == 1
+
+
+@pytest.mark.parametrize(
+    "broken, reason",
+    [
+        ("<r_ele>\n<reb>コーヒー</reb>\n<re_pri>gai1</re_pri>\n</r_ele>\n", ""),
+        ("<reb>コーヒー</reb>", "<reb></reb>"),
+        ("<reb>コーヒー</reb>", "<reb>" + "ー" * 256 + "</reb>"),
+    ],
+)
+def test_entry_that_breaks_the_schema_is_reported_with_its_number(tmp_path, broken, reason):
+    path = tmp_path / "broken.xml"
+    path.write_text(SAMPLE.read_text(encoding="utf-8").replace(broken, reason, 1))
+
+    with pytest.raises(CommandError, match="1049180"):
+        load(path)
+
+    assert not Word.objects.exists()
+
+
+def test_file_that_is_not_utf8_is_refused(tmp_path):
+    path = tmp_path / "latin1.xml"
+    path.write_bytes(SAMPLE.read_bytes().replace("コーヒー".encode(), b"\xff\xfe"))
+
+    with pytest.raises(CommandError):
+        load(path)
+
+
+@pytest.mark.parametrize("field", ["dictionary_form", "reading"])
+def test_word_needs_a_display_form_and_reading(field):
+    fields = {"dictionary_form": "ヤバい", "reading": "やばい", field: ""}
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Word.objects.create(forms=[], readings=[], is_common=False, pos="", tags=[], **fields)

@@ -381,6 +381,10 @@ class Word(models.Model):
                 condition=models.Q(jmdict_seq__isnull=True),
                 name="word_without_jmdict_unique",
             ),
+            models.CheckConstraint(
+                condition=~models.Q(dictionary_form="") & ~models.Q(reading=""),
+                name="word_display_not_empty",
+            ),
         ]
 
     def __str__(self):

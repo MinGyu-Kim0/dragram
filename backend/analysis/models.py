@@ -331,6 +331,14 @@ class UsageLog(models.Model):
 
     class Meta:
         db_table = "usage_log"
+        constraints = [
+            # request에는 처리 경로만, llm에는 호출 목적만 둔다(schema.md).
+            models.CheckConstraint(
+                condition=models.Q(kind="request", path__isnull=False, purpose__isnull=True)
+                | models.Q(kind="llm", path__isnull=True, purpose__isnull=False),
+                name="usage_log_kind_fields",
+            )
+        ]
 
     def __str__(self):
         return f"{self.kind} {self.path or self.purpose} #{self.pk}"

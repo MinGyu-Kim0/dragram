@@ -1,6 +1,7 @@
 """분석 요청·LLM 호출 사용 기록(usage_log, #94)."""
 
 import pytest
+from django.db import IntegrityError, transaction
 from django.db.models import F
 
 from analysis import views
@@ -196,3 +197,19 @@ def test_records_hold_no_original_text(client, fake_llm):
     assert len(UsageLog.objects.all()) == 4
     for part in ("昨日", "図書館", "本", "読ん", "어제 도서관"):
         assert part not in values
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"kind": "request", "path": None},
+        {"kind": "request", "path": "llm", "purpose": "first_response"},
+        {"kind": "llm", "purpose": None},
+        {"kind": "llm", "purpose": "reask", "path": "llm"},
+        {"kind": "other", "path": "llm"},
+    ],
+)
+def test_record_kind_decides_which_of_path_and_purpose_it_has(fields):
+    # request에는 처리 경로만, llm에는 호출 목적만 있다. 집계가 조용히 오염되지 않게 DB가 막는다.
+    with pytest.raises(IntegrityError), transaction.atomic():
+        UsageLog.objects.create(success=True, **fields)

@@ -104,7 +104,7 @@
 | is_active | 활성 여부 | boolean |  |  | 활성화 근거(등록 때 원래 문장 재매칭 통과 + 새로 쓴 should_match 예문 1개 이상 통과, LLM·관리자 예문 모두 인정)가 있고 rejected가 아니면 true. 반려 취소·예문 보완(admin에서 test_cases 저장) 때 서버가 다시 검증. 값이 바뀌거나 활성 패턴의 형태소 조건(pattern_morpheme)이 바뀌면 같은 트랜잭션에서 pattern_set_version.version을 1 올림. false면 매칭에 쓰지 않음 |
 | status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. 형태소 조건의 검수 상태(용법 승인과 별개). LLM이 만든 패턴은 pending으로 생성. 원형에 연결된 회화체 패턴의 미검수 여부도 이 칸으로 판단. 반려 취소는 항상 pending으로 되돌림. 반려·반려 취소 시 이 패턴과 이 패턴을 원형으로 가리키는 회화체 패턴의 분석을 stale로(전이표는 requirements '패턴 매칭 규칙') |
 | created_at | 등록일시 | timestamptz |  |  |  |
-| variant_of | 원형 패턴 | bigint | Y | → grammar_pattern | 회화체 패턴이 가리키는 원형 패턴(자기 참조, 인덱스). 관리자가 admin 액션으로 연결·해제. 1단계만·체인 금지(원형은 register standard라 variant_of null). 회화체는 자기 용법 없이 원형 용법을 씀. 연결·해제하면 그 회화체 분석을 stale로 만들고, 연결로 매칭 자격이 생기면 pattern_set_version을 올림 / 자기 자신이 아님(CHECK), 연결된 회화체는 반려되지 않은 자기 용법 없음(연결 거부·반려 취소 거부로 서버 검증) |
+| variant_of | 원형 패턴 | bigint | Y | → grammar_pattern | 회화체 패턴이 가리키는 원형 패턴(자기 참조, 인덱스). 관리자가 admin 액션으로 연결·해제. 1단계만·체인 금지(원형은 register standard라 variant_of null). 회화체는 자기 용법 없이 원형 용법을 씀. 연결·해제하면 그 회화체 분석을 stale로 만들고, 연결로 매칭 자격이 생기면 pattern_set_version을 올림 / 자기 자신이 아님(CHECK), 연결된 회화체는 반려되지 않은 자기 용법 없음(연결할 때 남은 용법마다 원형 용법으로 합치거나 원형 아래로 옮기고, 대응을 고르지 않으면 연결 거부. 반려 취소 거부로 서버 검증, design-decisions 43절) |
 
 ## pattern_set_version — 패턴 세트 버전
 
@@ -131,7 +131,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| pattern_id | 문법 패턴 ID | bigint |  | → grammar_pattern |  |
+| pattern_id | 문법 패턴 ID | bigint |  | → grammar_pattern | 회화체를 원형에 연결하며 '옮김'을 고르면 원형 패턴으로 바뀜(검수 상태 유지, 원형 조건에 걸리지 않는 example_ja는 NULL). '합침'을 고른 용법은 행을 지움(design-decisions 43절) |
 | name | 용법명 | varchar(255) |  |  | 예: で-수단, UNIQUE(pattern_id, name) |
 | explanation_ko | 한국어 설명 | text |  |  | LLM이 처음 1회 작성 → 관리자 검수. 공용 재사용 |
 | example_ja | 예문 | text | Y |  | LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지. `grammar_pattern.test_cases`의 첫 예문과 같은 검사를 통과해야 저장(소속 패턴에 걸림, 원문 복사 아님, 자리표시자 없음, 200자 이하. design-decisions 34절). 통과하지 못하면 NULL |
@@ -188,9 +188,9 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| analysis_id | 문장 분석 ID | bigint |  | → sentence_analysis | UNIQUE(analysis_id, pattern_id, start_offset, end_offset) WHERE pattern_id IS NOT NULL: 같은 자리의 같은 패턴 구간은 하나(중복 카드 방지 백스톱). 구간을 쓰는 모든 경로는 분석 행을 잠근 뒤 씀(재매칭은 저장 열쇠가 없는지, stale 교체는 행이 아직 fresh가 아닌지 확인). 잠금 순서는 원형 연결 advisory 잠금 → 패턴과 그 패턴을 원형으로 가리키는 회화체(id 순) → 용법 → (올릴 때) 패턴 세트 버전 → 분석 행(design-decisions 41절, 42절) |
+| analysis_id | 문장 분석 ID | bigint |  | → sentence_analysis | UNIQUE(analysis_id, pattern_id, start_offset, end_offset) WHERE pattern_id IS NOT NULL: 같은 자리의 같은 패턴 구간은 하나(중복 카드 방지 백스톱). 구간을 쓰는 모든 경로는 분석 행을 잠근 뒤 씀(재매칭은 저장 열쇠가 없는지, stale 교체는 행이 아직 fresh가 아닌지 확인). 잠금 순서는 원형 연결 advisory 잠금 → 패턴과 그 패턴을 원형으로 가리키는 회화체(id 순) → 용법 → (올릴 때) 패턴 세트 버전 → 분석 행(design-decisions 41절, 42절). 회화체 연결·용법 병합은 영향 범위 분석 행을 한 번에 id 순서로 잠금(43절) |
 | pattern_id | 문법 패턴 ID | bigint | Y | → grammar_pattern | 미발견 구간에서 새 패턴 등록에 실패해 패턴이 없으면 null |
-| usage_id | 확정 용법 ID | bigint | Y | → grammar_usage | 연결된 회화체 구간이면 원형 용법, 그 밖에는 자기 용법. usage_closed·usage_rule 확정은 실제 매칭된 패턴 기준 / 그 패턴 또는 variant_of 원형 소속. 조회 때 어긋나면 뺌. 저장 때는 분석할 때 읽은 원형 연결이 저장 직전과 다르면 저장하지 않음(design-decisions 42절) |
+| usage_id | 확정 용법 ID | bigint | Y | → grammar_usage | 연결된 회화체 구간이면 원형 용법, 그 밖에는 자기 용법. 회화체 연결 때 합친 용법을 가리키면 합칠 원형 용법으로 바꿈(candidates·alternatives도 같이, design-decisions 43절). usage_closed·usage_rule 확정은 실제 매칭된 패턴 기준 / 그 패턴 또는 variant_of 원형 소속. 조회 때 어긋나면 뺌. 저장 때는 분석할 때 읽은 원형 연결이 저장 직전과 다르면 저장하지 않음(design-decisions 42절) |
 | start_offset | 시작 위치 | integer |  |  | 키 텍스트 코드포인트 기준 [start, end). 원문 위치는 서버가 변환 / 0 ≤ start < end (CHECK) |
 | end_offset | 끝 위치 | integer |  |  | 0 ≤ start < end (CHECK) |
 | state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status, 그 용법이 속한 패턴(grammar_usage.pattern_id, 회화체 구간이면 원형)의 status, pattern_id(실제 매칭된 패턴)의 status, pattern_id가 연결된 원형(variant_of)의 status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌. alternatives의 각 usage_id도 주 용법과 같은 네 가지(그 용법, 그 용법의 소속 패턴, pattern_id, pattern_id가 연결된 원형)와 소속(pattern_id나 그 원형)으로 따로 검사(pending이면 그 대안에 배지, rejected면 그 대안만 뺌). 주 용법 쪽이 rejected면 구간째 뺌(대안을 주 용법으로 올리지 않음). unresolved는 pattern_id와 그 원형(연결됐으면)의 status만 봄(이름은 매칭된 패턴 이름, 설명 없음) / 상태별 칸(CHECK): decided면 usage_id 필수, divergent면 usage_id 필수이고 alternatives가 비어 있지 않음, unresolved면 usage_id·alternatives 모두 NULL(candidates·pattern_id는 남김), 그 밖에는 alternatives NULL |
@@ -198,8 +198,8 @@
 | rule_id | 판별 규칙 ID | bigint | Y | → usage_rule | decided_by가 rule일 때만 |
 | basis_revision | 근거 판 번호 | integer | Y |  | single_usage면 grammar_pattern.revision, rule이면 usage_rule.revision. 판 번호를 두기 전까지(지금 구현, #39) 칼럼을 만들지 않고, 다시 판정은 is_stale(design-decisions 35절)에 맡김 |
 | usage_revision | 용법 판 번호 | integer | Y |  | 판정 당시 grammar_usage.revision. 바뀌면 재검토 |
-| candidates | 후보 용법 목록 | jsonb | Y |  | 서버가 부여한 후보 ID [{candidate_id, usage_id}]. 해석 갈림의 대안은 alternatives |
-| alternatives | 대안 해석 | jsonb | Y |  | 해석 갈림일 때만 [{usage_id, translation_ko}](서버가 매긴 후보 순서). translation_ko는 그 해석으로 옮긴 문장 전체 번역이고 주 번역처럼 키 텍스트 기준(자리표시자 형태). 대안의 근거는 문장을 풀어 쓴 글이라 저장하지 않음. 주 용법은 usage_id(번역과 같은 해석) |
+| candidates | 후보 용법 목록 | jsonb | Y |  | 서버가 부여한 후보 ID [{candidate_id, usage_id}]. 해석 갈림의 대안은 alternatives. 회화체 연결 때 합친 용법의 usage_id는 합칠 원형 용법으로 바꾸고, 그래서 겹친 후보는 앞의 것만 남김 |
+| alternatives | 대안 해석 | jsonb | Y |  | 해석 갈림일 때만 [{usage_id, translation_ko}](서버가 매긴 후보 순서). translation_ko는 그 해석으로 옮긴 문장 전체 번역이고 주 번역처럼 키 텍스트 기준(자리표시자 형태). 대안의 근거는 문장을 풀어 쓴 글이라 저장하지 않음. 주 용법은 usage_id(번역과 같은 해석). 회화체 연결 때 합친 용법은 합칠 원형 용법으로 바꾸고, 주 용법과 같아졌거나 앞 대안과 겹친 대안은 뺌. 대안이 남지 않으면 state를 decided로 |
 | confidence | 신뢰도 | decimal(4,3) | Y |  | LLM 자기 보고값. 정확도로 취급하지 않음 / 0~1 (CHECK) |
 
 ## match_correction — 매칭 정정

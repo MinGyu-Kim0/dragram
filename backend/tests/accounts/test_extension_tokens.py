@@ -53,6 +53,8 @@ def test_logged_in_web_session_gets_a_token_and_only_its_hash_is_stored():
 
     token = response.json()["token"]
     assert response.status_code == 201
+    # 확장이 다른 계정의 연결인지 가리는 바뀌지 않는 계정 식별자(이메일은 바뀌거나 겹칠 수 있다)
+    assert response.json()["account"] == str(User.objects.get().pk)
     stored = ExtensionToken.objects.get()
     assert stored.token_hash == hashlib.sha256(token.encode()).hexdigest()
     assert token not in {stored.token_hash, stored.session_key}

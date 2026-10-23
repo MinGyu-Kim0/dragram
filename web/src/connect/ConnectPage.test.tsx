@@ -160,7 +160,7 @@ describe("확장 연결(#109)", () => {
     responses["GET /api/auth/me/"] = () =>
       json({ user: { email: "me@example.com" } });
     responses["POST /api/auth/extension-tokens/"] = () =>
-      json({ token: "extension-token" }, 201);
+      json({ token: "extension-token", account: "42" }, 201);
     vi.stubEnv("VITE_EXTENSION_ID", "dragram-extension-id");
     const runtime = {
       get lastError() {
@@ -197,7 +197,7 @@ describe("확장 연결(#109)", () => {
         message: {
           type: "connect",
           token: "extension-token",
-          account: "me@example.com",
+          account: "42",
         },
       },
     ]);
@@ -250,7 +250,7 @@ describe("확장 연결(#109)", () => {
   test("연결하는 동안에는 로그아웃할 수 없어, 폐기된 토큰을 확장에 넘기지 않는다", async () => {
     let finishIssue!: () => void;
     responses["POST /api/auth/extension-tokens/"] = () =>
-      json({ token: "extension-token" }, 201);
+      json({ token: "extension-token", account: "42" }, 201);
     const issued = new Promise<void>((resolve) => (finishIssue = resolve));
     const original = globalThis.fetch;
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
@@ -269,5 +269,29 @@ describe("확장 연결(#109)", () => {
       await screen.findByRole("heading", { name: "연결했어요" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "로그아웃" })).toBeEnabled();
+  });
+
+  test("여러 탭의 연결과 로그아웃은 탭 공용 잠금으로 한 번에 하나씩 한다", async () => {
+    const locked: string[] = [];
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      locks: {
+        request: (name: string, task: () => Promise<unknown>) => {
+          locked.push(name);
+          return task();
+        },
+      },
+    });
+    responses["POST /api/auth/logout/"] = () => json({ user: null });
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "확장 프로그램 연결" }),
+    );
+    await screen.findByRole("heading", { name: "연결했어요" });
+    await userEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+    await screen.findByRole("heading", { name: "Dragram에 로그인" });
+
+    expect(locked).toEqual(["dragram-connect", "dragram-connect"]);
   });
 });

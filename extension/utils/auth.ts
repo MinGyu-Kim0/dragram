@@ -25,7 +25,8 @@ function withTokenLock<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// 연결한 계정(이메일). 다른 계정이 연결하면 패널이 보던 원문·결과를 비운다.
+// 연결한 계정 식별자(서버가 준 바뀌지 않는 값). 다른 계정이 연결하면 패널이 보던 원문·결과를
+// 비운다.
 const ACCOUNT_KEY = "extensionAccount";
 
 // 웹에서 연결한 토큰을 저장한다. account가 지금 저장된 계정과 다르면(다른 사람일 수 있다)

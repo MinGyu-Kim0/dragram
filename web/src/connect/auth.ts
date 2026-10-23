@@ -49,7 +49,9 @@ export const logout = () =>
   request<{ user: User | null }>("POST", "/api/auth/logout/").then(userOf);
 
 /** 확장에 넘길 토큰을 발급받는다. 원본은 이 응답에만 있다. */
+// account는 바뀌지 않는 계정 식별자다. 확장이 다른 계정의 연결인지 가릴 때 쓴다.
 export const issueExtensionToken = () =>
-  request<{ token: string }>("POST", "/api/auth/extension-tokens/").then(
-    (body) => body.token,
+  request<{ token: string; account: string }>(
+    "POST",
+    "/api/auth/extension-tokens/",
   );

@@ -19,7 +19,8 @@ function isFromWeb(url: string | undefined): boolean {
 }
 
 // 웹이 chrome.runtime.sendMessage로 보낸 메시지를 처리한다.
-// - {type: "connect", token, account}: 토큰과 연결한 계정(이메일)을 저장한다(웹에서 연결).
+// - {type: "connect", token, account}: 토큰과 연결한 계정 식별자를 저장한다(웹에서 연결).
+//   account는 서버가 준 바뀌지 않는 값이다.
 // - {type: "disconnect"}: 저장한 토큰을 지운다(웹 로그아웃).
 // 우리 웹이 아닌 출처의 메시지는 답하지 않고 무시한다(undefined).
 export function handleExternalMessage(

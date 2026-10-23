@@ -2,7 +2,8 @@
 // chrome.runtime.sendMessage로 보낼 수 있다. 확장 ID는 VITE_EXTENSION_ID로 받는다.
 
 export type ExtensionMessage =
-  // account: 연결한 계정(이메일). 확장은 다른 계정이 연결하면 패널이 보던 결과를 비운다.
+  // account: 연결한 계정 식별자(서버가 준 바뀌지 않는 값). 확장은 다른 계정이 연결하면
+  // 패널이 보던 결과를 비운다.
   { type: "connect"; token: string; account: string } | { type: "disconnect" };
 
 type Runtime = {

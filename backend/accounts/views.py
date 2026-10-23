@@ -162,7 +162,9 @@ def issue_extension_token(request):
         if not session.exists(session.session_key):
             raise BusinessError(AuthError.LOGIN_REQUIRED, "로그아웃한 세션")
         token = tokens.issue(request.user, session.session_key)
-    return Response({"token": token}, status=201)
+    # account: 확장이 다른 계정의 연결인지 가릴 때 쓰는 바뀌지 않는 식별자(이메일은 바뀌거나
+    # 겹칠 수 있다).
+    return Response({"token": token, "account": str(request.user.pk)}, status=201)
 
 
 @api_view(["POST"])

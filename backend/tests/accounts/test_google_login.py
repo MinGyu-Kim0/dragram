@@ -151,3 +151,23 @@ def test_login_and_logout_without_csrf_are_refused(web, google_says):
 
     assert (response.status_code, response.json()) == (403, {"error": "AUTH:CSRF_FAILED"})
     assert web.get("/api/auth/me/").json() == {"user": {"email": "me@example.com"}}
+
+
+@pytest.mark.parametrize("body", ['["google-id-token"]', '"google-id-token"', "null"])
+def test_body_that_is_not_an_object_is_rejected_as_invalid_token(web, google_says, body):
+    calls = google_says(claims())
+
+    response = web.post("/api/auth/google/", body, content_type="application/json", **csrf(web))
+
+    assert (response.status_code, response.json()) == (401, {"error": "AUTH:GOOGLE_TOKEN_INVALID"})
+    assert calls == []
+
+
+def test_google_sub_longer_than_username_limit_still_logs_in(web, google_says):
+    # OIDC sub는 255자까지 될 수 있고 username은 150자까지다.
+    google_says(claims(sub="9" * 255))
+
+    response = login(web)
+
+    assert response.json() == {"user": {"email": "me@example.com"}}
+    assert User.objects.get().google_sub == "9" * 255

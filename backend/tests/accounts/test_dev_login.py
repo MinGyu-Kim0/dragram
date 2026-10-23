@@ -53,3 +53,22 @@ def test_superuser_from_createsuperuser_can_use_admin(monkeypatch):
 
     assert client.login(username="admin", password="admin-test-password")
     assert client.get("/admin/accounts/user/").status_code == 200
+
+
+@pytest.mark.parametrize("body", ['["dev@example.com"]', '"dev@example.com"'])
+def test_dev_login_body_that_is_not_an_object_is_rejected(client, settings, body):
+    settings.DEBUG = True
+    settings.DEV_LOGIN_ENABLED = True
+
+    response = client.post("/api/auth/dev-login/", body, content_type="application/json")
+
+    assert (response.status_code, response.json()) == (400, {"error": "AUTH:DEV_EMAIL_INVALID"})
+
+
+@pytest.mark.parametrize("email", [123, None, "not-an-email", "a" * 140 + "@example.com"])
+def test_dev_login_rejects_values_that_are_not_usable_emails(client, settings, email):
+    settings.DEBUG = True
+    settings.DEV_LOGIN_ENABLED = True
+
+    assert dev_login(client, email).json() == {"error": "AUTH:DEV_EMAIL_INVALID"}
+    assert not User.objects.exists()

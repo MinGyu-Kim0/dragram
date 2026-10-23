@@ -1,5 +1,7 @@
 """웹 로그인 세션 API. 웹과 API는 같은 출처에서 Django 세션·CSRF를 쓴다(#92)."""
 
+import uuid
+
 from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth.hashers import make_password
@@ -40,6 +42,13 @@ def require_csrf(request):
         raise BusinessError(AuthError.CSRF_FAILED, "CSRF 검사 실패")
 
 
+def _field(request, name, error_code):
+    """JSON 객체 본문의 칸. 본문이 객체가 아니면(배열, 문자열 등) error_code로 거부한다."""
+    if not isinstance(request.data, dict):
+        raise BusinessError(error_code, "본문이 객체가 아님")
+    return request.data.get(name)
+
+
 def _user_body(user):
     return {"user": {"email": user.email} if user.is_authenticated else None}
 
@@ -66,12 +75,13 @@ def me(request):
 def google_login(request):
     """Google ID 토큰으로 로그인한다. 처음이면 사용자를 만들고, 이메일은 매번 갱신한다."""
     require_csrf(request)
-    account = google.verify(request.data.get("credential"))
+    account = google.verify(_field(request, "credential", AuthError.GOOGLE_TOKEN_INVALID))
     user, _ = User.objects.update_or_create(
         google_sub=account.sub,
         defaults={"email": account.email},
         create_defaults={
-            "username": account.sub,
+            # sub는 255자까지 될 수 있어 150자 username에 넣지 않는다.
+            "username": f"google-{uuid.uuid4().hex}",
             "email": account.email,
             "password": make_password(None),
         },
@@ -97,7 +107,10 @@ def dev_login(request):
     if not (settings.DEBUG and settings.DEV_LOGIN_ENABLED):
         raise Http404
     require_csrf(request)
-    email = request.data.get("email")
+    email = _field(request, "email", AuthError.DEV_EMAIL_INVALID)
+    # username(150자)에 접두어와 함께 넣으므로 길이를 제한한다.
+    if not isinstance(email, str) or len(email) > 140:
+        raise BusinessError(AuthError.DEV_EMAIL_INVALID, "개발 로그인 이메일 아님")
     try:
         validate_email(email)
     except ValidationError as e:

@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import ConnectPage from "./ConnectPage";
@@ -66,10 +66,12 @@ test("로그인 전에는 Google 로그인 버튼을 보인다", async () => {
   expect(
     await screen.findByRole("heading", { name: "Dragram에 로그인" }),
   ).toBeInTheDocument();
-  expect(renderButton).toHaveBeenCalledTimes(1);
+  // 버튼은 Google 스크립트를 불러온 뒤에 그린다.
+  await waitFor(() => expect(renderButton).toHaveBeenCalledTimes(1));
   expect(
     screen.queryByRole("button", { name: "로그아웃" }),
   ).not.toBeInTheDocument();
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 test("Google이 준 ID 토큰을 CSRF 값과 함께 보내고 로그인한 계정을 보인다", async () => {
@@ -116,4 +118,14 @@ test("로그인이 거부되면 다시 시도하라고 안내한다", async () =
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "로그인하지 못했어요",
   );
+});
+
+test("Google 버튼을 준비하지 못하면 로그인 실패와 다르게 안내한다", async () => {
+  vi.stubEnv("VITE_GOOGLE_CLIENT_ID", "");
+  render(<ConnectPage />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "로그인 버튼을 불러오지 못했어요",
+  );
+  expect(renderButton).not.toHaveBeenCalled();
 });

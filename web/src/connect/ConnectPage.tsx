@@ -26,6 +26,9 @@ function GoogleButton({
 
 function ConnectPage() {
   const [state, setState] = useState<State>({ kind: "loading" });
+  // Google 버튼을 그리지 못함(클라이언트 ID 없음, 스크립트를 못 불러옴). 로그인 실패와 따로 안내한다.
+  const [buttonUnavailable, setButtonUnavailable] = useState(false);
+  const buttonFailed = useCallback(() => setButtonUnavailable(true), []);
 
   const show = useCallback(
     (user: User | null) =>
@@ -66,7 +69,12 @@ function ConnectPage() {
                 로그인하지 못했어요. 다시 시도해 주세요.
               </p>
             )}
-            <GoogleButton onCredential={login} onError={fail} />
+            {buttonUnavailable && (
+              <p role="alert" className="danger">
+                로그인 버튼을 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.
+              </p>
+            )}
+            <GoogleButton onCredential={login} onError={buttonFailed} />
             <p className="muted">
               로그인하면 Google 계정의 이메일과 계정 식별자만 받아요.
             </p>

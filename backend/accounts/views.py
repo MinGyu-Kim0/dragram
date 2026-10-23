@@ -93,6 +93,7 @@ def logout(request):
 @permission_classes([])
 def dev_login(request):
     """로컬 수동 확인용: 이메일만으로 로그인한다. DEBUG이고 DEV_LOGIN_ENABLED일 때만 연다."""
+    # 오류 코드로 답하지 않고 없는 주소처럼 404를 낸다. 꺼져 있을 때 있다는 것조차 알리지 않는다.
     if not (settings.DEBUG and settings.DEV_LOGIN_ENABLED):
         raise Http404
     require_csrf(request)

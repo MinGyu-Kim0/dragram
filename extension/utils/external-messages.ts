@@ -1,0 +1,39 @@
+import { clearToken, saveToken } from "./auth";
+
+// 웹 '로그인·확장 연결' 화면의 출처. manifest externally_connectable에도 이 출처만 둔다.
+// 바꾸려면 빌드할 때 WXT_WEB_ORIGIN을 준다.
+export const WEB_ORIGIN: string =
+  import.meta.env.WXT_WEB_ORIGIN ?? "http://localhost:5173";
+
+export type ExternalReply = { ok: boolean };
+
+function isFromWeb(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    return new URL(url).origin === WEB_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
+// 웹이 chrome.runtime.sendMessage로 보낸 메시지를 처리한다.
+// - {type: "connect", token}: 토큰을 저장한다(웹에서 연결).
+// - {type: "disconnect"}: 저장한 토큰을 지운다(웹 로그아웃).
+// 우리 웹이 아닌 출처의 메시지는 답하지 않고 무시한다(undefined).
+export function handleExternalMessage(
+  message: unknown,
+  senderUrl: string | undefined,
+): Promise<ExternalReply> | undefined {
+  if (!isFromWeb(senderUrl)) return undefined;
+  const { type, token } = (message ?? {}) as {
+    type?: unknown;
+    token?: unknown;
+  };
+  if (type === "connect" && typeof token === "string" && token) {
+    return saveToken(token).then(() => ({ ok: true }));
+  }
+  if (type === "disconnect") {
+    return clearToken().then(() => ({ ok: true }));
+  }
+  return Promise.resolve({ ok: false });
+}

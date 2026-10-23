@@ -1,4 +1,5 @@
 import { requestAnalysis } from "@/utils/analysis-request";
+import { handleExternalMessage } from "@/utils/external-messages";
 import { latestPerKey } from "@/utils/latest";
 import { sentencesFromPage } from "@/utils/page-sentences";
 
@@ -10,6 +11,18 @@ export default defineBackground(() => {
 
   // 툴바의 확장 아이콘을 누르면 사이드 패널을 연다.
   browser.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+
+  // 웹 '로그인·확장 연결' 화면이 토큰을 넘기거나(연결) 지우라고(웹 로그아웃) 알린다.
+  // 우리 웹이 아닌 출처의 메시지에는 답하지 않는다.
+  browser.runtime.onMessageExternal.addListener(
+    (message, sender, sendResponse) => {
+      const reply = handleExternalMessage(message, sender.url);
+      if (!reply) return false;
+      reply.then(sendResponse);
+      // 답을 비동기로 보내므로 채널을 열어 둔다.
+      return true;
+    },
+  );
 
   browser.runtime.onInstalled.addListener(() => {
     browser.contextMenus.create({

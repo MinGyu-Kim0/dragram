@@ -1,5 +1,19 @@
-import { afterEach, expect, test, vi } from "vitest";
-import { AnalysisFailed, analyzeSentence } from "./api";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { fakeBrowser } from "wxt/testing/fake-browser";
+import {
+  AnalysisFailed,
+  API_BASE_URL,
+  analyzeSentence,
+  LoginRequired,
+  logoutExtension,
+} from "./api";
+import { loadToken, saveToken } from "./auth";
+
+beforeEach(async () => {
+  fakeBrowser.reset();
+  // 분석 API는 확장 토큰이 있어야 부른다(#109).
+  await saveToken("extension-token");
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -115,4 +129,87 @@ test("확정 문법이 오면 onEarlyGrammar를 부르고, 실패하면 받은 �
   expect(failure).toBeInstanceOf(AnalysisFailed);
   expect(failure.earlyGrammar).toEqual([item]);
   expect(failure.translation).toBeUndefined();
+});
+
+describe("확장 토큰(#109)", () => {
+  beforeEach(() => {
+    fakeBrowser.reset();
+  });
+
+  test("저장한 토큰을 Bearer 헤더로 붙인다", async () => {
+    await saveToken("extension-token");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        [
+          { type: "translation", translation_ko: "학생", ruby: [] },
+          { type: "analysis", translation_ko: "학생", grammar: [], words: [] },
+        ]
+          .map((event) => JSON.stringify(event) + "\n")
+          .join(""),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await analyzeSentence("学生", () => {});
+
+    const init = fetchMock.mock.calls[0]![1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer extension-token",
+    );
+  });
+
+  test("토큰이 없으면 요청하지 않고 로그인이 필요하다고 알린다", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(analyzeSentence("学生", () => {})).rejects.toBeInstanceOf(
+      LoginRequired,
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("서버가 로그인이 필요하다고 하면 저장한 토큰을 지운다", async () => {
+    await saveToken("expired-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "AUTH:LOGIN_REQUIRED" }), {
+          status: 401,
+        }),
+      ),
+    );
+
+    await expect(analyzeSentence("学生", () => {})).rejects.toBeInstanceOf(
+      LoginRequired,
+    );
+    expect(await loadToken()).toBeUndefined();
+  });
+
+  test("확장 로그아웃은 서버에서 그 토큰을 폐기하고 저장한 토큰을 지운다", async () => {
+    await saveToken("extension-token");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await logoutExtension();
+
+    const [url, init] = fetchMock.mock.calls[0]! as [string, RequestInit];
+    expect(url).toBe(`${API_BASE_URL}/api/auth/extension-tokens/revoke/`);
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer extension-token",
+    );
+    expect(await loadToken()).toBeUndefined();
+  });
+
+  test("서버에 닿지 않아도 확장 로그아웃은 저장한 토큰을 지운다", async () => {
+    await saveToken("extension-token");
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
+
+    await logoutExtension();
+
+    expect(await loadToken()).toBeUndefined();
+  });
 });

@@ -5,9 +5,11 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import { requestAnalysis } from "@/utils/analysis-request";
+import { loadToken, saveToken } from "@/utils/auth";
+import { WEB_ORIGIN } from "@/utils/external-messages";
 import App from "./App";
 
 function respondWith(status: number, body: object) {
@@ -109,6 +111,8 @@ beforeEach(async () => {
   fakeBrowser.reset();
   const panelWindow = await fakeBrowser.windows.create({ focused: true });
   panelWindowId = panelWindow!.id!;
+  // 웹에서 연결한 상태로 시작한다(#109).
+  await saveToken("extension-token");
 });
 
 afterEach(() => {
@@ -1856,4 +1860,78 @@ test("먼저 온 확정 문법은 평평하게 보이고, 분석이 오면 하�
       { level: 4 },
     ).textContent,
   ).toBe("연결");
+});
+
+describe("로그인과 확장 연결(#109)", () => {
+  test("연결하지 않았으면 로그인 안내를 보이고, 버튼이 웹 연결 화면을 새 탭으로 연다", async () => {
+    await fakeBrowser.storage.local.clear();
+    const openTab = vi.spyOn(fakeBrowser.tabs, "create");
+    render(<App />);
+
+    const button = await screen.findByRole("button", {
+      name: "로그인하고 연결하기",
+    });
+    expect(
+      screen.getByRole("heading", { name: "로그인이 필요해요" }),
+    ).toBeInTheDocument();
+    fireEvent.click(button);
+
+    expect(openTab).toHaveBeenCalledWith({ url: `${WEB_ORIGIN}/connect` });
+  });
+
+  test("분석 요청에 토큰을 Bearer로 붙인다", async () => {
+    const fetchMock = respondWith(200, analysis("나는 학생입니다."));
+    render(<App />);
+
+    await send(panelWindowId, "私は学生です。");
+
+    expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
+    const init = fetchMock.mock.calls[0]![1];
+    expect((init.headers as Record<string, string>).Authorization).toBe(
+      "Bearer extension-token",
+    );
+  });
+
+  test("서버가 로그인이 필요하다고 하면 토큰을 지우고 로그인 안내를 보인다", async () => {
+    respondWith(401, { error: "AUTH:LOGIN_REQUIRED" });
+    render(<App />);
+
+    await send(panelWindowId, "私は学生です。");
+
+    expect(
+      await screen.findByRole("heading", { name: "로그인이 필요해요" }),
+    ).toBeInTheDocument();
+    expect(await loadToken()).toBeUndefined();
+  });
+
+  test("연결이 끝나면 안내를 닫고 기다리던 문장을 다시 분석한다", async () => {
+    await fakeBrowser.storage.local.clear();
+    const fetchMock = respondWith(200, analysis("나는 학생입니다."));
+    render(<App />);
+    await send(panelWindowId, "私は学生です。");
+    await screen.findByRole("heading", { name: "로그인이 필요해요" });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await saveToken("new-token");
+
+    expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: "로그인이 필요해요" }),
+    ).not.toBeInTheDocument();
+  });
+
+  test("로그아웃하면 서버에서 이 토큰을 폐기하고 로그인 안내를 보인다", async () => {
+    const fetchMock = respondWith(204, {});
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "로그인이 필요해요" }),
+    ).toBeInTheDocument();
+    expect(fetchMock.mock.calls[0]![0]).toMatch(
+      /\/api\/auth\/extension-tokens\/revoke\/$/,
+    );
+    expect(await loadToken()).toBeUndefined();
+  });
 });

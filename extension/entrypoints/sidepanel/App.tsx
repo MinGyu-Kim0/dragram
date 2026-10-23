@@ -6,10 +6,14 @@ import {
 import {
   AnalysisFailed,
   analyzeSentence,
+  LoginRequired,
+  logoutExtension,
   type Analysis,
   type CheckingItem,
   type GrammarItem,
 } from "@/utils/api";
+import { watchConnected } from "@/utils/auth";
+import { WEB_ORIGIN } from "@/utils/external-messages";
 import { createLimiter } from "@/utils/limiter";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 import { usePreference } from "./use-preference";
@@ -41,6 +45,25 @@ function App() {
   const [limiter] = useState(() => createLimiter(MAX_CONCURRENT_REQUESTS));
   // 지금 회차에서 실패한 문장을 다시 분석한다(문장 번호). 회차마다 새로 정한다.
   const retry = useRef<(index: number) => void>(undefined);
+  // 확장 토큰이 있는지(웹에서 연결했는지). 처음 읽기 전에는 undefined다(#109).
+  const [connected, setConnected] = useState<boolean>();
+  // 로그인이 필요해 분석하지 못한 요청이 있다. 연결되면 다시 분석한다.
+  const waitingForLogin = useRef(false);
+
+  useEffect(
+    () =>
+      watchConnected((now) => {
+        setConnected(now);
+        if (now && waitingForLogin.current) {
+          waitingForLogin.current = false;
+          // 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
+          setRequest(
+            (current) => current && { ...current, id: crypto.randomUUID() },
+          );
+        }
+      }),
+    [],
+  );
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.
@@ -117,7 +140,13 @@ function App() {
         )
         .then(
           (analysis) => saveAll({ status: "done", analysis }),
-          (error: unknown) =>
+          (error: unknown) => {
+            // 토큰이 없거나 거부됐다. api가 토큰을 지워 로그인 안내가 보이고, 연결되면 다시
+            // 분석한다.
+            if (error instanceof LoginRequired) {
+              waitingForLogin.current = true;
+              return;
+            }
             saveAll({
               status: "failed",
               // 다시 분석하다 실패하면 옛 결과만 남기고 그사이 받은 새 번역·문법은 버린다.
@@ -129,7 +158,8 @@ function App() {
                       earlyGrammar: error.earlyGrammar,
                     }
                 : {}),
-            }),
+            });
+          },
         );
     };
     indicesByText.forEach((_, text) => analyze(text));
@@ -153,9 +183,29 @@ function App() {
       : undefined;
   const goTo = (index: number) => setPage({ requestId: request!.id, index });
 
+  if (connected === false) {
+    return (
+      <main>
+        <h1>Dragram</h1>
+        <LoginPrompt />
+      </main>
+    );
+  }
+
   return (
     <main>
-      <h1>Dragram</h1>
+      <header className="panel-header">
+        <h1>Dragram</h1>
+        {connected && (
+          <button
+            type="button"
+            className="text-button"
+            onClick={() => logoutExtension()}
+          >
+            로그아웃
+          </button>
+        )}
+      </header>
       {request && request.sentences.length > 1 && (
         <nav className="pager" aria-label="문장">
           <button
@@ -194,6 +244,29 @@ function App() {
         />
       )}
     </main>
+  );
+}
+
+// 로그인 전(DESIGN 사이드 패널 '로그인 전'). 웹 '로그인·확장 연결' 화면에서 연결한다.
+function LoginPrompt() {
+  return (
+    <section className="login-prompt">
+      <h2>로그인이 필요해요</h2>
+      <p>
+        문장을 분석하려면 웹에서 Google 계정으로 로그인하고 확장 프로그램을
+        연결해 주세요.
+      </p>
+      <button
+        type="button"
+        className="primary-button"
+        onClick={() => browser.tabs.create({ url: `${WEB_ORIGIN}/connect` })}
+      >
+        로그인하고 연결하기
+      </button>
+      <p className="muted">
+        분석할 문장은 Dragram 서버로 보내 분석하고, 분석에는 OpenAI를 써요.
+      </p>
+    </section>
   );
 }
 

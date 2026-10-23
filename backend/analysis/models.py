@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -138,6 +139,49 @@ class GrammarUsage(models.Model):
         return self.name
 
 
+class UsageRule(models.Model):
+    """판별 규칙: 한 패턴의 구간 앞뒤 형태소가 조건에 맞으면 그 구간을 정해진 용법으로 본다(#55).
+
+    관리자가 admin에서 만든다. 승인된 규칙은 내용을 바꾸지 않으므로 판 번호를 두지 않는다.
+    바꾸려면 폐기하고 새로 만든다. 판정 기록(span_match.rule)이 가리키므로 지우지 않는다.
+    """
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        APPROVED = "approved"
+        RETIRED = "retired"
+
+    # 실제로 매칭된 패턴. 연결된 회화체면 용법은 원형의 것이다.
+    pattern = models.ForeignKey(GrammarPattern, on_delete=models.PROTECT, related_name="rules")
+    usage = models.ForeignKey(GrammarUsage, on_delete=models.PROTECT, related_name="rules")
+    # [{position: -2|-1|1|2, lemma, pos1, pos2, pos3, conjugation_form}] (analysis.rules)
+    condition = models.JSONField()
+    # [{text, should_apply}]. 관리자가 새로 쓴 예문만 둔다. 사용자 원문은 넣지 않는다.
+    test_cases = models.JSONField(default=list)
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.PENDING)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+    )
+    approved_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+    )
+    approved_at = models.DateTimeField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "usage_rule"
+
+    def __str__(self):
+        return f"{self.pattern_id} → {self.usage_id} #{self.pk}"
+
+
 class SpanMatch(models.Model):
     """문장 분석의 구간 하나. 위치는 키 텍스트 코드포인트 기준 [start, end)다.
 
@@ -156,6 +200,8 @@ class SpanMatch(models.Model):
     class DecidedBy(models.TextChoices):
         # 승인된 용법 완결 패턴의 단일 후보를 LLM 없이 확정(#39)
         SINGLE_USAGE = "single_usage"
+        # 승인된 판별 규칙으로 LLM 없이 확정(#55)
+        RULE = "rule"
         LLM = "llm"
 
     analysis = models.ForeignKey(
@@ -170,6 +216,8 @@ class SpanMatch(models.Model):
     decided_by = models.CharField(  # noqa: DJ001
         max_length=30, choices=DecidedBy.choices, null=True
     )
+    # 판별 규칙으로 확정했으면 그 규칙(decided_by = rule일 때만, #55)
+    rule = models.ForeignKey(UsageRule, on_delete=models.PROTECT, null=True)
     # LLM에 준 후보 [{candidate_id, usage_id}]
     candidates = models.JSONField(null=True)
     # 해석 갈림의 대안 [{usage_id, translation_ko}](후보 순서). 번역은 주 번역처럼 키 텍스트
@@ -199,6 +247,12 @@ class SpanMatch(models.Model):
                     & models.Q(alternatives__isnull=True)
                 ),
                 name="span_match_alternatives_by_state",
+            ),
+            models.CheckConstraint(
+                # decided_by가 NULL이면 첫 절이 NULL이 되어 통과하지 않게 IS NOT NULL을 둔다.
+                condition=models.Q(decided_by__isnull=False, decided_by="rule", rule__isnull=False)
+                | (~models.Q(decided_by="rule") & models.Q(rule__isnull=True)),
+                name="span_match_rule_iff_decided_by_rule",
             ),
             # 같은 자리의 같은 패턴은 한 번만 둔다(#41). 중복 카드가 남지 않게 하는 백스톱이다.
             models.UniqueConstraint(

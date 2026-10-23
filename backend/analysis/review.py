@@ -6,11 +6,13 @@ admin 액션과 이후 티켓이 함께 쓴다. 함수마다 한 트랜잭션에
 
 from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from analysis import patterns
-from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus
+from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus, UsageRule
 from analysis.morphology import morphemes
 from analysis.normalize import analysis_text
+from analysis.rules import condition_matches
 
 
 class Refused(Exception):  # noqa: N818
@@ -371,3 +373,88 @@ def update_test_cases(pattern, cases):
     pattern.save(update_fields=["test_cases"])
     if pattern.status != ReviewStatus.REJECTED:
         _set_active(pattern, _has_activation_basis(pattern))
+
+
+def rule_test_cases_failure(rule, cases=None):
+    """판별 규칙의 test_cases(주지 않으면 저장된 것)가 통과하지 못하는 이유. 통과하면 None(#55).
+
+    '적용됨'·'적용 안 됨' 예문이 각각 하나 이상 있어야 한다. '적용됨'은 패턴이 걸리고 걸린 자리
+    가운데 하나에서 조건이 맞아야 하고, '적용 안 됨'은 패턴은 걸리지만 걸린 어느 자리에서도
+    조건이 맞지 않아야 한다. 패턴이 걸리지 않는 예문은 어느 쪽이든 실패다.
+    """
+    cases = rule.test_cases if cases is None else cases
+    if not any(case["should_apply"] for case in cases):
+        return "'적용됨' 예문이 없습니다"
+    if all(case["should_apply"] for case in cases):
+        return "'적용 안 됨' 예문이 없습니다"
+    conditions = patterns.conditions_of(rule.pattern)
+    for case in cases:
+        analysis, _ = analysis_text(case["text"])
+        morphs = morphemes(analysis) if analysis else []
+        starts = patterns.match_starts(conditions, morphs)
+        if not starts:
+            return f"패턴이 걸리지 않는 예문입니다: {case['text']}"
+        applies = any(
+            condition_matches(rule.condition, morphs, start, start + len(conditions) - 1)
+            for start in starts
+        )
+        if applies != case["should_apply"]:
+            expected = "적용돼야" if case["should_apply"] else "적용되면 안 되"
+            return f"{expected} 하는 예문이 기대와 다릅니다: {case['text']}"
+    return None
+
+
+def _locked_rule(rule):
+    """규칙의 패턴(과 그 원형)을 잠근 뒤 규칙을 잠근다. 패턴 → 규칙 → 분석 순서다."""
+    pattern, base = _locked_with_base(rule.pattern)
+    locked = (
+        UsageRule.objects.select_for_update(no_key=True).select_related("usage").get(pk=rule.pk)
+    )
+    # 잠그기 전에 읽은 패턴을 잠갔으므로, 그사이 미검수 규칙의 패턴이 바뀌었으면 하지 않는다.
+    if locked.pattern_id != pattern.pk:
+        raise Refused("그사이 규칙의 패턴이 바뀌었습니다")
+    return pattern, base, locked
+
+
+@transaction.atomic
+def approve_rule(rule, user=None):
+    """test_cases를 통과한 미검수 규칙을 승인한다. 패턴(연결됐으면 원형도)과 용법이 승인돼야
+    한다. 그 패턴으로 매칭된 구간이 있는 분석만 stale로 만든다(새 규칙이 그 구간을 정할 수 있다,
+    #55). 규칙은 실제로 매칭된 패턴에만 쓰므로 연결된 회화체 구간은 넣지 않는다.
+    """
+    pattern, base, rule = _locked_rule(rule)
+    if rule.status != UsageRule.Status.PENDING:
+        raise Refused(f"지금 상태({rule.get_status_display()})에서는 할 수 없습니다")
+    if pattern.status != ReviewStatus.APPROVED or (
+        base is not None and base.status != ReviewStatus.APPROVED
+    ):
+        raise Refused("규칙의 패턴이 승인돼야 합니다")
+    # 그사이 원형 연결이 바뀌었으면 용법이 이 패턴의 후보가 아니어서 규칙이 쓰이지 않는다.
+    if rule.usage.pattern_id != (base or pattern).pk:
+        raise Refused("규칙의 용법이 그 패턴(연결된 회화체면 원형)의 용법이 아닙니다")
+    if rule.usage.status != ReviewStatus.APPROVED:
+        raise Refused("규칙의 용법이 승인돼야 합니다")
+    failure = rule_test_cases_failure(rule)
+    if failure:
+        raise Refused(failure)
+    rule.status = UsageRule.Status.APPROVED
+    rule.approved_by = user
+    rule.approved_at = timezone.now()
+    rule.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
+    # 용법 완결 패턴의 구간은 2단계에서 먼저 확정되므로 규칙이 결과를 바꾸지 않는다. 용법 완결이
+    # 풀릴 때 그 전이가 따로 stale로 만든다.
+    if not pattern.usage_closed:
+        patterns.make_stale(pattern=pattern, family=False)
+
+
+@transaction.atomic
+def retire_rule(rule):
+    """규칙을 폐기한다. 되돌리지 않는다. 그 규칙으로 정해진 구간이 있는 분석만 stale로 만든다
+    (미검수 규칙은 판정에 쓰인 적이 없다, #55).
+    """
+    _, _, rule = _locked_rule(rule)
+    if rule.status == UsageRule.Status.RETIRED:
+        raise Refused(f"지금 상태({rule.get_status_display()})에서는 할 수 없습니다")
+    rule.status = UsageRule.Status.RETIRED
+    rule.save(update_fields=["status", "updated_at"])
+    patterns.make_stale(rule=rule)

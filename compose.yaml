@@ -44,6 +44,12 @@ services:
 
   web:
     build: ./web
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # 개발 서버가 /api를 백엔드로 넘긴다(웹과 API를 같은 출처로).
+      API_PROXY_TARGET: http://backend:8000
     volumes:
       - ./web:/app
       # 이미지에 설치한 node_modules를 쓴다. 의존성을 바꾸면 build 후 `up -V`로 다시 만든다.

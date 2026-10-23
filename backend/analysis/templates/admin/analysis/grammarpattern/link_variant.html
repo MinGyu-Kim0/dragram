@@ -1,0 +1,38 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<p>회화체: 「{{ pattern.name }}」(ID {{ pattern.pk }}) → 원형: 「{{ base.name }}」(ID {{ base.pk }})</p>
+<p>반려되지 않은 자기 용법마다 원형의 용법으로 합칠지, 원형 아래로 옮길지 고릅니다. 합치면 원형
+용법의 이름·설명·예문·검수 상태를 쓰고 자기 용법은 지웁니다. 옮기면 검수 상태는 그대로이고,
+원형 조건에 걸리지 않는 예문은 비웁니다.</p>
+<form method="post">{% csrf_token %}
+  <table>
+    <thead>
+      <tr><th>자기 용법</th><th>검수 상태</th><th>설명</th><th>처리</th></tr>
+    </thead>
+    <tbody>
+      {% for usage in usages %}
+      <tr>
+        <td>{{ usage.name }}</td>
+        <td>{{ usage.get_status_display }}</td>
+        <td>{{ usage.explanation_ko }}</td>
+        <td>
+          <select name="usage_{{ usage.pk }}" required>
+            <option value="">고르세요</option>
+            <option value="move">원형 아래로 옮김</option>
+            {% for target in targets %}
+            <option value="{{ target.pk }}">합침: 「{{ target.name }}」({{ target.get_status_display }})</option>
+            {% endfor %}
+          </select>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <input type="hidden" name="action" value="link_variant">
+  <input type="hidden" name="_selected_action" value="{{ pattern.pk }}">
+  <input type="hidden" name="base_pattern_id" value="{{ base.pk }}">
+  <input type="hidden" name="apply" value="1">
+  <p><input type="submit" value="연결"></p>
+</form>
+{% endblock %}

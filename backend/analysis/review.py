@@ -5,6 +5,7 @@ admin 액션과 이후 티켓이 함께 쓴다. 함수마다 한 트랜잭션에
 """
 
 from django.db import transaction
+from django.db.models import Q
 
 from analysis import patterns
 from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus
@@ -133,9 +134,17 @@ def unapprove_pattern(pattern):
 
 
 def _locked_usage(usage):
-    """용법과 그 소속 패턴을 잠근다. 패턴을 먼저 잠가 패턴 쪽 전이와 순서를 맞춘다."""
-    pattern = _locked(usage.pattern)
-    usage = GrammarUsage.objects.select_for_update(no_key=True).get(pk=usage.pk)
+    """용법과 그 소속 패턴을 잠근다. 패턴을 먼저 잠가 패턴 쪽 전이와 순서를 맞춘다.
+
+    용법을 읽어 둔 뒤 그 용법이 원형 용법으로 합쳐져 지워졌거나 원형 아래로 옮겨졌으면, 읽어 둔
+    소속에서 고른 상태 변경이라 거부한다(#64).
+    """
+    moved = Refused("그사이 용법이 원형 용법으로 합쳐지거나 원형 아래로 옮겨졌습니다")
+    pattern_id = usage.pattern_id
+    pattern = _locked(GrammarPattern(pk=pattern_id))
+    usage = GrammarUsage.objects.select_for_update(no_key=True).filter(pk=usage.pk).first()
+    if usage is None or usage.pattern_id != pattern_id:
+        raise moved
     return pattern, usage
 
 
@@ -194,7 +203,7 @@ def reject_usage(usage):
     usage.save(update_fields=["status", "updated_at"])
     # 패턴 쪽(용법 완결)을 분석 행보다 먼저 바꾼다(패턴 → 분석 순서).
     patterns.clear_usage_closed(pattern)
-    patterns.make_stale(usage=usage)
+    patterns.make_stale(usages=[usage])
 
 
 @transaction.atomic
@@ -224,16 +233,19 @@ def unapprove_usage(usage):
     usage.status = ReviewStatus.PENDING
     usage.save(update_fields=["status", "updated_at"])
     patterns.clear_usage_closed(pattern)
-    patterns.make_stale(usage=usage)
+    patterns.make_stale(usages=[usage])
 
 
 @transaction.atomic
-def link_variant(pattern, base):
+def link_variant(pattern, base, mapping=None):
     """회화체 패턴을 원형에 연결한다(#63). 연결된 회화체는 원형의 용법을 후보로 쓴다.
 
     두 패턴(과 그 회화체들)을 한 번에 id 순서로 잠근다(patterns.lock_families). 그 회화체의
-    구간이 있는 분석은 stale이 되고, 매칭 자격이 새로 생기면 패턴 세트 버전을 올린다. 자기
-    용법이 남은 회화체의 용법 병합은 하지 않는다(#64).
+    구간이 있는 분석은 stale이 되고, 매칭 자격이 새로 생기면 패턴 세트 버전을 올린다.
+
+    mapping은 회화체의 반려되지 않은 자기 용법마다 {용법 ID: 합칠 원형 용법 ID, 원형 아래로
+    옮기면 None}이다. 자기 용법이 남았으면 모두 골라야 연결한다(#64). 이름으로 자동 대응하지
+    않는다.
     """
     if pattern.pk == base.pk:
         raise Refused("원형으로 자기 자신을 고를 수 없습니다")
@@ -249,16 +261,72 @@ def link_variant(pattern, base):
         raise Refused("이 패턴을 원형으로 가리키는 회화체가 있습니다")
     if ReviewStatus.REJECTED in {base.status, pattern.status}:
         raise Refused("반려된 패턴은 연결할 수 없습니다")
-    if GrammarUsage.objects.filter(pattern=pattern).exclude(status=ReviewStatus.REJECTED).exists():
-        raise Refused("반려되지 않은 자기 용법이 남아 있습니다")
-    was_matchable = patterns.matchable_family(pattern)
+    mapping = mapping or {}
+    merges = {source: target for source, target in mapping.items() if target is not None}
+    moves = mapping.keys() - merges.keys()
+    # 자기 용법과 합칠 원형 용법을 한 번에 id 순서로 잠근다(패턴 → 용법 순서).
+    locked = (
+        GrammarUsage.objects.select_for_update(no_key=True)
+        .filter(Q(pattern=pattern) | Q(pattern=base, pk__in=merges.values()))
+        .exclude(status=ReviewStatus.REJECTED)
+        .order_by("id")
+    )
+    own = {u.pk: u for u in locked if u.pattern_id == pattern.pk}
+    targets = {u.pk: u for u in locked if u.pattern_id == base.pk}
+    if own and not mapping:
+        raise Refused("반려되지 않은 자기 용법이 남아 있습니다(용법마다 합칠 원형 용법을 고릅니다)")
+    if set(own) != set(mapping):
+        raise Refused("고른 용법이 지금의 반려되지 않은 자기 용법과 다릅니다")
+    if any(target not in targets for target in merges.values()):
+        raise Refused("합칠 용법은 원형의 반려되지 않은 용법이어야 합니다")
+    # 용법 이름은 패턴 안에서 유일하다(반려된 용법 포함). 반려된 용법으로는 합칠 수 없다.
+    taken = dict(GrammarUsage.objects.filter(pattern=base).values_list("name", "status"))
+    for source in moves:
+        name = own[source].name
+        if taken.get(name) == ReviewStatus.REJECTED:
+            raise Refused(
+                "원형의 같은 이름 용법이 반려돼 있어 옮길 수 없습니다(그 용법을 반려 취소한 뒤"
+                f" 합치거나, 다른 용법으로 합치거나, 이 용법을 반려합니다): {name}"
+            )
+        if name in taken:
+            raise Refused(
+                f"원형에 같은 이름의 용법이 있어 옮길 수 없습니다(합침을 고릅니다): {name}"
+            )
+    # 원형도 본다. 옮긴 용법으로 원형(과 그 회화체들)이 매칭 자격을 얻을 수 있다(#64).
+    was_matchable = patterns.matchable_family(pattern) | patterns.matchable_family(base)
     pattern.variant_of = base
     pattern.register = GrammarPattern.Register.COLLOQUIAL
     pattern.save(update_fields=["variant_of", "register"])
-    if patterns.matchable_family(pattern) - was_matchable:
+    for source in moves:
+        _move_usage(own[source], base)
+    # 버전은 분석 행을 잠그기(합침, stale) 전에 올린다.
+    if patterns.matchable_family(base) - was_matchable:
         patterns.raise_pattern_set_version()
+    if mapping:
+        # 원형과 그 회화체들(이번에 연결한 것 포함)의 분석, 합치거나 옮길 용법을 주 용법·후보·
+        # 대안으로 가리키는 분석을 다시 분석한다. 병합 전에 시작한 분석이 옛 소속으로 저장하지
+        # 못하게 한다. 이 분석들을 먼저 한 번에 id 순서로 잠가, 뒤의 합침·용법 완결 떼기가 그
+        # 일부를 다시 잠가도 기다리지 않게 한다. 분석 행을 id 순서로 잠그는 다른 사건과
+        # 엇갈리지 않는다.
+        patterns.make_stale(pattern=base, usages=own.values(), candidates=True)
+    for source, target in merges.items():
+        patterns.merge_usage(own[source], targets[target])
+    if moves:
+        # 옮김은 원형에 용법을 더한 것과 같다. 원형과 그 회화체들의 용법 완결을 뗀다.
+        patterns.clear_usage_closed(base)
     patterns.clear_usage_closed(pattern)
-    patterns.make_stale(pattern=pattern)
+    if not mapping:
+        patterns.make_stale(pattern=pattern)
+
+
+def _move_usage(usage, base):
+    """회화체의 자기 용법을 원형 아래로 옮긴다(#64). 검수 상태는 그대로다. 예문이 원형 조건에
+    걸리지 않으면(회화체 형태로 쓴 예문) 비운다.
+    """
+    usage.pattern = base
+    if usage.example_ja is not None and not matches(patterns.conditions_of(base), usage.example_ja):
+        usage.example_ja = None
+    usage.save(update_fields=["pattern", "example_ja", "updated_at"])
 
 
 @transaction.atomic

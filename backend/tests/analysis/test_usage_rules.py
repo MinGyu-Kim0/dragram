@@ -15,7 +15,7 @@ from analysis.models import (
     UsageRule,
 )
 from tests.analysis.helpers import analyze, new_pattern, span_answer
-from tests.analysis.test_colloquial import MICHAU, linked
+from tests.analysis.test_colloquial import CHAU, MICHAU, TESHIMAU, linked, register
 
 pytestmark = pytest.mark.django_db
 
@@ -539,3 +539,18 @@ def test_saving_a_rule_approved_meanwhile_reports_that_nothing_was_saved(
     draft.refresh_from_db()
     assert draft.condition == AFTER_PLACE
     assert "저장하지 않았습니다" in response.content.decode()
+
+
+def test_merging_a_colloquial_usage_moves_its_rules_to_the_base_usage(fake_llm):
+    base = register(fake_llm, "食べてしまった", TESHIMAU, "먹어 버렸다")
+    variant = register(fake_llm, "食べちゃった", CHAU, "먹어 버렸다")
+    own, done = variant.usages.get(), base.usages.get()
+    own_rule = UsageRule.objects.create(
+        pattern=variant, usage=own, condition=[{"position": -1, "pos1": "動詞"}]
+    )
+
+    # 합친 자기 용법은 지워지므로, 그 용법을 가리키던 규칙도 합칠 원형 용법을 가리킨다(#64).
+    review.link_variant(variant, base, {own.pk: done.pk})
+
+    own_rule.refresh_from_db()
+    assert (own_rule.pattern, own_rule.usage) == (variant, done)

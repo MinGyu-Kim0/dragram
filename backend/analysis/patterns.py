@@ -21,6 +21,7 @@ from analysis.models import (
     ReviewStatus,
     SentenceAnalysis,
     SpanMatch,
+    UsageRule,
 )
 
 # 새 예문(용법 예문, test_cases)은 짧은 문장으로 받는다. 이보다 길면 쓰지 않는다. 형태소 분석
@@ -309,8 +310,9 @@ def clear_usage_closed(pattern):
 def make_stale(pattern=None, usages=(), candidates=False, rule=None):
     """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 그 용법들로 정해진 구간이나
     그 용법을 대안으로 쓴 해석 갈림 구간, 또는 그 판별 규칙으로 정해진 구간이 있는 분석을 stale로
-    만들고 세대 번호를 올린다(#38, #40, #63, #55). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은 따로 넓히지 않는다. 동시에
-    여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다. 잠근 분석 ID들을 돌려준다.
+    만들고 세대 번호를 올린다(#38, #40, #63, #55). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은
+    따로 넓히지 않는다. 동시에 여러 사건이 겹쳐도 교착하지 않게 id 순서로 잠근 뒤 바꾼다. 잠근
+    분석 ID들을 돌려준다.
 
     패턴과 용법을 함께 주면 어느 쪽에든 걸리는 분석을 한 번에 잠근다. candidates면 그 용법을
     후보로만 가진 구간의 분석도 넣는다. 용법 참조를 옮길 때 쓴다(#64).
@@ -349,6 +351,7 @@ def merge_usage(source, target):
     """source 용법을 target으로 합친다(#64). 구간이 source를 주 용법·후보·대안으로 가리키던
     참조를 target으로 바꾸고 source를 지운다. 바꾼 구간에서 겹친 후보는 앞의 것만 남기고, 주
     용법과 같아졌거나 앞 대안과 겹친 대안은 뺀다. 대안이 남지 않은 해석 갈림은 decided가 된다.
+    source를 가리키던 판별 규칙도 target을 가리키게 한다(#55).
 
     그 구간이 있는 분석을 먼저 잠가 stale로 만들고 세대 번호를 올린 뒤 구간을 바꾼다(구간은 분석
     행을 잠근 뒤 쓴다). 호출하는 쪽이 두 용법과 그 패턴을 잠그고, lock_links(배타)로 구간을
@@ -363,6 +366,8 @@ def merge_usage(source, target):
         if _repointed(row, source.pk, target.pk)
     ]
     SpanMatch.objects.bulk_update(rows, ["usage", "state", "candidates", "alternatives"])
+    # 판별 규칙도 target을 가리킨다. 같은 뜻으로 합친 용법이라 규칙의 뜻은 그대로다(#55).
+    UsageRule.objects.filter(usage=source).update(usage=target, updated_at=timezone.now())
     source.delete()
 
 

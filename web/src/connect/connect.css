@@ -26,6 +26,7 @@ body {
 }
 
 .connect .card {
+  box-sizing: border-box;
   width: min(100%, 420px);
   padding: 28px;
   border: 1px solid var(--color-border);

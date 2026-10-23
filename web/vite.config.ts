@@ -4,6 +4,9 @@ import { defineConfig } from "vitest/config";
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  // 루트 .env(.env.example 안내)의 VITE_GOOGLE_CLIENT_ID를 읽는다. VITE_로 시작하는 값만 웹에
+  // 들어간다. compose에서는 루트가 마운트되지 않아 환경 변수로 넘긴다.
+  envDir: "..",
   server: {
     // 웹과 API를 같은 출처로 둔다(Django 세션·CSRF). Host 헤더를 그대로 넘겨 Django의 CSRF
     // 출처 검사가 웹 출처와 맞게 한다.

@@ -129,3 +129,20 @@ test("Google 버튼을 준비하지 못하면 로그인 실패와 다르게 안�
   );
   expect(renderButton).not.toHaveBeenCalled();
 });
+
+test("로그아웃이 실패하면 로그인한 상태를 그대로 보이고 안내한다", async () => {
+  responses["GET /api/auth/me/"] = () =>
+    json({ user: { email: "me@example.com" } });
+  responses["POST /api/auth/logout/"] = () =>
+    json({ error: "AUTH:CSRF_FAILED" }, 403);
+  render(<ConnectPage />);
+  await screen.findByText("me@example.com");
+
+  await userEvent.click(screen.getByRole("button", { name: "로그아웃" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "로그아웃하지 못했어요",
+  );
+  expect(screen.getByText("me@example.com")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "로그아웃" })).toBeInTheDocument();
+});

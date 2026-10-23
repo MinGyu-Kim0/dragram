@@ -8,7 +8,7 @@ import "./connect.css";
 type State =
   | { kind: "loading" }
   | { kind: "signedOut"; failed: boolean }
-  | { kind: "signedIn"; user: User };
+  | { kind: "signedIn"; user: User; logoutFailed: boolean };
 
 function GoogleButton({
   onCredential,
@@ -34,7 +34,7 @@ function ConnectPage() {
     (user: User | null) =>
       setState(
         user
-          ? { kind: "signedIn", user }
+          ? { kind: "signedIn", user, logoutFailed: false }
           : { kind: "signedOut", failed: false },
       ),
     [],
@@ -76,7 +76,7 @@ function ConnectPage() {
             )}
             <GoogleButton onCredential={login} onError={buttonFailed} />
             <p className="muted">
-              로그인하면 Google 계정의 이메일과 계정 식별자만 받아요.
+              로그인하면 Google 계정의 이메일과 계정 식별자만 저장해요.
             </p>
           </>
         )}
@@ -86,10 +86,21 @@ function ConnectPage() {
             <p className="secondary">
               <strong>{state.user.email}</strong> 계정으로 로그인했어요.
             </p>
+            {state.logoutFailed && (
+              <p role="alert" className="danger">
+                로그아웃하지 못했어요. 다시 시도해 주세요.
+              </p>
+            )}
             <button
               type="button"
               className="secondary-button"
-              onClick={() => logout().then(show, fail)}
+              onClick={() => {
+                const { user } = state;
+                // 실패하면 세션이 남아 있으므로 로그인한 상태를 그대로 보인다.
+                logout().then(show, () =>
+                  setState({ kind: "signedIn", user, logoutFailed: true }),
+                );
+              }}
             >
               로그아웃
             </button>

@@ -3,7 +3,7 @@
 원본: `erd.json`(ERDCloud 스냅샷). 이 문서는 그 파일에서 생성했다. 결정 근거는 `../design-decisions.md` 참고.
 
 > 설계 시점 스냅샷이다. 구현을 시작하면 Django 모델과 마이그레이션이 기준이고, 이 문서는 바뀐 부분을 손으로 맞춘다.
-> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK)은 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
+> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명)은 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
 > `grammar_pattern`, `pattern_morpheme`, `grammar_usage`, `span_match`, `pattern_set_version`은 #35에서 그때 쓰는 칼럼만 만들었다. 나머지 칼럼(승인·자동 승인, 판 번호, 규칙, 회화체, 대안 해석, confidence 등)은 그 칼럼을 쓰는 하위 티켓에서 일반 마이그레이션으로 더한다(design-decisions 32절). 회화체 칼럼(`register`·`variant_of`)은 #63에서, `show_parts`는 #65에서, `usage_rule`과 `span_match.rule_id`는 #55에서 더했다.
 
 ## users — 사용자
@@ -11,10 +11,28 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| google_sub | 구글 계정 식별자 | varchar(255) |  |  | Google OAuth sub, UNIQUE |
-| email | 이메일 | varchar(255) |  |  | UNIQUE |
-| is_staff | 관리자 여부 | boolean |  |  | 패턴·용법 승인 권한(Django admin) |
-| created_at | 가입일시 | timestamptz |  |  |  |
+| google_sub | 구글 계정 식별자 | varchar(255) | Y |  | Google OAuth sub, UNIQUE. 같은 사람인지는 이 값으로 판단한다. `createsuperuser` 관리자와 개발 로그인 사용자는 NULL |
+| username | 사용자 이름 | varchar(150) |  |  | `AbstractUser` 칸, UNIQUE. Google 사용자는 `google-<무작위>`(sub는 255자까지 될 수 있어 넣지 않음), 개발 로그인은 `dev:<이메일>` |
+| email | 이메일 | varchar(254) |  |  | UNIQUE 아님(같은 사람은 google_sub로 판단, 이메일은 바뀌거나 겹칠 수 있다). Google 로그인 때마다 갱신 |
+| is_staff | 관리자 여부 | boolean |  |  | 패턴·용법 승인 권한(Django admin). 관리자가 admin에서 준다 |
+| is_active | 사용 가능 | boolean |  |  | 거짓이면 로그인(`AUTH:ACCOUNT_DISABLED`)과 분석 API를 거부한다 |
+| date_joined | 가입일시 | timestamptz |  |  | `AbstractUser` 칸 |
+
+`AbstractUser`의 나머지 칸(password, first_name 등)도 있다. Google로 가입한 사용자는 비밀번호를 쓸 수 없다(ADR 0004, design-decisions 49절).
+
+## extension_token — 확장 토큰
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| token_hash | 토큰 해시 | varchar(64) |  |  | 토큰 원본의 SHA-256, UNIQUE. 원본은 발급 응답에만 싣고 저장하지 않는다 |
+| user_id | 사용자 ID | bigint |  | → users |  |
+| session_key | 발급 세션 | varchar(40) |  |  | 발급한 웹 로그인 세션. 웹 로그아웃이 이 세션이 발급한 토큰을 폐기한다. 인덱스 |
+| created_at | 발급일시 | timestamptz |  |  |  |
+| last_used_at | 마지막 사용 일시 | timestamptz | Y |  | 한 번도 쓰지 않았으면 NULL. 처음 쓸 때 채우고, 그 뒤에는 날짜가 바뀔 때만 갱신한다. 이 날짜(없으면 발급 날짜)부터 90일째 날까지 쓰고 그 뒤 만료 |
+| revoked_at | 폐기일시 | timestamptz | Y |  | 확장 로그아웃, 웹 로그아웃, 같은 세션의 다른 사용자 로그인 때 채운다 |
+
+세션마다 토큰은 많아야 둘이다(쓰던 토큰과 아직 쓰지 않은 새 토큰, design-decisions 49절).
 
 ## user_sentence — 분석 기록
 
@@ -47,7 +65,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| user_id | 사용자 ID | bigint | Y | → users | 시스템 일괄 작업 호출이면 null |
+| user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null |
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | 새 문장은 저장 트랜잭션 안에서 잇는다(저장이 되돌려지면 NULL). stale 재분석·재매칭은 처음부터 기존 분석 행에 잇는다(구현이 정함, 확인 필요) |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정) |

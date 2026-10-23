@@ -152,13 +152,13 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| usage_id | 용법 ID | bigint |  | → grammar_usage | 조건이 맞으면 이 용법으로 확정. pattern_id(연결된 회화체면 원형) 소속이어야 함(admin 저장·승인 때 DB에서 다시 확인). 회화체 연결 때 이 용법을 합치면 합칠 원형 용법으로 바꿈(design-decisions 43절·45절) |
+| usage_id | 용법 ID | bigint |  | → grammar_usage | 조건이 맞으면 이 용법으로 확정. pattern_id(연결된 회화체면 원형) 소속이어야 함(admin 저장·승인 때 DB에서 다시 확인). 지금 구현은 회화체 연결 때 이 용법을 합치면 합칠 원형 용법으로 바꿈(확인 필요, design-decisions 43절·45절) |
 | pattern_id | 패턴 ID | bigint |  | → grammar_pattern | 실제 매칭된 패턴의 승인 규칙만 적용(회화체가 원형 용법을 공유해도 규칙은 패턴별) |
 | condition | 판별 조건 | jsonb |  |  | 구간 앞뒤 두 토큰까지의 형태소 조건 AND. 예: 앞 명사가 지명이면 で-장소. 지금 구현은 [{position: -2\|-1\|1\|2, lemma, pos1, pos2, pos3, conjugation_form}](비운 칸은 아무거나, 그 자리에 토큰이 없으면 맞지 않음). pos3(품사 소분류)는 규칙에만 씀. lemma에 숫자 불가, jsonb에 저장할 수 없는 글자(짝 없는 서로게이트, NUL) 거부. pending에서만 고침 |
 | test_cases | 규칙 예문 테스트 | jsonb |  |  | 관리자가 새로 쓴 예문만(사용자 원문 금지). 지금 구현은 [{text, should_apply}]. 승인하려면 '적용됨'·'적용 안 됨'이 각각 하나 이상 있고 모두 통과해야 함 |
-| status | 규칙 상태 | varchar(30) |  |  | pending / approved / retired. 관리자가 admin에서만 만들고(pending), 액션으로 승인·폐기. approved만 판정에 쓰고, 패턴(연결된 회화체면 원형도)·용법도 approved일 때만 씀. 폐기는 되돌리지 않고 행은 지우지 않음(span_match.rule_id가 가리킴). 바꾸려면 폐기하고 새로 만듦. 승인은 그 패턴 자체로 매칭된 구간이 있는 분석(용법 완결 패턴이면 없음), 폐기는 그 규칙으로 정해진 분석을 stale로 만들고 세대 번호를 올림. 패턴 세트 버전은 올리지 않음(design-decisions 45절) |
-| created_by | 등록자 ID | bigint | Y | → users | 지금 구현은 Django admin 사용자. 지워지면 null |
-| approved_by | 승인자 ID | bigint | Y | → users | 지금 구현은 Django admin 사용자 |
+| status | 규칙 상태 | varchar(30) |  |  | pending / approved / retired. 관리자가 admin에서만 만들고(pending), 액션으로 승인·폐기. approved만 판정에 쓰고, 패턴·용법도 approved일 때만 씀(연결된 회화체면 지금 구현은 원형도, 확인 필요). pending에서 바로 폐기할 수도 있음. 폐기는 되돌리지 않고 행은 지우지 않음(span_match.rule_id가 가리킴). 바꾸려면 폐기하고 새로 만듦. 승인은 그 패턴 자체로 매칭된 구간이 있는 분석(용법 완결 패턴이면 없음), 폐기는 그 규칙으로 정해진 분석을 stale로 만들고 세대 번호를 올림. 패턴 세트 버전은 올리지 않음(design-decisions 45절) |
+| created_by | 등록자 ID | bigint | Y | → users | 시스템이 만든 규칙이면 null. 지금 구현은 Django auth 사용자(AUTH_USER_MODEL)를 가리키고, 사용자가 지워지면 null(확인 필요) |
+| approved_by | 승인자 ID | bigint | Y | → users | 지금 구현은 Django auth 사용자(AUTH_USER_MODEL)(확인 필요) |
 | approved_at | 승인일시 | timestamptz | Y |  |  |
 | created_at | 등록일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |
@@ -176,7 +176,7 @@
 | status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete |
 | processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 선점 만료 판단과 미완료 작업 재투입 기준 |
 | generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀌거나 회화체가 원형에 연결·해제되거나 판별 규칙이 승인·폐기될 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 분석 요청이 시작할 때 읽은 값과 다르면 응답은 보내고 저장은 되돌림. 한 사건에서 여러 번 오를 수 있어 같은지만 비교). 기본값 0 |
-| is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시. 판 번호가 생기기 전까지(지금 구현, #38) 반려·반려 취소·승인 취소·용법 완결 변경도 이 칸으로만 기록하고, stale 분석은 다음 요청에서 다시 분석해 통째로 바꾼 뒤 false로 |
+| is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시. 판 번호가 생기기 전까지(지금 구현, #38) 반려·반려 취소·승인 취소·용법 완결 변경과 판별 규칙 승인·폐기도 이 칸으로만 기록하고, stale 분석은 다음 요청에서 다시 분석해 통째로 바꾼 뒤 false로 |
 | translation_ko | 한국어 번역 | text | Y |  | 자리표시자(⟨N1⟩) 포함 형태. 자리표시자가 모두 보존된 경우에만 저장 |
 | name_spans | 고유명사 구간 | jsonb | Y |  | [{start, end, type: person/place/org/work/other}]. 형태소·문법 후보는 보존하고 주석만 |
 | sense_ids | 단어 뜻 ID 목록 | bigint[] | Y |  | 문장에 나온 단어 뜻(word_sense) ID 목록. 단어는 sense에서 유도. 내 일본어 계산용. 단어·뜻 병합·삭제 시 갱신 필요 |
@@ -195,7 +195,7 @@
 | end_offset | 끝 위치 | integer |  |  | 0 ≤ start < end (CHECK) |
 | state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status, 그 용법이 속한 패턴(grammar_usage.pattern_id, 회화체 구간이면 원형)의 status, pattern_id(실제 매칭된 패턴)의 status, pattern_id가 연결된 원형(variant_of)의 status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌. alternatives의 각 usage_id도 주 용법과 같은 네 가지(그 용법, 그 용법의 소속 패턴, pattern_id, pattern_id가 연결된 원형)와 소속(pattern_id나 그 원형)으로 따로 검사(pending이면 그 대안에 배지, rejected면 그 대안만 뺌). 주 용법 쪽이 rejected면 구간째 뺌(대안을 주 용법으로 올리지 않음). unresolved는 pattern_id와 그 원형(연결됐으면)의 status만 봄(이름은 매칭된 패턴 이름, 설명 없음) / 상태별 칸(CHECK): decided면 usage_id 필수, divergent면 usage_id 필수이고 alternatives가 비어 있지 않음, unresolved면 usage_id·alternatives 모두 NULL(candidates·pattern_id는 남김), 그 밖에는 alternatives NULL |
 | decided_by | 판정 근거 | varchar(30) | Y |  | single_usage / rule / llm / admin. 지금 구현은 single_usage(승인된 용법 완결 패턴의 단일 후보, #39), rule(승인된 판별 규칙, #55), llm을 씀 |
-| rule_id | 판별 규칙 ID | bigint | Y | → usage_rule | decided_by가 rule일 때만 있음(CHECK `span_match_rule_iff_decided_by_rule`, decided_by가 NULL이면 rule_id도 NULL). 같은 용법을 가리키는 규칙이 여럿 맞으면 지금 구현은 id가 가장 작은 규칙을 기록 |
+| rule_id | 판별 규칙 ID | bigint | Y | → usage_rule | decided_by가 rule일 때만 있음(CHECK `span_match_rule_iff_decided_by_rule`, decided_by가 NULL이면 rule_id도 NULL). 같은 용법을 가리키는 규칙이 여럿 맞으면 지금 구현은 id가 가장 작은 규칙을 기록(확인 필요) |
 | basis_revision | 근거 판 번호 | integer | Y |  | single_usage면 grammar_pattern.revision. 판 번호를 두기 전까지(지금 구현, #39) 칼럼을 만들지 않고, 다시 판정은 is_stale(design-decisions 35절)에 맡김. 판별 규칙은 승인 뒤 내용을 바꾸지 않아 판 번호가 없음(45절) |
 | usage_revision | 용법 판 번호 | integer | Y |  | 판정 당시 grammar_usage.revision. 바뀌면 재검토 |
 | candidates | 후보 용법 목록 | jsonb | Y |  | 서버가 부여한 후보 ID [{candidate_id, usage_id}]. 해석 갈림의 대안은 alternatives. 회화체 연결 때 합친 용법의 usage_id는 합칠 원형 용법으로 바꾸고, 그래서 겹친 후보는 앞의 것만 남김 |

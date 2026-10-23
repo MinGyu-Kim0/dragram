@@ -19,6 +19,9 @@ export interface GrammarItem {
   variant_of: string | null;
   // 해석 갈림의 대안 해석(대안 용법 이름, 그 해석으로 옮긴 문장 전체 번역). 반려된 대안은 빠진다.
   alternatives?: Alternative[];
+  // 이 구간 안에 완전히 들어가는 구성 문법(원문 순서, 한 단). analysis·previous 이벤트에만
+  // 있고, 바깥 패턴이 구성 문법을 숨기게 돼 있으면 서버가 뺀다.
+  parts?: GrammarItem[];
 }
 
 export interface Alternative {

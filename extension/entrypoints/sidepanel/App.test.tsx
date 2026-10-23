@@ -1692,3 +1692,168 @@ test("회화체 구간은 '회화체' 배지를 달고, 원형에 연결됐으�
   expect(unlinked!.querySelector(".variant-note")).toBeNull();
   expect(within(standard!).queryByText("회화체")).toBeNull();
 });
+
+// 구성 문법(#65): 긴 문법 안에 완전히 들어가는 문법은 서버가 그 항목의 parts로 보낸다.
+// 문장: 食べてしまった (食べ 0-2 / て 2-3 / しまっ 3-6 / た 6-7)
+function withParts(item: object, ...parts: object[]) {
+  return { ...item, parts };
+}
+
+function grammarCards() {
+  return screen
+    .getAllByRole("listitem")
+    .filter((li) => li.classList.contains("grammar-card"));
+}
+
+function cardHeading(card: HTMLElement) {
+  return within(card).getByRole("heading", { level: 3 }).textContent;
+}
+
+test("구성 문법은 바깥 카드 안의 하위 박스로 보이고, 글자와 칩은 바깥 카드 색을 쓴다", async () => {
+  respondWith(200, {
+    translation_ko: "먹어 버렸다",
+    grammar: [
+      withParts(grammarItem(2, 6, "완료"), grammarItem(2, 3, "연결")),
+      grammarItem(6, 7, "과거"),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "食べてしまった");
+
+  // 하위 박스도 문법 개수에 센다.
+  await screen.findByRole("tab", { name: "문법 3" });
+  const [outer, past] = grammarCards();
+  expect(grammarCards().map(cardHeading)).toEqual(["완료", "과거"]);
+  const [part] = within(
+    within(outer!).getByRole("list", { name: "구성 문법" }),
+  ).getAllByRole("listitem");
+  expect(within(part!).getByRole("heading", { level: 4 }).textContent).toBe(
+    "연결",
+  );
+  expect(within(part!).getByText("연결 설명")).toBeInTheDocument();
+  expect(within(part!).getByText("AI 생성·미검수")).toBeInTheDocument();
+  // 색 번호는 바깥 카드에만 원문 순서로 매기고, 구성 문법은 바깥 카드 색이다.
+  expect(within(part!).getByText("て").className).toContain("highlight-0");
+  expect(within(past!).getByText("た").className).toContain("highlight-1");
+  const marks = document.querySelectorAll(".original mark");
+  expect([...marks].map((mark) => mark.textContent)).toEqual([
+    "てしまっ",
+    "た",
+  ]);
+  expect(marks[0]!.className).toContain("highlight-0");
+});
+
+test("하위 박스에도 회화체 배지와 원형 안내, 판단하지 못함, 다른 해석이 보통 카드처럼 붙는다", async () => {
+  respondWith(200, {
+    translation_ko: "먹어 버렸다",
+    grammar: [
+      withParts(
+        grammarItem(0, 7, "전체"),
+        {
+          ...grammarItem(0, 2, "먹다"),
+          state: "unresolved",
+          explanation_ko: null,
+        },
+        {
+          ...grammarItem(2, 3, "연결"),
+          state: "divergent",
+          alternatives: [alternativeItem("이유", "먹어서 버렸다")],
+        },
+        {
+          ...grammarItem(2, 7, "완료"),
+          register: "colloquial",
+          variant_of: "てしまう",
+        },
+      ),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "食べてしまった");
+
+  await screen.findByRole("tab", { name: "문법 4" });
+  const [unresolved, divergent, colloquial] = [
+    ...screen
+      .getByRole("list", { name: "구성 문법" })
+      .querySelectorAll<HTMLElement>("li.grammar-part"),
+  ];
+  expect(within(unresolved!).getByText("판단하지 못함")).toBeInTheDocument();
+  expect(divergent).toHaveClass("divergent");
+  expect(
+    within(divergent!).getByText("다른 해석: 이유 — 먹어서 버렸다"),
+  ).toBeInTheDocument();
+  expect(within(colloquial!).getByText("회화체")).toHaveClass("badge-neutral");
+  expect(
+    within(colloquial!).getByText("「てしまう」의 회화체"),
+  ).toBeInTheDocument();
+});
+
+test("드래그 범위가 구성 문법과만 겹쳐도 바깥 카드를 올리고, 선택 링은 바깥 카드에만 둔다", async () => {
+  respondWith(200, {
+    translation_ko: "먹어 버렸다",
+    grammar: [
+      grammarItem(0, 2, "먹다"),
+      withParts(grammarItem(2, 6, "완료"), grammarItem(2, 3, "연결")),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  // て만 골랐다.
+  await sendSelected(panelWindowId, "食べてしまった", 2, 3);
+
+  await screen.findByRole("tab", { name: "문법 3" });
+  const [outer, other] = grammarCards();
+  expect(cardHeading(outer!)).toBe("완료");
+  expect(outer).toHaveClass("dragged");
+  expect(within(outer!).getAllByText("드래그한 부분")).toHaveLength(1);
+  expect(other).not.toHaveClass("dragged");
+  const part = outer!.querySelector<HTMLElement>("li.grammar-part")!;
+  expect(part).not.toHaveClass("dragged");
+  expect(within(part).queryByText("드래그한 부분")).toBeNull();
+});
+
+test("먼저 온 확정 문법은 평평하게 보이고, 분석이 오면 하위 박스로 바뀐다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "食べてしまった");
+
+  stream.push({
+    type: "grammar",
+    grammar: [
+      approvedGrammarItem(2, 3, "연결"),
+      approvedGrammarItem(2, 6, "완료"),
+    ],
+  });
+
+  await waitFor(() =>
+    expect(grammarCards().map(cardHeading)).toEqual(["연결", "완료"]),
+  );
+
+  stream.push({ type: "translation", translation_ko: "먹어 버렸다", ruby: [] });
+  stream.push({
+    type: "analysis",
+    translation_ko: "먹어 버렸다",
+    grammar: [
+      withParts(
+        approvedGrammarItem(2, 6, "완료"),
+        approvedGrammarItem(2, 3, "연결"),
+      ),
+    ],
+    words: [],
+  });
+  stream.end();
+
+  await screen.findByRole("tab", { name: "문법 2" });
+  expect(grammarCards().map(cardHeading)).toEqual(["완료"]);
+  expect(
+    within(screen.getByRole("list", { name: "구성 문법" })).getByRole(
+      "heading",
+      { level: 4 },
+    ).textContent,
+  ).toBe("연결");
+});

@@ -115,7 +115,9 @@ def test_reused_grammar_points_at_same_characters_in_each_original(
 
     assert len(fake_llm.requests) == 1
     grammar = response.json()["grammar"]
-    assert [(item["start"], item["end"]) for item in grammar] == expected
+    # 긴 패턴 안에 들어가는 구간은 그 항목의 parts에 있다(#65).
+    items = [part for item in grammar for part in [item, *item.get("parts", [])]]
+    assert sorted((item["start"], item["end"]) for item in items) == expected
 
 
 def test_sentence_without_grammar_returns_empty_grammar(client, fake_llm):

@@ -247,8 +247,35 @@ h1 {
 }
 
 /* 해석 갈림 카드: warn-border 점선(DESIGN.md) */
-.grammar-card.divergent {
+.grammar-card.divergent,
+.grammar-part.divergent {
   border: 1.5px dashed var(--color-warn-border);
+}
+
+/* 구성 문법: 바깥 카드 안의 surface-inset 하위 박스(DESIGN.md 3장) */
+.grammar-parts {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.grammar-part {
+  background: var(--color-surface-inset);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.grammar-part h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 하위 박스 바탕이 회화체 배지 바탕과 같아 배지 면이 보이게 한다. */
+.grammar-part .badge-neutral {
+  background: var(--color-surface);
 }
 
 .alternatives {

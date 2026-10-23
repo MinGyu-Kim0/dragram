@@ -6,7 +6,13 @@ import json
 import pytest
 
 from analysis.admin import GrammarUsageAdmin
-from analysis.models import GrammarPattern, GrammarUsage, PatternSetVersion, ReviewStatus
+from analysis.models import (
+    GrammarPattern,
+    GrammarUsage,
+    PatternSetVersion,
+    ReviewStatus,
+    SentenceAnalysis,
+)
 from tests.analysis.helpers import analyze, new_pattern
 
 pytestmark = pytest.mark.django_db
@@ -50,6 +56,8 @@ def pattern_form(pattern, **changes):
     return {
         "name": pattern.name,
         "test_cases": json.dumps(pattern.test_cases, ensure_ascii=False),
+        # 체크박스는 꺼져 있으면 POST에 오지 않는다.
+        **({"show_parts": "on"} if pattern.show_parts else {}),
         "morphemes-TOTAL_FORMS": "0",
         "morphemes-INITIAL_FORMS": "0",
         **changes,
@@ -108,6 +116,22 @@ def test_review_fields_cannot_be_edited_in_the_form(admin_client, pattern):
         True,
         False,
     )
+
+
+def test_show_parts_can_be_edited_without_reanalysis_or_raising_the_version(admin_client, pattern):
+    analysis = SentenceAnalysis.objects.get()
+    before = version()
+    form = pattern_form(pattern)
+    del form["show_parts"]
+
+    response = admin_client.post(f"{PATTERNS}{pattern.pk}/change/", form)
+
+    assert response.status_code == 302
+    pattern.refresh_from_db()
+    assert not pattern.show_parts
+    refreshed = SentenceAnalysis.objects.get()
+    assert (refreshed.is_stale, refreshed.generation) == (False, analysis.generation)
+    assert version() == before
 
 
 def usage_form(usage, **changes):

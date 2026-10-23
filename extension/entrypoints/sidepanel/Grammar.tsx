@@ -14,8 +14,8 @@ function sortGrammar(grammar: GrammarItem[]): GrammarItem[] {
   return [...grammar].sort((a, b) => a.start - b.start || a.end - b.end);
 }
 
-// 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다
-// (겹침 표시 방식은 DESIGN.md 7장에서 아직 정하지 않았다).
+// 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다.
+// 구성 문법(parts)은 받지 않으므로 그 글자는 바깥 카드 색이 된다(DESIGN.md 형광펜).
 // 실제로 드래그한 범위는 형광펜과 다른 층으로, 시작·끝 자리에 핸들만 끼워 넣는다(DESIGN.md).
 // 핸들을 끄면 dragHandles가 undefined다. 루비는 형광펜 안에 단다(끄면 빈 목록).
 // 형광펜을 범위 경계에서 쪼개면 조각마다 여백과 모서리가 생기므로 형광펜 안에 넣는다.
@@ -214,6 +214,8 @@ function span(item: { start: number; end: number }) {
   return { start: item.start, end: item.end };
 }
 
+// 구성 문법(parts)은 카드 안 하위 박스로 넣는다. 하위 박스는 색 번호를 따로 받지 않고 바깥 카드
+// 색을 쓰며, 선택 링과 "드래그한 부분"은 바깥 카드에만 둔다(DESIGN.md 3장).
 function GrammarCard({
   text,
   item,
@@ -225,25 +227,68 @@ function GrammarCard({
   index: number;
   dragged: boolean;
 }) {
-  // 응답에서 대안이 모두 빠진 해석 갈림은 보통 카드로 보인다.
-  const alternatives = item.alternatives ?? [];
   const classes = [
     "grammar-card",
-    alternatives.length > 0 && "divergent",
+    isDivergent(item) && "divergent",
     dragged && "dragged",
   ].filter(Boolean);
+  const parts = item.parts ?? [];
   return (
     <li className={classes.join(" ")}>
+      <GrammarBody text={text} item={item} index={index} Heading="h3">
+        {dragged && <span className="card-meta">드래그한 부분</span>}
+      </GrammarBody>
+      {parts.length > 0 && (
+        <ul className="grammar-parts" aria-label="구성 문법">
+          {parts.map((part, i) => (
+            <li
+              key={i}
+              className={
+                isDivergent(part) ? "grammar-part divergent" : "grammar-part"
+              }
+            >
+              <GrammarBody text={text} item={part} index={index} Heading="h4" />
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+// 응답에서 대안이 모두 빠진 해석 갈림은 보통 카드로 보인다.
+function isDivergent(item: GrammarItem): boolean {
+  return (item.alternatives ?? []).length > 0;
+}
+
+// 문법 카드와 하위 박스가 함께 쓰는 내용: 칩·이름·배지(children은 머리 줄 끝 메타), 원형 안내,
+// 설명이나 "판단하지 못함", 다른 해석
+function GrammarBody({
+  text,
+  item,
+  index,
+  Heading,
+  children,
+}: {
+  text: string;
+  item: GrammarItem;
+  index: number;
+  Heading: "h3" | "h4";
+  children?: ReactNode;
+}) {
+  const alternatives = item.alternatives ?? [];
+  return (
+    <>
       <div className="grammar-card-head">
         <span lang="ja" className={`grammar-chip ${highlightClass(index)}`}>
           {text.slice(item.start, item.end)}
         </span>
-        <h3>{item.name}</h3>
+        <Heading>{item.name}</Heading>
         {item.register === "colloquial" && (
           <span className="badge-neutral">회화체</span>
         )}
         {item.review_status === "pending" && <PendingBadge />}
-        {dragged && <span className="card-meta">드래그한 부분</span>}
+        {children}
       </div>
       {item.variant_of !== null && (
         <p className="variant-note">「{item.variant_of}」의 회화체</p>
@@ -265,7 +310,7 @@ function GrammarCard({
           ))}
         </ul>
       )}
-    </li>
+    </>
   );
 }
 

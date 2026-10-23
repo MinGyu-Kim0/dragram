@@ -190,7 +190,12 @@ export function SentenceView({
               aria-selected={tab === "grammar"}
               onClick={() => onTabChange("grammar")}
             >
-              문법 {analysis.grammar.length}
+              {/* 보이는 카드 수다. 구성 문법의 하위 박스도 센다. */}
+              문법{" "}
+              {analysis.grammar.reduce(
+                (count, item) => count + 1 + (item.parts?.length ?? 0),
+                0,
+              )}
             </button>
             <button
               type="button"

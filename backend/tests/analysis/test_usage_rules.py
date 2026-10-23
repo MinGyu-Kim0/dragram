@@ -554,3 +554,69 @@ def test_merging_a_colloquial_usage_moves_its_rules_to_the_base_usage(fake_llm):
 
     own_rule.refresh_from_db()
     assert (own_rule.pattern, own_rule.usage) == (variant, done)
+
+
+@pytest.mark.parametrize(
+    "meanwhile",
+    [
+        lambda: GrammarUsage.objects.filter(name="장소").update(status=ReviewStatus.PENDING),
+        lambda: GrammarPattern.objects.filter(name="で").update(status=ReviewStatus.PENDING),
+    ],
+    ids=["usage-unapproved", "pattern-unapproved"],
+)
+def test_rule_whose_knowledge_was_unapproved_while_analyzing_is_not_saved(
+    client, fake_llm, meanwhile
+):
+    place = rule(register_de(client, fake_llm, "장소"), "장소")
+    fake_llm.response = {"translation_ko": "도쿄에서 만난다"}
+    fake_llm.before_respond = meanwhile
+
+    analyze(client, TOKYO_DE)
+
+    assert not SpanMatch.objects.filter(rule=place).exists()
+
+
+def base_rule_ready(fake_llm):
+    base, variant = linked(fake_llm)
+    GrammarPattern.objects.update(status=ReviewStatus.APPROVED)
+    GrammarUsage.objects.filter(pattern=base).update(status=ReviewStatus.APPROVED)
+    return base, variant
+
+
+def test_approving_a_rule_of_a_base_pattern_leaves_its_colloquial_analyses_alone(client, fake_llm):
+    base, _ = base_rule_ready(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, MICHAU)
+    colloquial = SentenceAnalysis.objects.get(translation_ko="전부 봐 버렸다")
+    base_rule = UsageRule.objects.create(
+        pattern=base,
+        usage=base.usages.get(),
+        condition=[{"position": -1, "lemma": "食べる"}],
+        test_cases=[
+            {"text": "パンを食べてしまう", "should_apply": True},
+            {"text": "映画を見てしまう", "should_apply": False},
+        ],
+    )
+
+    review.approve_rule(base_rule)
+
+    colloquial.refresh_from_db()
+    assert not colloquial.is_stale
+
+
+def test_rule_whose_usage_left_the_pattern_is_not_approved(fake_llm):
+    base, variant = base_rule_ready(fake_llm)
+    pending = UsageRule.objects.create(
+        pattern=variant,
+        usage=base.usages.get(),
+        condition=[{"position": -1, "pos1": "動詞"}],
+        test_cases=[
+            {"text": "全部食べちゃった", "should_apply": True},
+            {"text": "ちゃう", "should_apply": False},
+        ],
+    )
+    # 연결을 풀면 원형 용법은 더는 이 회화체의 후보가 아니다.
+    review.unlink_variant(variant)
+
+    with pytest.raises(review.Refused, match="용법"):
+        review.approve_rule(pending)

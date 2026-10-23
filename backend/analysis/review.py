@@ -419,7 +419,8 @@ def _locked_rule(rule):
 @transaction.atomic
 def approve_rule(rule, user=None):
     """test_cases를 통과한 미검수 규칙을 승인한다. 패턴(연결됐으면 원형도)과 용법이 승인돼야
-    한다. 그 패턴의 분석을 stale로 만든다(새 규칙이 그 구간을 정할 수 있다, #55).
+    한다. 그 패턴으로 매칭된 구간이 있는 분석만 stale로 만든다(새 규칙이 그 구간을 정할 수 있다,
+    #55). 규칙은 실제로 매칭된 패턴에만 쓰므로 연결된 회화체 구간은 넣지 않는다.
     """
     pattern, base, rule = _locked_rule(rule)
     if rule.status != UsageRule.Status.PENDING:
@@ -428,6 +429,9 @@ def approve_rule(rule, user=None):
         base is not None and base.status != ReviewStatus.APPROVED
     ):
         raise Refused("규칙의 패턴이 승인돼야 합니다")
+    # 그사이 원형 연결이 바뀌었으면 용법이 이 패턴의 후보가 아니어서 규칙이 쓰이지 않는다.
+    if rule.usage.pattern_id != (base or pattern).pk:
+        raise Refused("규칙의 용법이 그 패턴(연결된 회화체면 원형)의 용법이 아닙니다")
     if rule.usage.status != ReviewStatus.APPROVED:
         raise Refused("규칙의 용법이 승인돼야 합니다")
     failure = rule_test_cases_failure(rule)
@@ -437,7 +441,7 @@ def approve_rule(rule, user=None):
     rule.approved_by = user
     rule.approved_at = timezone.now()
     rule.save(update_fields=["status", "approved_by", "approved_at", "updated_at"])
-    patterns.make_stale(pattern=pattern)
+    patterns.make_stale(pattern=pattern, family=False)
 
 
 @transaction.atomic

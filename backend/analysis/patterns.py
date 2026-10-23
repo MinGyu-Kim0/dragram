@@ -307,7 +307,7 @@ def clear_usage_closed(pattern):
         make_stale(pattern=pattern)
 
 
-def make_stale(pattern=None, usages=(), candidates=False, rule=None):
+def make_stale(pattern=None, usages=(), candidates=False, rule=None, family=True):
     """그 패턴(과 그 패턴을 원형으로 가리키는 회화체)으로 매칭된 구간, 그 용법들로 정해진 구간이나
     그 용법을 대안으로 쓴 해석 갈림 구간, 또는 그 판별 규칙으로 정해진 구간이 있는 분석을 stale로
     만들고 세대 번호를 올린다(#38, #40, #63, #55). 회화체 구간도 원형 용법을 쓰므로 용법 쪽은
@@ -315,14 +315,14 @@ def make_stale(pattern=None, usages=(), candidates=False, rule=None):
     분석 ID들을 돌려준다.
 
     패턴과 용법을 함께 주면 어느 쪽에든 걸리는 분석을 한 번에 잠근다. candidates면 그 용법을
-    후보로만 가진 구간의 분석도 넣는다. 용법 참조를 옮길 때 쓴다(#64).
+    후보로만 가진 구간의 분석도 넣는다. 용법 참조를 옮길 때 쓴다(#64). family가 거짓이면 그 패턴
+    자체로 매칭된 구간만 본다(판별 규칙은 실제로 매칭된 패턴에만 적용된다, #55).
     """
     span_filters = []
     if pattern is not None:
-        span_filters += [
-            Q(span_matches__pattern=pattern),
-            Q(span_matches__pattern__variant_of=pattern),
-        ]
+        span_filters.append(Q(span_matches__pattern=pattern))
+        if family:
+            span_filters.append(Q(span_matches__pattern__variant_of=pattern))
     for usage in usages:
         span_filters += [
             Q(span_matches__usage=usage),

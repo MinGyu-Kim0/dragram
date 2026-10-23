@@ -790,15 +790,22 @@ def _basis_changed(rows):
 
     셋을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
     구간의 용법 완결이 풀렸거나(이번 저장이 같은 원형에 새 용법을 더해 풀었을 수 있다), 판별
-    규칙이 폐기됐다. 그대로
+    규칙으로 확정한 근거(규칙·패턴·용법의 승인)가 무너졌다. 그대로
     저장하면 그 stale 처리가 이 트랜잭션의 구간을 보지 못해 다시 분석될 계기가 없다.
     """
     closed = {row.pattern_id for row in rows if row.decided_by == SpanMatch.DecidedBy.SINGLE_USAGE}
     opened = GrammarPattern.objects.filter(pk__in=closed, usage_closed=False).exists()
-    # 판별 규칙으로 확정한 구간의 규칙이 그사이 폐기됐다(#55).
-    ruled = {row.rule_id for row in rows if row.rule_id is not None}
-    retired = UsageRule.objects.filter(pk__in=ruled, status=UsageRule.Status.RETIRED).exists()
-    return opened or retired or _links_changed(rows)
+    # 판별 규칙으로 확정한 구간의 규칙·패턴(원형 포함)·용법이 그사이 승인 상태가 아니게 됐다(#55).
+    ruled = UsageRule.objects.filter(
+        pk__in={row.rule_id for row in rows if row.rule_id is not None}
+    ).select_related("usage", "pattern__variant_of")
+    unusable = any(
+        rule.status != UsageRule.Status.APPROVED
+        or rule.usage.status != ReviewStatus.APPROVED
+        or _pattern_statuses(rule.pattern) != {ReviewStatus.APPROVED}
+        for rule in ruled
+    )
+    return opened or unusable or _links_changed(rows)
 
 
 def _links_changed(rows):

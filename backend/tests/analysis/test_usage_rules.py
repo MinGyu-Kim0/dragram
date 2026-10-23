@@ -15,6 +15,7 @@ from analysis.models import (
     UsageRule,
 )
 from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.test_colloquial import MICHAU, linked
 
 pytestmark = pytest.mark.django_db
 
@@ -316,6 +317,7 @@ def test_retiring_a_rule_makes_only_the_analyses_it_decided_stale(client, fake_l
     analyze(client, TOKYO_DE)
     decided = SentenceAnalysis.objects.get(translation_ko="도쿄에서 만난다")
     other = SentenceAnalysis.objects.get(translation_ko="버스로 간다")
+    generations = (decided.generation, other.generation)
     version = patterns.pattern_set_version()
 
     review.retire_rule(place)
@@ -325,6 +327,7 @@ def test_retiring_a_rule_makes_only_the_analyses_it_decided_stale(client, fake_l
     decided.refresh_from_db()
     other.refresh_from_db()
     assert (decided.is_stale, other.is_stale) == (True, False)
+    assert (decided.generation, other.generation) == (generations[0] + 1, generations[1])
     assert patterns.pattern_set_version() == version
 
 
@@ -463,3 +466,26 @@ def test_admin_actions_approve_and_retire_a_rule(admin_client, admin_user, clien
     admin_client.post(RULES, {"action": "retire", "_selected_action": [draft.pk]})
     draft.refresh_from_db()
     assert draft.status == UsageRule.Status.RETIRED
+
+
+@pytest.mark.parametrize("base_status", [ReviewStatus.APPROVED, ReviewStatus.PENDING])
+def test_rule_of_a_linked_colloquial_pattern_points_at_a_base_usage(client, fake_llm, base_status):
+    base, variant = linked(fake_llm)
+    GrammarPattern.objects.update(status=ReviewStatus.APPROVED)
+    GrammarUsage.objects.filter(pattern=base).update(status=ReviewStatus.APPROVED)
+    GrammarPattern.objects.filter(pk=base.pk).update(status=base_status)
+    # 규칙은 실제로 매칭된 회화체 패턴에 걸고, 용법은 원형의 것이다(design-decisions 42절).
+    UsageRule.objects.create(
+        pattern=variant,
+        usage=base.usages.get(),
+        condition=[{"position": -1, "lemma": "見る"}],
+        status=UsageRule.Status.APPROVED,
+    )
+    fake_llm.forget_requests()
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다"}
+
+    analyze(client, MICHAU)
+
+    decided = base_status == ReviewStatus.APPROVED
+    assert (asked_spans(fake_llm) == []) is decided
+    assert SpanMatch.objects.filter(decided_by="rule").exists() is decided

@@ -80,6 +80,8 @@ AUTH_USER_MODEL = "accounts.User"
 # Google 로그인. 웹 버튼과 같은 OAuth 클라이언트 ID(공개 값)로 ID 토큰의 aud를 검증한다.
 # 클라이언트 비밀값은 쓰지 않는다. 비어 있으면 로그인을 거부한다.
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
+# 로컬 수동 확인용 개발 로그인(이메일만으로 로그인). DEBUG가 아니면 켜도 열리지 않는다.
+DEV_LOGIN_ENABLED = os.environ.get("DEV_LOGIN_ENABLED", "false") == "true"
 
 # LLM. 실제 호출할 때만 필요하므로 테스트·CI에서는 비어 있어도 된다.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")

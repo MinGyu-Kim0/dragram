@@ -53,7 +53,10 @@ def csrf(web):
 
 def login(web, credential="google-id-token"):
     return web.post(
-        "/api/auth/google/", {"credential": credential}, content_type="application/json", **csrf(web)
+        "/api/auth/google/",
+        {"credential": credential},
+        content_type="application/json",
+        **csrf(web),
     )
 
 
@@ -70,4 +73,81 @@ def test_first_google_login_creates_user_and_starts_session(web, google_says):
     assert (user.google_sub, user.email) == ("1234567890", "me@example.com")
     assert not user.has_usable_password()
     assert not user.is_staff
+    assert web.get("/api/auth/me/").json() == {"user": {"email": "me@example.com"}}
+
+
+def test_same_google_account_logs_in_as_existing_user_and_updates_email(web, google_says):
+    google_says(claims(email="old@example.com"))
+    login(web)
+    web.post("/api/auth/logout/", **csrf(web))
+    google_says(claims(email="new@example.com"))
+
+    response = login(web)
+
+    assert response.json() == {"user": {"email": "new@example.com"}}
+    assert User.objects.get().email == "new@example.com"
+
+
+@pytest.mark.parametrize(
+    "result, code",
+    [
+        (ValueError("Token expired"), "AUTH:GOOGLE_TOKEN_INVALID"),
+        (google_exceptions.InvalidValue("wrong aud"), "AUTH:GOOGLE_TOKEN_INVALID"),
+        (claims(email_verified=False), "AUTH:EMAIL_NOT_VERIFIED"),
+        (google_exceptions.TransportError("no certs"), "AUTH:GOOGLE_UNAVAILABLE"),
+    ],
+)
+def test_failed_verification_is_rejected_without_creating_user(web, google_says, result, code):
+    google_says(result)
+
+    response = login(web)
+
+    assert response.json() == {"error": code}
+    assert not User.objects.exists()
+    assert web.get("/api/auth/me/").json() == {"user": None}
+
+
+def test_login_is_refused_when_client_id_is_not_set(web, google_says, settings):
+    settings.GOOGLE_CLIENT_ID = ""
+    calls = google_says(claims())
+
+    response = login(web)
+
+    assert (response.status_code, response.json()) == (503, {"error": "AUTH:LOGIN_UNAVAILABLE"})
+    assert calls == []
+
+
+def test_disabled_account_cannot_log_in(web, google_says):
+    google_says(claims())
+    login(web)
+    User.objects.update(is_active=False)
+    web.post("/api/auth/logout/", **csrf(web))
+
+    assert login(web).json() == {"error": "AUTH:ACCOUNT_DISABLED"}
+    assert web.get("/api/auth/me/").json() == {"user": None}
+
+
+def test_logout_ends_session(web, google_says):
+    google_says(claims())
+    login(web)
+
+    response = web.post("/api/auth/logout/", **csrf(web))
+
+    assert response.json() == {"user": None}
+    assert web.get("/api/auth/me/").json() == {"user": None}
+
+
+def test_login_and_logout_without_csrf_are_refused(web, google_says):
+    google_says(claims())
+    web.get("/api/auth/me/")
+
+    response = web.post("/api/auth/google/", {"credential": "t"}, content_type="application/json")
+
+    assert (response.status_code, response.json()) == (403, {"error": "AUTH:CSRF_FAILED"})
+    assert not User.objects.exists()
+
+    login(web)
+    response = web.post("/api/auth/logout/")
+
+    assert (response.status_code, response.json()) == (403, {"error": "AUTH:CSRF_FAILED"})
     assert web.get("/api/auth/me/").json() == {"user": {"email": "me@example.com"}}

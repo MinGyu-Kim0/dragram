@@ -13,6 +13,8 @@ AuthError = error_domain(
         "CSRF_FAILED": 403,
         # Google 공개 키를 받아 오지 못했다.
         "GOOGLE_UNAVAILABLE": 502,
+        # 개발 로그인에 이메일이 아닌 값을 보냈다.
+        "DEV_EMAIL_INVALID": 400,
         # 서버에 Google 클라이언트 ID가 설정되지 않았다.
         "LOGIN_UNAVAILABLE": 503,
     },

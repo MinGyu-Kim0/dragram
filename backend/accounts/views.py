@@ -1,7 +1,11 @@
 """웹 로그인 세션 API. 웹과 API는 같은 출처에서 Django 세션·CSRF를 쓴다(#92)."""
 
+from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth.hashers import make_password
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.http import Http404
 from django.middleware.csrf import CsrfViewMiddleware
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.authentication import BaseAuthentication
@@ -82,3 +86,22 @@ def logout(request):
     require_csrf(request)
     auth.logout(request._request)
     return Response(_user_body(request._request.user))
+
+
+@api_view(["POST"])
+@authentication_classes([SessionUser])
+@permission_classes([])
+def dev_login(request):
+    """로컬 수동 확인용: 이메일만으로 로그인한다. DEBUG이고 DEV_LOGIN_ENABLED일 때만 연다."""
+    if not (settings.DEBUG and settings.DEV_LOGIN_ENABLED):
+        raise Http404
+    require_csrf(request)
+    email = request.data.get("email")
+    try:
+        validate_email(email)
+    except ValidationError as e:
+        raise BusinessError(AuthError.DEV_EMAIL_INVALID, "개발 로그인 이메일 아님") from e
+    user, _ = User.objects.get_or_create(
+        username=f"dev:{email}", defaults={"email": email, "password": make_password(None)}
+    )
+    return _start_session(request, user)

@@ -7,6 +7,7 @@ from django.contrib import auth
 from django.contrib.auth.hashers import make_password
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.http import Http404
 from django.middleware.csrf import CsrfViewMiddleware
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -47,6 +48,11 @@ def _field(request, name, error_code):
     if not isinstance(request.data, dict):
         raise BusinessError(error_code, "본문이 객체가 아님")
     return request.data.get(name)
+
+
+def _lock_user(user):
+    """같은 사용자의 확장 토큰 발급과 웹 로그아웃을 직렬화한다(트랜잭션 안에서 부른다)."""
+    User.objects.select_for_update().get(pk=user.pk)
 
 
 def _user_body(user):
@@ -95,9 +101,12 @@ def google_login(request):
 def logout(request):
     """웹 로그아웃. 이 세션이 발급한 확장 토큰도 폐기한다(다른 세션의 연결은 남긴다)."""
     require_csrf(request)
-    if request.user.is_authenticated:
-        tokens.revoke_session(request.user, request._request.session.session_key)
-    auth.logout(request._request)
+    with transaction.atomic():
+        if request.user.is_authenticated:
+            _lock_user(request.user)
+            tokens.revoke_session(request.user, request._request.session.session_key)
+        # 세션 행도 같은 트랜잭션에서 지워, 기다리던 토큰 발급이 끝난 세션을 보게 한다.
+        auth.logout(request._request)
     return Response(_user_body(request._request.user))
 
 
@@ -132,7 +141,13 @@ def issue_extension_token(request):
     require_csrf(request)
     if not request.user.is_authenticated:
         raise BusinessError(AuthError.LOGIN_REQUIRED, "로그인하지 않은 세션")
-    token = tokens.issue(request.user, request._request.session.session_key)
+    session = request._request.session
+    with transaction.atomic():
+        # 같은 세션의 로그아웃이 먼저 끝났으면 세션이 없다. 그 세션 이름으로 토큰을 남기지 않는다.
+        _lock_user(request.user)
+        if not session.exists(session.session_key):
+            raise BusinessError(AuthError.LOGIN_REQUIRED, "로그아웃한 세션")
+        token = tokens.issue(request.user, session.session_key)
     return Response({"token": token}, status=201)
 
 

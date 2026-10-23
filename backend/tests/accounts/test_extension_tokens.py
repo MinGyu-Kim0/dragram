@@ -5,9 +5,11 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.sessions.models import Session
 from django.test import Client
 from django.utils import timezone
 
+from accounts import views as account_views
 from accounts.models import ExtensionToken
 from analysis import views
 from analysis.models import UsageLog
@@ -169,3 +171,20 @@ def test_web_logout_revokes_only_tokens_issued_by_that_session(fake_llm):
 
     assert analyze(mine).status_code == 401
     assert analyze(others).status_code == 200
+
+
+def test_issuing_is_refused_when_the_session_logged_out_while_waiting(monkeypatch):
+    # 같은 세션의 로그아웃이 먼저 잠금을 잡고 끝난 뒤에 발급이 이어지는 경우
+    web, headers = web_session()
+    lock = account_views._lock_user
+
+    def logout_wins(user):
+        lock(user)
+        Session.objects.filter(session_key=web.session.session_key).delete()
+
+    monkeypatch.setattr(account_views, "_lock_user", logout_wins)
+
+    response = web.post(TOKENS, **headers)
+
+    assert (response.status_code, response.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})
+    assert not ExtensionToken.objects.exists()

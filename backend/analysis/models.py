@@ -249,9 +249,9 @@ class SpanMatch(models.Model):
                 name="span_match_alternatives_by_state",
             ),
             models.CheckConstraint(
-                condition=models.Q(decided_by="rule", rule__isnull=False)
-                | (~models.Q(decided_by="rule") & models.Q(rule__isnull=True))
-                | models.Q(decided_by__isnull=True, rule__isnull=True),
+                # decided_by가 NULL이면 첫 절이 NULL이 되어 통과하지 않게 IS NOT NULL을 둔다.
+                condition=models.Q(decided_by__isnull=False, decided_by="rule", rule__isnull=False)
+                | (~models.Q(decided_by="rule") & models.Q(rule__isnull=True)),
                 name="span_match_rule_iff_decided_by_rule",
             ),
             # 같은 자리의 같은 패턴은 한 번만 둔다(#41). 중복 카드가 남지 않게 하는 백스톱이다.

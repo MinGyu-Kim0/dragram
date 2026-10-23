@@ -407,8 +407,13 @@ def rule_test_cases_failure(rule, cases=None):
 def _locked_rule(rule):
     """규칙의 패턴(과 그 원형)을 잠근 뒤 규칙을 잠근다. 패턴 → 규칙 → 분석 순서다."""
     pattern, base = _locked_with_base(rule.pattern)
-    rule = UsageRule.objects.select_for_update(no_key=True).select_related("usage").get(pk=rule.pk)
-    return pattern, base, rule
+    locked = (
+        UsageRule.objects.select_for_update(no_key=True).select_related("usage").get(pk=rule.pk)
+    )
+    # 잠그기 전에 읽은 패턴을 잠갔으므로, 그사이 미검수 규칙의 패턴이 바뀌었으면 하지 않는다.
+    if locked.pattern_id != pattern.pk:
+        raise Refused("그사이 규칙의 패턴이 바뀌었습니다")
+    return pattern, base, locked
 
 
 @transaction.atomic

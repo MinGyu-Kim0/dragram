@@ -12,6 +12,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
 from django.template.response import TemplateResponse
+from django.utils import timezone
 
 from analysis import patterns, review
 from analysis.models import (
@@ -387,7 +388,13 @@ class UsageRuleAdmin(admin.ModelAdmin):
             obj.created_by = request.user
             obj.save()
             return
-        # 폼을 연 뒤 액션이 승인·폐기했으면 덮지 않는다.
-        UsageRule.objects.filter(pk=obj.pk, status=UsageRule.Status.PENDING).update(
-            pattern=obj.pattern, usage=obj.usage, condition=obj.condition, test_cases=obj.test_cases
+        # 폼을 연 뒤 액션이 승인·폐기했으면 덮지 않고 알린다.
+        saved = UsageRule.objects.filter(pk=obj.pk, status=UsageRule.Status.PENDING).update(
+            pattern=obj.pattern,
+            usage=obj.usage,
+            condition=obj.condition,
+            test_cases=obj.test_cases,
+            updated_at=timezone.now(),
         )
+        if not saved:
+            self.message_user(request, "그사이 승인·폐기돼 저장하지 않았습니다", messages.ERROR)

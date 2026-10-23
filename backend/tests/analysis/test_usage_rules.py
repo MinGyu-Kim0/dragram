@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 from analysis import patterns, review
 from analysis.models import (
@@ -489,3 +489,53 @@ def test_rule_of_a_linked_colloquial_pattern_points_at_a_base_usage(client, fake
     decided = base_status == ReviewStatus.APPROVED
     assert (asked_spans(fake_llm) == []) is decided
     assert SpanMatch.objects.filter(decided_by="rule").exists() is decided
+
+
+def test_rule_is_stored_only_on_spans_decided_by_rule(client, fake_llm):
+    pattern = register_de(client, fake_llm, "장소")
+    place = rule(pattern, "장소")
+    span = SpanMatch.objects.get()
+
+    for decided_by in (None, "llm"):
+        with pytest.raises(IntegrityError), transaction.atomic():
+            SpanMatch.objects.filter(pk=span.pk).update(decided_by=decided_by, rule=place)
+
+
+def test_rule_whose_pattern_changed_meanwhile_is_not_approved(client, fake_llm):
+    usage_rule, pattern = pending_rule(client, fake_llm)
+    UsageRule.objects.filter(pk=usage_rule.pk).update(test_cases=PASSING)
+    fake_llm.response = {
+        "translation_ko": "집에 간다",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                pattern_name="に",
+                usage_name="도착점",
+                explanation_ko="도착점을 나타낸다",
+                example_ja="駅に着く",
+            )
+        ],
+    }
+    analyze(client, "家に帰る")
+    # 액션 목록을 연 뒤 다른 관리자가 규칙의 패턴을 바꿨다.
+    UsageRule.objects.filter(pk=usage_rule.pk).update(pattern=GrammarPattern.objects.get(name="に"))
+
+    with pytest.raises(review.Refused, match="그사이"):
+        review.approve_rule(usage_rule)
+
+
+def test_saving_a_rule_approved_meanwhile_reports_that_nothing_was_saved(
+    admin_client, client, fake_llm
+):
+    pattern = register_de(client, fake_llm, "장소")
+    draft = rule(pattern, "장소", status=UsageRule.Status.PENDING)
+    form = rule_form(pattern, condition=[{"position": 1}])
+    page = admin_client.get(f"{RULES}{draft.pk}/change/")
+    assert page.status_code == 200
+    UsageRule.objects.filter(pk=draft.pk).update(status=UsageRule.Status.APPROVED)
+
+    response = admin_client.post(f"{RULES}{draft.pk}/change/", form, follow=True)
+
+    draft.refresh_from_db()
+    assert draft.condition == AFTER_PLACE
+    assert "저장하지 않았습니다" in response.content.decode()

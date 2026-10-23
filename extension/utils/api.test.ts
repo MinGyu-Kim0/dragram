@@ -237,6 +237,18 @@ describe("확장 토큰(#109)", () => {
     expect(await loadToken()).toBe("new-token");
   });
 
+  test("서버가 응답하지 않아도 저장한 토큰은 먼저 지운다", async () => {
+    await saveToken("extension-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise(() => {})),
+    );
+
+    void logoutExtension();
+
+    await vi.waitFor(async () => expect(await loadToken()).toBeUndefined());
+  });
+
   test("서버에 닿지 않아도 확장 로그아웃은 저장한 토큰을 지운다", async () => {
     await saveToken("extension-token");
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));

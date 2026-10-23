@@ -121,7 +121,10 @@ function SignedIn({
     setProblem(undefined);
     try {
       const token = await issueExtensionToken();
-      if (await sendToExtension({ type: "connect", token })) setConnected(true);
+      if (
+        await sendToExtension({ type: "connect", token, account: user.email })
+      )
+        setConnected(true);
       else setProblem("extensionMissing");
     } catch {
       setProblem("connectFailed");

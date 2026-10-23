@@ -1,6 +1,7 @@
 import { beforeEach, expect, test, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import {
+  clearTokenIfStill,
   loadToken,
   saveToken,
   signOut,
@@ -64,4 +65,27 @@ test("로그아웃은 표시와 토큰 지우기를 한 번에 저장한다", as
   expect(set).toHaveBeenCalledTimes(1);
   expect(remove).not.toHaveBeenCalled();
   expect(await loadToken()).toBeUndefined();
+});
+
+test("다른 계정이 연결하면 화면을 비우라고 알리고, 같은 계정의 재연결은 그대로 둔다", async () => {
+  await saveToken("a-token", "a@example.com");
+  const events = watch();
+  await vi.waitFor(() => expect(events).toEqual(["connected"]));
+
+  await saveToken("a-token-2", "a@example.com");
+  expect(events).toEqual(["connected", "connected"]);
+
+  await saveToken("b-token", "b@example.com");
+  expect(events).toEqual(["connected", "connected", "reset", "connected"]);
+});
+
+test("401로 토큰만 지워진 뒤에 다른 계정이 연결해도 화면을 비우라고 알린다", async () => {
+  await saveToken("a-token", "a@example.com");
+  const events = watch();
+  await vi.waitFor(() => expect(events).toEqual(["connected"]));
+  await clearTokenIfStill("a-token");
+
+  await saveToken("b-token", "b@example.com");
+
+  expect(events).toEqual(["connected", "out", "reset", "connected"]);
 });

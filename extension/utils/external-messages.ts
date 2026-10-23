@@ -19,7 +19,7 @@ function isFromWeb(url: string | undefined): boolean {
 }
 
 // 웹이 chrome.runtime.sendMessage로 보낸 메시지를 처리한다.
-// - {type: "connect", token}: 토큰을 저장한다(웹에서 연결).
+// - {type: "connect", token, account}: 토큰과 연결한 계정(이메일)을 저장한다(웹에서 연결).
 // - {type: "disconnect"}: 저장한 토큰을 지운다(웹 로그아웃).
 // 우리 웹이 아닌 출처의 메시지는 답하지 않고 무시한다(undefined).
 export function handleExternalMessage(
@@ -27,12 +27,19 @@ export function handleExternalMessage(
   senderUrl: string | undefined,
 ): Promise<ExternalReply> | undefined {
   if (!isFromWeb(senderUrl)) return undefined;
-  const { type, token } = (message ?? {}) as {
+  const { type, token, account } = (message ?? {}) as {
     type?: unknown;
     token?: unknown;
+    account?: unknown;
   };
-  if (type === "connect" && typeof token === "string" && token) {
-    return saveToken(token).then(() => ({ ok: true }));
+  if (
+    type === "connect" &&
+    typeof token === "string" &&
+    token &&
+    typeof account === "string" &&
+    account
+  ) {
+    return saveToken(token, account).then(() => ({ ok: true }));
   }
   if (type === "disconnect") {
     return signOut().then(() => ({ ok: true }));

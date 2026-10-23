@@ -13,21 +13,20 @@ export class LoginRequired extends Error {
   }
 }
 
-// 확장 로그아웃: 서버에서 이 토큰만 폐기하고 저장한 토큰을 지운다. 서버에 닿지 않아도 지운다.
+// 확장 로그아웃: 저장한 토큰을 먼저 지운 뒤 서버에서 이 토큰만 폐기한다. 서버가 응답하지
+// 않아도 로컬 로그아웃은 끝난다.
 export async function logoutExtension(): Promise<void> {
   const token = await loadToken();
+  if (!token) return;
+  // 그사이 웹에서 다시 연결해 새 토큰이 왔으면 그것은 지우지 않는다.
+  await signOutIfStill(token);
   try {
-    if (token) {
-      await fetch(`${API_BASE_URL}/api/auth/extension-tokens/revoke/`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    }
+    await fetch(`${API_BASE_URL}/api/auth/extension-tokens/revoke/`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
   } catch {
     // 서버에 남은 토큰은 마지막 사용 후 90일이 지나면 쓸 수 없다.
-  } finally {
-    // 그사이 웹에서 다시 연결해 새 토큰이 왔으면 그것은 지우지 않는다.
-    if (token) await signOutIfStill(token);
   }
 }
 

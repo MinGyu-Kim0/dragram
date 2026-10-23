@@ -2,6 +2,8 @@
 // 분석 API는 이 토큰을 Bearer로 붙여 부른다.
 
 const TOKEN_KEY = "extensionToken";
+// 패널이 보던 원문·결과를 비우라는 표시. 명시적 로그아웃과 다른 계정의 연결 때 남긴다.
+const SIGNED_OUT_KEY = "signedOutAt";
 
 export async function loadToken(): Promise<string | undefined> {
   const stored = await browser.storage.local.get(TOKEN_KEY);
@@ -23,8 +25,25 @@ function withTokenLock<T>(task: () => Promise<T>): Promise<T> {
   return run;
 }
 
-export function saveToken(token: string): Promise<void> {
-  return withTokenLock(() => browser.storage.local.set({ [TOKEN_KEY]: token }));
+// 연결한 계정(이메일). 다른 계정이 연결하면 패널이 보던 원문·결과를 비운다.
+const ACCOUNT_KEY = "extensionAccount";
+
+// 웹에서 연결한 토큰을 저장한다. account가 지금 저장된 계정과 다르면(다른 사람일 수 있다)
+// 비우라는 표시를 함께 남긴다. 같은 계정의 재연결은 기다리던 문장을 이어 분석한다.
+export function saveToken(token: string, account?: string): Promise<void> {
+  return withTokenLock(async () => {
+    const stored = await browser.storage.local.get([TOKEN_KEY, ACCOUNT_KEY]);
+    // 401로 토큰만 지워졌어도 계정은 남아 있어, 그 계정과 비교한다.
+    const previous = stored[ACCOUNT_KEY];
+    const replacesOther =
+      account !== undefined &&
+      (previous ? previous !== account : Boolean(stored[TOKEN_KEY]));
+    await browser.storage.local.set({
+      ...(replacesOther ? { [SIGNED_OUT_KEY]: Date.now() } : {}),
+      [TOKEN_KEY]: token,
+      ...(account !== undefined ? { [ACCOUNT_KEY]: account } : {}),
+    });
+  });
 }
 
 // 저장한 토큰이 token일 때만 지운다. 거부된 옛 토큰의 응답이 늦게 와도 그사이 다시 연결한
@@ -38,12 +57,12 @@ export function clearTokenIfStill(token: string): Promise<void> {
 
 // 사용자가 명시적으로 로그아웃했다(패널 로그아웃, 웹 로그아웃). 401로 토큰을 지운 것과 달리
 // 패널이 보던 원문·결과를 비워야 해서 표시를 남긴다. 표시와 토큰 지우기는 한 번에 저장한다.
-const SIGNED_OUT_KEY = "signedOutAt";
 
 const markSignedOut = () =>
   browser.storage.local.set({
     [SIGNED_OUT_KEY]: Date.now(),
     [TOKEN_KEY]: null,
+    [ACCOUNT_KEY]: null,
   });
 
 export function signOut(): Promise<void> {

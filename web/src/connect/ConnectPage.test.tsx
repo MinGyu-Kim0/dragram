@@ -148,7 +148,7 @@ test("로그아웃이 실패하면 로그인한 상태를 그대로 보이고 �
 });
 
 describe("확장 연결(#109)", () => {
-  type Message = { type: string; token?: string };
+  type Message = { type: string; token?: string; account?: string };
   let sent: { extensionId: string; message: Message }[];
   let reply: { ok: boolean } | undefined;
   let lastError: { message: string } | undefined;
@@ -194,7 +194,11 @@ describe("확장 연결(#109)", () => {
     expect(sent).toEqual([
       {
         extensionId: "dragram-extension-id",
-        message: { type: "connect", token: "extension-token" },
+        message: {
+          type: "connect",
+          token: "extension-token",
+          account: "me@example.com",
+        },
       },
     ]);
   });

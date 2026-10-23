@@ -9,7 +9,7 @@ beforeEach(() => {
 
 test("우리 웹의 connect 메시지는 토큰을 저장하고 받았다고 답한다", async () => {
   const reply = handleExternalMessage(
-    { type: "connect", token: "extension-token" },
+    { type: "connect", token: "extension-token", account: "me@example.com" },
     `${WEB_ORIGIN}/connect`,
   );
 
@@ -39,7 +39,10 @@ test.each([
   await saveToken("kept-token");
 
   expect(
-    handleExternalMessage({ type: "connect", token: "stolen" }, url),
+    handleExternalMessage(
+      { type: "connect", token: "stolen", account: "x@example.com" },
+      url,
+    ),
   ).toBeUndefined();
   expect(handleExternalMessage({ type: "disconnect" }, url)).toBeUndefined();
   expect(await loadToken()).toBe("kept-token");
@@ -48,7 +51,8 @@ test.each([
 test.each([
   { type: "connect" },
   { type: "connect", token: "" },
-  { type: "connect", token: 42 },
+  { type: "connect", token: 42, account: "me@example.com" },
+  { type: "connect", token: "extension-token" },
   { type: "unknown" },
   "connect",
   null,

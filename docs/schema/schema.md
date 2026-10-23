@@ -48,16 +48,16 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | user_id | 사용자 ID | bigint | Y | → users | 시스템 일괄 작업 호출이면 null |
-| analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis |  |
-| kind | 기록 종류 | varchar(30) |  |  | request(분석 요청) / llm(LLM 호출). 원문은 저장하지 않음 |
-| path | 처리 경로 | varchar(30) | Y |  | request일 때: cache / db / llm |
+| analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | 새 문장은 저장 트랜잭션 안에서 잇는다(저장이 되돌려지면 NULL). stale 재분석·재매칭은 처음부터 기존 분석 행에 잇는다(구현이 정함, 확인 필요) |
+| kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
+| path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정) |
 | purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(단어 뜻·태그) / kanji_gloss(한자 한국어 뜻) |
 | model | 모델명 | varchar(255) | Y |  |  |
 | input_tokens | 입력 토큰 수 | integer | Y |  |  |
 | cached_input_tokens | 캐시된 입력 토큰 수 | integer | Y |  | 프롬프트 캐싱 효과 확인용(cached_tokens) |
 | output_tokens | 출력 토큰 수 | integer | Y |  |  |
-| success | 성공 여부 | boolean |  |  |  |
-| attempt | 시도 차수 | smallint | Y |  | 재시도 횟수·일일 상한 집계용 |
+| success | 성공 여부 | boolean |  |  | request: 그 경로의 결과를 오류 없이 냈는가(재매칭 대체 응답은 false, 영향 범위가 바뀌어 저장하지 않고 보낸 결과는 true). llm: 쓸 수 있는 응답을 받았는가(SDK 오류·잘린 응답·JSON 아님·사이드 패널이 끊은 스트림은 false, 받은 뒤 서버 검증 거부는 true. 구현이 정함, 확인 필요). design-decisions 46절 |
+| attempt | 시도 차수 | smallint | Y |  | 재시도 횟수·일일 상한 집계용. 지금은 재시도가 없어 1(구현이 정함, 확인 필요) |
 | created_at | 기록일시 | timestamptz |  |  |  |
 
 ## admin_action_log — 관리자 작업 이력

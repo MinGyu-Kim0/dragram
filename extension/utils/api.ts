@@ -1,4 +1,4 @@
-import { clearToken, loadToken } from "./auth";
+import { clearToken, clearTokenIfStill, loadToken } from "./auth";
 
 // 개발 빌드 기본값은 로컬 compose 백엔드다. 바꾸려면 빌드할 때 WXT_API_BASE_URL을 준다.
 export const API_BASE_URL =
@@ -136,7 +136,7 @@ export async function analyzeSentence(
     body: JSON.stringify({ text }),
   });
   if (response.status === 401) {
-    await clearToken();
+    await clearTokenIfStill(token);
     throw new LoginRequired();
   }
   if (!response.ok || !response.body) throw new AnalysisFailed();

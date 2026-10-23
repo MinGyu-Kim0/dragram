@@ -17,6 +17,12 @@ export async function clearToken(): Promise<void> {
   await browser.storage.local.remove(TOKEN_KEY);
 }
 
+// 저장한 토큰이 token일 때만 지운다. 거부된 옛 토큰의 응답이 늦게 와도 그사이 다시 연결한
+// 새 토큰을 지우지 않는다.
+export async function clearTokenIfStill(token: string): Promise<void> {
+  if ((await loadToken()) === token) await clearToken();
+}
+
 // 연결 상태(토큰이 있는지)를 지금 값과 이후 바뀔 때마다 알린다.
 export function watchConnected(
   onChange: (connected: boolean) => void,

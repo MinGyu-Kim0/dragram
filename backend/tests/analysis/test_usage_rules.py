@@ -1,5 +1,7 @@
 """승인된 판별 규칙으로 구간을 LLM 없이 확정(#55, 구간 판정 절차 3단계)."""
 
+import json
+
 import pytest
 from django.db import transaction
 
@@ -348,3 +350,116 @@ def test_rule_retired_while_analyzing_is_not_saved_as_the_basis(client, fake_llm
 
     assert [item["name"] for item in response.json()["grammar"]] == ["장소"]
     assert not SpanMatch.objects.filter(rule=place).exists()
+
+
+RULES = "/admin/analysis/usagerule/"
+
+
+def rule_form(pattern, usage_name="장소", condition=AFTER_PLACE, cases=PASSING):
+    return {
+        "pattern": pattern.pk,
+        "usage": pattern.usages.get(name=usage_name).pk,
+        "condition": json.dumps(condition, ensure_ascii=False),
+        "test_cases": json.dumps(cases, ensure_ascii=False),
+    }
+
+
+def test_admin_adds_a_pending_rule(admin_client, admin_user, client, fake_llm):
+    pattern = register_de(client, fake_llm, "장소")
+
+    response = admin_client.post(f"{RULES}add/", rule_form(pattern))
+
+    assert response.status_code == 302
+    added = UsageRule.objects.get()
+    assert (added.status, added.created_by, added.condition) == (
+        UsageRule.Status.PENDING,
+        admin_user,
+        AFTER_PLACE,
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"condition": "[]"},
+        {"condition": json.dumps([{"position": 0}])},
+        {"condition": json.dumps([{"position": -1, "pos4": "地名"}])},
+        {"test_cases": json.dumps([{"text": "大阪で働く"}])},
+        {"test_cases": json.dumps([{"text": "大阪で働く", "should_apply": "yes"}])},
+        {"test_cases": json.dumps([{"text": "大阪で⟨N1⟩回働く", "should_apply": True}])},
+    ],
+)
+def test_malformed_rule_is_not_saved(admin_client, client, fake_llm, changes):
+    pattern = register_de(client, fake_llm, "장소")
+
+    response = admin_client.post(f"{RULES}add/", {**rule_form(pattern), **changes})
+
+    assert response.status_code == 200
+    assert not UsageRule.objects.exists()
+
+
+def test_usage_of_another_pattern_is_refused(admin_client, client, fake_llm):
+    pattern = register_de(client, fake_llm, "장소")
+    fake_llm.response = {
+        "translation_ko": "집에 간다",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                pattern_name="に",
+                usage_name="도착점",
+                explanation_ko="도착점을 나타낸다",
+                example_ja="駅に着く",
+            )
+        ],
+    }
+    analyze(client, "家に帰る")
+    other = GrammarUsage.objects.get(name="도착점")
+
+    response = admin_client.post(f"{RULES}add/", {**rule_form(pattern), "usage": other.pk})
+
+    assert response.status_code == 200
+    assert not UsageRule.objects.exists()
+
+
+@pytest.mark.parametrize("status", [UsageRule.Status.APPROVED, UsageRule.Status.RETIRED])
+def test_approved_or_retired_rule_cannot_be_edited_or_deleted(
+    admin_client, client, fake_llm, status
+):
+    pattern = register_de(client, fake_llm, "장소")
+    fixed = rule(pattern, "장소", status=status)
+
+    admin_client.post(
+        f"{RULES}{fixed.pk}/change/",
+        rule_form(pattern, usage_name="수단", condition=[{"position": 1}]),
+    )
+
+    fixed.refresh_from_db()
+    assert (fixed.usage.name, fixed.condition, fixed.status) == ("장소", AFTER_PLACE, status)
+    assert admin_client.post(f"{RULES}{fixed.pk}/delete/").status_code == 403
+
+
+def test_pending_rule_can_be_edited(admin_client, client, fake_llm):
+    pattern = register_de(client, fake_llm, "장소")
+    draft = rule(pattern, "장소", status=UsageRule.Status.PENDING)
+
+    response = admin_client.post(
+        f"{RULES}{draft.pk}/change/", rule_form(pattern, condition=[{"position": 1}])
+    )
+
+    assert response.status_code == 302
+    draft.refresh_from_db()
+    assert (draft.condition, draft.test_cases) == ([{"position": 1}], PASSING)
+
+
+def test_admin_actions_approve_and_retire_a_rule(admin_client, admin_user, client, fake_llm):
+    pattern = register_de(client, fake_llm, "장소")
+    draft = rule(pattern, "장소", status=UsageRule.Status.PENDING)
+    UsageRule.objects.filter(pk=draft.pk).update(test_cases=PASSING)
+
+    admin_client.post(RULES, {"action": "approve", "_selected_action": [draft.pk]})
+    draft.refresh_from_db()
+    assert (draft.status, draft.approved_by) == (UsageRule.Status.APPROVED, admin_user)
+
+    admin_client.post(RULES, {"action": "retire", "_selected_action": [draft.pk]})
+    draft.refresh_from_db()
+    assert draft.status == UsageRule.Status.RETIRED

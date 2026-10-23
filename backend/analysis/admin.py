@@ -2,8 +2,8 @@
 
 원문이나 원문 위치를 담은 테이블(sentence_analysis, span_match)은 등록하지 않는다. 패턴·용법은
 LLM이 만들므로 여기서 더하거나 지우지 않는다(회화체를 연결하며 자기 용법을 원형 용법으로 합칠
-때만 그 용법을 지운다, #64). 상태는 필드가 아니라 액션으로만 바꾸고, 액션은 analysis.review의
-상태 전이를 부른다.
+때만 그 용법을 지운다, #64). 판별 규칙은 관리자가 여기서 만든다(#55). 상태는 필드가 아니라
+액션으로만 바꾸고, 액션은 analysis.review의 상태 전이를 부른다.
 """
 
 import json
@@ -14,8 +14,15 @@ from django.contrib.admin.helpers import ActionForm
 from django.template.response import TemplateResponse
 
 from analysis import patterns, review
-from analysis.models import GrammarPattern, GrammarUsage, PatternMorpheme, ReviewStatus
+from analysis.models import (
+    GrammarPattern,
+    GrammarUsage,
+    PatternMorpheme,
+    ReviewStatus,
+    UsageRule,
+)
 from analysis.normalize import has_only_known_placeholders
+from analysis.rules import condition_problem
 
 
 def _example_problem(text):
@@ -306,3 +313,81 @@ class GrammarUsageAdmin(_ReviewedAdmin):
         _review_action("unreject", review.unreject_usage, "반려 취소(미검수로)"),
         _review_action("unapprove", review.unapprove_usage, "승인 취소(미검수로)"),
     ]
+
+
+class UsageRuleForm(forms.ModelForm):
+    condition = _TestCasesField()
+    test_cases = _TestCasesField()
+
+    class Meta:
+        model = UsageRule
+        fields = ["pattern", "usage", "condition", "test_cases"]
+
+    def clean_condition(self):
+        condition = self.cleaned_data["condition"]
+        problem = condition_problem(condition)
+        if problem:
+            raise forms.ValidationError(problem)
+        return condition
+
+    def clean_test_cases(self):
+        cases = self.cleaned_data["test_cases"]
+        if not isinstance(cases, list):
+            raise forms.ValidationError("[{text, should_apply}] 목록이어야 합니다")
+        for case in cases:
+            if not isinstance(case, dict) or set(case) != {"text", "should_apply"}:
+                raise forms.ValidationError("항목마다 text와 should_apply만 둡니다")
+            if not isinstance(case["should_apply"], bool):
+                raise forms.ValidationError("should_apply는 true 또는 false여야 합니다")
+            problem = _example_problem(case["text"])
+            if problem:
+                raise forms.ValidationError(problem)
+        return cases
+
+    def clean(self):
+        cleaned = super().clean()
+        pattern, usage = cleaned.get("pattern"), cleaned.get("usage")
+        # 용법은 그 패턴 소속이다. 연결된 회화체 패턴이면 원형의 용법이다(#63).
+        if pattern and usage and usage.pattern_id != (pattern.variant_of_id or pattern.pk):
+            self.add_error("usage", "고른 패턴의 용법이어야 합니다")
+        return cleaned
+
+
+@admin.register(UsageRule)
+class UsageRuleAdmin(admin.ModelAdmin):
+    form = UsageRuleForm
+    list_display = ["id", "pattern", "usage", "status", "approved_at", "updated_at"]
+    list_filter = ["status"]
+    search_fields = ["pattern__name", "usage__name"]
+    fields = ["pattern", "usage", "condition", "test_cases", "status", "created_by"]
+    actions = ["approve", _review_action("retire", review.retire_rule, "폐기")]
+
+    @admin.action(description="승인")
+    def approve(self, request, queryset):
+        # 승인한 관리자를 남긴다.
+        _apply(self, request, queryset, lambda rule: review.approve_rule(rule, request.user))
+
+    def get_readonly_fields(self, request, obj=None):
+        # 미검수 규칙만 고친다. 승인된 규칙을 바꾸려면 폐기하고 새로 만든다.
+        if obj is not None and obj.status != UsageRule.Status.PENDING:
+            return self.fields
+        return ["status", "created_by"]
+
+    def has_delete_permission(self, request, obj=None):
+        # 판정 기록(span_match.rule)이 가리키므로 지우지 않는다.
+        return False
+
+    def get_actions(self, request):
+        actions = super().get_actions(request)
+        actions.pop("delete_selected", None)
+        return actions
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+            obj.save()
+            return
+        # 폼을 연 뒤 액션이 승인·폐기했으면 덮지 않는다.
+        UsageRule.objects.filter(pk=obj.pk, status=UsageRule.Status.PENDING).update(
+            pattern=obj.pattern, usage=obj.usage, condition=obj.condition, test_cases=obj.test_cases
+        )

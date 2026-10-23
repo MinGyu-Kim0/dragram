@@ -1,0 +1,71 @@
+/* 색 토큰은 DESIGN §2. 다크 값은 아직 이 화면에서 정하지 않았다(DESIGN §7). */
+:root {
+  --color-bg: #f2f7f3;
+  --color-surface: #ffffff;
+  --color-text: #17302a;
+  --color-text-secondary: #33473f;
+  --color-text-muted: #5a6b63;
+  --color-border: #dce7e0;
+  --color-border-control: #cfddd4;
+  --color-danger-text: #9f1d1d;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, sans-serif;
+}
+
+.connect {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.connect .card {
+  box-sizing: border-box;
+  width: min(100%, 420px);
+  padding: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+  display: grid;
+  gap: 14px;
+}
+
+.connect h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.connect p {
+  margin: 0;
+}
+
+.connect .secondary {
+  color: var(--color-text-secondary);
+}
+
+.connect .muted {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.connect .danger {
+  color: var(--color-danger-text);
+}
+
+.connect .secondary-button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}

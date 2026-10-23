@@ -31,6 +31,9 @@ def condition_problem(condition):
             return f"모르는 칸입니다: {', '.join(sorted(unknown))}"
         if any(not isinstance(c[key], str) for key in _FIELDS if c.get(key) is not None):
             return "칸 값은 글자여야 합니다"
+        # 숫자만 다른 문장은 같은 키 텍스트(캐시)를 쓰므로 숫자에 기대는 조건은 둘 수 없다.
+        if any(ch.isdigit() for ch in c.get("lemma") or ""):
+            return "lemma에 숫자를 쓸 수 없습니다"
     return None
 
 

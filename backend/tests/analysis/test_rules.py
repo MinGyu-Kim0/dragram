@@ -56,6 +56,10 @@ def test_positions_count_from_the_span_edges():
         [{"position": True}],
         [{"position": -1, "pos4": "x"}],
         [{"position": -1, "lemma": 1}],
+        # 숫자만 다른 문장은 같은 캐시를 쓰므로 숫자에 기대는 조건은 둘 수 없다.
+        [{"position": -1, "lemma": "1"}],
+        [{"position": -1, "lemma": "X12"}],
+        [{"position": -1, "lemma": "１"}],
     ],
 )
 def test_malformed_conditions_are_refused(condition):

@@ -65,10 +65,10 @@ def read_body(response):
     return b"".join(async_to_sync(read)())
 
 
-def connected_client():
+def connected_client(username="analyst"):
     """확장처럼 Bearer 토큰을 붙여 요청하는 클라이언트. 분석 API는 로그인해야 쓴다(#109)."""
     user, _ = get_user_model().objects.get_or_create(
-        username="analyst", defaults={"email": "analyst@example.com"}
+        username=username, defaults={"email": f"{username}@example.com"}
     )
     # 같은 세션이 발급한 이전 토큰은 지워지므로 클라이언트마다 세션을 따로 둔다.
     token = tokens.issue(user, uuid.uuid4().hex)

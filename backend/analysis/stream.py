@@ -9,7 +9,7 @@ from django.db import close_old_connections
 from django.db.models import F
 from django.utils import timezone
 
-from analysis import jobs
+from analysis import jobs, user_sentences
 from analysis.models import SentenceAnalysis, UsageLog
 from analysis.normalize import NORMALIZE_VERSION
 from analysis.sentence import _is_fresh
@@ -105,10 +105,12 @@ def claim(sentence, user):
     return "claimed" if claimed else "processing", row, usage
 
 
-def saved_events(presenter, row, translated):
-    """작업이 저장한 행의 이벤트. 번역을 아직 보내지 않았으면 함께 보낸다."""
+def saved_events(presenter, user, row, translated):
+    """작업이 저장한 행의 이벤트. 번역을 아직 보내지 않았으면 함께 보낸다. 분석 기록도 남긴다."""
     events = [] if translated else [presenter.translation_event(row.translation_ko)]
-    return [*events, presenter.analysis_event(row)]
+    events.append(presenter.analysis_event(row))
+    user_sentences.record(user, presenter.original, row.pk)
+    return events
 
 
 async def llm_stream(presenter, user, early):
@@ -130,7 +132,7 @@ async def llm_stream(presenter, user, early):
             yield _ndjson({"type": "error", "error": e.error_code.code})
             return
         if state == "saved":
-            for event in await sync_to_async(saved_events)(presenter, row, False):
+            for event in await sync_to_async(saved_events)(presenter, user, row, False):
                 yield _ndjson(event)
             return
         translated = state == "processing" and row.processing_translation_ko is not None
@@ -155,7 +157,9 @@ async def llm_stream(presenter, user, early):
             if message["type"] == "done":
                 row = await sync_to_async(SentenceAnalysis.objects.get)(pk=row.pk)
                 if row.word_spans is not None:
-                    for event in await sync_to_async(saved_events)(presenter, row, translated):
+                    for event in await sync_to_async(saved_events)(
+                        presenter, user, row, translated
+                    ):
                         yield _ndjson(event)
                     await sync_to_async(request_usage.succeed)()
                     return

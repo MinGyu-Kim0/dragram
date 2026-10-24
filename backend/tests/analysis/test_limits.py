@@ -205,3 +205,23 @@ def test_count_left_by_a_dead_process_expires(settings, analyst, no_active, monk
 
     limits.enter(analyst)
     assert active(analyst) == 1
+
+
+def test_job_over_the_limit_at_start_fails_without_calling_the_llm(
+    settings, client, fake_llm, analyst, monkeypatch
+):
+    settings.ANALYSIS_DAILY_TOKEN_LIMIT = 100
+    enqueue = jobs.enqueue_analysis
+
+    def enqueue_after_spending(*args):
+        # 요청이 한도를 본 뒤, 작업이 시작되기 전에 다른 작업이 사용량을 채웠다.
+        spend(analyst, 60, 40)
+        enqueue(*args)
+
+    monkeypatch.setattr(jobs, "enqueue_analysis", enqueue_after_spending)
+
+    response = analyze(client, TEXT)
+
+    assert response.json()["error"] == "ANALYSIS:USAGE_LIMIT"
+    assert fake_llm.all_requests() == []
+    assert SentenceAnalysis.objects.get().status == SentenceAnalysis.Status.FAILED

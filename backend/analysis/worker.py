@@ -2,7 +2,7 @@
 
 from django.db import IntegrityError, transaction
 
-from analysis import jobs, llm, morphology, patterns, words
+from analysis import jobs, limits, llm, morphology, patterns, words
 from analysis.answers import (
     FIRST_VERDICTS,
     RECHECK_VERDICTS,
@@ -143,7 +143,13 @@ class Worker:
         existing = self.sentence.existing
         if existing is None or existing.pk != analysis_id:
             raise RuntimeError(f"분석 텍스트의 해시가 분석 행과 다름: analysis_id={analysis_id}")
-        self.usage = RequestUsage(UsageLog.objects.get(pk=usage_id))
+        request = UsageLog.objects.get(pk=usage_id)
+        if limits.over_limit(request.user):
+            # 연결을 끊고 다시 보내기를 되풀이해 쌓인 작업이 하루 한도를 크게 넘기지 않게,
+            # 시작할 때 다시 본다(#28, PR #155 리뷰).
+            _fail(analysis_id, existing.processing_started_at, AnalysisError.USAGE_LIMIT.code)
+            return
+        self.usage = RequestUsage(request)
         self.client = llm.get_client(self.usage.record_llm)
         try:
             self.work()

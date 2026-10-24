@@ -38,24 +38,42 @@ function tagNames(word: WordItem) {
   );
 }
 
-// 뜻 한 줄: 한국어 뜻이 있으면 그것을, 없으면 영어 뜻을 보인다. 배지는 서버가 준 출처·검수
-// 상태로 정한다. LLM이 만든 뜻이나 검수 전 뜻은 'AI 생성·미검수', 사전 뜻을 옮긴 검수 전
-// 한국어 뜻은 'AI 번역'이다. JMdict 뜻의 영어 뜻에는 배지를 달지 않는다(#96).
+// 뜻 한 줄: 한국어 뜻을 보이고, 배지는 서버가 준 출처·검수 상태로 정한다. LLM이 만든 뜻이나 검수
+// 전 뜻은 'AI 생성·미검수', 사전 뜻을 옮긴 검수 전 한국어 뜻은 'AI 번역'이다. 영어 뜻은 보이지
+// 않는다. 한국어 뜻이 아직 없으면 준비 중, 만들지 못했으면 실패 문구다(#97).
 function Meaning({ sense }: { sense: WordSense }) {
+  if (sense.meaning_ko === null) {
+    return sense.meaning_status === "failed" ? (
+      <p className="word-meaning word-choosing">뜻을 만들지 못했습니다</p>
+    ) : (
+      <Preparing />
+    );
+  }
   const pending = sense.origin === "llm" || sense.status === "pending";
-  const translated =
-    !pending && sense.meaning_ko !== null && sense.meaning_status === "ai";
+  const translated = !pending && sense.meaning_status === "ai";
   return (
     <p className="word-meaning">
-      {sense.meaning_ko ?? <span lang="en">{sense.gloss_en.join("; ")}</span>}
+      {sense.meaning_ko}
       {pending && <span className="badge-warn">AI 생성·미검수</span>}
       {translated && <span className="badge-warn">AI 번역</span>}
     </p>
   );
 }
 
+function Preparing() {
+  return (
+    <p
+      role="status"
+      aria-label="뜻을 준비하는 중"
+      className="word-meaning word-choosing"
+    >
+      뜻을 준비하는 중
+    </p>
+  );
+}
+
 // 단어 행: 사전형(표제), 읽기, 태그, 이 문장에서 고른 뜻. 드래그 범위와 겹친 단어를 먼저 두고,
-// 각 묶음 안은 원문 순서로 보인다. 뜻을 아직 고르지 않은 단어는 뜻 자리에 대기 표시를 둔다.
+// 각 묶음 안은 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
 // 목록 아래에 JMdict 출처 각주를 단다.
 export function WordList({
   words,
@@ -92,17 +110,7 @@ export function WordList({
                   ))}
                 </ul>
               )}
-              {word.sense ? (
-                <Meaning sense={word.sense} />
-              ) : (
-                <p
-                  role="status"
-                  aria-label="뜻을 고르는 중"
-                  className="word-meaning word-choosing"
-                >
-                  뜻을 고르는 중
-                </p>
-              )}
+              {word.sense ? <Meaning sense={word.sense} /> : <Preparing />}
             </li>
           );
         })}

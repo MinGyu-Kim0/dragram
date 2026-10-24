@@ -11,6 +11,7 @@ import {
   type Analysis,
   type CheckingItem,
   type GrammarItem,
+  type Translation,
   type WordItem,
 } from "@/utils/api";
 import { loadToken, watchConnection } from "@/utils/auth";
@@ -122,6 +123,7 @@ function App() {
       let checking: CheckingItem[] | undefined;
       // 사전에서 찾은 단어도 grammar 이벤트로 먼저 온다(#96).
       let earlyWords: WordItem[] | undefined;
+      let translated: Translation | undefined;
       // stale 분석의 옛 결과. 있으면 새 결과가 다 올 때까지 그것만 보이고 중간 이벤트는 버린다.
       let previous: Analysis | undefined;
       limiter
@@ -131,6 +133,7 @@ function App() {
               text,
               (translation) => {
                 if (previous) return;
+                translated = translation;
                 saveAll({
                   status: "translated",
                   translation,
@@ -154,6 +157,27 @@ function App() {
               (old) => {
                 previous = old;
                 saveAll({ status: "reanalyzing", previous });
+              },
+              // LLM이 고른 뜻과 새로 만든 한국어 뜻(#97). 번역이 왔으면 함께 보인다.
+              (words) => {
+                if (previous) return;
+                earlyWords = words;
+                saveAll(
+                  translated
+                    ? {
+                        status: "translated",
+                        translation: translated,
+                        earlyGrammar,
+                        checking,
+                        earlyWords,
+                      }
+                    : {
+                        status: "early",
+                        earlyGrammar: earlyGrammar ?? [],
+                        checking: checking ?? [],
+                        earlyWords,
+                      },
+                );
               },
             ),
           () => !current,

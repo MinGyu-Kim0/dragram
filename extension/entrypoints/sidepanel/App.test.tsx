@@ -485,7 +485,8 @@ test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인�
   expect(await screen.findByText("문법 요소 없음")).toBeInTheDocument();
 });
 
-// 사전 단어. sense를 null로 주면 뜻을 고르는 중인 단어다. 영어 뜻은 `${표제} gloss`다.
+// 사전 단어. sense를 null로 주면 뜻을 준비하는 중인 단어다. 영어 뜻은 `${표제} gloss`, 한국어 뜻은
+// 검수된 `${표제} 뜻`이다.
 function wordItem(
   start: number,
   end: number,
@@ -505,8 +506,8 @@ function wordItem(
       gloss_en: [`${form} gloss`],
       origin: "jmdict",
       status: "approved",
-      meaning_ko: null,
-      meaning_status: "ai",
+      meaning_ko: `${form} 뜻`,
+      meaning_status: "reviewed",
       ...sense,
     },
   };
@@ -529,10 +530,10 @@ test("탭에 문법과 단어 개수를 보이고, 처음에는 문법 탭을 �
     "true",
   );
   expect(screen.getByRole("heading", { name: "주제 は" })).toBeInTheDocument();
-  expect(screen.queryByText("学生 gloss")).not.toBeInTheDocument();
+  expect(screen.queryByText("学生 뜻")).not.toBeInTheDocument();
 });
 
-test("단어 탭에 단어마다 사전형, 읽기, 태그, 영어 뜻을 원문 순서대로 보이고 JMdict 출처를 단다", async () => {
+test("단어 탭에 단어마다 사전형, 읽기, 태그, 한국어 뜻을 원문 순서대로 보이고 JMdict 출처를 단다", async () => {
   respondWith(200, {
     translation_ko: "나는 학생으로서 먹고 있다.",
     grammar: [grammarItem(1, 2, "주제 は")],
@@ -569,14 +570,16 @@ test("단어 탭에 단어마다 사전형, 읽기, 태그, 영어 뜻을 원문
     words.map((row) => within(row).getByRole("heading").textContent),
   ).toEqual(["私", "食べる"]);
   expect(within(words[1]!).getByText("たべる")).toBeInTheDocument();
-  expect(within(words[1]!).getByText("to eat; to live on")).toBeInTheDocument();
+  expect(within(words[1]!).getByText("食べる 뜻")).toBeInTheDocument();
+  // 영어 뜻은 보이지 않는다(LLM 입력과 admin에만 쓴다).
+  expect(screen.queryByText(/to eat/)).not.toBeInTheDocument();
   // 단어 전체 태그 뒤에 고른 뜻의 태그를 보인다.
   expect(
     within(within(words[1]!).getByRole("list", { name: "태그" }))
       .getAllByRole("listitem")
       .map((tag) => tag.textContent),
   ).toEqual(["동사", "2그룹", "타동사"]);
-  // JMdict 뜻에는 'AI 생성·미검수' 배지가 없고 출처 각주가 있다.
+  // 검수된 JMdict 뜻에는 배지가 없고 출처 각주가 있다.
   for (const row of words) {
     expect(within(row).queryByText("AI 생성·미검수")).not.toBeInTheDocument();
     expect(within(row).queryByText("AI 번역")).not.toBeInTheDocument();
@@ -617,7 +620,7 @@ test("뜻의 출처·검수 상태에 따라 'AI 생성·미검수'와 'AI 번�
   expect(within(reviewed!).queryByText("AI 번역")).not.toBeInTheDocument();
 });
 
-test("LLM보다 먼저 온 단어는 탭에 바로 보이고, 뜻을 고르는 중인 단어는 분석이 오면 채운다", async () => {
+test("LLM보다 먼저 온 단어는 탭에 바로 보이고, 뜻을 준비하는 중인 단어는 분석이 오면 채운다", async () => {
   const stream = streamed();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
   render(<App />);
@@ -637,9 +640,9 @@ test("LLM보다 먼저 온 단어는 탭에 바로 보이고, 뜻을 고르는 �
   expect(
     screen.getByRole("status", { name: "번역을 불러오는 중" }),
   ).toBeInTheDocument();
-  expect(screen.getByText("学生 gloss")).toBeInTheDocument();
+  expect(screen.getByText("学生 뜻")).toBeInTheDocument();
   expect(
-    screen.getByRole("status", { name: "뜻을 고르는 중" }),
+    screen.getByRole("status", { name: "뜻을 준비하는 중" }),
   ).toBeInTheDocument();
   // 문법은 아직 오지 않아 '문법 요소 없음'이라고 단정하지 않는다.
   fireEvent.click(screen.getByRole("tab", { name: "문법 0" }));
@@ -659,16 +662,93 @@ test("LLM보다 먼저 온 단어는 탭에 바로 보이고, 뜻을 고르는 �
     grammar: [],
     words: [
       wordItem(0, 2, "学生", "がくせい"),
-      wordItem(3, 5, "開く", "ひらく", { gloss_en: ["to open"] }),
+      wordItem(3, 5, "開く", "ひらく", { meaning_ko: "열다" }),
     ],
   });
   stream.end();
 
   fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
-  expect(await screen.findByText("to open")).toBeInTheDocument();
+  expect(await screen.findByText("열다")).toBeInTheDocument();
   expect(
-    screen.queryByRole("status", { name: "뜻을 고르는 중" }),
+    screen.queryByRole("status", { name: "뜻을 준비하는 중" }),
   ).not.toBeInTheDocument();
+});
+
+test("한국어 뜻이 아직 없으면 준비 중, 만들지 못했으면 실패 문구를 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [],
+    words: [
+      wordItem(0, 1, "一", "いち", { meaning_ko: null, meaning_status: "ai" }),
+      wordItem(1, 2, "二", "に", {
+        meaning_ko: null,
+        meaning_status: "failed",
+      }),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "一二");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
+
+  const [waiting, failed] = within(screen.getByRole("list", { name: "단어" }))
+    .getAllByRole("listitem")
+    .filter((row) => row.classList.contains("word-row"));
+  expect(
+    within(waiting!).getByRole("status", { name: "뜻을 준비하는 중" }),
+  ).toBeInTheDocument();
+  expect(
+    within(failed!).getByText("뜻을 만들지 못했습니다"),
+  ).toBeInTheDocument();
+  // 단어 하나의 뜻 실패는 문장 실패가 아니다(표제·읽기·각주는 그대로).
+  expect(within(failed!).getByText("に")).toBeInTheDocument();
+  expect(screen.queryByText(/gloss/)).not.toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "JMdict" })).toBeInTheDocument();
+});
+
+test("분석 전에 온 words 이벤트로 고른 뜻과 새 한국어 뜻을 채운다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "本を開いた");
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [],
+    words: [wordItem(2, 4, "開く", "ひらく", null)],
+  });
+  stream.push({ type: "translation", translation_ko: "책을 펼쳤다", ruby: [] });
+  stream.push({
+    type: "words",
+    words: [
+      wordItem(2, 4, "開く", "ひらく", {
+        meaning_ko: null,
+        meaning_status: "ai",
+      }),
+    ],
+  });
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 1" }));
+  expect(screen.getByText("책을 펼쳤다")).toBeInTheDocument();
+  expect(
+    screen.getByRole("status", { name: "뜻을 준비하는 중" }),
+  ).toBeInTheDocument();
+
+  stream.push({
+    type: "words",
+    words: [
+      wordItem(2, 4, "開く", "ひらく", {
+        meaning_ko: "피다",
+        meaning_status: "ai",
+      }),
+    ],
+  });
+
+  expect(await screen.findByText("피다")).toBeInTheDocument();
+  expect(screen.getByText("AI 번역")).toBeInTheDocument();
+  expect(screen.getByText("책을 펼쳤다")).toBeInTheDocument();
+  stream.end();
 });
 
 test("먼저 온 단어가 있어도 분석이 실패하면 단어를 지우고 실패를 보인다", async () => {
@@ -698,7 +778,7 @@ test("먼저 온 단어가 있어도 분석이 실패하면 단어를 지우고 
   ).toBeInTheDocument();
   expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   expect(
-    screen.queryByRole("status", { name: "뜻을 고르는 중" }),
+    screen.queryByRole("status", { name: "뜻을 준비하는 중" }),
   ).not.toBeInTheDocument();
 });
 

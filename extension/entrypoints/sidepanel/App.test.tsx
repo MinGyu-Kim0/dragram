@@ -2223,6 +2223,31 @@ test("합친 자리 중 하나라도 드래그 범위와 겹치면 그 카드에
   ).toBeInTheDocument();
 });
 
+test("구성 문법의 판정이나 대안이 다르면 같은 용법 카드도 합치지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [
+      withParts(
+        approvedGrammarItem(0, 2, "완료"),
+        approvedGrammarItem(0, 1, "연결"),
+      ),
+      withParts(approvedGrammarItem(2, 4, "완료"), {
+        ...grammarItem(2, 3, "연결"),
+        state: "divergent",
+        alternatives: [alternativeItem("대안", "대안 번역")],
+      }),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "一二三四");
+
+  await screen.findAllByRole("heading", { name: "완료" });
+  expect(grammarCards().map(cardHeading)).toEqual(["완료", "완료"]);
+  expect(screen.getByText("다른 해석: 대안 — 대안 번역")).toBeInTheDocument();
+});
+
 test("해석 갈림·미확정·확인 중 카드는 같은 이름이어도 합치지 않는다", async () => {
   respondWith(200, {
     translation_ko: "번역",

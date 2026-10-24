@@ -9,7 +9,7 @@ from django.core import serializers
 
 from analysis.models import ReviewStatus, SentenceAnalysis, UsageLog, Word, WordSense
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import add_word, analyze
+from tests.analysis.helpers import add_word, analyze, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -423,3 +423,33 @@ def test_senses_cannot_be_added_or_deleted_in_admin(admin_client, client, fake_l
 
     assert admin_client.get(f"{SENSES}add/").status_code == 403
     assert admin_client.get(f"{SENSES}{made.pk}/delete/").status_code == 403
+
+
+def test_new_sense_quoting_the_whole_sentence_is_not_stored(client, fake_llm):
+    analyze_hashiru(client, fake_llm, meaning_ko="달리다 (走っている)")
+
+    assert not WordSense.objects.exists()
+    assert saved_words() == []
+
+
+def test_second_step_runs_after_the_grammar_is_asked_again(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 いる. ている를 등록해 둔다.
+    fake_llm.response = {
+        "translation_ko": "달리고 있다",
+        "new_patterns": [new_pattern((1, "lemma"), (2, "lemma"), example_ja="走っている")],
+    }
+    analyze(client, "走っている")
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる. 같은 조건의 새 구문은 다시 묻는다.
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
+        "new_words": [new_word(2, "来る", "くる")],
+    }
+    fake_llm.rejudge_response = {"spans": [span_answer(0, "usage", 1)]}
+    asked_before = []
+    fake_llm.before_define = lambda: asked_before.append(len(fake_llm.rejudge_requests))
+
+    analyze(client, "彼が来ている")
+
+    assert asked_before == [1]
+    assert Word.objects.filter(dictionary_form="来る").exists()

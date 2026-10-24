@@ -15,7 +15,7 @@ from asgiref.sync import sync_to_async
 from django.db import connections
 from django.db.models import F
 
-from analysis import jobs, views
+from analysis import jobs, stream, worker
 from analysis.models import SentenceAnalysis, UsageLog
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import Analyzed, analyze, connected_client, post
@@ -129,7 +129,7 @@ def test_late_request_sends_the_saved_translation_and_waits_for_the_running_job(
     SentenceAnalysis.objects.update(
         status="processing", word_spans=None, processing_translation_ko="처리 중 번역"
     )
-    monkeypatch.setattr(views, "WAIT_SECONDS", 0.2)
+    monkeypatch.setattr(stream, "WAIT_SECONDS", 0.2)
     fake_llm.forget_requests()
 
     response = analyze(client, TEXT)
@@ -238,15 +238,11 @@ def test_claim_is_released_when_the_job_cannot_be_queued(client, fake_llm, monke
 
 @pytest.mark.django_db
 def test_job_that_fails_before_calling_the_llm_fails_the_row(client, fake_llm, monkeypatch):
-    real_pipeline = views._pipeline
-
-    def broken_in_worker(sentence, normalized=False):
+    def broken_in_worker(text):
         # 작업자 쪽(분석 텍스트를 받음)의 준비 단계에서만 버그가 난다.
-        if normalized:
-            raise RuntimeError("작업자 준비 중 버그")
-        return real_pipeline(sentence)
+        raise RuntimeError("작업자 준비 중 버그")
 
-    monkeypatch.setattr(views, "_pipeline", broken_in_worker)
+    monkeypatch.setattr(worker, "Sentence", broken_in_worker)
 
     with pytest.raises(RuntimeError):
         analyze(client, TEXT)

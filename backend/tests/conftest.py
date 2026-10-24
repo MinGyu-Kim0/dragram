@@ -1,6 +1,6 @@
 import pytest
 
-from analysis import llm, views
+from analysis import llm, stream
 
 
 class FakeLLMClient:
@@ -144,7 +144,7 @@ def inline_analysis(settings, monkeypatch):
     settings.ANALYSIS_INLINE = True
     # 개발용 작업자(compose의 worker)가 테스트 작업을 가져가지 않게 큐를 다른 DB 번호에 둔다.
     settings.REDIS_URL = settings.REDIS_URL.rsplit("/", 1)[0] + "/15"
-    monkeypatch.setattr(views, "WAIT_SECONDS", 1)
+    monkeypatch.setattr(stream, "WAIT_SECONDS", 1)
 
 
 @pytest.fixture

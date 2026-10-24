@@ -458,7 +458,7 @@ def test_rejecting_a_pattern_while_an_analysis_saves_its_spans_does_not_deadlock
     errors = []
 
     def analysis_saves():
-        # 다시 분석한 결과를 저장하는 트랜잭션(views.save_once): 패턴을 참조하는 구간을 쓰고
+        # 다시 분석한 결과를 저장하는 트랜잭션(worker.Worker.save_once): 패턴을 참조하는 구간을 쓰고
         # 분석 행을 마지막에 잠근 뒤 커밋한다. FK는 커밋 때 검사해 그때 패턴 행을 참조한다.
         try:
             with transaction.atomic():

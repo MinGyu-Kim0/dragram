@@ -1,12 +1,9 @@
 """구간 매칭 행 만들기와 저장 검사. 작업자와 재매칭이 함께 쓴다."""
 
-from analysis.models import (
-    GrammarPattern,
-    ReviewStatus,
-    SpanMatch,
-    UsageRule,
-)
+from analysis import patterns
+from analysis.models import GrammarPattern, ReviewStatus, SpanMatch, UsageRule
 from analysis.sentence import _pattern_statuses
+from errors import AnalysisError, BusinessError
 
 
 def _usage_owner(pattern):
@@ -81,3 +78,190 @@ def _is_place_conflict(error):
 
 class _PatternTaken(Exception):  # noqa: N818
     """새 패턴을 등록하는 사이 다른 요청이 같은 조건의 패턴을 먼저 등록했다."""
+
+
+def closed_rows(sentence, saved, closed):
+    """LLM 없이 확정한 구간(구간, 후보 ID, 용법, 판별 규칙)들의 구간 매칭."""
+    rows = []
+    for span, candidate_id, usage, rule in closed:
+        start, end = sentence.key_span(span.start_token, span.end_token)
+        rows.append(
+            SpanMatch(
+                analysis=saved,
+                pattern=span.pattern,
+                usage=usage,
+                start_offset=start,
+                end_offset=end,
+                state=SpanMatch.State.DECIDED,
+                decided_by=(SpanMatch.DecidedBy.RULE if rule else SpanMatch.DecidedBy.SINGLE_USAGE),
+                rule=rule,
+                candidates=[{"candidate_id": candidate_id, "usage_id": usage.id}],
+            )
+        )
+    return rows
+
+
+def judged_rows(sentence, saved, span_list, answers, alternatives):
+    """LLM이 판정한 후보 구간들의 구간 매칭. 미발견 구간의 새 용법은 이때 더한다.
+
+    (구간 매칭들, 매칭 자격을 새로 얻은 패턴이 있는가)를 돌려준다. 자격을 얻었으면 호출하는
+    쪽이 분석 행을 잠그기 전에 패턴 세트 버전을 올린다. alternatives는 해석 갈림 구간의
+    {순번: [(대안 용법, 대안 번역)]}이다.
+    """
+    judged = list(zip(span_list, answers, strict=True))
+    # 기존 용법으로 설명되지 않는 구간은 같은 패턴 아래 새 용법을 더한다. 동시 요청이 같은
+    # 이름의 용법을 서로 다른 순서로 더하면 유일성 대기가 엇갈려 교착이 나므로 (패턴, 이름)
+    # 순서로 더한다. 이 응답에서 이미 더한 (패턴, 이름)이면 그 용법을 함께 쓴다.
+    # 연결된 회화체 구간의 새 용법은 원형 아래에 더하고, 이름과 순서도 원형 기준이다(#63).
+    additions = sorted(
+        (_usage_owner(span.pattern).morpheme_key, new_usage["usage_name"], index)
+        for index, (span, (_, _, new_usage)) in enumerate(judged)
+        if new_usage is not None
+    )
+    # 새 용법을 더할 패턴들(과 그 회화체들)을 처음에 한 번에 잠근다. 하나씩 잠그면 연결·해제나
+    # 다른 분석과 잠금 순서가 엇갈릴 수 있다(#63).
+    if additions:
+        patterns.lock_families(*(_usage_owner(judged[index][0].pattern) for *_, index in additions))
+    # 용법 예문은 같은 (패턴, 이름)의 답 중 검사를 통과한 첫 예문이다(check_examples).
+    usage_examples = {}
+    for _, name, index in additions:
+        span, (_, _, new_usage) = judged[index]
+        owner = _usage_owner(span.pattern)
+        if usage_examples.get((owner.id, name)) is None:
+            usage_examples[owner.id, name] = new_usage["checked_example"]
+    added, new_usages = {}, {}
+    activated = False
+    for _, name, index in additions:
+        span, (_, _, new_usage) = judged[index]
+        owner = _usage_owner(span.pattern)
+        # 같은 원형을 가리키는 회화체 구간들은 같은 새 용법을 함께 쓴다. 나머지 구간의 연결
+        # 상태는 저장 직전에 함께 본다(_links_changed).
+        if (owner.id, name) not in added:
+            added[owner.id, name], matchable = patterns.add_usage(
+                owner,
+                name,
+                new_usage["explanation_ko"],
+                usage_examples[owner.id, name],
+                matched=span.pattern,
+            )
+            activated |= matchable
+        new_usages[index] = added[owner.id, name]
+    rows = []
+    for index, (span, (state, usage, new_usage)) in enumerate(judged):
+        start, end = sentence.key_span(span.start_token, span.end_token)
+        if new_usage is not None:
+            usage = new_usages[index]
+            if usage is not None:
+                state = SpanMatch.State.DECIDED
+        alts = None
+        if state == SpanMatch.State.DIVERGENT:
+            alts = [
+                {"usage_id": alt.id, "translation_ko": translation}
+                for alt, translation in alternatives[index]
+            ]
+        rows.append(
+            SpanMatch(
+                analysis=saved,
+                pattern=span.pattern,
+                usage=usage,
+                start_offset=start,
+                end_offset=end,
+                state=state,
+                decided_by=SpanMatch.DecidedBy.LLM,
+                candidates=[
+                    {"candidate_id": candidate_id, "usage_id": u.id}
+                    for candidate_id, u in span.candidates
+                ],
+                alternatives=alts,
+            )
+        )
+    return rows, activated
+
+
+def span_matches(sentence, saved, validated, final):
+    """판정한 후보 구간과 새 구문을 구간 매칭으로 만든다. 새 구문은 이때 등록한다. 넣을 구간
+    매칭을 돌려주고, 호출하는 쪽이 분석 행을 잠근 뒤 넣는다.
+
+    패턴 생성 규칙을 어긴 새 구문은 미발견으로 남겨 보이지 않는다. 그사이 다른 요청이 같은
+    조건의 패턴을 먼저 등록했으면 _PatternTaken을 던져 다시 묻게 한다(final이면 미발견).
+    """
+    # 다른 요청이 먼저 저장해 다시 묻기를 건너뛰었는데, 그 행이 저장 전에 stale이 되어 이
+    # 결과로 다시 채우게 된 경우다. 다시 묻지 않은 해석 갈림·미확정은 저장하지 않는다.
+    if not validated.get("rechecked") and any(
+        state in (SpanMatch.State.DIVERGENT, SpanMatch.State.UNRESOLVED)
+        for state, _, _ in validated["spans"]
+    ):
+        raise BusinessError(AnalysisError.FAILED, "다시 묻지 않은 해석 갈림·미확정 구간")
+    rows, activated = judged_rows(
+        sentence,
+        saved,
+        validated["span_list"],
+        validated["spans"],
+        validated.get("alternatives", {}),
+    )
+    rows = closed_rows(sentence, saved, sentence.closed_spans) + rows
+
+    # 동시 요청이 같은 패턴들을 서로 다른 순서로 등록하면 morpheme_key 유일성 대기가
+    # 엇갈려 교착이 나므로, 등록은 morpheme_key 순서로 한다.
+    def order(proposal):
+        conditions = proposal["conditions"]
+        return patterns.morpheme_key(conditions) if conditions is not None else ""
+
+    # 같은 조건이 이 응답에서 두 번 나오면 패턴은 한 번만 등록한다. 뒤 자리는 용법 이름이
+    # 같으면 그 용법을 함께 쓰고, 다르면 같은 패턴 아래 새 용법으로 더한다. 이 패턴은 이번
+    # 트랜잭션에서 만들어 다른 요청이 용법을 더할 수 없으므로 순서를 맞출 필요가 없다.
+    registered = {}
+    proposals = sorted(validated["new_patterns"], key=order)
+    # 같은 조건의 제안 중 검사를 통과한 첫 예문(check_examples)이 패턴의 활성화 근거가
+    # 되고, 같은 조건·같은 용법 이름의 제안 중 통과한 첫 예문이 그 용법의 예문이 된다(다른
+    # 용법의 예문은 용법 예문으로 쓰지 않는다).
+    examples = [p.get("checked_example") for p in proposals]
+    test_examples, usage_examples = {}, {}
+    for proposal, example in zip(proposals, examples, strict=True):
+        if example is not None:
+            test_examples.setdefault(order(proposal), example)
+            usage_examples.setdefault((order(proposal), proposal["usage_name"]), example)
+    for proposal in proposals:
+        example = usage_examples.get((order(proposal), proposal["usage_name"]))
+        ids = [token for token, _ in proposal["tokens"]]
+        start, end = sentence.key_span(min(ids), max(ids))
+        pattern, usage = proposal["existing"], None
+        if order(proposal) in registered:
+            pattern, usages = registered[order(proposal)]
+            name = proposal["usage_name"]
+            if name not in usages and usages:
+                usages[name], _ = patterns.add_usage(
+                    pattern, name, proposal["explanation_ko"], example
+                )
+            usage = usages.get(name)
+        elif pattern is None and proposal["conditions"] is not None:
+            pattern, usage = patterns.register(
+                proposal["conditions"],
+                proposal["pattern_name"],
+                proposal["usage_name"],
+                proposal["explanation_ko"],
+                example,
+                test_examples.get(order(proposal)),
+            )
+            if usage is None and not final:
+                raise _PatternTaken
+            registered[order(proposal)] = (
+                pattern,
+                {proposal["usage_name"]: usage} if usage else {},
+            )
+            activated |= usage is not None and pattern.is_active
+        rows.append(
+            SpanMatch(
+                analysis=saved,
+                pattern=pattern,
+                usage=usage,
+                start_offset=start,
+                end_offset=end,
+                state=SpanMatch.State.DECIDED if usage else SpanMatch.State.UNFOUND,
+                decided_by=SpanMatch.DecidedBy.LLM,
+            )
+        )
+    if activated:
+        # 버전 행은 등록을 모두 마친 뒤 마지막에 잠근다(잠근 채 다른 패턴을 기다리지 않게).
+        patterns.raise_pattern_set_version()
+    return rows

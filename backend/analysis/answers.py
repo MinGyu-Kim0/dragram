@@ -293,3 +293,17 @@ def _quotes_whole_sentence(texts, key_text, token_count):
 def _letters(text):
     """문장부호·기호·공백·형식 문자(유니코드 P·S·Z·C 분류)를 지운다."""
     return "".join(ch for ch in text if unicodedata.category(ch)[0] not in "PSZC")
+
+
+def reject_quotes(validated, sentence):
+    """LLM이 쓴 글이 문장 전체를 인용했으면 ANALYSIS:FAILED다."""
+    llm_texts = [item[field] for item in validated["new_patterns"] for field in _NEW_PATTERN_TEXTS]
+    llm_texts += [
+        new_usage[field]
+        for _, _, new_usage in validated["spans"]
+        if new_usage is not None
+        for field in ("usage_name", "explanation_ko")
+    ]
+    if _quotes_whole_sentence(llm_texts, sentence.key_text, sentence.content_tokens):
+        # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
+        raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")

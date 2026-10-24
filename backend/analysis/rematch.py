@@ -10,7 +10,7 @@ from itertools import chain
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 
-from analysis import history, llm, patterns
+from analysis import llm, patterns, user_sentences
 from analysis.answers import FIRST_VERDICTS, _validate_recheck_answers, reject_quotes
 from analysis.examples import _check_examples
 from analysis.models import GrammarPattern, GrammarUsage, SentenceAnalysis, SpanMatch, UsageLog
@@ -54,7 +54,7 @@ def rematch(presenter, user):
         {"type": "translation", "translation_ko": event["translation_ko"], "ruby": presenter.ruby},
         event,
     ]
-    history.record(user, presenter.original, s.cached.pk)
+    user_sentences.record(user, presenter.original, s.cached.pk)
     return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
 
 
@@ -250,5 +250,5 @@ def rematch_and_judge(presenter, user, new_closed, new_spans, usage):
             "rematch_judge 실패: analysis_id=%s error=%s", s.cached.pk, e.error_code.code
         )
         event = rematch_fallback(presenter, new_closed)
-    history.record(user, presenter.original, s.cached.pk)
+    user_sentences.record(user, presenter.original, s.cached.pk)
     yield event

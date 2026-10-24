@@ -27,7 +27,6 @@ def record(user, original, analysis_id):
                         original_hash=hashlib.sha256(original.encode()).hexdigest(),
                         original_text=original,
                         analysis_id=analysis_id,
-                        created_at=now,
                         last_analyzed_at=now,
                     )
                 ],

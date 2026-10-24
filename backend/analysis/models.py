@@ -457,7 +457,7 @@ class UserSentence(models.Model):
     """사용자가 분석한 문장(분석 기록, #93). 개인 원문은 이 테이블에만 둔다.
 
     본인 user_id로만 조회하고 Django admin에 등록하지 않는다. 응답에 분석 결과가 나갔고 공용
-    분석 행에 저장된 결과가 있을 때만 저장·갱신한다(analysis.history).
+    분석 행에 저장된 결과가 있을 때만 저장·갱신한다(analysis.user_sentences).
     """
 
     user = models.ForeignKey(

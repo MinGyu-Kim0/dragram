@@ -3,7 +3,7 @@
 원본: `erd.json`(ERDCloud 스냅샷). 이 문서는 그 파일에서 생성했다. 결정 근거는 `../design-decisions.md` 참고.
 
 > 설계 시점 스냅샷이다. 구현을 시작하면 Django 모델과 마이그레이션이 기준이고, 이 문서는 바뀐 부분을 손으로 맞춘다.
-> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명)는 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
+> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명), 51절의 큐·작업자(`sentence_analysis.processing_translation_ko` 칼럼, `status`·`generation` 설명, `usage_log.analysis_id` 설명)는 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
 > `grammar_pattern`, `pattern_morpheme`, `grammar_usage`, `span_match`, `pattern_set_version`은 #35에서 그때 쓰는 칼럼만 만들었다. 나머지 칼럼(승인·자동 승인, 판 번호, 규칙, 회화체, 대안 해석, confidence 등)은 그 칼럼을 쓰는 하위 티켓에서 일반 마이그레이션으로 더한다(design-decisions 32절). 회화체 칼럼(`register`·`variant_of`)은 #63에서, `show_parts`는 #65에서, `usage_rule`과 `span_match.rule_id`는 #55에서 더했다.
 
 ## users — 사용자
@@ -66,7 +66,7 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null |
-| analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | 새 문장은 저장 트랜잭션 안에서 잇는다(저장이 되돌려지면 NULL). stale 재분석·재매칭은 처음부터 기존 분석 행에 잇는다(구현이 정함, 확인 필요) |
+| analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | 선점한 분석 행에 처음부터 잇는다. 새 문장도 LLM을 부르기 전에 처리 중 행을 먼저 만들어, 실패한 시도의 기록도 그 행에 이어진다. 재매칭은 기존 분석 행에 잇는다(구현이 정함, 확인 필요, design-decisions 51절) |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정) |
 | purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(단어 뜻·태그) / kanji_gloss(한자 한국어 뜻) |
@@ -191,11 +191,12 @@
 | pipeline_version | 파이프라인 버전 | varchar(30) |  |  | SudachiPy·사전·판별 로직 버전 |
 | matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전(pattern_set_version.version). 첫 분석·stale 교체·재매칭이 매칭 직전에 읽은 값을 기록하고, 값은 낮추지 않음. 기존 행은 0. 현재 값보다 낮으면 조회 시 그 요청의 원문으로 로컬 매칭을 다시 돌려 저장된 구간에 없는 새 구간만 더함(일괄 재처리 없음, stale로 만들지 않음). DB만으로 정할 수 없는 새 구간은 같은 요청 안에서 LLM 재판정(rematch_judge)으로 정함. 재판정이 실패하면 이 값도 그대로 둬 다음 조회가 다시 시도(design-decisions 41절) |
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
-| status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete |
+| status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete. 지금 구현은 processing·complete·failed만 씀(partial은 아직 없음, design-decisions 51절) |
 | processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 선점 만료 판단과 미완료 작업 재투입 기준 |
-| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀌거나 회화체가 원형에 연결·해제되거나 판별 규칙이 승인·폐기될 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 분석 요청이 시작할 때 읽은 값과 다르면 응답은 보내고 저장은 되돌림. 한 사건에서 여러 번 오를 수 있어 같은지만 비교). 기본값 0 |
+| generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀌거나 회화체가 원형에 연결·해제되거나 판별 규칙이 승인·폐기될 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 작업이 시작할 때 읽은 값과 저장 직전 값이 다르면 저장하지 않고 행을 failed로 두며 실패 소식을 보냄. stale이면 stale 유지. 한 사건에서 여러 번 오를 수 있어 같은지만 비교, design-decisions 51절). 기본값 0 |
 | is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시. 판 번호가 생기기 전까지(지금 구현, #38) 반려·반려 취소·승인 취소·용법 완결 변경과 판별 규칙 승인·폐기도 이 칸으로만 기록하고, stale 분석은 다음 요청에서 다시 분석해 통째로 바꾼 뒤 false로 |
 | translation_ko | 한국어 번역 | text | Y |  | 자리표시자(⟨N1⟩) 포함 형태. 자리표시자가 모두 보존된 경우에만 저장 |
+| processing_translation_ko | 처리 중 번역 | text | Y |  | 처리 중 작업이 검증한 번역을 먼저 저장하는 곳(자리표시자 포함 형태). stale 재분석 중에도 translation_ko(옛 결과)를 덮지 않음. 작업이 끝나면 비움(design-decisions 51절) |
 | name_spans | 고유명사 구간 | jsonb | Y |  | [{start, end, type: person/place/org/work/other}]. 형태소·문법 후보는 보존하고 주석만 |
 | word_spans | 단어 구간 | jsonb | Y |  | [{start, end, sense_id}]. 키 텍스트 코드포인트 기준 [start, end)와 고른 뜻(word_sense) ID만 둔다(공용 테이블에 원문 미저장). 같은 단어가 두 번 나오면 위치마다 하나씩. 사전에서 못 찾았거나 뜻을 정하지 못한 단어는 넣지 않는다. NULL은 이 칸이 생기기 전에 저장된 행이라 다시 분석(design-decisions 50절) |
 | sense_ids | 단어 뜻 ID 목록 | bigint[] | Y |  | 문장에 나온 단어 뜻(word_sense) ID 목록. word_spans의 sense_id를 중복 없이 모은 값이고 word_spans와 함께 씀. 단어는 sense에서 유도. 내 일본어 계산용. 단어·뜻 병합·삭제 시 갱신 필요(word_spans도) |

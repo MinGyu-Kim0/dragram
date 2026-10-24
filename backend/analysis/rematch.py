@@ -10,7 +10,7 @@ from itertools import chain
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 
-from analysis import llm, patterns
+from analysis import history, llm, patterns
 from analysis.answers import FIRST_VERDICTS, _validate_recheck_answers, reject_quotes
 from analysis.examples import _check_examples
 from analysis.models import GrammarPattern, GrammarUsage, SentenceAnalysis, SpanMatch, UsageLog
@@ -43,7 +43,7 @@ def rematch(presenter, user):
     if new_spans:
         # 판정을 기다리는 동안 새 구간은 '확인 중'으로 보인다.
         usage = RequestUsage.start(UsageLog.Path.LLM, user, s.cached.pk)
-        events = rematch_and_judge(presenter, new_closed, new_spans, usage)
+        events = rematch_and_judge(presenter, user, new_closed, new_spans, usage)
         first = next(events)
         return StreamingHttpResponse(_in_thread(chain([first], events)), content_type=_NDJSON)
     # LLM이 필요 없으면 클라이언트를 만들지 않고 한 번에 보낸다.
@@ -54,6 +54,7 @@ def rematch(presenter, user):
         {"type": "translation", "translation_ko": event["translation_ko"], "ruby": presenter.ruby},
         event,
     ]
+    history.record(user, presenter.original, s.cached.pk)
     return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
 
 
@@ -224,7 +225,7 @@ def judge_rematched(sentence, event_of, new_closed, new_spans, usage):
     return save_rematch(sentence, event_of, new_closed, new_spans, answers, alternatives)
 
 
-def rematch_and_judge(presenter, new_closed, new_spans, usage):
+def rematch_and_judge(presenter, user, new_closed, new_spans, usage):
     """판별 대상 새 구간이 있는 재매칭의 이벤트. 저장 구간과 새 DB 확정 구간, 판별 대상(확인
     중) → 저장 번역 → 재판정·저장 → analysis 순서다.
 
@@ -249,4 +250,5 @@ def rematch_and_judge(presenter, new_closed, new_spans, usage):
             "rematch_judge 실패: analysis_id=%s error=%s", s.cached.pk, e.error_code.code
         )
         event = rematch_fallback(presenter, new_closed)
+    history.record(user, presenter.original, s.cached.pk)
     yield event

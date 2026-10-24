@@ -2,6 +2,7 @@ from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from accounts.tokens import ExtensionTokenAuthentication
+from analysis import history
 from analysis.answers import _is_text
 from analysis.models import UsageLog
 from analysis.normalize import analysis_text
@@ -36,6 +37,7 @@ def analyze(request):
             presenter.translation_event(cached.translation_ko),
             presenter.analysis_event(cached),
         ]
+        history.record(user, original, cached.pk)
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
     if cached:
         return rematch(presenter, user)

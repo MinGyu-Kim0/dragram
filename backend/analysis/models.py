@@ -451,3 +451,35 @@ class WordSense(models.Model):
 
     def __str__(self):
         return f"{self.word_id} #{self.jmdict_sense_index}"
+
+
+class UserSentence(models.Model):
+    """사용자가 분석한 문장(분석 기록, #93). 개인 원문은 이 테이블에만 둔다.
+
+    본인 user_id로만 조회하고 Django admin에 등록하지 않는다. 응답에 분석 결과가 나갔고 공용
+    분석 행에 저장된 결과가 있을 때만 저장·갱신한다(analysis.history).
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sentences"
+    )
+    # 정규화 전 원문의 SHA-256. 숫자만 다른 원문도 따로 둔다.
+    original_hash = models.CharField(max_length=64)
+    original_text = models.TextField()
+    analysis = models.ForeignKey(
+        SentenceAnalysis, on_delete=models.PROTECT, related_name="user_sentences"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_analyzed_at = models.DateTimeField()
+
+    class Meta:
+        db_table = "user_sentence"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "original_hash"], name="user_sentence_original_unique"
+            ),
+        ]
+
+    def __str__(self):
+        # 원문을 담지 않는다.
+        return f"{self.user_id} #{self.pk}"

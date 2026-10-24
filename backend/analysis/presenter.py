@@ -226,6 +226,7 @@ class Presenter:
 
     def __init__(self, sentence, original, origins):
         self.sentence = sentence
+        self.original = original
         self.origins = origins
         self.utf16 = utf16_offsets(original)
         # 루비는 SudachiPy 읽기라 LLM·캐시와 상관없이 요청마다 이 원문 기준으로 계산한다.

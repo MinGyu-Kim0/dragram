@@ -69,7 +69,7 @@
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | (구현이 정함, 확인 필요, design-decisions 51절) 선점한 분석 행에 처음부터 잇는다. 새 문장도 LLM을 부르기 전에 처리 중 행을 먼저 만들어, 실패한 시도의 기록도 그 행에 이어진다. 재매칭은 기존 분석 행에 잇는다 |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정) |
-| purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(단어 뜻·태그) / kanji_gloss(한자 한국어 뜻) |
+| purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(JMdict 뜻의 한국어 뜻 생성, 문장 없음. 사전에 없는 단어의 두 단계 생성(#134)도 이 목적을 쓸지 그 티켓에서 정한다) / kanji_gloss(한자 한국어 뜻) |
 | model | 모델명 | varchar(255) | Y |  |  |
 | input_tokens | 입력 토큰 수 | integer | Y |  |  |
 | cached_input_tokens | 캐시된 입력 토큰 수 | integer | Y |  | 프롬프트 캐싱 효과 확인용(cached_tokens) |
@@ -269,7 +269,7 @@
 | sense_status | 뜻 검수 상태 | varchar(20) |  |  | 이 뜻 자체의 검수 상태. llm 출처는 pending으로 시작해 'AI 생성·미검수' 표시, jmdict는 approved |
 | meaning_ko | 한국어 뜻 | text | Y |  | LLM 생성 후 관리자 검수. JMdict 기반이라 CC BY-SA 4.0·출처·변경 사실 표시 |
 | meaning_source | 뜻 출처 | varchar(30) | Y |  | dictionary / llm / admin — 한국어 뜻의 출처·검수 상태(sense_origin과 별개) |
-| meaning_status | 뜻 검수 상태 | varchar(20) |  |  | ai(검수 전, 'AI 번역' 표시) / reviewed — 한국어 뜻의 출처·검수 상태(sense_origin과 별개) |
+| meaning_status | 뜻 검수 상태 | varchar(20) |  |  | ai(검수 전, 'AI 번역' 표시. 한국어 뜻이 아직 없는 뜻도 ai) / reviewed(관리자가 고쳤거나 '검수 완료') / failed(`word_gloss` 생성 실패, meaning_ko는 NULL이고 다른 새 문장에 나오면 다시 만든다, #97·마이그레이션 0016) — 한국어 뜻의 출처·검수 상태(sense_origin과 별개) |
 | created_at | 생성 시각 | timestamptz |  |  |  |
 | updated_at | 수정 시각 | timestamptz |  |  |  |
 

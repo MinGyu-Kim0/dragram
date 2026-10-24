@@ -1,6 +1,8 @@
 import { Fragment, type ReactNode } from "react";
 import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
+import { BadgeRow } from "./BadgeRow";
 import { draggedFirst, type DragRange } from "./drag-range";
+import { groupGrammar, isDivergent, sortGrammar } from "./grammar-groups";
 
 // 형광펜은 4색을 돌아가며 쓴다(DESIGN.md 형광펜). 원문 형광펜과 카드 칩이 같은 색이다.
 const HIGHLIGHT_COLORS = 4;
@@ -9,12 +11,8 @@ function highlightClass(index: number): string {
   return `highlight-${index % HIGHLIGHT_COLORS}`;
 }
 
-// 원문 순서로 정렬한다. 색 번호도 이 순서로 매긴다.
-function sortGrammar(grammar: GrammarItem[]): GrammarItem[] {
-  return [...grammar].sort((a, b) => a.start - b.start || a.end - b.end);
-}
-
 // 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다.
+// 합친 카드의 자리는 모두 그 카드 색이다.
 // 구성 문법(parts)은 받지 않으므로 그 글자는 바깥 카드 색이 된다(DESIGN.md 형광펜).
 // 실제로 드래그한 범위는 형광펜과 다른 층으로, 시작·끝 자리에 핸들만 끼워 넣는다(DESIGN.md).
 // 핸들을 끄면 dragHandles가 undefined다. 루비는 형광펜 안에 단다(끄면 빈 목록).
@@ -35,6 +33,11 @@ export function HighlightedText({
   dragHandles: DragRange | undefined;
 }) {
   const sorted = sortGrammar(grammar);
+  const colors = new Map(
+    groupGrammar(grammar).flatMap((group, color) =>
+      group.map((item) => [item, color] as const),
+    ),
+  );
   const sortedRuby = [...ruby].sort((a, b) => a.start - b.start);
   const insideGrammar = (at: number) =>
     sorted.some((item) => item.start < at && at < item.end);
@@ -67,7 +70,10 @@ export function HighlightedText({
           );
         }
         return (
-          <mark key={start} className={`highlight ${highlightClass(index)}`}>
+          <mark
+            key={start}
+            className={`highlight ${highlightClass(colors.get(sorted[index]!)!)}`}
+          >
             {segment}
           </mark>
         );
@@ -149,7 +155,8 @@ function withHandles(
 }
 
 // 드래그 범위와 겹치는 카드를 먼저, 나머지를 그 뒤에 둔다. 각 묶음 안은 원문 순서이고,
-// 칩 색은 카드 순서가 아니라 원문 순서로 매겨 형광펜과 맞춘다.
+// 칩 색은 카드 순서가 아니라 원문 순서로 매겨 형광펜과 맞춘다. 같은 용법 카드는 한 장으로 합치고
+// (화면에서만), 그 자리 중 하나라도 드래그 범위와 겹치면 드래그한 카드다.
 // 판별 대상 구간은 "확인 중" 점선 대기 카드로 원문 순서에 함께 넣는다(DESIGN.md).
 export function GrammarCards({
   text,
@@ -167,11 +174,12 @@ export function GrammarCards({
   }
   const cards: Card[] = [
     // 칩 색 번호는 문법 카드끼리 원문 순서로 미리 매긴다.
-    ...sortGrammar(grammar).map((item, index): Card => ({
+    ...groupGrammar(grammar).map((items, index): Card => ({
       kind: "grammar",
-      item,
+      item: items[0]!,
       index,
-      ...span(item),
+      ...span(items[0]!),
+      spans: items,
     })),
     ...checking.map((item, index): Card => ({
       kind: "checking",
@@ -206,7 +214,7 @@ export function GrammarCards({
 
 // 문법 카드 목록의 한 장. index는 같은 종류 안의 원문 순서다(문법 카드는 칩 색 번호로 쓴다).
 type Card = { start: number; end: number; index: number } & (
-  | { kind: "grammar"; item: GrammarItem }
+  | { kind: "grammar"; item: GrammarItem; spans: GrammarItem[] }
   | { kind: "checking"; item: CheckingItem }
 );
 
@@ -215,7 +223,8 @@ function span(item: { start: number; end: number }) {
 }
 
 // 구성 문법(parts)은 카드 안 하위 박스로 넣는다. 하위 박스는 색 번호를 따로 받지 않고 바깥 카드
-// 색을 쓰며, 선택 링과 "드래그한 부분"은 바깥 카드에만 둔다(DESIGN.md 3장).
+// 색을 쓰며, 선택 링과 "드래그한 부분"은 바깥 카드에만 둔다(DESIGN.md 3장). 합친 카드는 첫 자리의
+// 칩 글자와 구성 문법을 보인다.
 function GrammarCard({
   text,
   item,
@@ -235,9 +244,13 @@ function GrammarCard({
   const parts = item.parts ?? [];
   return (
     <li className={classes.join(" ")}>
-      <GrammarBody text={text} item={item} index={index} Heading="h3">
-        {dragged && <span className="card-meta">드래그한 부분</span>}
-      </GrammarBody>
+      <GrammarBody
+        text={text}
+        item={item}
+        index={index}
+        Heading="h3"
+        dragged={dragged}
+      />
       {parts.length > 0 && (
         <ul className="grammar-parts" aria-label="구성 문법">
           {parts.map((part, i) => (
@@ -256,39 +269,34 @@ function GrammarCard({
   );
 }
 
-// 응답에서 대안이 모두 빠진 해석 갈림은 보통 카드로 보인다.
-function isDivergent(item: GrammarItem): boolean {
-  return (item.alternatives ?? []).length > 0;
-}
-
-// 문법 카드와 하위 박스가 함께 쓰는 내용: 칩·이름·배지(children은 머리 줄 끝 메타), 원형 안내,
-// 설명이나 "판단하지 못함", 다른 해석
+// 문법 카드와 하위 박스가 함께 쓰는 내용: 배지 줄, 칩·이름, 원형 안내, 설명이나 "판단하지 못함",
+// 다른 해석
 function GrammarBody({
   text,
   item,
   index,
   Heading,
-  children,
+  dragged = false,
 }: {
   text: string;
   item: GrammarItem;
   index: number;
   Heading: "h3" | "h4";
-  children?: ReactNode;
+  dragged?: boolean;
 }) {
   const alternatives = item.alternatives ?? [];
   return (
     <>
+      <BadgeRow
+        pending={item.review_status === "pending"}
+        colloquial={item.register === "colloquial"}
+        dragged={dragged}
+      />
       <div className="grammar-card-head">
         <span lang="ja" className={`grammar-chip ${highlightClass(index)}`}>
           {text.slice(item.start, item.end)}
         </span>
         <Heading>{item.name}</Heading>
-        {item.register === "colloquial" && (
-          <span className="badge-neutral">회화체</span>
-        )}
-        {item.review_status === "pending" && <PendingBadge />}
-        {children}
       </div>
       {item.variant_of !== null && (
         <p className="variant-note">「{item.variant_of}」의 회화체</p>
@@ -335,6 +343,12 @@ function CheckingCard({
         dragged ? "grammar-card checking dragged" : "grammar-card checking"
       }
     >
+      <BadgeRow
+        pending={item.candidates.some(
+          (candidate) => candidate.review_status === "pending",
+        )}
+        dragged={dragged}
+      />
       <div className="grammar-card-head">
         <span lang="ja" className="grammar-chip checking-chip">
           {text.slice(item.start, item.end)}
@@ -342,11 +356,7 @@ function CheckingCard({
         <h3>
           {item.candidates.map((candidate) => candidate.name).join(" · ")}
         </h3>
-        {item.candidates.some(
-          (candidate) => candidate.review_status === "pending",
-        ) && <PendingBadge />}
         <span className="card-meta">확인 중</span>
-        {dragged && <span className="card-meta-next">드래그한 부분</span>}
       </div>
       {/* 설명 자리 표시. 상태는 위 '확인 중' 글자로 읽힌다. */}
       <div aria-hidden="true" className="skeleton checking-skeleton">

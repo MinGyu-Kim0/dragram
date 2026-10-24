@@ -1,9 +1,9 @@
 """패턴·용법 검수 화면(#38).
 
 원문이나 원문 위치를 담은 테이블(sentence_analysis, span_match)은 등록하지 않는다. 패턴·용법은
-LLM이 만들므로 여기서 더하거나 지우지 않는다. 단어·뜻도 문장 분석이 뜻 ID를 가리켜 더하거나 지우지
-않고, 한국어 뜻만 고친다(#97)(회화체를 연결하며 자기 용법을 원형 용법으로 합칠
-때만 그 용법을 지운다, #64). 판별 규칙은 관리자가 여기서 만든다(#55). 상태는 필드가 아니라
+LLM이 만들므로 여기서 더하거나 지우지 않는다(회화체를 연결하며 자기 용법을 원형 용법으로 합칠
+때만 그 용법을 지운다, #64). 단어·뜻도 문장 분석이 뜻 ID를 가리켜 더하거나 지우지 않고, 한국어
+뜻만 고친다(#97). 판별 규칙은 관리자가 여기서 만든다(#55). 상태는 필드가 아니라
 액션으로만 바꾸고, 액션은 analysis.review의 상태 전이를 부른다.
 """
 
@@ -457,11 +457,18 @@ class MeaningFilter(admin.SimpleListFilter):
         "not_in_dictionary": ("사전에 없는 단어", Q(jmdict_seq__isnull=True)),
         "missing": (
             "한국어 뜻 없음",
-            Q(senses__meaning_ko__isnull=True) & ~Q(senses__meaning_status="failed"),
+            Q(senses__meaning_ko__isnull=True)
+            & ~Q(senses__meaning_status=WordSense.MeaningStatus.FAILED),
         ),
-        "ai": ("AI 번역", Q(senses__meaning_ko__isnull=False, senses__meaning_status="ai")),
-        "reviewed": ("검수됨", Q(senses__meaning_status="reviewed")),
-        "failed": ("생성 실패", Q(senses__meaning_status="failed")),
+        "ai": (
+            "AI 번역",
+            Q(
+                senses__meaning_ko__isnull=False,
+                senses__meaning_status=WordSense.MeaningStatus.AI,
+            ),
+        ),
+        "reviewed": ("검수됨", Q(senses__meaning_status=WordSense.MeaningStatus.REVIEWED)),
+        "failed": ("생성 실패", Q(senses__meaning_status=WordSense.MeaningStatus.FAILED)),
     }
 
     def lookups(self, request, model_admin):

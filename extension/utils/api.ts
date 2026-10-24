@@ -75,8 +75,8 @@ export interface WordItem {
   reading: string;
   // 단어 전체 태그(품사, 동사 그룹 등) 코드
   tags: string[];
-  // 이 문장에서 고른 뜻. null이면 뜻이 여럿이라 아직 고르는 중이다(LLM 응답 전, 화면은 '뜻을
-  // 준비하는 중').
+  // 이 문장에서 고른 뜻. null이면 뜻이 여럿이라 LLM이 아직 고르지 않았다(화면은 '뜻을 준비하는
+  // 중').
   sense: WordSense | null;
 }
 

@@ -189,7 +189,7 @@ def _review_status(pattern, usage):
     return "pending" if ReviewStatus.PENDING in statuses else "approved"
 
 
-def _words_response(word_spans, text, token_at, offsets, origins, utf16):
+def _words_response(word_spans, text, token_at, offsets, origins, utf16, before_save=False):
     """저장된 단어 위치·뜻을 이 요청 원문의 UTF-16 위치로 보인다(원문 순서).
 
     뜻은 볼 때마다 DB에서 읽고, 지워졌거나 반려된 뜻의 단어는 뺀다. 읽기는 이 요청의 토큰
@@ -205,7 +205,7 @@ def _words_response(word_spans, text, token_at, offsets, origins, utf16):
             continue
         reading = words.reading_for(sense, text, token_at.get((span["start"], span["end"])))
         start, end = to_original(origins, utf16, *to_analysis(offsets, span["start"], span["end"]))
-        items.append(words.response_item(start, end, sense.word, reading, sense))
+        items.append(words.response_item(start, end, sense.word, reading, sense, before_save))
     return items
 
 
@@ -251,7 +251,7 @@ class Presenter:
         }
 
     def words_event(self, word_spans):
-        """저장 전에 작업자가 알린 단어(LLM이 고른 뜻, 새로 만든 한국어 뜻, #97).
+        """저장 전에 작업자가 알린 단어(LLM이 고른 뜻, #97).
 
         뜻은 DB에서 읽는다.
         """
@@ -259,7 +259,7 @@ class Presenter:
         return {
             "type": "words",
             "words": _words_response(
-                word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16
+                word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16, True
             ),
         }
 
@@ -323,7 +323,9 @@ class Presenter:
             if len(cands) == 1:
                 [only] = cands
                 items.append(
-                    words.response_item(start, end, only.sense.word, only.reading, only.sense)
+                    words.response_item(
+                        start, end, only.sense.word, only.reading, only.sense, before_save=True
+                    )
                 )
                 continue
             item = words.response_item(start, end, cands[0].sense.word, cands[0].reading, None)

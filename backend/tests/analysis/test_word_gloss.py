@@ -179,12 +179,14 @@ def test_chosen_senses_and_new_meanings_are_sent_before_the_analysis(client, fak
 
     response = analyze(client, "本を開いた")
 
-    assert response.types() == ["grammar", "translation", "words", "words", "analysis"]
-    chosen, glossed = (e["words"] for e in response.events if e["type"] == "words")
-    # 고른 뜻이 먼저 오고, 한국어 뜻을 만들면 다시 온다. 테스트는 작업을 요청 안에서 바로 실행해
-    # 첫 이벤트를 만들 때도 한국어 뜻이 이미 저장돼 있다(작업자 쪽 순서는 아래 테스트에서 본다).
+    assert response.types() == ["grammar", "translation", "words", "analysis"]
+    # 고른 뜻이 analysis 전에 오고, 새 한국어 뜻은 그 뒤 analysis에 실린다. 테스트는 작업을 요청
+    # 안에서 바로 실행해 words 이벤트를 만들 때도 한국어 뜻이 이미 저장돼 있다(작업자 쪽 순서는
+    # 아래 테스트에서 본다).
+    [chosen] = (e["words"] for e in response.events if e["type"] == "words")
     assert [(w["start"], w["sense"]["tags"]) for w in chosen] == [(2, ["intransitive"])]
-    assert [(w["start"], w["sense"]["meaning_ko"]) for w in glossed] == [(2, "피다")]
+    [word] = response.events[-1]["words"]
+    assert word["sense"]["meaning_ko"] == "피다"
 
 
 def test_no_meaning_event_when_nothing_was_made(client, fake_llm, gakusei):
@@ -222,6 +224,29 @@ def test_worker_publishes_chosen_senses_before_making_meanings(
     assert published == [
         ("translation", None, None),
         ("words", spans, None),
-        ("words", spans, "開く 뜻"),
         ("done", None, "開く 뜻"),
     ]
+
+
+def test_meanings_are_made_after_the_analysis_is_saved(client, fake_llm, gakusei):
+    # 뜻 생성이 느리거나 실패해도 번역·문법·단어 위치는 이미 저장돼 있다.
+    saved = []
+    fake_llm.before_gloss = lambda: saved.append(SentenceAnalysis.objects.get().status)
+
+    analyze(client, "私は学生です。")
+
+    assert saved == ["complete"]
+
+
+def test_meaning_still_missing_or_failed_is_sent_early_as_being_prepared(client, fake_llm, gakusei):
+    gakusei.senses.update(meaning_status="failed")
+    fake_llm.gloss_response = {"senses": []}
+
+    response = analyze(client, "私は学生です。")
+
+    # 이번 작업이 다시 만들므로 먼저 보낼 때는 실패가 아니라 준비 중이다.
+    [early] = response.events[0]["words"]
+    assert (early["sense"]["meaning_ko"], early["sense"]["meaning_status"]) == (None, "ai")
+    # 다시 만들지 못했으면 저장한 결과에서 실패로 보인다.
+    [word] = response.events[-1]["words"]
+    assert word["sense"]["meaning_status"] == "failed"

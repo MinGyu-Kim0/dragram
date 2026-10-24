@@ -217,6 +217,8 @@ def response_item(start, end, word, reading, sense, before_save=False):
         "dictionary_form": word.dictionary_form,
         "reading": reading,
         "tags": word_tags(word),
+        # 사전(JMdict) 단어인가. 화면은 사전 단어가 있을 때만 JMdict 출처 각주를 단다(#134).
+        "in_dictionary": word.jmdict_seq is not None,
         "sense": None
         if sense is None
         else {

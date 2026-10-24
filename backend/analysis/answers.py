@@ -242,8 +242,9 @@ def _word_text(value):
 def _validate_new_words(answers, unknown):
     """1단계 답: 사전에 없는 토큰의 사전형·읽기(#134). {토큰: (사전형, 히라가나 읽기)}.
 
-    받지 않은 토큰, 형식이 틀린 답, 가나가 아닌 읽기, 두 번 답한 토큰은 그 토큰만 뺀다. 목록이
-    아니면 하나도 받지 않은 것으로 본다(단어 때문에 번역·문법을 버리지 않는다).
+    unknown은 {토큰: 표층형}이다. 받지 않은 토큰, 형식이 틀린 답, 가나가 아닌 읽기, 두 번 답한
+    토큰은 그 토큰만 뺀다. 사전형·읽기는 공용 word에 들어가므로, 토큰보다 훨씬 길면(문장 조각을
+    답함) 뺀다. 목록이 아니면 하나도 받지 않은 것으로 본다(단어 때문에 번역·문법을 버리지 않는다).
     """
     found, repeated = {}, set()
     for item in answers if isinstance(answers, list) else []:
@@ -253,7 +254,9 @@ def _validate_new_words(answers, unknown):
         form, reading = _word_text(item.get("dictionary_form")), _word_text(item.get("reading"))
         if type(token) is not int or token not in unknown or form is None or reading is None:
             continue
-        if not words.is_kana(reading):
+        # 활용 어미·표기 차이만큼은 늘 수 있다(走っ → 走る, ばか → 馬鹿, 一昨日 → おととい).
+        surface = len(unknown[token])
+        if not words.is_kana(reading) or len(form) > surface + 3 or len(reading) > 4 * surface + 3:
             continue
         if token in found:
             repeated.add(token)
@@ -278,7 +281,8 @@ def _validate_definitions(result, candidates):
         meaning = None
         if sense_id is None:
             meaning = item.get("meaning_ko")
-            if not _is_text(meaning):
+            # 문장의 숫자 자리표시자가 공용 뜻에 남지 않게 한다.
+            if not _is_text(meaning) or "⟨" in meaning:
                 continue
             meaning = meaning.strip()
         elif type(sense_id) is not int or sense_id not in candidates[word_id]:

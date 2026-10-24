@@ -501,6 +501,7 @@ function wordItem(
     dictionary_form: form,
     reading,
     tags,
+    in_dictionary: true,
     sense: sense && {
       tags: [],
       gloss_en: [`${form} gloss`],
@@ -706,16 +707,19 @@ test("한국어 뜻이 아직 없으면 준비 중, 만들지 못했으면 실�
   expect(screen.getByRole("link", { name: "JMdict" })).toBeInTheDocument();
 });
 
-test("LLM이 만든 뜻만 있으면 JMdict 출처 각주를 달지 않는다", async () => {
+test("LLM이 만든 단어만 있으면 JMdict 출처 각주를 달지 않는다", async () => {
   respondWith(200, {
     translation_ko: "달리고 있다",
     grammar: [],
     words: [
-      wordItem(0, 2, "走る", "はしる", {
-        origin: "llm",
-        status: "pending",
-        meaning_ko: "달리다",
-      }),
+      {
+        ...wordItem(0, 2, "走る", "はしる", {
+          origin: "llm",
+          status: "pending",
+          meaning_ko: "달리다",
+        }),
+        in_dictionary: false,
+      },
     ],
   });
   render(<App />);

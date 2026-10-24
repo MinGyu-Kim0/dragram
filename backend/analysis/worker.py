@@ -178,7 +178,12 @@ class Worker:
             else:
                 result = value
         validated = _validate(
-            result, s.numbers, len(s.morphs), s.spans, s.ambiguous, set(s.unknown)
+            result,
+            s.numbers,
+            len(s.morphs),
+            s.spans,
+            s.ambiguous,
+            {token: s.text[s.morphs[token].begin : s.morphs[token].end] for token in s.unknown},
         )
         if not translated:
             self.share_translation(validated["translation_ko"])
@@ -195,6 +200,7 @@ class Worker:
             )
         # 사전에 없던 단어는 저장 전에 2단계로 만들어 analysis에 함께 싣는다(#134).
         validated["words"] = {**validated["words"], **self.define_words(validated["new_words"])}
+        stored_words = s.word_spans(validated["words"])
         # 다시 묻기는 번역을 알린 뒤, 저장 트랜잭션 밖에서 한다.
         self.save(self.ask_again(self.prepare(validated)))
         # 한국어 뜻은 저장한 뒤 만든다. 느리거나 실패해도 분석은 이미 저장돼 있고, 요청 마감을

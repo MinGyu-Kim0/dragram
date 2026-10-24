@@ -85,6 +85,7 @@ def test_new_word_is_made_in_two_steps_and_shown_as_unreviewed(client, fake_llm)
             "dictionary_form": "走る",
             "reading": "はしる",
             "tags": ["verb"],
+            "in_dictionary": False,
             "sense": {
                 "tags": ["intransitive"],
                 "gloss_en": [],
@@ -145,6 +146,16 @@ def test_found_again_word_offers_its_senses_to_choose(client, fake_llm, honoru):
     assert Word.objects.count() == 1 and WordSense.objects.count() == 1
 
 
+def test_chosen_dictionary_sense_without_korean_meaning_gets_one(client, fake_llm, honoru):
+    run = honoru.senses.get()
+
+    answer_honoru(client, fake_llm, sense_id=run.pk)
+
+    [asked] = fake_llm.gloss_requests
+    assert [sense["sense_id"] for sense in asked] == [run.pk]
+    assert WordSense.objects.get(pk=run.pk).meaning_ko == "奔る 뜻"
+
+
 def test_found_again_word_without_fitting_sense_gets_an_unreviewed_sense(client, fake_llm, honoru):
     answer_honoru(client, fake_llm, meaning_ko="내달리다", sense_tags=["intransitive"])
 
@@ -199,6 +210,8 @@ def test_same_new_word_made_meanwhile_keeps_one_word_row(client, fake_llm):
         new_word(0, "", "はしる"),
         new_word(0, "走る", "走る"),
         new_word(0, "走2る", "はしる"),
+        # 토큰(走っ)보다 훨씬 긴 답은 문장 조각일 수 있다.
+        new_word(0, "走っている人", "はしっているひと"),
         # 사전에서 찾은 토큰이나 받지 않은 토큰
         new_word(1, "て", "て"),
         {"token_id": "0", "dictionary_form": "走る", "reading": "はしる"},
@@ -230,6 +243,7 @@ def test_same_token_answered_twice_in_first_step_is_dropped(client, fake_llm):
     "define",
     [
         {"words": [defined(0, meaning_ko=" ")]},
+        {"words": [defined(0, meaning_ko="⟨N1⟩명")]},
         {"words": [defined(0, sense_id=999)]},
         {"words": [defined(1, meaning_ko="달리다")]},
         {"words": []},

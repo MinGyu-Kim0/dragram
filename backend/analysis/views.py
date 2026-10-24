@@ -1,4 +1,3 @@
-import hashlib
 import json
 import logging
 from itertools import chain
@@ -33,15 +32,12 @@ from analysis.models import (
     SpanMatch,
     UsageLog,
 )
-from analysis.morphology import morphemes
 from analysis.normalize import (
     NORMALIZE_VERSION,
     analysis_text,
     has_all_placeholders,
-    key_pieces,
-    restore_numbers,
 )
-from analysis.positions import key_offsets, to_analysis, to_key, to_original, utf16_offsets
+from analysis.positions import to_analysis, to_original, utf16_offsets
 from analysis.presenter import (
     _grammar_entries,
     _grammar_item,
@@ -53,14 +49,10 @@ from analysis.presenter import (
 )
 from analysis.ruby import ruby_pieces
 from analysis.sentence import (
-    _NON_WORD_POS,
-    _approved_rules,
-    _closed_usage,
+    Sentence,
     _is_fresh,
     _llm_spans,
-    _numbers_before_particle,
     _pattern_statuses,
-    _rule_usage,
 )
 from analysis.span_rows import (
     _basis_changed,
@@ -216,24 +208,12 @@ def _pipeline(sentence, normalized=False):
         text_to_analyze, origins = sentence, [(i, i + 1) for i in range(len(sentence))]
     else:
         text_to_analyze, origins = analysis_text(sentence)
-    if not text_to_analyze:
-        raise BusinessError(AnalysisError.TEXT_REQUIRED, "정규화 후 빈 문장")
-    pieces, numbers = key_pieces(text_to_analyze)
-    key_text = "".join(pieces)
-    sentence_hash = hashlib.sha256(key_text.encode()).hexdigest()
-
-    # 형태소 분석은 숫자가 그대로인 분석 텍스트로 한다. 숫자 뒤 조사 교정에 쓰므로 캐시를
-    # 재사용할 때도 한다. 원문은 로그에 남기지 않는다.
-    morphs = morphemes(text_to_analyze)
-    particle_numbers = _numbers_before_particle(text_to_analyze, morphs)
-
-    offsets = key_offsets(pieces)
+    s = Sentence(text_to_analyze)
+    numbers, key_text, sentence_hash = s.numbers, s.key_text, s.sentence_hash
+    morphs, offsets, token_at = s.morphs, s.offsets, s.token_at
     utf16 = utf16_offsets(sentence)
-    # 저장된 단어 위치(키 텍스트 구간) → 이 요청의 형태소
-    token_at = {to_key(offsets, m.begin, m.end): m for m in morphs}
 
-    def restore(text):
-        return restore_numbers(text, numbers, particle_numbers)
+    restore = s.restore
 
     # 루비는 SudachiPy 읽기라 LLM·캐시와 상관없이 요청마다 이 원문 기준으로 계산한다.
     ruby = _ruby_response(ruby_pieces(text_to_analyze, morphs), origins, utf16)
@@ -252,55 +232,16 @@ def _pipeline(sentence, normalized=False):
             ),
         }
 
-    # 단어 칸을 받기 전에 저장된 행(word_spans가 NULL)과 stale 행은 다시 분석한다.
-    existing = SentenceAnalysis.objects.filter(sentence_hash=sentence_hash).first()
-    cached = existing if existing is not None and _is_fresh(existing) else None
-    # 다시 분석하는 동안 영향 범위의 패턴·용법 상태가 바뀌면 이 값이 올라 저장하지 않는다.
-    started_generation = existing.generation if existing is not None else 0
-    # 분석에는 매칭(candidate_spans) 직전에 읽은 패턴 세트 버전을 기록한다. 그 뒤에 활성화된
-    # 패턴은 다음 조회가 다시 매칭해 찾는다. 캐시 분석의 버전이 이보다 낮으면 다시 매칭한다(#41).
-    matcher_version = patterns.pattern_set_version()
+    existing, cached = s.existing, s.cached
+    started_generation, matcher_version = s.started_generation, s.matcher_version
     # 작업자가 쓰는 LLM 클라이언트와 선점한 요청의 사용 기록(run이 채운다)
     client = usage = None
 
-    # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
-    tokens = [{"id": i, "surface": "".join(pieces[m.begin : m.end])} for i, m in enumerate(morphs)]
+    tokens, overlaps_number = s.tokens, s.overlaps_number
+    matched, rules, closed_spans, spans = s.matched, s.rules, s.closed_spans, s.spans
+    llm_spans, decided_spans, content_tokens = s.llm_spans, s.decided_spans, s.content_tokens
 
-    def overlaps_number(token):
-        # 숫자열은 자리표시자 조각과 빈 조각(뒤쪽 숫자)으로 이뤄진다.
-        m = morphs[token]
-        return any(piece == "" or "⟨N" in piece for piece in pieces[m.begin : m.end])
-
-    def is_vocabulary(token):
-        # 숫자는 학습할 단어가 아니고, 숫자열과 겹치는 토큰(X12의 X1, 2)은 LLM이 사전형에
-        # 숫자를 지어내면 숫자만 다른 문장에 잘못 재사용된다.
-        return morphs[token].pos not in _NON_WORD_POS and not overlaps_number(token)
-
-    # 등록된 패턴에 걸린 구간과 후보 용법. LLM은 서버가 매긴 구간·후보 ID로만 답한다.
-    # 승인된 용법 완결 패턴의 구간(#39)과 승인된 판별 규칙으로 정해지는 구간(#55)은 LLM 없이
-    # 확정하고, 나머지만 후보로 묻는다. 확정 구간은 LLM이 새 구문으로 다시 내지 않도록 알리기만
-    # 한다.
-    matched = patterns.candidate_spans(morphs)
-    rules = _approved_rules(matched)
-    # (구간, 후보 ID, 용법, 판별 규칙(용법 완결 확정이면 None))
-    closed_spans, spans = [], []
-    for span in matched:
-        closed = _closed_usage(span)
-        if closed is not None:
-            closed_spans.append((span, *closed, None))
-        elif (by_rule := _rule_usage(span, morphs, rules)) is not None:
-            closed_spans.append((span, *by_rule))
-        else:
-            spans.append(span)
-    llm_spans = _llm_spans(spans)
-    decided_spans = [
-        {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
-        for span, _, usage, _ in closed_spans
-    ]
-    content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in morphs)
-
-    def key_span(start_token, end_token):
-        return to_key(offsets, morphs[start_token].begin, morphs[end_token].end)
+    key_span = s.key_span
 
     def prepare(validated):
         """새 구문마다 형태소 조건을 만든다. 패턴 생성 규칙을 어겼으면 None이다. 같은 자리에서
@@ -903,9 +844,7 @@ def _pipeline(sentence, normalized=False):
         usage.succeed()
         publish({"type": "done"})
 
-    def span_key(span):
-        """구간의 열쇠: (패턴 ID, 키 텍스트 start, end)."""
-        return (span.pattern.id, *key_span(span.start_token, span.end_token))
+    span_key = s.span_key
 
     def rematch_grammar(analysis, new_closed):
         """저장 구간(조회 규칙 적용)에, 아직 저장되지 않은 새 DB 확정 구간을 더한 문법.
@@ -1108,22 +1047,7 @@ def _pipeline(sentence, normalized=False):
             event = rematch_fallback(new_closed)
         yield event
 
-    # 학습 단어(조사·조동사·기호·숫자를 뺀 토큰)를 모두 JMdict에서 찾는다. 후보 뜻이 하나면 LLM
-    # 없이 정하고, 여럿이면 새 문장 LLM 요청에서 함께 고르게 한다. 못 찾은 토큰은 보이지도
-    # 기록하지도 않는다(#96, 사전에 없는 단어는 #97).
-    # 캐시 분석은 저장된 단어를 쓰므로 찾지 않는다.
-    found = (
-        {}
-        if cached
-        else words.lookup(
-            text_to_analyze, morphs, [token for token in range(len(morphs)) if is_vocabulary(token)]
-        )
-    )
-    ambiguous = {token: cands for token, cands in found.items() if len(cands) > 1}
-    llm_words = [
-        {"token_id": token, "candidates": words.llm_candidates(cands)}
-        for token, cands in ambiguous.items()
-    ]
+    found, ambiguous, llm_words = s.found, s.ambiguous, s.llm_words
 
     def sentence_words():
         """LLM 응답 전에 보낼 단어(원문 순서). 뜻이 여럿인 단어는 표제·읽기·태그만 보낸다(뜻은
@@ -1147,15 +1071,7 @@ def _pipeline(sentence, normalized=False):
             items.append(item)
         return items
 
-    def word_spans(chosen):
-        """저장할 단어 위치와 뜻(토큰 순서). chosen은 LLM이 고른 {토큰: 뜻 ID}다."""
-        stored = []
-        for token, cands in found.items():
-            sense_id = cands[0].sense.id if len(cands) == 1 else chosen.get(token)
-            if sense_id is not None:
-                start, end = key_span(token, token)
-                stored.append({"start": start, "end": end, "sense_id": sense_id})
-        return stored
+    word_spans = s.word_spans
 
     def respond(user):
         """요청 쪽: 캐시 분석은 한 번에 보내고, 패턴 세트 버전이 올랐으면 다시 매칭하고, 나머지는

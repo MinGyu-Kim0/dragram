@@ -419,6 +419,11 @@ class WordSenseForm(forms.ModelForm):
         model = WordSense
         fields = ["meaning_ko"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 아직 한국어 뜻이 없는 다른 뜻 때문에 저장이 막히지 않게 한다. 비우기는 아래에서 막는다.
+        self.fields["meaning_ko"].required = False
+
     def clean_meaning_ko(self):
         meaning = self.cleaned_data["meaning_ko"]
         if "meaning_ko" in self.changed_data and not meaning:

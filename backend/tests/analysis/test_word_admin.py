@@ -136,3 +136,30 @@ def test_words_and_senses_cannot_be_added_or_deleted(admin_client, gakusei):
     assert admin_client.get(f"{WORDS}{gakusei.pk}/delete/").status_code == 403
     assert "delete_selected" not in admin_client.get(WORDS).content.decode()
     assert WordSense.objects.count() == 1
+
+
+def test_missing_filter_finds_a_word_that_also_has_a_failed_sense(admin_client, taberu):
+    # 같은 단어에 생성 실패한 뜻이 있어도, 아직 만들지 않은 뜻이 있으면 '한국어 뜻 없음'이다.
+    WordSense.objects.create(
+        word=taberu,
+        jmdict_sense_index=3,
+        gloss_en=["to make a living"],
+        tags=[],
+        sense_origin="jmdict",
+        sense_status="approved",
+        meaning_status="ai",
+    )
+
+    assert listed(admin_client.get(WORDS, {"meaning": "missing"})) == ["食べる【たべる】"]
+
+
+def test_meaning_can_be_saved_while_another_sense_is_still_empty(admin_client, taberu):
+    # 2번 뜻은 생성 실패로 비어 있다. 1번만 고쳐도 저장된다.
+    response = admin_client.post(
+        f"{WORDS}{taberu.pk}/change/", senses_form(taberu, {1: "먹다, 식사하다"})
+    )
+
+    assert response.status_code == 302
+    eat, live = taberu.senses.order_by("jmdict_sense_index")
+    assert (eat.meaning_ko, eat.meaning_status) == ("먹다, 식사하다", "reviewed")
+    assert (live.meaning_ko, live.meaning_status) == (None, "failed")

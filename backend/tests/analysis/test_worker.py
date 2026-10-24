@@ -5,11 +5,13 @@
 봐야 해서 트랜잭션 테스트로 한다.
 """
 
+import contextlib
 import threading
 import time
 from itertools import chain
 
 import pytest
+from asgiref.sync import sync_to_async
 from django.db import connections
 from django.db.models import F
 
@@ -253,3 +255,24 @@ def test_job_that_fails_before_calling_the_llm_fails_the_row(client, fake_llm, m
 
     assert SentenceAnalysis.objects.get().status == "failed"
     assert fake_llm.requests == []
+
+
+@pytest.mark.django_db
+def test_message_of_an_earlier_attempt_is_ignored(client, fake_llm, monkeypatch):
+    # 구독한 뒤 앞 시도가 실패 소식을 보냈고, 이 요청이 행을 다시 선점해 새로 분석한다.
+    fake_llm.response = {"translation_ko": "나는 학생입니다."}
+    listen = jobs.listen
+
+    @contextlib.asynccontextmanager
+    async def listen_then_old_failure(sentence_hash):
+        async with listen(sentence_hash) as pubsub:
+            await sync_to_async(jobs.publish)(
+                sentence_hash, {"type": "failed", "error": "ANALYSIS:FAILED", "attempt": "앞 시도"}
+            )
+            yield pubsub
+
+    monkeypatch.setattr(jobs, "listen", listen_then_old_failure)
+
+    response = analyze(client, TEXT)
+
+    assert response.types() == ["translation", "analysis"]

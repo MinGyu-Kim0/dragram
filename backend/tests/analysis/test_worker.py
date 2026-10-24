@@ -11,6 +11,7 @@ import time
 from itertools import chain
 
 import pytest
+import redis
 from asgiref.sync import sync_to_async
 from django.db import connections
 from django.db.models import F
@@ -223,17 +224,24 @@ def _stored_values(redis_db):
 
 
 @pytest.mark.django_db
-def test_claim_is_released_when_the_job_cannot_be_queued(client, fake_llm, monkeypatch):
-    def unreachable(*_):
-        raise ConnectionError("Redis에 연결하지 못함")
+def test_claim_is_released_when_the_job_cannot_be_queued(client, fake_llm, monkeypatch, settings):
+    class UnreachableQueue:
+        def __init__(self, *_, **__):
+            pass
 
-    monkeypatch.setattr(jobs, "enqueue_analysis", unreachable)
+        def enqueue(self, *_, **__):
+            raise redis.ConnectionError("Redis에 연결하지 못함")
 
-    with pytest.raises(ConnectionError):
-        analyze(client, TEXT)
+    settings.ANALYSIS_INLINE = False
+    monkeypatch.setattr(jobs, "Queue", UnreachableQueue)
 
+    response = analyze(client, TEXT)
+
+    # 선점한 요청도 기다리던 요청처럼 error 이벤트로 끝난다.
+    assert response.events == [{"type": "error", "error": "ANALYSIS:FAILED"}]
     # 처리 중으로 남으면 다음 요청이 대기 상한까지 붙잡힌다.
     assert SentenceAnalysis.objects.get().status == "failed"
+    assert not _requests().get().success
 
 
 @pytest.mark.django_db

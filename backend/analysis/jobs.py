@@ -15,6 +15,8 @@ from django.conf import settings
 from django.db import close_old_connections
 from rq import Queue, SimpleWorker
 
+from errors import AnalysisError, BusinessError
+
 QUEUE_NAME = "analysis"
 # 작업 하나의 시간 제한. LLM 요청 전체 마감(llm.REQUEST_DEADLINE_SECONDS, 110초)에 저장할 시간을
 # 더한 값이다. 넘으면 RQ가 작업을 멈추고, 작업은 실패로 끝난다.
@@ -31,22 +33,28 @@ def channel(sentence_hash):
 
 
 def enqueue_analysis(analysis_id, text, usage_id):
-    """분석 작업을 큐에 넣는다. text는 분석 텍스트, usage_id는 선점한 요청의 request 기록이다."""
+    """분석 작업을 큐에 넣는다. text는 분석 텍스트, usage_id는 선점한 요청의 request 기록이다.
+
+    Redis에 넣지 못하면 BusinessError다.
+    """
     from analysis.worker import run_analysis
 
     if settings.ANALYSIS_INLINE:
         run_analysis(analysis_id, text, usage_id)
         return
-    Queue(QUEUE_NAME, connection=_connection()).enqueue(
-        run_analysis,
-        analysis_id,
-        text,
-        usage_id,
-        description=f"analysis {analysis_id}",
-        job_timeout=JOB_TIMEOUT_SECONDS,
-        result_ttl=0,
-        failure_ttl=0,
-    )
+    try:
+        Queue(QUEUE_NAME, connection=_connection()).enqueue(
+            run_analysis,
+            analysis_id,
+            text,
+            usage_id,
+            description=f"analysis {analysis_id}",
+            job_timeout=JOB_TIMEOUT_SECONDS,
+            result_ttl=0,
+            failure_ttl=0,
+        )
+    except redis.RedisError as e:
+        raise BusinessError(AnalysisError.FAILED, "분석 작업을 큐에 넣지 못함") from e
 
 
 def publish(sentence_hash, message):

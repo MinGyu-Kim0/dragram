@@ -13,6 +13,7 @@ from analysis.models import (
     PatternSetVersion,
     SentenceAnalysis,
     SpanMatch,
+    UsageLog,
 )
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import (
@@ -129,6 +130,8 @@ def test_stale_replacement_conflicting_on_the_same_span_saves_nothing(fake_llm):
     assert result["response"].json() == {"error": "ANALYSIS:FAILED"}
     analysis.refresh_from_db()
     assert (analysis.translation_ko, analysis.status) == ("그가 와 있다", "failed")
+    # 저장하지 못한 요청은 성공으로 남지 않는다.
+    assert not UsageLog.objects.filter(kind=UsageLog.Kind.REQUEST).latest("id").success
     assert analysis.span_matches.count() == 1
 
 

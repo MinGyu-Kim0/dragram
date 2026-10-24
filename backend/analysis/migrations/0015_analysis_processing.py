@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="sentenceanalysis",
-            name="pending_translation_ko",
+            name="processing_translation_ko",
             field=models.TextField(null=True),
         ),
         migrations.AddField(

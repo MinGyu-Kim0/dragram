@@ -984,7 +984,27 @@ def analyze(request):
 
 def run_analysis(analysis_id, text, usage_id):
     """작업자가 실행하는 분석 LLM 작업(analysis.jobs). text는 분석 텍스트다."""
-    _pipeline(text).run(analysis_id, usage_id)
+    try:
+        _pipeline(text).run(analysis_id, usage_id)
+    except BaseException:
+        # 우리 코드의 버그와 작업 시간 초과(RQ가 작업 안에서 올린다)도 실패로 알린 뒤 그대로
+        # 올린다. 기다리는 요청이 대기 상한까지 붙잡히거나 행이 처리 중에 남지 않게 한다.
+        _fail(analysis_id, AnalysisError.FAILED.code)
+        raise
+
+
+def _fail(analysis_id, code):
+    """처리 중인 분석 행을 실패로 두고 그 문장의 채널로 알린다. 다음 요청이 다시 선점한다."""
+    SentenceAnalysis.objects.filter(
+        pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
+    ).update(status=SentenceAnalysis.Status.FAILED, processing_translation_ko=None)
+    sentence_hash = (
+        SentenceAnalysis.objects.filter(pk=analysis_id)
+        .values_list("sentence_hash", flat=True)
+        .first()
+    )
+    if sentence_hash is not None:
+        jobs.publish(sentence_hash, {"type": "failed", "error": code})
 
 
 # 요청이 작업 소식을 기다리는 상한. 작업 시간 제한(jobs.JOB_TIMEOUT_SECONDS)보다 길고, 큐에 넣은
@@ -1483,7 +1503,7 @@ def _pipeline(sentence):
             return False
         locked.status = SentenceAnalysis.Status.COMPLETE
         locked.translation_ko = validated["translation_ko"]
-        locked.pending_translation_ko = None
+        locked.processing_translation_ko = None
         locked.word_spans = stored_words
         locked.sense_ids = _sense_ids(stored_words)
         locked.is_stale = False
@@ -1493,7 +1513,7 @@ def _pipeline(sentence):
             update_fields=[
                 "status",
                 "translation_ko",
-                "pending_translation_ko",
+                "processing_translation_ko",
                 "word_spans",
                 "sense_ids",
                 "is_stale",
@@ -1579,7 +1599,7 @@ def _pipeline(sentence):
                     status=processing,
                     processing_started_at=timezone.now(),
                     generation=F("generation") + 1,
-                    pending_translation_ko=None,
+                    processing_translation_ko=None,
                 )
             ) == 1
             row.refresh_from_db()
@@ -1587,7 +1607,12 @@ def _pipeline(sentence):
             return "saved", row, RequestUsage.start(UsageLog.Path.CACHE, user, row.pk, True)
         usage = RequestUsage.start(UsageLog.Path.LLM, user, row.pk)
         if claimed:
-            jobs.enqueue_analysis(row.pk, text_to_analyze, usage.id)
+            try:
+                jobs.enqueue_analysis(row.pk, text_to_analyze, usage.id)
+            except BaseException:
+                # 큐에 넣지 못했으면 선점을 풀어, 다음 요청이 처리 중 행에 붙잡히지 않게 한다.
+                _fail(row.pk, AnalysisError.FAILED.code)
+                raise
         return "claimed" if claimed else "processing", row, usage
 
     def saved_events(row, translated):
@@ -1610,9 +1635,9 @@ def _pipeline(sentence):
                 for event in await sync_to_async(saved_events)(row, False):
                     yield _ndjson(event)
                 return
-            translated = state == "processing" and row.pending_translation_ko is not None
+            translated = state == "processing" and row.processing_translation_ko is not None
             if translated:
-                yield _ndjson(translation_event(row.pending_translation_ko))
+                yield _ndjson(translation_event(row.processing_translation_ko))
             error = AnalysisError.FAILED.code
             async for message in jobs.messages(pubsub, WAIT_SECONDS):
                 if message["type"] == "translation":
@@ -1638,7 +1663,7 @@ def _pipeline(sentence):
         """검증한 번역을 먼저 저장하고 알린다. 늦게 붙은 요청은 저장된 번역을 읽는다."""
         SentenceAnalysis.objects.filter(
             pk=existing.pk, status=SentenceAnalysis.Status.PROCESSING
-        ).update(pending_translation_ko=translation)
+        ).update(processing_translation_ko=translation)
         jobs.publish(sentence_hash, {"type": "translation", "translation_ko": translation})
 
     def work():
@@ -1663,27 +1688,16 @@ def _pipeline(sentence):
         reject_quotes(validated)
         # 다시 묻기는 번역을 알린 뒤, 저장 트랜잭션 밖에서 한다.
         save(ask_again(prepare(validated)))
-        usage.succeed()
-
-    def fail(analysis_id, channel_hash, code):
-        """처리 중인 행을 실패로 두고 알린다. 다음 요청이 다시 선점한다."""
-        SentenceAnalysis.objects.filter(
-            pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
-        ).update(status=SentenceAnalysis.Status.FAILED, pending_translation_ko=None)
-        jobs.publish(channel_hash, {"type": "failed", "error": code})
 
     def run(analysis_id, usage_id):
         """작업자: 선점된 분석 행(analysis_id)을 분석한다. usage_id는 선점한 요청의 request
         기록이다.
 
-        저장에 성공하면 done, 실패하면 failed 소식을 보낸다. 우리 코드의 버그도 실패로 알린 뒤
-        그대로 올려, 기다리는 요청이 대기 상한까지 붙잡히지 않게 한다.
+        저장에 성공하면 done, 실패하면 failed 소식을 보낸다. 그 밖의 예외는 run_analysis가 실패로
+        알린다.
         """
         nonlocal client, usage
         if existing is None or existing.pk != analysis_id:
-            # 분석 텍스트를 다시 정규화한 해시가 행과 다르다. 그 행의 채널로 알린다.
-            row = SentenceAnalysis.objects.get(pk=analysis_id)
-            fail(analysis_id, row.sentence_hash, AnalysisError.FAILED.code)
             raise RuntimeError(f"분석 텍스트의 해시가 분석 행과 다름: analysis_id={analysis_id}")
         usage = RequestUsage(UsageLog.objects.get(pk=usage_id))
         client = llm.get_client(usage.record_llm)
@@ -1691,17 +1705,15 @@ def _pipeline(sentence):
             work()
         except BusinessError as e:
             log_business_error(e)
-            fail(analysis_id, sentence_hash, e.error_code.code)
+            _fail(analysis_id, e.error_code.code)
             return
-        except BaseException:
-            fail(analysis_id, sentence_hash, AnalysisError.FAILED.code)
-            raise
         if SentenceAnalysis.objects.filter(
             pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
         ).exists():
             # 저장하지 못하고 끝났다(다른 쓰기가 같은 구간을 먼저 넣음).
-            fail(analysis_id, sentence_hash, AnalysisError.FAILED.code)
+            _fail(analysis_id, AnalysisError.FAILED.code)
             return
+        usage.succeed()
         jobs.publish(sentence_hash, {"type": "done"})
 
     def span_key(span):

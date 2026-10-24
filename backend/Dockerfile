@@ -24,5 +24,5 @@ RUN useradd --system app
 USER app
 EXPOSE 8000
 # 분석 LLM 작업은 작업자(`python manage.py analysis_worker`)가 하고, 서버는 그 결과를 기다리는
-# 연결을 비동기로 붙잡는다(ADR 0005). 작업 시간 제한은 작업자 쪽(analysis/queue.py)에 있다.
+# 연결을 비동기로 붙잡는다(ADR 0005). 작업 시간 제한은 작업자 쪽(analysis/jobs.py)에 있다.
 CMD ["uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--port", "8000"]

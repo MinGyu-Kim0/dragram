@@ -70,7 +70,7 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
         "status",
         "processing_started_at",
         "translation_ko",
-        "pending_translation_ko",
+        "processing_translation_ko",
         "is_stale",
         "generation",
         "matcher_version",

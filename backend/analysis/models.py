@@ -33,7 +33,7 @@ class SentenceAnalysis(models.Model):
     # 처리 중 작업이 검증해 먼저 저장한 번역(자리표시자 형태). 늦게 온 요청이 소식을 놓쳤어도
     # 번역을 먼저 보이게 한다. stale 재분석 중에도 translation_ko(옛 결과)를 덮지 않도록 따로 두고,
     # 작업이 끝나면 비운다(#98).
-    pending_translation_ko = models.TextField(null=True)  # noqa: DJ001
+    processing_translation_ko = models.TextField(null=True)  # noqa: DJ001
     # word_spans의 뜻 ID를 중복 없이 모은 값(ADR 0002, 내 일본어 계산용). word_spans와 함께 쓴다.
     sense_ids = ArrayField(models.BigIntegerField(), null=True)
     # 다시 분석해야 하는 분석. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법

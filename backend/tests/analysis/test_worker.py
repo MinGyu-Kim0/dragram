@@ -43,7 +43,7 @@ def test_translation_is_saved_and_published_before_the_full_result(client, fake_
 
     def recording(sentence_hash, message):
         row = SentenceAnalysis.objects.get(sentence_hash=sentence_hash)
-        published.append((message["type"], fake_llm.result_given, row.pending_translation_ko))
+        published.append((message["type"], fake_llm.result_given, row.processing_translation_ko))
         original(sentence_hash, message)
 
     monkeypatch.setattr(jobs, "publish", recording)
@@ -125,7 +125,7 @@ def test_late_request_sends_the_saved_translation_and_waits_for_the_running_job(
 ):
     analyze(client, TEXT)
     SentenceAnalysis.objects.update(
-        status="processing", word_spans=None, pending_translation_ko="처리 중 번역"
+        status="processing", word_spans=None, processing_translation_ko="처리 중 번역"
     )
     monkeypatch.setattr(views, "WAIT_SECONDS", 0.2)
     fake_llm.forget_requests()
@@ -218,3 +218,38 @@ def _stored_values(redis_db):
             yield from redis_db.smembers(key)
         elif kind == b"string":
             yield redis_db.get(key)
+
+
+@pytest.mark.django_db
+def test_claim_is_released_when_the_job_cannot_be_queued(client, fake_llm, monkeypatch):
+    def unreachable(*_):
+        raise ConnectionError("Redis에 연결하지 못함")
+
+    monkeypatch.setattr(jobs, "enqueue_analysis", unreachable)
+
+    with pytest.raises(ConnectionError):
+        analyze(client, TEXT)
+
+    # 처리 중으로 남으면 다음 요청이 대기 상한까지 붙잡힌다.
+    assert SentenceAnalysis.objects.get().status == "failed"
+
+
+@pytest.mark.django_db
+def test_job_that_fails_before_calling_the_llm_fails_the_row(client, fake_llm, monkeypatch):
+    real_pipeline = views._pipeline
+    calls = []
+
+    def broken_in_worker(sentence):
+        # 요청 쪽(첫 호출)은 그대로, 작업자 쪽(두 번째 호출)의 준비 단계에서 버그가 난다.
+        calls.append(sentence)
+        if len(calls) > 1:
+            raise RuntimeError("작업자 준비 중 버그")
+        return real_pipeline(sentence)
+
+    monkeypatch.setattr(views, "_pipeline", broken_in_worker)
+
+    with pytest.raises(RuntimeError):
+        analyze(client, TEXT)
+
+    assert SentenceAnalysis.objects.get().status == "failed"
+    assert fake_llm.requests == []

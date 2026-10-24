@@ -1,3 +1,4 @@
+from asgiref.sync import sync_to_async
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
@@ -41,7 +42,8 @@ async def _leaving(content, leave):
         async for part in content:
             yield part
     finally:
-        leave()
+        # 동기 Redis 호출이 이벤트 루프의 다른 요청을 막지 않게 다른 스레드에서 뺀다.
+        await sync_to_async(leave, thread_sensitive=False)()
 
 
 def _analyze(request):

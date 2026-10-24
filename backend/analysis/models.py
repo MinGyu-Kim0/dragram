@@ -419,6 +419,8 @@ class WordSense(models.Model):
         # 검수 전. 'AI 번역'으로 보인다.
         AI = "ai"
         REVIEWED = "reviewed"
+        # 한국어 뜻 생성(word_gloss)에 실패했다. meaning_ko는 NULL이고 다음 새 문장에서 다시 만든다.
+        FAILED = "failed"
 
     word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name="senses")
     jmdict_sense_index = models.SmallIntegerField(null=True)

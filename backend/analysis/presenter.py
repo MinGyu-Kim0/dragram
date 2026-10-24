@@ -189,7 +189,7 @@ def _review_status(pattern, usage):
     return "pending" if ReviewStatus.PENDING in statuses else "approved"
 
 
-def _words_response(word_spans, text, token_at, offsets, origins, utf16):
+def _words_response(word_spans, text, token_at, offsets, origins, utf16, before_save=False):
     """저장된 단어 위치·뜻을 이 요청 원문의 UTF-16 위치로 보인다(원문 순서).
 
     뜻은 볼 때마다 DB에서 읽고, 지워졌거나 반려된 뜻의 단어는 뺀다. 읽기는 이 요청의 토큰
@@ -205,7 +205,7 @@ def _words_response(word_spans, text, token_at, offsets, origins, utf16):
             continue
         reading = words.reading_for(sense, text, token_at.get((span["start"], span["end"])))
         start, end = to_original(origins, utf16, *to_analysis(offsets, span["start"], span["end"]))
-        items.append(words.response_item(start, end, sense.word, reading, sense))
+        items.append(words.response_item(start, end, sense.word, reading, sense, before_save))
     return items
 
 
@@ -247,6 +247,37 @@ class Presenter:
             "grammar": _grammar_response(saved, s.offsets, self.origins, self.utf16, s.restore),
             "words": _words_response(
                 saved.word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16
+            ),
+        }
+
+    def judged_event(self, spans, word_spans):
+        """첫 LLM 응답이 판정한 문법과 고른 뜻(저장 전, #97). spans·word_spans는 작업자 소식이다.
+
+        용법을 고른 구간은 그 용법의 카드가 되고, 해당 없음은 확인 중에서 빠진다. 해석 갈림·미확정·
+        미발견은 다시 묻기나 저장을 기다리므로 확인 중으로 남는다. 새 구문은 저장 전에는 패턴이
+        없어 analysis에서 보인다. 구간은 (패턴, 토큰 위치)로 이 요청의 후보 구간과 맞춘다.
+        """
+        s = self.sentence
+        judged = {(j["pattern_id"], j["start_token"], j["end_token"]): j for j in spans}
+        grammar, checking = self.closed_grammar(), []
+        for span in s.spans:
+            answer = judged.get((span.pattern.id, span.start_token, span.end_token))
+            state = answer["state"] if answer else None
+            if state == SpanMatch.State.DECIDED:
+                usage = next((u for _, u in span.candidates if u.id == answer["usage_id"]), None)
+                item = usage and self.grammar_item(
+                    span.pattern, usage, *s.key_span(span.start_token, span.end_token)
+                )
+                if item:
+                    grammar.append(item)
+            elif state != SpanMatch.State.NOT_APPLICABLE:
+                checking.append(span)
+        return {
+            "type": "judged",
+            "grammar": sorted(grammar, key=lambda item: (item["start"], item["end"])),
+            "checking": self.checking(checking),
+            "words": _words_response(
+                word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16, True
             ),
         }
 
@@ -310,7 +341,9 @@ class Presenter:
             if len(cands) == 1:
                 [only] = cands
                 items.append(
-                    words.response_item(start, end, only.sense.word, only.reading, only.sense)
+                    words.response_item(
+                        start, end, only.sense.word, only.reading, only.sense, before_save=True
+                    )
                 )
                 continue
             item = words.response_item(start, end, cands[0].sense.word, cands[0].reading, None)

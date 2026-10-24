@@ -381,6 +381,20 @@ class OpenAILLMClient:
             REWRITE_SCHEMA,
         )
 
+    def gloss_words(self, senses):
+        """JMdict 뜻들의 한국어 뜻을 한 번에 만든다(#97). 검증 전 응답을 돌려준다.
+
+        senses는 뜻마다 sense_id·표제·읽기·pos·영어 뜻·뜻 태그다. 문장은 넘기지 않는다.
+        """
+        return self._ask(
+            UsageLog.Purpose.WORD_GLOSS,
+            "한국어 뜻",
+            GLOSS_INSTRUCTIONS,
+            {"senses": senses},
+            "word_gloss",
+            GLOSS_SCHEMA,
+        )
+
     def _ask(self, purpose, label, instructions, payload, name, schema):
         """구조화된 출력을 스트림 없이 받는다. purpose는 사용 기록의 호출 목적, label은 로그용
         이름이다.
@@ -524,6 +538,38 @@ REWRITE_SCHEMA = {
         }
     },
     "required": ["examples"],
+    "additionalProperties": False,
+}
+
+
+# JMdict 뜻의 한국어 뜻을 만드는 지침(#97). 근거는 사전 칸뿐이다.
+GLOSS_INSTRUCTIONS = """\
+You translate Japanese dictionary senses for a Korean learner of Japanese.
+You receive senses. Each has an id (sense_id), the headword (dictionary_form), its reading,
+the part of speech code of the word (pos), the English glosses of this sense (gloss_en) and
+sense tags. For each sense, write one short Korean meaning (meaning_ko) of that sense only,
+as a dictionary would. Join close synonyms with ", " (for example "먹다, 식사하다"). Do not
+write explanations, examples, readings or the Japanese headword. Answer every sense_id you
+received.
+"""
+
+GLOSS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "senses": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "sense_id": {"type": "integer"},
+                    "meaning_ko": {"type": "string"},
+                },
+                "required": ["sense_id", "meaning_ko"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["senses"],
     "additionalProperties": False,
 }
 

@@ -114,7 +114,7 @@ def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fak
 
     response = analyze(client, KITEIRU)
 
-    assert response.types() == ["grammar", "translation", "analysis"]
+    assert response.types() == ["grammar", "translation", "judged", "analysis"]
     assert response.events[0] == {
         "type": "grammar",
         "grammar": [],
@@ -155,7 +155,7 @@ def test_decided_and_checking_spans_are_sent_together(client, fake_llm):
     # 토큰: 0 歩き / 1 ながら / 2 来 / 3 て / 4 いる
     response = analyze(client, "歩きながら来ている")
 
-    assert response.types() == ["grammar", "translation", "analysis"]
+    assert response.types() == ["grammar", "translation", "judged", "analysis"]
     first = response.events[0]
     assert [item["name"] for item in first["grammar"]] == ["진행"]
     assert first["checking"] == [

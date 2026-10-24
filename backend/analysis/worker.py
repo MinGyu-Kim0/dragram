@@ -2,12 +2,13 @@
 
 from django.db import IntegrityError, transaction
 
-from analysis import jobs, llm, patterns
+from analysis import jobs, llm, patterns, words
 from analysis.answers import (
     FIRST_VERDICTS,
     RECHECK_VERDICTS,
     _is_text,
     _validate,
+    _validate_meanings,
     _validate_recheck_answers,
     _validate_translation,
     reject_quotes,
@@ -44,6 +45,20 @@ def _new_pattern_conditions(tokens, morphs, overlaps_number):
 def _sense_ids(word_spans):
     """word_spans의 뜻 ID를 중복 없이 모은다."""
     return sorted({span["sense_id"] for span in word_spans})
+
+
+def _judged_spans(spans, answers):
+    """첫 응답이 판정한 후보 구간을 저장 전에 알릴 소식(#97). 패턴·용법 ID와 토큰 위치만 싣는다."""
+    return [
+        {
+            "pattern_id": span.pattern.id,
+            "start_token": span.start_token,
+            "end_token": span.end_token,
+            "state": state,
+            "usage_id": usage.id if state == SpanMatch.State.DECIDED else None,
+        }
+        for span, (state, usage, _) in zip(spans, answers, strict=True)
+    ]
 
 
 def _reading_changed(first, again):
@@ -163,8 +178,36 @@ class Worker:
             self.share_translation(validated["translation_ko"])
         # 거부될 응답이면 다시 묻지 않는다.
         reject_quotes(validated, s)
+        stored_words = s.word_spans(validated["words"])
+        if s.spans or s.ambiguous:
+            self.publish(
+                {
+                    "type": "judged",
+                    "spans": _judged_spans(s.spans, validated["spans"]),
+                    "word_spans": stored_words,
+                }
+            )
         # 다시 묻기는 번역을 알린 뒤, 저장 트랜잭션 밖에서 한다.
         self.save(self.ask_again(self.prepare(validated)))
+        # 한국어 뜻은 저장한 뒤 만든다. 느리거나 실패해도 분석은 이미 저장돼 있고, 요청 마감을
+        # 다시 묻기·예문 다시 쓰기보다 먼저 쓰지 않는다. 새 한국어 뜻은 done 뒤 analysis에 실린다.
+        self.make_meanings(_sense_ids(stored_words))
+
+    def make_meanings(self, sense_ids):
+        """고른 뜻 가운데 한국어 뜻이 없는 뜻을 LLM 호출 한 번(word_gloss)으로 만든다(#97).
+
+        실패하거나 응답이 틀리면 만들지 못한 뜻만 생성 실패로 둔다.
+        """
+        senses = words.missing_meanings(sense_ids)
+        if not senses:
+            return
+        asked = [sense.id for sense in senses]
+        try:
+            result = self.client.gloss_words([words.gloss_input(sense) for sense in senses])
+        except BusinessError as e:
+            log_business_error(e)
+            result = None
+        words.save_meanings(asked, _validate_meanings(result, set(asked)))
 
     def share_translation(self, translation):
         """검증한 번역을 먼저 저장하고 알린다. 늦게 붙은 요청은 저장된 번역을 읽는다."""

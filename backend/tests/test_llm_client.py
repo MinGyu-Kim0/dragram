@@ -409,6 +409,33 @@ def test_rewrite_examples_failure_becomes_analysis_failure(llm_client, monkeypat
     assert raised.value.error_code == AnalysisError.FAILED
 
 
+SENSES = [
+    {
+        "sense_id": 7,
+        "dictionary_form": "食べる",
+        "reading": "たべる",
+        "pos": "v1,vt",
+        "gloss_en": ["to eat"],
+        "tags": ["transitive"],
+    }
+]
+
+
+def test_gloss_words_sends_only_the_senses_and_returns_the_answer(llm_client, monkeypatch):
+    answer = '{"senses": [{"sense_id": 7, "meaning_ko": "먹다"}]}'
+    requests = judge_with(
+        llm_client, monkeypatch, response_with(status="completed", output_text=answer)
+    )
+
+    result = llm_client.gloss_words(SENSES)
+
+    assert result == json.loads(answer)
+    [request] = requests
+    # 문장은 넘기지 않는다(근거는 사전 칸뿐이다).
+    assert json.loads(request["input"]) == {"senses": SENSES}
+    assert request["text"]["format"]["strict"] is True
+
+
 def completed_event(model="gpt-test-2026", status="completed", type_="response.completed"):
     return SimpleNamespace(
         type=type_, response=SimpleNamespace(status=status, model=model, usage=usage(100, 40, 20))
@@ -514,6 +541,7 @@ def test_stream_closed_by_the_reader_still_records_the_call(llm_client, monkeypa
         (lambda c: c.judge_spans("は", [], "는", [], [], SPANS), "reask"),
         (lambda c: c.rematch_judge("は", [], "는", [], SPANS), "rematch_judge"),
         (lambda c: c.rewrite_examples("文", EXAMPLES), "example_rewrite"),
+        (lambda c: c.gloss_words(SENSES), "word_gloss"),
     ],
 )
 def test_follow_up_call_records_its_purpose_model_and_tokens(

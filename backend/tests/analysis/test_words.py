@@ -55,7 +55,7 @@ def test_single_sense_word_is_recorded_without_asking_the_llm(client, fake_llm, 
                 "gloss_en": ["student"],
                 "origin": "jmdict",
                 "status": "approved",
-                "meaning_ko": None,
+                "meaning_ko": "学生 뜻",
                 "meaning_status": "ai",
             },
         }

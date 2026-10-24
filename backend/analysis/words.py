@@ -159,8 +159,11 @@ def word_tags(word):
     return sorted(set(word.tags) & WHOLE_WORD_TAGS)
 
 
-def response_item(start, end, word, reading, sense):
+def response_item(start, end, word, reading, sense, before_save=False):
     """응답의 단어 항목. sense가 None이면 뜻을 아직 고르지 않은 것이다(LLM 응답 전).
+
+    before_save는 분석을 저장하기 전에 보내는 항목이다. 한국어 뜻이 없는 뜻은 이 작업이 만들므로
+    지난번에 실패했어도 실패로 보이지 않는다(화면은 '뜻을 준비하는 중', #97).
 
     태그는 단어 전체 태그와 고른 뜻의 태그다. 뜻은 출처·검수 상태와 한국어 뜻(#97 전에는 NULL)
     까지 실어, 미검수가 검수처럼 보이지 않게 화면이 이 값으로 표시를 정한다.
@@ -179,9 +182,49 @@ def response_item(start, end, word, reading, sense):
             "origin": sense.sense_origin,
             "status": sense.sense_status,
             "meaning_ko": sense.meaning_ko,
-            "meaning_status": sense.meaning_status,
+            "meaning_status": WordSense.MeaningStatus.AI
+            if before_save and sense.meaning_ko is None
+            else sense.meaning_status,
         },
     }
+
+
+def missing_meanings(sense_ids):
+    """그 뜻들 가운데 한국어 뜻이 없는 뜻(생성 실패 포함, id 순서)."""
+    return list(
+        WordSense.objects.filter(pk__in=sense_ids, meaning_ko__isnull=True)
+        .select_related("word")
+        .order_by("id")
+    )
+
+
+def gloss_input(sense):
+    """word_gloss에 넘길 뜻 하나. 근거는 사전 칸뿐이고 문장은 넣지 않는다(#97)."""
+    return {
+        "sense_id": sense.id,
+        "dictionary_form": sense.word.dictionary_form,
+        "reading": sense.word.reading,
+        "pos": sense.word.pos,
+        "gloss_en": sense.gloss_en or [],
+        "tags": sense.tags,
+    }
+
+
+def save_meanings(asked, made):
+    """만든 한국어 뜻을 저장하고, 요청했지만 만들지 못한 뜻은 생성 실패로 둔다.
+
+    아직 한국어 뜻이 없는 뜻만 쓰는 조건부 UPDATE라, 그사이 다른 작업이나 관리자가 저장한 값을
+    덮지 않는다.
+    """
+    for sense_id, meaning in made.items():
+        WordSense.objects.filter(pk=sense_id, meaning_ko__isnull=True).update(
+            meaning_ko=meaning,
+            meaning_source=WordSense.MeaningSource.LLM,
+            meaning_status=WordSense.MeaningStatus.AI,
+        )
+    WordSense.objects.filter(pk__in=set(asked) - set(made), meaning_ko__isnull=True).update(
+        meaning_status=WordSense.MeaningStatus.FAILED
+    )
 
 
 def llm_candidates(candidates):

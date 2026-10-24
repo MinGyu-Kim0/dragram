@@ -12,9 +12,10 @@ import { WordList } from "./Words";
 // 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 번역보다 먼저 온
 // grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별 대상 구간 checking)만 와서
 // 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다. failed에 번역이
-// 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar는 analysis가 오기 전까지 보이고,
-// checking은 실패하면 지운다. earlyWords는 같은 grammar 이벤트로 먼저 온 사전 단어(뜻을 고르는
-// 중인 단어 포함)이고, analysis가 오면 그 단어로 바뀌며 실패하면 지운다. reanalyzing은 stale 분석의 옛 결과(previous)를 보이며 새 결과를
+// 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar는 analysis가 오기 전까지 보이고(judged
+// 이벤트가 오면 첫 LLM 응답이 판정한 문법이 더해진다, #97), 실패하면 LLM 없이 확정한 문법만 남는다.
+// checking은 실패하면 지운다. earlyWords는 같은 grammar 이벤트로 먼저 온 사전 단어(뜻을 준비하는
+// 중인 단어 포함)와 judged 이벤트로 바뀐 단어(#97)이고, analysis가 오면 그 단어로 바뀌며 실패하면 지운다. reanalyzing은 stale 분석의 옛 결과(previous)를 보이며 새 결과를
 // 기다리는 중(재분석 중)이고, 그러다 실패하면 failed에 옛 결과만 남는다.
 export type SentenceResult =
   | {

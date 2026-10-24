@@ -2,7 +2,7 @@
 
 from django.db import IntegrityError, transaction
 
-from analysis import jobs, llm, patterns, words
+from analysis import jobs, llm, morphology, patterns, words
 from analysis.answers import (
     FIRST_VERDICTS,
     RECHECK_VERDICTS,
@@ -36,6 +36,9 @@ def _new_pattern_conditions(tokens, morphs, overlaps_number):
     if any(fix != "any" and overlaps_number(token) for token, fix in tokens):
         return None
     conditions = [patterns.condition(morphs[token], fix) for token, fix in tokens]
+    # 내용어만 고정한 패턴은 그 구절에만 걸린다(#133). 아무거나 조건은 pos1이 None이다.
+    if not any(c.pos1 in morphology.FUNCTION_POS for c in conditions):
+        return None
     # 만든 패턴이 원래 문장의 그 자리에 다시 걸려야 저장한다.
     if not patterns.matches_at(conditions, morphs, ids[0]):
         return None

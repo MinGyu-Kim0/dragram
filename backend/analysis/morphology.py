@@ -45,7 +45,7 @@ class Morpheme(NamedTuple):
     conjugates: bool = False
 
 
-_FUNCTION_POS = {"助詞", "助動詞"}
+FUNCTION_POS = {"助詞", "助動詞"}
 
 # 탁음화 조건부 규칙: 1그룹 동사 음편형 뒤에서 탁음이 된 기능어는 청음형 lemma로 본다
 # (読んでしまう는 てしまう 패턴). だら는 원형이 だ라 だ → た로 함께 처리된다. ないで처럼 그 밖의
@@ -69,14 +69,14 @@ _VOICING_FORMS = {"連用形-撥音便", "連用形-イ音便"}
 def _after_sound_change(prev, morph):
     if prev.pos != "動詞" or prev.conjugation_form not in _VOICING_FORMS:
         return morph
-    if morph.pos not in _FUNCTION_POS or morph.lemma not in _UNVOICED:
+    if morph.pos not in FUNCTION_POS or morph.lemma not in _UNVOICED:
         return morph
     return morph._replace(lemma=_UNVOICED[morph.lemma])
 
 
 def _morpheme(m):
     pos = m.part_of_speech()
-    lemma = m.dictionary_form() if pos[0] in _FUNCTION_POS else m.normalized_form()
+    lemma = m.dictionary_form() if pos[0] in FUNCTION_POS else m.normalized_form()
     pos2, pos3, conjugation_form = (
         None if value == "*" else value for value in (pos[1], pos[2], pos[5])
     )

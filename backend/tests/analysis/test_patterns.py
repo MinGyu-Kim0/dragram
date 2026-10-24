@@ -5,7 +5,7 @@ import threading
 import pytest
 from django.db import connection
 
-from analysis import patterns
+from analysis import morphology, patterns
 from analysis import worker as patterns_views
 from analysis.models import (
     GrammarPattern,
@@ -217,6 +217,10 @@ def test_invalid_new_grammar_fails_and_nothing_is_stored(client, fake_llm, propo
         ("走っている", new_pattern((2, "lemma"), (1, "lemma"))),
         # 숫자 토큰을 고정하면 공용 패턴에 원문 숫자가 들어간다. 토큰: 0 3 / 1 人 / 2 で
         ("3人で", new_pattern((0, "lemma"), (1, "lemma"), (2, "lemma"), example_ja="5人で")),
+        # 고정 토큰에 조사·조동사가 없다(#133). 토큰: 0 目指す / 1 ソフトバンク
+        ("目指すソフトバンク", new_pattern((0, "form"), (1, "lemma"))),
+        # 조사는 아무거나로만 있다. 토큰: 0 本 / 1 を / 2 読む
+        ("本を読む", new_pattern((0, "lemma"), (1, "any"), (2, "lemma"))),
     ],
 )
 def test_new_grammar_breaking_pattern_rules_is_not_registered(client, fake_llm, sentence, proposal):
@@ -230,6 +234,56 @@ def test_new_grammar_breaking_pattern_rules_is_not_registered(client, fake_llm, 
     assert response.json()["grammar"] == []
     assert GrammarPattern.objects.count() == 0
     assert SpanMatch.objects.get().state == "unfound"
+
+
+def test_content_only_grammar_is_dropped_and_rest_of_answer_is_saved(client, fake_llm):
+    # 토큰: 0 走っ / 1 て / 2 いる. 走る만 고정한 제안은 빼고 ている는 등록한다.
+    content_only = new_pattern((0, "form"), pattern_name="動詞", usage_name="동작")
+    fake_llm.response = {"translation_ko": "달리고 있다", "new_patterns": [content_only, TEIRU]}
+
+    response = analyze(client, "走っている")
+
+    assert [g["name"] for g in response.json()["grammar"]] == ["진행"]
+    assert list(GrammarPattern.objects.values_list("name", flat=True)) == ["ている"]
+    assert list(GrammarUsage.objects.values_list("name", flat=True)) == ["진행"]
+    assert PatternMorpheme.objects.count() == 2
+    assert saved_analyses().get().translation_ko == "달리고 있다"
+    assert len(fake_llm.requests) == 1
+    assert fake_llm.rejudge_requests == []
+
+
+def test_content_only_grammar_matching_existing_pattern_is_not_asked_again(client, fake_llm):
+    # 규칙 전에 쌓인 내용어만의 패턴. 토큰: 0 目指す / 1 ソフトバンク
+    morphs = morphology.morphemes("目指すソフトバンク")
+    conditions = [patterns.condition(morphs[0], "form"), patterns.condition(morphs[1], "lemma")]
+    patterns.register(conditions, "動詞+名詞", "수식", "꾸민다", "目指すソフトバンク", None)
+    fake_llm.response = {
+        "translation_ko": "목표로 하는 소프트뱅크",
+        "new_patterns": [new_pattern((0, "form"), (1, "lemma"))],
+    }
+
+    response = analyze(client, "目指すソフトバンク")
+
+    assert response.json()["grammar"] == []
+    assert fake_llm.rejudge_requests == []
+    assert GrammarPattern.objects.count() == 1
+
+
+@pytest.mark.parametrize(
+    ("sentence", "proposal"),
+    [
+        # 토큰: 0 泳ぐ / 1 こと / 2 が / 3 出来る
+        ("泳ぐことができる", new_pattern((1, "lemma"), (2, "lemma"), (3, "lemma"))),
+        # 토큰: 0 勝ち / 1 まし / 2 た
+        ("勝ちました", new_pattern((1, "lemma"), (2, "lemma"))),
+    ],
+)
+def test_grammar_fixing_a_function_word_is_registered(client, fake_llm, sentence, proposal):
+    fake_llm.response = {"translation_ko": "번역", "new_patterns": [proposal]}
+
+    analyze(client, sentence)
+
+    assert GrammarPattern.objects.count() == 1
 
 
 def propose_teiru_again(client, fake_llm, rejudge_answers):

@@ -266,7 +266,7 @@
 | pair_form | 자타 대응 동사 | varchar(255) | Y |  | 이 뜻의 자타 대응 동사 표기. 화면 "타동사: 開ける"/"자동사: 開く"(라벨은 이 뜻의 자/타 태그). NULL = 짝 없음 또는 미확인. 웹페이지 단어 화면만 |
 | applies_to | 적용 제한 | jsonb | Y |  | `{"forms": stagk, "readings": stagr}` 중 있는 것만(구현이 정함, 확인 필요): 이 뜻이 적용되는 표기·읽기. 뜻 후보 거르기용. 대부분 NULL |
 | sense_origin | 뜻 출처 | varchar(10) |  |  | jmdict / llm. LLM 뜻은 JMdict 단어 아래에 붙어도 이 칸으로 구분 |
-| sense_status | 뜻 검수 상태 | varchar(20) |  |  | 이 뜻 자체의 검수 상태. llm 출처는 pending으로 시작해 'AI 생성·미검수' 표시, jmdict는 approved. LLM 뜻은 관리자가 승인·반려하고(반려는 후보·응답에서 빠짐), 승인한 LLM 뜻의 배지는 미정(#134, design-decisions 50절) |
+| sense_status | 뜻 검수 상태 | varchar(20) |  |  | 이 뜻 자체의 검수 상태. llm 출처는 pending으로 시작해 'AI 생성·미검수' 표시, jmdict는 approved. LLM 뜻은 관리자가 승인·반려하고(반려는 후보·응답에서 빠짐), 승인하면 배지가 없다(#134, design-decisions 50절 10) |
 | meaning_ko | 한국어 뜻 | text | Y |  | LLM 생성 후 관리자 검수. JMdict 뜻의 한국어 뜻은 JMdict 기반이라 CC BY-SA 4.0·출처·변경 사실 표시. LLM 뜻(sense_origin=llm)은 사전 근거가 없어 출처 표시를 하지 않는다(#134) |
 | meaning_source | 뜻 출처 | varchar(30) | Y |  | dictionary / llm / admin — 한국어 뜻의 출처·검수 상태(sense_origin과 별개) |
 | meaning_status | 뜻 검수 상태 | varchar(20) |  |  | ai(검수 전, 'AI 번역' 표시. 한국어 뜻이 아직 없는 뜻도 ai) / reviewed(관리자가 고쳤거나 '검수 완료') / failed(`word_gloss` 생성 실패, meaning_ko는 NULL이고 다른 새 문장에 나오면 다시 만든다, #97·마이그레이션 0016) — 한국어 뜻의 출처·검수 상태(sense_origin과 별개) |

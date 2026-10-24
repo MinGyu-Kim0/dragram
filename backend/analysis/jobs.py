@@ -32,15 +32,16 @@ def channel(sentence_hash):
     return f"analysis:{sentence_hash}"
 
 
-def enqueue_analysis(analysis_id, text, usage_id):
-    """분석 작업을 큐에 넣는다. text는 분석 텍스트, usage_id는 선점한 요청의 request 기록이다.
+def enqueue_analysis(analysis_id, text, usage_id, started):
+    """분석 작업을 큐에 넣는다. text는 분석 텍스트, usage_id는 선점한 요청의 request 기록,
+    started는 선점한 시도(processing_started_at)다(#99).
 
     Redis에 넣지 못하면 BusinessError다.
     """
     from analysis.worker import run_analysis
 
     if settings.ANALYSIS_INLINE:
-        run_analysis(analysis_id, text, usage_id)
+        run_analysis(analysis_id, text, usage_id, started)
         return
     try:
         Queue(QUEUE_NAME, connection=_connection()).enqueue(
@@ -48,6 +49,7 @@ def enqueue_analysis(analysis_id, text, usage_id):
             analysis_id,
             text,
             usage_id,
+            started,
             description=f"analysis {analysis_id}",
             job_timeout=JOB_TIMEOUT_SECONDS,
             result_ttl=0,

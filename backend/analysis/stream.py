@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import timedelta
 
 from asgiref.sync import sync_to_async
 from django.conf import settings
@@ -35,6 +36,9 @@ def _ndjson(event):
 # 요청이 작업 소식을 기다리는 상한. 작업 시간 제한(jobs.JOB_TIMEOUT_SECONDS)보다 길고, 큐에 넣은
 # 때부터 세므로 큐 대기도 포함한다. 넘으면 error 이벤트로 닫고, 작업은 계속된다(ADR 0005).
 WAIT_SECONDS = 130
+# 이만큼 지난 처리 중 행은 작업자가 죽은 것으로 보고 다음 요청이 다시 선점한다(#99). 작업 시간
+# 제한(120초)과 요청 대기(130초)보다 길다.
+CLAIM_EXPIRY_SECONDS = 150
 
 
 def _in_thread(events):
@@ -65,9 +69,9 @@ def claim(sentence, user):
 
     (상태, 분석 행, 사용 기록)이다. 상태는 claimed(이 요청이 선점해 작업을 넣음),
     processing(다른 요청의 작업을 기다림), saved(그사이 다른 요청의 작업이 저장을 마침)다.
-    처리 중이 아니고 다시 분석해야 하는 행만 조건부 UPDATE로 선점하고, 선점할 때마다 세대
-    번호를 올린다. 새 문장은 처리 중 행을 먼저 만들어, 실패한 시도의 LLM 사용 기록도 그 행에
-    잇는다.
+    처리 중이 아니거나 선점이 만료됐고(#99), 다시 분석해야 하는 행만 조건부 UPDATE로 선점하고,
+    선점할 때마다 세대 번호를 올린다. 새 문장은 처리 중 행을 먼저 만들어, 실패한 시도의 LLM 사용
+    기록도 그 행에 잇는다.
     """
     processing = SentenceAnalysis.Status.PROCESSING
     row, claimed = SentenceAnalysis.objects.get_or_create(
@@ -80,13 +84,17 @@ def claim(sentence, user):
         },
     )
     if not claimed:
+        now = timezone.now()
         claimed = (
             SentenceAnalysis.objects.filter(pk=row.pk)
-            .exclude(status=processing)
+            .exclude(
+                status=processing,
+                processing_started_at__gt=now - timedelta(seconds=CLAIM_EXPIRY_SECONDS),
+            )
             .exclude(word_spans__isnull=False, is_stale=False)
             .update(
                 status=processing,
-                processing_started_at=timezone.now(),
+                processing_started_at=now,
                 generation=F("generation") + 1,
                 processing_translation_ko=None,
             )
@@ -97,7 +105,7 @@ def claim(sentence, user):
     usage = RequestUsage.start(UsageLog.Path.LLM, user, row.pk)
     if claimed:
         try:
-            jobs.enqueue_analysis(row.pk, sentence.text, usage.id)
+            jobs.enqueue_analysis(row.pk, sentence.text, usage.id, row.processing_started_at)
         except BaseException:
             # 큐에 넣지 못했으면 선점을 풀어, 다음 요청이 처리 중 행에 붙잡히지 않게 한다.
             _fail(row.pk, row.processing_started_at, AnalysisError.FAILED.code)

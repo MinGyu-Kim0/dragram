@@ -621,6 +621,29 @@ test("뜻의 출처·검수 상태에 따라 'AI 생성·미검수'와 'AI 번�
   expect(within(reviewed!).queryByText("AI 번역")).not.toBeInTheDocument();
 });
 
+test("관리자가 승인한 LLM 뜻에는 'AI 생성·미검수'도 'AI 번역'도 달지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [],
+    words: [
+      wordItem(0, 1, "一", "いち", {
+        origin: "llm",
+        status: "approved",
+        meaning_ko: "하나",
+        meaning_status: "ai",
+      }),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "一");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 1" }));
+
+  expect(screen.getByText("하나")).toBeInTheDocument();
+  expect(screen.queryByText("AI 생성·미검수")).not.toBeInTheDocument();
+  expect(screen.queryByText("AI 번역")).not.toBeInTheDocument();
+});
+
 test("LLM보다 먼저 온 단어는 탭에 바로 보이고, 뜻을 준비하는 중인 단어는 분석이 오면 채운다", async () => {
   const stream = streamed();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));

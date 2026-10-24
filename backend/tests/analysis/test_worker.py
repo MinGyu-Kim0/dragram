@@ -239,12 +239,10 @@ def test_claim_is_released_when_the_job_cannot_be_queued(client, fake_llm, monke
 @pytest.mark.django_db
 def test_job_that_fails_before_calling_the_llm_fails_the_row(client, fake_llm, monkeypatch):
     real_pipeline = views._pipeline
-    calls = []
 
-    def broken_in_worker(sentence):
-        # 요청 쪽(첫 호출)은 그대로, 작업자 쪽(두 번째 호출)의 준비 단계에서 버그가 난다.
-        calls.append(sentence)
-        if len(calls) > 1:
+    def broken_in_worker(sentence, normalized=False):
+        # 작업자 쪽(분석 텍스트를 받음)의 준비 단계에서만 버그가 난다.
+        if normalized:
             raise RuntimeError("작업자 준비 중 버그")
         return real_pipeline(sentence)
 
@@ -276,3 +274,14 @@ def test_message_of_an_earlier_attempt_is_ignored(client, fake_llm, monkeypatch)
     response = analyze(client, TEXT)
 
     assert response.types() == ["translation", "analysis"]
+
+
+@pytest.mark.django_db
+def test_worker_does_not_normalize_the_analysis_text_again(client, fake_llm):
+    # 제로 폭 문자를 지운 뒤에야 か와 결합 탁점이 붙는다. 다시 정규화하면 がく가 되어 해시가 다르다.
+    fake_llm.response = {"translation_ko": "가쿠"}
+
+    response = analyze(client, "か​゙く")
+
+    assert response.types()[-1] == "analysis"
+    assert SentenceAnalysis.objects.get().status == "complete"

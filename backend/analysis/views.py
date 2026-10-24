@@ -990,7 +990,7 @@ def run_analysis(analysis_id, text, usage_id):
         .first()
     )
     try:
-        _pipeline(text).run(analysis_id, usage_id)
+        _pipeline(text, normalized=True).run(analysis_id, usage_id)
     except BaseException:
         # 우리 코드의 버그와 작업 시간 초과(RQ가 작업 안에서 올린다)도 실패로 알린 뒤 그대로
         # 올린다. 기다리는 요청이 대기 상한까지 붙잡히거나 행이 처리 중에 남지 않게 한다.
@@ -1052,9 +1052,17 @@ def _in_thread(events):
     return stream()
 
 
-def _pipeline(sentence):
-    """원문(작업자에서는 분석 텍스트) 하나의 분석. 요청 쪽은 respond, 작업자는 run을 쓴다."""
-    text_to_analyze, origins = analysis_text(sentence)
+def _pipeline(sentence, normalized=False):
+    """원문 하나의 분석. 요청 쪽은 respond, 작업자는 run을 쓴다.
+
+    작업자는 요청이 정규화한 분석 텍스트를 받는다(normalized). 정규화는 두 번 적용하면 결과가
+    달라질 수 있어(공백을 지운 뒤 결합 탁점이 합쳐지는 등) 다시 하지 않는다. 그러지 않으면 해시가
+    달라져 요청이 선점한 행을 찾지 못한다.
+    """
+    if normalized:
+        text_to_analyze, origins = sentence, [(i, i + 1) for i in range(len(sentence))]
+    else:
+        text_to_analyze, origins = analysis_text(sentence)
     if not text_to_analyze:
         raise BusinessError(AnalysisError.TEXT_REQUIRED, "정규화 후 빈 문장")
     pieces, numbers = key_pieces(text_to_analyze)

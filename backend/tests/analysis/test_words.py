@@ -5,7 +5,7 @@ import json
 import pytest
 
 from analysis.models import SentenceAnalysis, WordSense
-from tests.analysis.helpers import add_word, analyze, post
+from tests.analysis.helpers import add_word, analyze, post, read_body, saved_analyses
 
 pytestmark = pytest.mark.django_db
 
@@ -129,7 +129,7 @@ def test_non_list_words_answer_fails(client, fake_llm):
     response = analyze(client, "私は学生です。")
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
+    assert saved_analyses().count() == 0
 
 
 def test_same_word_twice_keeps_a_sense_for_each_place(client, fake_llm, hiraku):
@@ -170,12 +170,12 @@ def test_words_are_sent_before_the_llm_answers(client, fake_llm, gakusei, hiraku
     # 토큰: 0 学生 / 1 が / 2 開い / 3 た
     fake_llm.response = {"translation_ko": "학생이 열었다"}
     response = post(client, "学生が開いた")
-    stream = iter(response.streaming_content)
+    # 앞선 이벤트는 응답을 만들 때 정해지고, LLM 작업은 스트림을 읽을 때 시작한다.
+    assert fake_llm.requests == []
 
-    first = json.loads(next(stream))
+    first = json.loads(read_body(response).decode().splitlines()[0])
 
     assert first["type"] == "grammar"
-    assert fake_llm.requests == []
     student, undecided = first["words"]
     assert student["sense"]["gloss_en"] == ["student"]
     # 뜻이 여럿이면 표제·읽기·태그만 보내고 뜻은 아직 없다.
@@ -194,7 +194,7 @@ def test_word_of_several_entries_shows_all_readings_and_common_tags_before_choos
     add_word(5, ["開く"], ["あく"], [(["to open (intr.)"], [], None)], tags=("verb",))
     response = post(client, "本を開いた")
 
-    first = json.loads(next(iter(response.streaming_content)))
+    first = json.loads(read_body(response).decode().splitlines()[0])
 
     [word] = first["words"]
     assert (word["reading"], word["tags"], word["sense"]) == ("あく・ひらく", ["verb"], None)

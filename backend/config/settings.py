@@ -87,6 +87,12 @@ DEV_LOGIN_ENABLED = os.environ.get("DEV_LOGIN_ENABLED", "false") == "true"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "")
 
+# 분석 작업 큐(RQ)와 작업자 소식(pub/sub)을 함께 쓰는 Redis(ADR 0005).
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+# 테스트 전용. 켜면 분석 작업을 큐에 넣는 자리에서 바로 실행하고, 재매칭 스트림도 요청 스레드에서
+# 돌린다. 테스트 트랜잭션 안의 데이터를 같은 DB 연결로 보게 하기 위해서다.
+ANALYSIS_INLINE = False
+
 # 적재한 JMdict 판본 이름(예: "JMdict_e 2026-10-01"). load_jmdict는 이 값이 있어야 적재한다.
 JMDICT_EDITION = os.environ.get("JMDICT_EDITION", "")
 

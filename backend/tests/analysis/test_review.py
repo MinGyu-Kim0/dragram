@@ -397,7 +397,8 @@ def test_analysis_outdated_while_being_analyzed_is_sent_but_not_saved(client, fa
 
     response = analyze(client, "走っている")
 
-    assert response.json()["translation_ko"] == "달리는 중이다"
+    # 분석하는 사이 영향 범위가 바뀐 결과는 저장하지 않고 실패로 알린다(#98).
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     decided.refresh_from_db()
     assert (decided.translation_ko, decided.is_stale) == ("달리고 있다", True)
 

@@ -4,13 +4,14 @@ import json
 import time
 import uuid
 
+from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.test import Client
 
 from accounts import tokens
 from analysis.jmdict import to_hiragana
-from analysis.models import ReviewStatus, Word, WordSense
+from analysis.models import ReviewStatus, SentenceAnalysis, Word, WordSense
 
 
 class Analyzed:
@@ -23,9 +24,7 @@ class Analyzed:
     def __init__(self, response):
         self.response = response
         self.status_code = response.status_code
-        body = (
-            b"".join(response.streaming_content) if response.streaming else response.content
-        ).decode()
+        body = read_body(response).decode()
         if response["Content-Type"] == "application/x-ndjson":
             self.events = [json.loads(line) for line in body.splitlines()]
             self._json = None
@@ -46,6 +45,24 @@ class Analyzed:
 
     def types(self):
         return [event["type"] for event in self.events]
+
+
+def saved_analyses():
+    """결과까지 저장된 분석. 실패한 시도는 결과 없이 failed 행으로 남는다(#98)."""
+    return SentenceAnalysis.objects.filter(word_spans__isnull=False)
+
+
+def read_body(response):
+    """응답 본문 전체. LLM 작업을 기다리는 스트림은 비동기라 끝까지 읽어 모은다(#98)."""
+    if not response.streaming:
+        return response.content
+    if not response.is_async:
+        return b"".join(response.streaming_content)
+
+    async def read():
+        return [chunk async for chunk in response.streaming_content]
+
+    return b"".join(async_to_sync(read)())
 
 
 def connected_client():

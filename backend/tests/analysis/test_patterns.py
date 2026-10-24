@@ -13,11 +13,17 @@ from analysis.models import (
     PatternMorpheme,
     PatternSetVersion,
     ReviewStatus,
-    SentenceAnalysis,
     SpanMatch,
 )
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, connected_client, new_pattern, new_usage, span_answer
+from tests.analysis.helpers import (
+    analyze,
+    connected_client,
+    new_pattern,
+    new_usage,
+    saved_analyses,
+    span_answer,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -164,7 +170,7 @@ def test_invalid_span_answer_fails_and_nothing_is_stored(client, fake_llm, answe
     response = analyze(client, "彼が来ている")
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 1
+    assert saved_analyses().count() == 1
     assert SpanMatch.objects.count() == 1
 
 
@@ -196,7 +202,7 @@ def test_invalid_new_grammar_fails_and_nothing_is_stored(client, fake_llm, propo
     response = analyze(client, "走っている")
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
+    assert saved_analyses().count() == 0
     assert GrammarPattern.objects.count() == 0
 
 
@@ -289,7 +295,7 @@ def test_invalid_answer_when_asked_again_fails_and_nothing_is_stored(client, fak
     response = propose_teiru_again(client, fake_llm, answers)
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 1
+    assert saved_analyses().count() == 1
 
 
 def test_sentence_without_existing_pattern_is_not_asked_again(client, fake_llm):
@@ -426,31 +432,6 @@ def test_new_usage_example_is_taken_from_later_same_usage_when_first_fails(clien
     analyze(client, "知っていながら、狭いながら")
 
     assert GrammarUsage.objects.get(name="역접").example_ja == "狭いながら快適だ"
-
-
-def test_sentence_saved_by_another_request_is_not_asked_again(client, fake_llm):
-    # 첫 LLM 호출을 기다리는 사이 같은 문장의 다른 요청이 ている를 등록하며 분석을 저장한다.
-    def other_request_saves_first():
-        mine = fake_llm.response
-        fake_llm.response = {
-            "translation_ko": "먼저 저장된 번역",
-            "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"))],
-        }
-        analyze(connected_client(), "彼が来ている")
-        fake_llm.response = mine
-
-    fake_llm.before_respond = other_request_saves_first
-    fake_llm.response = {
-        "translation_ko": "늦게 끝난 번역",
-        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"), usage_name="결과")],
-    }
-
-    response = analyze(client, "彼が来ている")
-
-    # 이미 저장된 결과를 쓰므로 유료 재질문을 보내지 않는다.
-    assert fake_llm.rejudge_requests == []
-    assert response.json()["translation_ko"] == "먼저 저장된 번역"
-    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
 
 
 # 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
@@ -770,7 +751,7 @@ def test_invalid_new_usage_fails_and_nothing_is_stored(client, fake_llm, usage):
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert GrammarUsage.objects.count() == 1
-    assert SentenceAnalysis.objects.count() == 1
+    assert saved_analyses().count() == 1
 
 
 def test_new_usage_with_existing_name_is_not_added(client, fake_llm):
@@ -1033,7 +1014,7 @@ def test_invalid_rewrite_answer_keeps_the_analysis_without_example(client, fake_
 
     # 보조 호출 하나 때문에 번역·문법을 버리지 않고, 예문 없이 등록한다.
     assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
-    assert SentenceAnalysis.objects.count() == 1
+    assert saved_analyses().count() == 1
     assert not GrammarPattern.objects.get().is_active
     assert GrammarUsage.objects.get().example_ja is None
 

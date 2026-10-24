@@ -76,6 +76,16 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
+      # 분석 작업 큐·작업자 소식(#98)
+      redis:
+        image: redis:8-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
     env:
       DJANGO_SECRET_KEY: ci-only-not-secret
       POSTGRES_DB: dragram

@@ -7,7 +7,7 @@ class RequestUsage:
     """분석 요청 하나의 request 행과, 그 요청이 부른 LLM 호출의 llm 행들.
 
     request 행은 처리 경로를 정했을 때 start로 남긴다. llm 행은 호출마다 바로 남겨, 뒤에 분석
-    저장이 되돌려져도 남는다. 분석 행이 아직 없으면(새 문장) 저장할 때 link로 잇는다.
+    저장이 되돌려져도 남는다. 새 문장은 선점할 때 처리 중 분석 행을 먼저 만들어 잇는다(#98).
     """
 
     def __init__(self, request):
@@ -15,6 +15,11 @@ class RequestUsage:
         self._user = request.user
         self._analysis_id = request.analysis_id
         self._ids = [request.pk]
+
+    @property
+    def id(self):
+        """request 행 ID. 작업자가 이 기록으로 LLM 호출을 남긴다(#98)."""
+        return self._request.pk
 
     @classmethod
     def start(cls, path, user, analysis_id=None, success=False):
@@ -46,12 +51,6 @@ class RequestUsage:
             attempt=1,
         )
         self._ids.append(row.pk)
-
-    def link(self, analysis):
-        """아직 분석에 잇지 않은 이 요청의 기록을 analysis에 잇는다. 저장 트랜잭션 안에서 불러,
-        저장이 되돌려지면 잇기도 되돌려진다.
-        """
-        UsageLog.objects.filter(pk__in=self._ids, analysis__isnull=True).update(analysis=analysis)
 
     def succeed(self):
         """요청이 이 경로의 결과를 오류 없이 냈다."""

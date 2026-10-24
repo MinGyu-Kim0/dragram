@@ -228,7 +228,7 @@ TIMEOUT_SECONDS = 30
 # 조각이 계속 오면 위 상한에 걸리지 않으므로 스트림 전체에도 상한을 둔다.
 STREAM_DEADLINE_SECONDS = 60
 # 스트림 뒤 보조 호출(다시 묻기·예문 다시 쓰기)까지 요청 하나가 LLM을 기다리는 전체 상한.
-# 클라이언트를 만든 때부터 센다. 운영 Gunicorn 작업자 타임아웃(Dockerfile, 120초)보다 저장할
+# 클라이언트를 만든 때부터 센다. 분석 작업 시간 제한(analysis/jobs.py, 120초)보다 저장할
 # 시간만큼 짧아야 하고, 스트림 상한과 조각 대기 상한을 더한 것보다는 길어야 한다.
 REQUEST_DEADLINE_SECONDS = 110
 MAX_RETRIES = 0

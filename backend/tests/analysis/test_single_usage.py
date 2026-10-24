@@ -5,7 +5,7 @@ import pytest
 from analysis import review
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.helpers import analyze, new_pattern, saved_analyses, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -98,13 +98,13 @@ def test_proposal_at_a_decided_span_is_dropped_without_asking_again(client, fake
 
 def test_llm_failure_after_the_decided_spans_saves_nothing(client, fake_llm):
     closed_teiru(client, fake_llm)
-    before = SentenceAnalysis.objects.count()
+    before = saved_analyses().count()
     fake_llm.error = BusinessError(AnalysisError.FAILED, "LLM 호출 실패")
 
     response = analyze(client, KITEIRU)
 
     assert response.types() == ["grammar", "error"]
-    assert SentenceAnalysis.objects.count() == before
+    assert saved_analyses().count() == before
 
 
 def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fake_llm):

@@ -7,7 +7,7 @@ import pytest
 from analysis import review
 from analysis.models import GrammarPattern, SentenceAnalysis
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import add_word, analyze, new_pattern, post, span_answer
+from tests.analysis.helpers import add_word, analyze, new_pattern, post, read_body, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -26,7 +26,7 @@ def stale_teiru(client, fake_llm):
 
 
 def first_event(response):
-    return json.loads(next(iter(response.streaming_content)))
+    return json.loads(read_body(response).decode().splitlines()[0])
 
 
 def test_stale_analysis_sends_its_previous_result_before_calling_the_llm(client, fake_llm):
@@ -34,9 +34,10 @@ def test_stale_analysis_sends_its_previous_result_before_calling_the_llm(client,
     calls = len(fake_llm.requests)
 
     response = post(client, "走っている")
+    # 앞선 이벤트는 응답을 만들 때 정해지고, LLM 작업은 스트림을 읽을 때 시작한다.
+    assert len(fake_llm.requests) == calls
 
     first = first_event(response)
-    assert len(fake_llm.requests) == calls
     assert first["type"] == "previous"
     assert first["translation_ko"] == "달리고 있다"
     assert first["ruby"] == [{"start": 0, "end": 1, "reading": "はし"}]

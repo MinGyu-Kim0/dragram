@@ -60,7 +60,7 @@ def enqueue_analysis(analysis_id, text, usage_id):
 def publish(sentence_hash, message):
     """작업 소식 하나를 보낸다.
 
-    message는 {"type": "translation" | "words" | "done" | "failed", ...}이다.
+    message는 {"type": "translation" | "judged" | "done" | "failed", ...}이다.
     """
     with _connection() as connection:
         connection.publish(channel(sentence_hash), json.dumps(message, ensure_ascii=False))

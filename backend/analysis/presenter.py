@@ -250,14 +250,32 @@ class Presenter:
             ),
         }
 
-    def words_event(self, word_spans):
-        """저장 전에 작업자가 알린 단어(LLM이 고른 뜻, #97).
+    def judged_event(self, spans, word_spans):
+        """첫 LLM 응답이 판정한 문법과 고른 뜻(저장 전, #97). spans·word_spans는 작업자 소식이다.
 
-        뜻은 DB에서 읽는다.
+        용법을 고른 구간은 그 용법의 카드가 되고, 해당 없음은 확인 중에서 빠진다. 해석 갈림·미확정·
+        미발견은 다시 묻기나 저장을 기다리므로 확인 중으로 남는다. 새 구문은 저장 전에는 패턴이
+        없어 analysis에서 보인다. 구간은 (패턴, 토큰 위치)로 이 요청의 후보 구간과 맞춘다.
         """
         s = self.sentence
+        judged = {(j["pattern_id"], j["start_token"], j["end_token"]): j for j in spans}
+        grammar, checking = self.closed_grammar(), []
+        for span in s.spans:
+            answer = judged.get((span.pattern.id, span.start_token, span.end_token))
+            state = answer["state"] if answer else None
+            if state == SpanMatch.State.DECIDED:
+                usage = next((u for _, u in span.candidates if u.id == answer["usage_id"]), None)
+                item = usage and self.grammar_item(
+                    span.pattern, usage, *s.key_span(span.start_token, span.end_token)
+                )
+                if item:
+                    grammar.append(item)
+            elif state != SpanMatch.State.NOT_APPLICABLE:
+                checking.append(span)
         return {
-            "type": "words",
+            "type": "judged",
+            "grammar": sorted(grammar, key=lambda item: (item["start"], item["end"])),
+            "checking": self.checking(checking),
             "words": _words_response(
                 word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16, True
             ),

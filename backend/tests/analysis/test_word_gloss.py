@@ -179,11 +179,11 @@ def test_chosen_senses_and_new_meanings_are_sent_before_the_analysis(client, fak
 
     response = analyze(client, "本を開いた")
 
-    assert response.types() == ["grammar", "translation", "words", "analysis"]
+    assert response.types() == ["grammar", "translation", "judged", "analysis"]
     # 고른 뜻이 analysis 전에 오고, 새 한국어 뜻은 그 뒤 analysis에 실린다. 테스트는 작업을 요청
     # 안에서 바로 실행해 words 이벤트를 만들 때도 한국어 뜻이 이미 저장돼 있다(작업자 쪽 순서는
     # 아래 테스트에서 본다).
-    [chosen] = (e["words"] for e in response.events if e["type"] == "words")
+    [chosen] = (e["words"] for e in response.events if e["type"] == "judged")
     assert [(w["start"], w["sense"]["tags"]) for w in chosen] == [(2, ["intransitive"])]
     [word] = response.events[-1]["words"]
     assert word["sense"]["meaning_ko"] == "피다"
@@ -223,7 +223,7 @@ def test_worker_publishes_chosen_senses_before_making_meanings(
     spans = [{"start": 2, "end": 4, "sense_id": bloom.id}]
     assert published == [
         ("translation", None, None),
-        ("words", spans, None),
+        ("judged", spans, None),
         ("done", None, "開く 뜻"),
     ]
 

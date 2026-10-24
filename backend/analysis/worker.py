@@ -47,6 +47,20 @@ def _sense_ids(word_spans):
     return sorted({span["sense_id"] for span in word_spans})
 
 
+def _judged_spans(spans, answers):
+    """첫 응답이 판정한 후보 구간을 저장 전에 알릴 소식(#97). 패턴·용법 ID와 토큰 위치만 싣는다."""
+    return [
+        {
+            "pattern_id": span.pattern.id,
+            "start_token": span.start_token,
+            "end_token": span.end_token,
+            "state": state,
+            "usage_id": usage.id if state == SpanMatch.State.DECIDED else None,
+        }
+        for span, (state, usage, _) in zip(spans, answers, strict=True)
+    ]
+
+
 def _reading_changed(first, again):
     """해석 갈림·미확정이던 구간의 주 해석이 다시 묻기에서 바뀌었는가(번역을 바꿀지).
 
@@ -165,9 +179,14 @@ class Worker:
         # 거부될 응답이면 다시 묻지 않는다.
         reject_quotes(validated, s)
         stored_words = s.word_spans(validated["words"])
-        if s.ambiguous:
-            # LLM이 고른 뜻을 저장 전에 알린다. 소식에는 키 텍스트 위치와 뜻 ID만 싣는다.
-            self.publish({"type": "words", "word_spans": stored_words})
+        if s.spans or s.ambiguous:
+            self.publish(
+                {
+                    "type": "judged",
+                    "spans": _judged_spans(s.spans, validated["spans"]),
+                    "word_spans": stored_words,
+                }
+            )
         # 다시 묻기는 번역을 알린 뒤, 저장 트랜잭션 밖에서 한다.
         self.save(self.ask_again(self.prepare(validated)))
         # 한국어 뜻은 저장한 뒤 만든다. 느리거나 실패해도 분석은 이미 저장돼 있고, 요청 마감을

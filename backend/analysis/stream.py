@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 
 # 응답은 줄 단위 JSON(한 줄에 이벤트 하나)이다(#27).
-# translation(번역, 루비) → analysis(번역, 문법, 단어) 순서다. 새 문장은 그 사이에 words(LLM이 고른
-# 뜻)가 올 수 있다(#97). 형태소 분석 등 응답을 시작하기 전의
+# translation(번역, 루비) → analysis(번역, 문법, 단어) 순서다. 새 문장은 그 사이에 judged(첫 LLM
+# 응답이 판정한 문법, 고른 뜻)가 올 수 있다(#97). 형태소 분석 등 응답을 시작하기 전의
 # 실패는 다른 API 오류처럼 상태 코드로, 큐 넣기·작업자의 LLM 작업 실패는 error 이벤트로 알린다(#98).
 _NDJSON = "application/x-ndjson"
 
@@ -146,8 +146,10 @@ async def llm_stream(presenter, user, early):
                     translated = True
                     yield _ndjson(presenter.translation_event(message["translation_ko"]))
                 continue
-            if message["type"] == "words":
-                event = await sync_to_async(presenter.words_event)(message["word_spans"])
+            if message["type"] == "judged":
+                event = await sync_to_async(presenter.judged_event)(
+                    message["spans"], message["word_spans"]
+                )
                 yield _ndjson(event)
                 continue
             if message["type"] == "done":

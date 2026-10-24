@@ -5,6 +5,7 @@ import threading
 import pytest
 from django.db import connection
 
+from analysis import views
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -151,16 +152,21 @@ def test_first_filled_grammar_wins_when_row_without_grammar_is_filled_concurrent
 # 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
 @pytest.mark.timeout(120)  # 요청 80개를 보내는 부하 테스트라 기본 상한보다 오래 걸린다.
-def test_concurrent_requests_all_succeed(fake_llm):
+def test_concurrent_requests_all_succeed(fake_llm, monkeypatch):
     # runserver·gunicorn 스레드처럼 여러 요청이 동시에 형태소 분석을 한다.
+    # 선점한 요청의 작업이 끝나기까지 20초 넘게 걸려, 기다리는 요청이 공통 대기 상한(1초)에
+    # 닫히지 않게 늘린다. 테스트 시간 상한(120초)보다는 짧게 둔다.
+    monkeypatch.setattr(views, "WAIT_SECONDS", 60)
     long_sentence = "吾輩は猫である。名前はまだ無い。" * 200
-    statuses = []
+    results = []
 
     def send_requests():
         thread_client = connected_client()
         try:
             for _ in range(10):
-                statuses.append(analyze(thread_client, long_sentence).status_code)
+                response = analyze(thread_client, long_sentence)
+                # 스트림은 실패해도 200이라 error 이벤트도 본다.
+                results.append((response.status_code, response.json().get("error")))
         finally:
             # 스레드가 연 DB 연결을 닫아야 테스트 DB를 지울 수 있다.
             connection.close()
@@ -171,7 +177,7 @@ def test_concurrent_requests_all_succeed(fake_llm):
     for thread in threads:
         thread.join()
 
-    assert statuses == [200] * 80
+    assert results == [(200, None)] * 80
 
 
 def test_llm_receives_sentence_and_token_ids(client, fake_llm):

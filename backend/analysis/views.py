@@ -12,7 +12,7 @@ from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from accounts.tokens import ExtensionTokenAuthentication
-from analysis import jobs, llm, patterns, words
+from analysis import jobs, llm, patterns
 from analysis.answers import (
     _NEW_PATTERN_TEXTS,
     FIRST_VERDICTS,
@@ -37,17 +37,13 @@ from analysis.normalize import (
     analysis_text,
     has_all_placeholders,
 )
-from analysis.positions import to_analysis, to_original, utf16_offsets
 from analysis.presenter import (
+    Presenter,
     _grammar_entries,
     _grammar_item,
-    _grammar_response,
     _review_status,
-    _ruby_response,
     _with_parts,
-    _words_response,
 )
-from analysis.ruby import ruby_pieces
 from analysis.sentence import (
     Sentence,
     _is_fresh,
@@ -210,27 +206,10 @@ def _pipeline(sentence, normalized=False):
         text_to_analyze, origins = analysis_text(sentence)
     s = Sentence(text_to_analyze)
     numbers, key_text, sentence_hash = s.numbers, s.key_text, s.sentence_hash
-    morphs, offsets, token_at = s.morphs, s.offsets, s.token_at
-    utf16 = utf16_offsets(sentence)
-
-    restore = s.restore
-
-    # 루비는 SudachiPy 읽기라 LLM·캐시와 상관없이 요청마다 이 원문 기준으로 계산한다.
-    ruby = _ruby_response(ruby_pieces(text_to_analyze, morphs), origins, utf16)
-
-    def translation_event(translation):
-        return {"type": "translation", "translation_ko": restore(translation), "ruby": ruby}
-
-    def analysis_event(saved):
-        # 동시에 저장된 다른 요청의 결과를 쓸 수 있어, 문법·단어와 짝인 번역을 함께 싣는다.
-        return {
-            "type": "analysis",
-            "translation_ko": restore(saved.translation_ko),
-            "grammar": _grammar_response(saved, offsets, origins, utf16, restore),
-            "words": _words_response(
-                saved.word_spans, text_to_analyze, token_at, offsets, origins, utf16
-            ),
-        }
+    morphs, offsets = s.morphs, s.offsets
+    p = Presenter(s, sentence, origins)
+    restore, utf16, ruby = s.restore, p.utf16, p.ruby
+    translation_event, analysis_event = p.translation_event, p.analysis_event
 
     existing, cached = s.existing, s.cached
     started_generation, matcher_version = s.started_generation, s.matcher_version
@@ -642,53 +621,7 @@ def _pipeline(sentence, normalized=False):
         )
         return locked.generation != started_generation or _basis_changed(rows, rules)
 
-    def closed_grammar():
-        """LLM 없이 확정한 구간의 응답 항목(원문 순서)."""
-        grammar = []
-        for span, _, usage, _ in sorted(
-            closed_spans, key=lambda c: (c[0].start_token, c[0].end_token)
-        ):
-            start, end = key_span(span.start_token, span.end_token)
-            grammar.append(_grammar_item(span.pattern, usage, start, end, offsets, origins, utf16))
-        return grammar
-
-    def checking(span_list):
-        """판별 대상 구간의 원문 위치와 후보 용법의 이름·검수 상태(원문 순서). 후보 이름도 LLM이
-        만든 지식이라 미검수면 미검수로 보인다(불변식). 반려된 용법은 후보에 없다.
-        """
-        items = []
-        for span in sorted(span_list, key=lambda span: (span.start_token, span.end_token)):
-            key_start, key_end = key_span(span.start_token, span.end_token)
-            start, end = to_original(origins, utf16, *to_analysis(offsets, key_start, key_end))
-            candidates = [
-                {"name": usage.name, "review_status": _review_status(span.pattern, usage)}
-                for _, usage in span.candidates
-            ]
-            items.append({"start": start, "end": end, "candidates": candidates})
-        return items
-
-    def early_events():
-        """LLM을 기다리기 전에 DB만으로 보낼 이벤트.
-
-        stale 행의 옛 결과는 다시 분석하는 동안 '재분석 중'으로 보이도록 먼저 보낸다(#60). 저장된
-        결과를 그대로 내보내지 않고 analysis 이벤트와 같은 경로로 만들어, 반려된 구간은 빠지고 검수
-        상태는 지금 지식 상태로 다시 계산된다. 이어서 확정 구간과 판별 대상 구간(화면의 확인 중),
-        사전에서 찾은 단어를 보낸다(#39, #44, #96).
-        """
-        events = []
-        if existing is not None and existing.word_spans is not None:
-            events.append({**analysis_event(existing), "type": "previous", "ruby": ruby})
-        early_words = sentence_words()
-        if closed_spans or spans or early_words:
-            events.append(
-                {
-                    "type": "grammar",
-                    "grammar": closed_grammar(),
-                    "checking": checking(spans),
-                    "words": early_words,
-                }
-            )
-        return events
+    checking, early_events = p.checking, p.early_events
 
     def claim(user):
         """이 문장의 LLM 작업을 선점한다. 구독한 뒤에 부른다(ADR 0005).
@@ -1047,29 +980,7 @@ def _pipeline(sentence, normalized=False):
             event = rematch_fallback(new_closed)
         yield event
 
-    found, ambiguous, llm_words = s.found, s.ambiguous, s.llm_words
-
-    def sentence_words():
-        """LLM 응답 전에 보낼 단어(원문 순서). 뜻이 여럿인 단어는 표제·읽기·태그만 보낸다(뜻은
-        None). 여러 항목이 걸렸으면(開く あく/ひらく) 고르기 전이라 읽기는 모두 잇고(・) 태그는
-        항목들에 공통인 것만 보인다.
-        """
-        items = []
-        for token, cands in found.items():
-            start, end = to_original(origins, utf16, morphs[token].begin, morphs[token].end)
-            if len(cands) == 1:
-                [only] = cands
-                items.append(
-                    words.response_item(start, end, only.sense.word, only.reading, only.sense)
-                )
-                continue
-            item = words.response_item(start, end, cands[0].sense.word, cands[0].reading, None)
-            item["reading"] = "・".join(dict.fromkeys(c.reading for c in cands))
-            item["tags"] = sorted(
-                set.intersection(*(set(words.word_tags(c.sense.word)) for c in cands))
-            )
-            items.append(item)
-        return items
+    ambiguous, llm_words = s.ambiguous, s.llm_words
 
     word_spans = s.word_spans
 

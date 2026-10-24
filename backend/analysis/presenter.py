@@ -7,7 +7,8 @@ from analysis.models import (
     SpanMatch,
     WordSense,
 )
-from analysis.positions import to_analysis, to_original
+from analysis.positions import to_analysis, to_original, utf16_offsets
+from analysis.ruby import ruby_pieces
 from analysis.sentence import _pattern_statuses
 
 # 화면에 보이는 구간 판정
@@ -215,3 +216,133 @@ def _ruby_response(pieces, origins, utf16):
         start, end = to_original(origins, utf16, start, end)
         ruby.append({"start": start, "end": end, "reading": reading})
     return ruby
+
+
+class Presenter:
+    """한 요청의 원문(original) 기준 이벤트. origins는 분석 텍스트 글자마다의 원문 구간이다.
+
+    같은 분석을 표기가 다른 원문이 함께 쓰므로, 위치·숫자는 요청마다 그 원문 기준으로 계산한다.
+    """
+
+    def __init__(self, sentence, original, origins):
+        self.sentence = sentence
+        self.origins = origins
+        self.utf16 = utf16_offsets(original)
+        # 루비는 SudachiPy 읽기라 LLM·캐시와 상관없이 요청마다 이 원문 기준으로 계산한다.
+        self.ruby = _ruby_response(ruby_pieces(sentence.text, sentence.morphs), origins, self.utf16)
+
+    def translation_event(self, translation):
+        return {
+            "type": "translation",
+            "translation_ko": self.sentence.restore(translation),
+            "ruby": self.ruby,
+        }
+
+    def analysis_event(self, saved):
+        # 동시에 저장된 다른 요청의 결과를 쓸 수 있어, 문법·단어와 짝인 번역을 함께 싣는다.
+        s = self.sentence
+        return {
+            "type": "analysis",
+            "translation_ko": s.restore(saved.translation_ko),
+            "grammar": _grammar_response(saved, s.offsets, self.origins, self.utf16, s.restore),
+            "words": _words_response(
+                saved.word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16
+            ),
+        }
+
+    def grammar_entries(self, analysis):
+        """저장 구간의 (항목, show_parts) 목록(원문 순서, _grammar_entries)."""
+        s = self.sentence
+        return _grammar_entries(analysis, s.offsets, self.origins, self.utf16, s.restore)
+
+    def grammar_item(self, pattern, usage, start_offset, end_offset):
+        """키 텍스트 구간 하나의 응답 항목(_grammar_item). 반려됐으면 None."""
+        return _grammar_item(
+            pattern,
+            usage,
+            start_offset,
+            end_offset,
+            self.sentence.offsets,
+            self.origins,
+            self.utf16,
+        )
+
+    def closed_grammar(self):
+        """LLM 없이 확정한 구간의 응답 항목(원문 순서)."""
+        s = self.sentence
+        grammar = []
+        for span, _, usage, _ in sorted(
+            s.closed_spans, key=lambda c: (c[0].start_token, c[0].end_token)
+        ):
+            start, end = s.key_span(span.start_token, span.end_token)
+            grammar.append(self.grammar_item(span.pattern, usage, start, end))
+        return grammar
+
+    def checking(self, span_list):
+        """판별 대상 구간의 원문 위치와 후보 용법의 이름·검수 상태(원문 순서). 후보 이름도 LLM이
+        만든 지식이라 미검수면 미검수로 보인다(불변식). 반려된 용법은 후보에 없다.
+        """
+        s = self.sentence
+        items = []
+        for span in sorted(span_list, key=lambda span: (span.start_token, span.end_token)):
+            key_start, key_end = s.key_span(span.start_token, span.end_token)
+            start, end = to_original(
+                self.origins, self.utf16, *to_analysis(s.offsets, key_start, key_end)
+            )
+            candidates = [
+                {"name": usage.name, "review_status": _review_status(span.pattern, usage)}
+                for _, usage in span.candidates
+            ]
+            items.append({"start": start, "end": end, "candidates": candidates})
+        return items
+
+    def sentence_words(self):
+        """LLM 응답 전에 보낼 단어(원문 순서). 뜻이 여럿인 단어는 표제·읽기·태그만 보낸다(뜻은
+        None). 여러 항목이 걸렸으면(開く あく/ひらく) 고르기 전이라 읽기는 모두 잇고(・) 태그는
+        항목들에 공통인 것만 보인다.
+        """
+        morphs = self.sentence.morphs
+        items = []
+        for token, cands in self.sentence.found.items():
+            start, end = to_original(
+                self.origins, self.utf16, morphs[token].begin, morphs[token].end
+            )
+            if len(cands) == 1:
+                [only] = cands
+                items.append(
+                    words.response_item(start, end, only.sense.word, only.reading, only.sense)
+                )
+                continue
+            item = words.response_item(start, end, cands[0].sense.word, cands[0].reading, None)
+            item["reading"] = "・".join(dict.fromkeys(c.reading for c in cands))
+            item["tags"] = sorted(
+                set.intersection(*(set(words.word_tags(c.sense.word)) for c in cands))
+            )
+            items.append(item)
+        return items
+
+    def early_events(self):
+        """LLM을 기다리기 전에 DB만으로 보낼 이벤트.
+
+        stale 행의 옛 결과는 다시 분석하는 동안 '재분석 중'으로 보이도록 먼저 보낸다(#60). 저장된
+        결과를 그대로 내보내지 않고 analysis 이벤트와 같은 경로로 만들어, 반려된 구간은 빠지고 검수
+        상태는 지금 지식 상태로 다시 계산된다. 이어서 확정 구간과 판별 대상 구간(화면의 확인 중),
+        사전에서 찾은 단어를 보낸다(#39, #44, #96).
+        """
+        s = self.sentence
+        events = []
+        if s.existing is not None and s.existing.word_spans is not None:
+            events.append(
+                {**self.analysis_event(s.existing), "type": "previous", "ruby": self.ruby}
+            )
+        early_words = self.sentence_words()
+        if s.closed_spans or s.spans or early_words:
+            events.append(
+                {
+                    "type": "grammar",
+                    "grammar": self.closed_grammar(),
+                    "checking": self.checking(s.spans),
+                    "words": early_words,
+                }
+            )
+        return events

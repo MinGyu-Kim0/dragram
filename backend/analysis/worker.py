@@ -217,6 +217,13 @@ class Worker:
         아래 미검수 뜻을 더한다. 기존 단어가 없으면 사전 항목 없는 단어와 뜻을 만든다. 호출이
         실패하거나 답이 틀린 단어는 빼고, 분석은 계속한다.
         """
+        s = self.sentence
+        # 사전형·읽기는 공용 word에 들어가므로 문장 전체를 인용한 답은 묻기 전에 뺀다.
+        new_words = {
+            token: answer
+            for token, answer in new_words.items()
+            if not _quotes_whole_sentence(answer, s.key_text, s.content_tokens)
+        }
         if not new_words or self.job_outdated():
             return {}
         asked, items = [], []
@@ -240,7 +247,6 @@ class Worker:
         answers = _validate_definitions(
             result, {i: {c.sense.id for c in cands} for i, (*_, cands) in enumerate(asked)}
         )
-        s = self.sentence
         chosen = {}
         for word_id, (sense_id, meaning, sense_tags, word_tags) in answers.items():
             token, form, reading, candidates = asked[word_id]

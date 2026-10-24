@@ -432,6 +432,18 @@ def test_new_sense_quoting_the_whole_sentence_is_not_stored(client, fake_llm):
     assert saved_words() == []
 
 
+def test_new_word_quoting_the_whole_sentence_is_not_asked_or_stored(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "달리고 있다",
+        "new_words": [new_word(0, "走っている", "はしっている")],
+    }
+
+    analyze(client, "走っている")
+
+    assert fake_llm.define_requests == []
+    assert not Word.objects.exists()
+
+
 def test_second_step_runs_after_the_grammar_is_asked_again(client, fake_llm):
     # 토큰: 0 走っ / 1 て / 2 いる. ている를 등록해 둔다.
     fake_llm.response = {

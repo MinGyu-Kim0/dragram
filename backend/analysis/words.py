@@ -120,25 +120,68 @@ def lookup(text, morphs, tokens):
     text는 형태소 분석한 분석 텍스트다. 흔한 단어를 앞에 두고, 그다음 JMdict 번호·뜻 순서다.
     반려된 뜻은 후보가 아니다.
     """
+    found = {}
+    for token in tokens:
+        for query in _queries(text, morphs[token]):
+            candidates = _find(query)
+            if candidates:
+                found[token] = candidates
+                break
+    return found
+
+
+def _find(query):
     senses = Prefetch(
         "senses",
         queryset=WordSense.objects.exclude(sense_status=ReviewStatus.REJECTED).order_by(
             "jmdict_sense_index", "id"
         ),
     )
-    found = {}
-    for token in tokens:
-        for query in _queries(text, morphs[token]):
-            words = (
-                Word.objects.filter(_filter(query))
-                .prefetch_related(senses)
-                .order_by("-is_common", "jmdict_seq", "id")
-            )
-            candidates = _candidates(words, query)
-            if candidates:
-                found[token] = candidates
-                break
-    return found
+    words = (
+        Word.objects.filter(_filter(query))
+        .prefetch_related(senses)
+        .order_by("-is_common", "jmdict_seq", "id")
+    )
+    return _candidates(words, query)
+
+
+def find_again(form, reading):
+    """LLM이 답한 사전형·읽기(히라가나)로 다시 찾은 후보 뜻(#134 2단계)."""
+    return _find(_Query(form, to_hiragana(form) if is_kana(form) else reading))
+
+
+def add_llm_sense(word, meaning, tags):
+    """LLM이 만든 미검수 뜻을 단어 아래에 더한다(한국어 뜻 포함, #134)."""
+    return WordSense.objects.create(
+        word=word,
+        tags=tags,
+        sense_origin=WordSense.Origin.LLM,
+        sense_status=ReviewStatus.PENDING,
+        meaning_ko=meaning,
+        meaning_source=WordSense.MeaningSource.LLM,
+        meaning_status=WordSense.MeaningStatus.AI,
+    )
+
+
+def get_or_make_word(form, reading, tags):
+    """사전에 없는 단어(jmdict_seq 없음). (사전형, 읽기)가 같은 단어가 있으면 그 행을 쓴다.
+
+    동시에 만들면 부분 유일 제약으로 하나만 남는다. 대표 표기는 처음 저장한 값으로 고정된다.
+    읽기도 표기에 넣어(JMdict처럼) 표기에 맞는 읽기를 고를 수 있게 한다.
+    """
+    word, _ = Word.objects.get_or_create(
+        jmdict_seq=None,
+        dictionary_form=form,
+        reading=reading,
+        defaults={
+            "forms": list(dict.fromkeys([form, reading])),
+            "readings": [reading],
+            "is_common": False,
+            "pos": "",
+            "tags": tags,
+        },
+    )
+    return word
 
 
 def reading_for(sense, text, morph):
@@ -229,4 +272,8 @@ def save_meanings(asked, made):
 
 def llm_candidates(candidates):
     """LLM에 넘길 후보: '뜻 ID: 영어 뜻 최대 3개'."""
-    return [f"{c.sense.id}: {'; '.join((c.sense.gloss_en or [])[:3])}" for c in candidates]
+    # LLM이 만든 뜻은 영어 뜻이 없어 한국어 뜻을 보인다(#134).
+    return [
+        f"{c.sense.id}: {'; '.join((c.sense.gloss_en or [c.sense.meaning_ko or ''])[:3])}"
+        for c in candidates
+    ]

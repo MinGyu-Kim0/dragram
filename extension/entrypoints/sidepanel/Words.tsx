@@ -74,7 +74,7 @@ function Preparing() {
 
 // 단어 행: 사전형(표제), 읽기, 태그, 이 문장에서 고른 뜻. 드래그 범위와 겹친 단어를 먼저 두고,
 // 각 묶음 안은 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
-// 목록 아래에 JMdict 출처 각주를 단다.
+// JMdict에서 온 단어가 있으면 목록 아래에 출처 각주를 단다. LLM이 만든 뜻만 있으면 달지 않는다(#134).
 export function WordList({
   words,
   selection,
@@ -86,6 +86,10 @@ export function WordList({
     return <p className="no-words">단어 없음</p>;
   }
   const sorted = [...words].sort((a, b) => a.start - b.start || a.end - b.end);
+  // 뜻을 아직 고르지 않은 단어는 사전 후보가 여럿인 단어다.
+  const fromDictionary = words.some(
+    (word) => word.sense === null || word.sense.origin === "jmdict",
+  );
   return (
     <>
       <ul className="word-list" aria-label="단어">
@@ -115,25 +119,27 @@ export function WordList({
           );
         })}
       </ul>
-      <p className="source-note">
-        단어 정보:{" "}
-        <a
-          href="https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project"
-          target="_blank"
-          rel="noreferrer"
-        >
-          JMdict
-        </a>{" "}
-        (EDRDG,{" "}
-        <a
-          href="https://creativecommons.org/licenses/by-sa/4.0/"
-          target="_blank"
-          rel="noreferrer"
-        >
-          CC BY-SA 4.0
-        </a>
-        ). 이 문장에 맞는 뜻만 골라 보여 줘요.
-      </p>
+      {fromDictionary && (
+        <p className="source-note">
+          단어 정보:{" "}
+          <a
+            href="https://www.edrdg.org/wiki/index.php/JMdict-EDICT_Dictionary_Project"
+            target="_blank"
+            rel="noreferrer"
+          >
+            JMdict
+          </a>{" "}
+          (EDRDG,{" "}
+          <a
+            href="https://creativecommons.org/licenses/by-sa/4.0/"
+            target="_blank"
+            rel="noreferrer"
+          >
+            CC BY-SA 4.0
+          </a>
+          ). 이 문장에 맞는 뜻만 골라 보여 줘요.
+        </p>
+      )}
     </>
   );
 }

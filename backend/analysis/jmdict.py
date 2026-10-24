@@ -53,6 +53,9 @@ WHOLE_WORD_TAGS = frozenset(
     {tag for tags in WORD_TAGS.values() for tag in tags} | {GROUP1_EXCEPTION}
 )
 
+# 뜻 태그(검색용으로 word.tags에도 모은다)
+SENSE_TAG_NAMES = frozenset(SENSE_TAGS.values()) | {LOANWORD}
+
 # 태그 허용 목록
 ALLOWED_TAGS = WHOLE_WORD_TAGS | set(SENSE_TAGS.values()) | {LOANWORD}
 

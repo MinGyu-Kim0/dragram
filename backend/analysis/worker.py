@@ -8,6 +8,7 @@ from analysis.answers import (
     RECHECK_VERDICTS,
     _is_text,
     _validate,
+    _validate_definitions,
     _validate_meanings,
     _validate_recheck_answers,
     _validate_translation,
@@ -168,7 +169,7 @@ class Worker:
         translated = False
         result = None
         for kind, value in self.client.analyze_stream(
-            s.key_text, s.tokens, s.llm_spans, s.decided_spans, s.llm_words
+            s.key_text, s.tokens, s.llm_spans, s.decided_spans, s.llm_words, s.unknown
         ):
             if kind == "translation":
                 _validate_translation(value, s.numbers)
@@ -176,7 +177,9 @@ class Worker:
                 self.share_translation(value)
             else:
                 result = value
-        validated = _validate(result, s.numbers, len(s.morphs), s.spans, s.ambiguous)
+        validated = _validate(
+            result, s.numbers, len(s.morphs), s.spans, s.ambiguous, set(s.unknown)
+        )
         if not translated:
             self.share_translation(validated["translation_ko"])
         # 거부될 응답이면 다시 묻지 않는다.
@@ -190,11 +193,57 @@ class Worker:
                     "word_spans": stored_words,
                 }
             )
+        # 사전에 없던 단어는 저장 전에 2단계로 만들어 analysis에 함께 싣는다(#134).
+        validated["words"] = {**validated["words"], **self.define_words(validated["new_words"])}
         # 다시 묻기는 번역을 알린 뒤, 저장 트랜잭션 밖에서 한다.
         self.save(self.ask_again(self.prepare(validated)))
         # 한국어 뜻은 저장한 뒤 만든다. 느리거나 실패해도 분석은 이미 저장돼 있고, 요청 마감을
         # 다시 묻기·예문 다시 쓰기보다 먼저 쓰지 않는다. 새 한국어 뜻은 done 뒤 analysis에 실린다.
         self.make_meanings(_sense_ids(stored_words))
+
+    def define_words(self, new_words):
+        """사전에 없던 토큰의 2단계(#134). {토큰: 사전형·읽기}를 받아 {토큰: 뜻 ID}를 돌려준다.
+
+        받은 사전형·읽기로 다시 찾아, 기존 단어면 그 후보에서 고르게 하고 맞는 뜻이 없으면 그 단어
+        아래 미검수 뜻을 더한다. 기존 단어가 없으면 사전 항목 없는 단어와 뜻을 만든다. 호출이
+        실패하거나 답이 틀린 단어는 빼고, 분석은 계속한다.
+        """
+        if not new_words or self.job_outdated():
+            return {}
+        asked, items = [], []
+        for word_id, (token, (form, reading)) in enumerate(sorted(new_words.items())):
+            candidates = words.find_again(form, reading)
+            asked.append((token, form, reading, candidates))
+            items.append(
+                {
+                    "word_id": word_id,
+                    "token_id": token,
+                    "dictionary_form": form,
+                    "reading": reading,
+                    "candidates": words.llm_candidates(candidates),
+                }
+            )
+        try:
+            result = self.client.define_words(self.sentence.key_text, items)
+        except BusinessError as e:
+            log_business_error(e)
+            return {}
+        answers = _validate_definitions(
+            result, {i: {c.sense.id for c in cands} for i, (*_, cands) in enumerate(asked)}
+        )
+        chosen = {}
+        for word_id, (sense_id, meaning, sense_tags, word_tags) in answers.items():
+            token, form, reading, candidates = asked[word_id]
+            if sense_id is None:
+                # 다시 찾은 단어가 여럿이면 앞의 것(흔한 단어 → JMdict 번호 순)에 더한다.
+                word = (
+                    candidates[0].sense.word
+                    if candidates
+                    else words.get_or_make_word(form, reading, word_tags)
+                )
+                sense_id = words.add_llm_sense(word, meaning, sense_tags).id
+            chosen[token] = sense_id
+        return chosen
 
     def make_meanings(self, sense_ids):
         """고른 뜻 가운데 한국어 뜻이 없는 뜻을 LLM 호출 한 번(word_gloss)으로 만든다(#97).

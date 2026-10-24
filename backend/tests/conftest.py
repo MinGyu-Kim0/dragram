@@ -40,6 +40,12 @@ class FakeLLMClient:
         self.gloss_response = None
         self.gloss_error = None
         self.before_gloss = None
+        # 사전에 없는 단어의 2단계: 뜻 고르기·만들기(#134). 응답을 정하지 않으면 단어마다
+        # 새 뜻 '<사전형> 뜻'을 만든다. before_define은 응답하기 전에 실행할 일이다.
+        self.define_requests = []
+        self.define_response = None
+        self.define_error = None
+        self.before_define = None
 
     def connect(self, record):
         """get_client 대신 쓴다. 이 요청의 사용 기록 함수를 받아 둔다."""
@@ -68,6 +74,7 @@ class FakeLLMClient:
             + self.rewrite_requests
             + self.rematch_requests
             + self.gloss_requests
+            + self.define_requests
         )
 
     def forget_requests(self):
@@ -78,10 +85,11 @@ class FakeLLMClient:
             self.rewrite_requests,
             self.rematch_requests,
             self.gloss_requests,
+            self.define_requests,
         ):
             requests.clear()
 
-    def analyze_stream(self, sentence, tokens, spans, decided_spans, words):
+    def analyze_stream(self, sentence, tokens, spans, decided_spans, words, unknown_words):
         """실제 클라이언트처럼 번역이 문자열이면 먼저 넘기고, 이어서 응답 전체를 넘긴다."""
         self.requests.append(
             {
@@ -90,6 +98,7 @@ class FakeLLMClient:
                 "spans": spans,
                 "decided_spans": decided_spans,
                 "words": words,
+                "unknown_words": unknown_words,
             }
         )
         if self.before_respond:
@@ -98,7 +107,7 @@ class FakeLLMClient:
         self._recorded("first_response", self.error)
         response = self.response
         if self.fill_defaults and isinstance(response, dict):
-            response = {"spans": [], "new_patterns": [], "words": [], **response}
+            response = {"spans": [], "new_patterns": [], "words": [], "new_words": [], **response}
         if isinstance(response, dict) and isinstance(response.get("translation_ko"), str):
             yield "translation", response["translation_ko"]
         # 번역을 넘긴 뒤 응답 전체를 넘기기 전까지를 테스트가 볼 수 있게 표시한다.
@@ -159,6 +168,27 @@ class FakeLLMClient:
             "senses": [
                 {"sense_id": s["sense_id"], "meaning_ko": f"{s['dictionary_form']} 뜻"}
                 for s in senses
+            ]
+        }
+
+    def define_words(self, sentence, items):
+        self.define_requests.append({"sentence": sentence, "words": items})
+        if self.before_define:
+            before_define, self.before_define = self.before_define, None
+            before_define()
+        self._recorded("word_gloss", self.error or self.define_error)
+        if self.define_response is not None:
+            return self.define_response
+        return {
+            "words": [
+                {
+                    "word_id": item["word_id"],
+                    "sense_id": None,
+                    "meaning_ko": f"{item['dictionary_form']} 뜻",
+                    "sense_tags": [],
+                    "word_tags": ["noun"],
+                }
+                for item in items
             ]
         }
 

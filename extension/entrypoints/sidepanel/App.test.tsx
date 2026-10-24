@@ -706,6 +706,29 @@ test("한국어 뜻이 아직 없으면 준비 중, 만들지 못했으면 실�
   expect(screen.getByRole("link", { name: "JMdict" })).toBeInTheDocument();
 });
 
+test("LLM이 만든 뜻만 있으면 JMdict 출처 각주를 달지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "달리고 있다",
+    grammar: [],
+    words: [
+      wordItem(0, 2, "走る", "はしる", {
+        origin: "llm",
+        status: "pending",
+        meaning_ko: "달리다",
+      }),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "走っている");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 1" }));
+
+  expect(screen.getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(
+    screen.queryByRole("link", { name: "JMdict" }),
+  ).not.toBeInTheDocument();
+});
+
 test("분석 전에 온 judged 이벤트로 고른 뜻을 채운다", async () => {
   const stream = streamed();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));

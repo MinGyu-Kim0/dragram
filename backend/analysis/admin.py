@@ -1,7 +1,8 @@
 """패턴·용법 검수 화면(#38).
 
 원문이나 원문 위치를 담은 테이블(sentence_analysis, span_match)은 등록하지 않는다. 패턴·용법은
-LLM이 만들므로 여기서 더하거나 지우지 않는다(회화체를 연결하며 자기 용법을 원형 용법으로 합칠
+LLM이 만들므로 여기서 더하거나 지우지 않는다. 단어·뜻도 문장 분석이 뜻 ID를 가리켜 더하거나 지우지
+않고, 한국어 뜻만 고친다(#97)(회화체를 연결하며 자기 용법을 원형 용법으로 합칠
 때만 그 용법을 지운다, #64). 판별 규칙은 관리자가 여기서 만든다(#55). 상태는 필드가 아니라
 액션으로만 바꾸고, 액션은 analysis.review의 상태 전이를 부른다.
 """
@@ -11,16 +12,20 @@ import json
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
+from django.db.models import Q
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
 from analysis import patterns, review
+from analysis.jmdict import to_hiragana
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
     PatternMorpheme,
     ReviewStatus,
     UsageRule,
+    Word,
+    WordSense,
 )
 from analysis.normalize import has_only_known_placeholders
 from analysis.rules import condition_problem
@@ -407,3 +412,131 @@ class UsageRuleAdmin(admin.ModelAdmin):
         )
         if not saved:
             self.message_user(request, "그사이 승인·폐기돼 저장하지 않았습니다", messages.ERROR)
+
+
+class WordSenseForm(forms.ModelForm):
+    class Meta:
+        model = WordSense
+        fields = ["meaning_ko"]
+
+    def clean_meaning_ko(self):
+        meaning = self.cleaned_data["meaning_ko"]
+        if "meaning_ko" in self.changed_data and not meaning:
+            raise forms.ValidationError("한국어 뜻을 비울 수 없습니다")
+        return meaning
+
+
+class WordSenseInline(admin.TabularInline):
+    model = WordSense
+    form = WordSenseForm
+    fields = [
+        "jmdict_sense_index",
+        "gloss_en",
+        "tags",
+        "sense_origin",
+        "sense_status",
+        "meaning_ko",
+        "meaning_source",
+        "meaning_status",
+    ]
+    readonly_fields = [field for field in fields if field != "meaning_ko"]
+    ordering = ["jmdict_sense_index", "id"]
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class MeaningFilter(admin.SimpleListFilter):
+    """단어의 뜻 가운데 하나라도 그 상태인 단어."""
+
+    title = "한국어 뜻"
+    parameter_name = "meaning"
+    _choices = {
+        "not_in_dictionary": ("사전에 없는 단어", Q(jmdict_seq__isnull=True)),
+        "missing": (
+            "한국어 뜻 없음",
+            Q(senses__meaning_ko__isnull=True) & ~Q(senses__meaning_status="failed"),
+        ),
+        "ai": ("AI 번역", Q(senses__meaning_ko__isnull=False, senses__meaning_status="ai")),
+        "reviewed": ("검수됨", Q(senses__meaning_status="reviewed")),
+        "failed": ("생성 실패", Q(senses__meaning_status="failed")),
+    }
+
+    def lookups(self, request, model_admin):
+        return [(value, label) for value, (label, _) in self._choices.items()]
+
+    def queryset(self, request, queryset):
+        if self.value() not in self._choices:
+            return queryset
+        return queryset.filter(self._choices[self.value()][1]).distinct()
+
+
+def _meaning_action(name, old, new, description):
+    """선택한 단어의 뜻 가운데 한국어 뜻이 있고 상태가 old인 뜻을 new로 바꾸는 admin 액션."""
+
+    def action(model_admin, request, queryset):
+        done = WordSense.objects.filter(
+            word__in=queryset, meaning_ko__isnull=False, meaning_status=old
+        ).update(meaning_status=new)
+        model_admin.message_user(request, f"뜻 {done}개를 처리했습니다", messages.SUCCESS)
+
+    action.__name__ = name
+    return admin.action(description=description)(action)
+
+
+@admin.register(Word)
+class WordAdmin(_ReviewedAdmin):
+    list_display = ["id", "dictionary_form", "reading", "in_dictionary", "updated_at"]
+    list_filter = [MeaningFilter]
+    # 검색은 get_search_results가 표기·읽기 목록으로 한다. 검색창을 보이려고 칸을 둔다.
+    search_fields = ["dictionary_form"]
+    fields = readonly_fields = [
+        "dictionary_form",
+        "reading",
+        "forms",
+        "readings",
+        "pos",
+        "tags",
+        "is_common",
+        "reading_restrictions",
+        "jmdict_seq",
+    ]
+    inlines = [WordSenseInline]
+
+    @admin.display(boolean=True, description="사전에 있음")
+    def in_dictionary(self, word):
+        return word.jmdict_seq is not None
+
+    def get_search_results(self, request, queryset, search_term):
+        term = search_term.strip()
+        if not term:
+            return queryset, False
+        found = Q(forms__contains=[term]) | Q(readings__contains=[to_hiragana(term)])
+        return queryset.filter(found), False
+
+    def save_formset(self, request, form, formset, change):
+        # 고친 한국어 뜻만 쓰고 관리자 검수로 둔다. 화면이 읽어 둔 다른 칸으로 덮지 않는다.
+        # commit=False도 admin 변경 기록에 쓰는 changed_objects 등을 채운다.
+        for sense in formset.save(commit=False):
+            sense.meaning_source = WordSense.MeaningSource.ADMIN
+            sense.meaning_status = WordSense.MeaningStatus.REVIEWED
+            sense.save(
+                update_fields=["meaning_ko", "meaning_source", "meaning_status", "updated_at"]
+            )
+
+    actions = [
+        _meaning_action(
+            "mark_reviewed",
+            WordSense.MeaningStatus.AI,
+            WordSense.MeaningStatus.REVIEWED,
+            "검수 완료",
+        ),
+        _meaning_action(
+            "unmark_reviewed",
+            WordSense.MeaningStatus.REVIEWED,
+            WordSense.MeaningStatus.AI,
+            "검수 취소(AI 번역으로)",
+        ),
+    ]

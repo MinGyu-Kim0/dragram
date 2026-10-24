@@ -69,7 +69,7 @@
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | (구현이 정함, 확인 필요, design-decisions 51절) 선점한 분석 행에 처음부터 잇는다. 새 문장도 LLM을 부르기 전에 처리 중 행을 먼저 만들어, 실패한 시도의 기록도 그 행에 이어진다. 재매칭은 기존 분석 행에 잇는다 |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정) |
-| purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(JMdict 뜻의 한국어 뜻 생성, 문장 없음. 사전에 없는 단어의 두 단계 생성(#134)도 이 목적을 쓸지 그 티켓에서 정한다) / kanji_gloss(한자 한국어 뜻) |
+| purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(JMdict 뜻의 한국어 뜻 생성, 문장 없음(#97). 사전에 없는 단어의 2단계(뜻 고르기·새 뜻 생성, 문장 있음)도 이 목적이다(#134)) / kanji_gloss(한자 한국어 뜻) |
 | model | 모델명 | varchar(255) | Y |  |  |
 | input_tokens | 입력 토큰 수 | integer | Y |  |  |
 | cached_input_tokens | 캐시된 입력 토큰 수 | integer | Y |  | 프롬프트 캐싱 효과 확인용(cached_tokens) |
@@ -98,12 +98,12 @@
 | id | ID | bigint |  | PK |  |
 | dictionary_form | 원형 | varchar(255) |  |  | 대표 표기(표시용). 조회는 forms. 뜻은 word_sense. JMdict 적재: 첫 keb, 없으면 첫 reb(구현이 정함, 확인 필요) / 빈 문자열 금지 CHECK(word_display_not_empty, reading과 함께) |
 | reading | 읽기 | varchar(255) |  |  | 대표 읽기(표시용). 조회는 readings. 원래 표기 그대로(コーヒー). JMdict 적재: 대표 표기에 쓰는 첫 reb(re_nokanji가 아니고 re_restr가 없거나 대표 표기를 포함), 없거나 가나만 있는 항목이면 첫 reb(구현이 정함, 확인 필요) |
-| forms | 모든 표기 | text[] |  |  | JMdict 항목의 모든 한자·가나 표기. GIN. SudachiPy 사전형으로 조회. 사전에 없는 단어는 `[사전형, 히라가나 읽기]`(#134 구현이 정함, 확인 필요) |
-| readings | 모든 읽기 | text[] |  |  | 모든 읽기(히라가나 통일). GIN. 비활용어·가나 표기 단어 조회용. 사전에 없는 단어는 `[히라가나 읽기]` |
-| is_common | 흔한 단어 | boolean |  |  | ke_pri·re_pri 중 news1·ichi1·spec1·spec2·gai1이 하나라도 있으면 true(구현이 정함, 확인 필요). 후보가 여럿일 때 순서 힌트. 사전에 없는 단어는 false(#134) |
+| forms | 모든 표기 | text[] |  |  | JMdict 항목의 모든 한자·가나 표기. GIN. SudachiPy 사전형으로 조회. 사전에 없는 단어는 `[사전형, 히라가나 읽기]`, 둘이 같으면 하나(#134 구현이 정함, 확인 필요) |
+| readings | 모든 읽기 | text[] |  |  | 모든 읽기(히라가나 통일). GIN. 비활용어·가나 표기 단어 조회용. 사전에 없는 단어는 `[히라가나 읽기]`(#134 구현이 정함, 확인 필요) |
+| is_common | 흔한 단어 | boolean |  |  | ke_pri·re_pri 중 news1·ichi1·spec1·spec2·gai1이 하나라도 있으면 true(구현이 정함, 확인 필요). 후보가 여럿일 때 순서 힌트. 사전에 없는 단어는 false(#134 구현이 정함, 확인 필요) |
 | reading_restrictions | 읽기 제한 | jsonb | Y |  | `{읽기: [허용 표기]}`. re_restr: 읽기→허용 표기 목록, re_nokanji 읽기는 `[]`(한자 표기에 쓰지 않음, 구현이 정함, 확인 필요). 표기에 맞는 읽기 표시·후보 거르기용. 대부분 NULL |
 | pos | 품사 | varchar(255) |  |  | JMdict 적재: 첫 뜻의 JMdict pos 코드를 `,`로 이은 값(예: `v1,vt`). pos가 없는 뜻은 앞 뜻의 pos를 이어받음(출처 JMdict는 사용자 결정, 값 모양은 구현이 정함·확인 필요, design-decisions 47절). 사전에 없는 단어는 빈 문자열(#134 구현이 정함, 확인 필요) |
-| tags | 단어 태그 | text[] |  |  | 영문 코드 배열. 단어 전체 태그(품사·동사 그룹(group1/2/3, 예외 1그룹은 group1 대신 group1_exception)·い/な형용사·고유명사) + 검색용 sense 태그 합집합. GIN. 허용 목록과 JMdict 변환표는 코드 상수(`analysis/jmdict.py`). 단어 전체 태그는 모든 뜻의 JMdict pos에서 만듦(design-decisions 47절). 사전에 없는 단어는 LLM이 허용 목록 안에서 고른 단어 전체 태그만 둔다. 목록 밖 값은 버리고, 뜻 태그 합집합은 넣지 않는다(#134. 출처는 트리아지 결정, 합집합 생략은 구현이 정함·확인 필요) |
+| tags | 단어 태그 | text[] |  |  | 영문 코드 배열. 단어 전체 태그(품사·동사 그룹(group1/2/3, 예외 1그룹은 group1 대신 group1_exception)·い/な형용사·고유명사) + 검색용 sense 태그 합집합. GIN. 허용 목록과 JMdict 변환표는 코드 상수(`analysis/jmdict.py`). 단어 전체 태그는 모든 뜻의 JMdict pos에서 만듦(design-decisions 47절). 사전에 없는 단어는 LLM이 허용 목록 안에서 고른 단어 전체 태그만 둔다. 목록 밖 값은 버린다(#134 트리아지). 새 단어에 뜻 태그 합집합을 넣지 않고, 기존 단어에 LLM 뜻을 더할 때도 이 칸을 바꾸지 않는다(#134 구현이 정함, 확인 필요) |
 | jmdict_seq | JMdict 항목 번호 | integer | Y |  | UNIQUE. JMdict 항목 1개 = word 1행. 사전에 없는 단어(LLM 생성)면 NULL / 사전에 없는 단어 중복 방지: 부분 UNIQUE(dictionary_form, reading) WHERE jmdict_seq IS NULL (저장 전 가나 정규화, 빈 값 금지, 대표 표기 고정) |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 
@@ -260,14 +260,14 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK | 고정 sense 식별자. 학습 카드(Phase 2)는 이 ID를 참조 |
 | word_id | 단어 ID | bigint |  | → word | UNIQUE(word_id, jmdict_sense_index) |
-| jmdict_sense_index | JMdict 뜻 번호 | smallint | Y |  | JMdict 항목 안의 sense 순번(참고용, 식별자로 쓰지 않음). 사전에 없는 전문 용어면 null(내부 sense 1개) |
-| gloss_en | 영어 뜻 | jsonb | Y |  | JMdict 영어 뜻(CC BY-SA 4.0, 출처 표기). 한국어 뜻 생성 근거. LLM 뜻(sense_origin=llm)은 NULL이고 한국어 뜻을 함께 만든다(#134) |
+| jmdict_sense_index | JMdict 뜻 번호 | smallint | Y |  | JMdict 항목 안의 sense 순번(참고용, 식별자로 쓰지 않음). LLM 뜻(sense_origin=llm, 사전에 없는 단어의 뜻과 JMdict 단어 아래 더한 뜻 모두)이면 null(#134) |
+| gloss_en | 영어 뜻 | jsonb | Y |  | JMdict 영어 뜻(CC BY-SA 4.0, 출처 표기). 한국어 뜻 생성 근거. LLM 뜻(sense_origin=llm)은 NULL이고 한국어 뜻을 함께 만든다(#134 구현이 정함, 확인 필요) |
 | tags | 뜻 태그 | text[] |  |  | sense 단위 태그(transitive/intransitive, honorific/humble/polite, uk, onomatopoeia, loanword). JMdict pos/misc 변환, loanword는 lsource가 있는 뜻(구현이 정함, 확인 필요) |
 | pair_form | 자타 대응 동사 | varchar(255) | Y |  | 이 뜻의 자타 대응 동사 표기. 화면 "타동사: 開ける"/"자동사: 開く"(라벨은 이 뜻의 자/타 태그). NULL = 짝 없음 또는 미확인. 웹페이지 단어 화면만 |
 | applies_to | 적용 제한 | jsonb | Y |  | `{"forms": stagk, "readings": stagr}` 중 있는 것만(구현이 정함, 확인 필요): 이 뜻이 적용되는 표기·읽기. 뜻 후보 거르기용. 대부분 NULL |
 | sense_origin | 뜻 출처 | varchar(10) |  |  | jmdict / llm. LLM 뜻은 JMdict 단어 아래에 붙어도 이 칸으로 구분 |
 | sense_status | 뜻 검수 상태 | varchar(20) |  |  | 이 뜻 자체의 검수 상태. llm 출처는 pending으로 시작해 'AI 생성·미검수' 표시, jmdict는 approved. LLM 뜻은 관리자가 승인·반려하고(반려는 후보·응답에서 빠짐), 승인한 LLM 뜻의 배지는 미정(#134, design-decisions 50절) |
-| meaning_ko | 한국어 뜻 | text | Y |  | LLM 생성 후 관리자 검수. JMdict 기반이라 CC BY-SA 4.0·출처·변경 사실 표시 |
+| meaning_ko | 한국어 뜻 | text | Y |  | LLM 생성 후 관리자 검수. JMdict 뜻의 한국어 뜻은 JMdict 기반이라 CC BY-SA 4.0·출처·변경 사실 표시. LLM 뜻(sense_origin=llm)은 사전 근거가 없어 출처 표시를 하지 않는다(#134) |
 | meaning_source | 뜻 출처 | varchar(30) | Y |  | dictionary / llm / admin — 한국어 뜻의 출처·검수 상태(sense_origin과 별개) |
 | meaning_status | 뜻 검수 상태 | varchar(20) |  |  | ai(검수 전, 'AI 번역' 표시. 한국어 뜻이 아직 없는 뜻도 ai) / reviewed(관리자가 고쳤거나 '검수 완료') / failed(`word_gloss` 생성 실패, meaning_ko는 NULL이고 다른 새 문장에 나오면 다시 만든다, #97·마이그레이션 0016) — 한국어 뜻의 출처·검수 상태(sense_origin과 별개) |
 | created_at | 생성 시각 | timestamptz |  |  |  |

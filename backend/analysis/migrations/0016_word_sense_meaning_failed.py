@@ -4,15 +4,17 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('analysis', '0015_analysis_processing'),
+        ("analysis", "0015_analysis_processing"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='wordsense',
-            name='meaning_status',
-            field=models.CharField(choices=[('ai', 'Ai'), ('reviewed', 'Reviewed'), ('failed', 'Failed')], max_length=20),
+            model_name="wordsense",
+            name="meaning_status",
+            field=models.CharField(
+                choices=[("ai", "Ai"), ("reviewed", "Reviewed"), ("failed", "Failed")],
+                max_length=20,
+            ),
         ),
     ]

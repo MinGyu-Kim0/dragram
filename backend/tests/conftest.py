@@ -34,6 +34,12 @@ class FakeLLMClient:
         self.rematch_response = {"spans": []}
         self.rematch_error = None
         self.before_rematch = None
+        # JMdict 뜻의 한국어 뜻을 만드는 요청과 그 응답(#97). 응답을 정하지 않으면 뜻마다
+        # '<표제> 뜻'을 돌려준다. before_gloss는 응답하기 전에 실행할 일이다.
+        self.gloss_requests = []
+        self.gloss_response = None
+        self.gloss_error = None
+        self.before_gloss = None
 
     def connect(self, record):
         """get_client 대신 쓴다. 이 요청의 사용 기록 함수를 받아 둔다."""
@@ -56,7 +62,13 @@ class FakeLLMClient:
 
     def all_requests(self):
         """모든 종류의 LLM 요청 기록(첫 분석, 다시 묻기, 예문 다시 쓰기, 재판정)."""
-        return self.requests + self.rejudge_requests + self.rewrite_requests + self.rematch_requests
+        return (
+            self.requests
+            + self.rejudge_requests
+            + self.rewrite_requests
+            + self.rematch_requests
+            + self.gloss_requests
+        )
 
     def forget_requests(self):
         """준비 단계의 요청 기록을 지운다."""
@@ -65,6 +77,7 @@ class FakeLLMClient:
             self.rejudge_requests,
             self.rewrite_requests,
             self.rematch_requests,
+            self.gloss_requests,
         ):
             requests.clear()
 
@@ -131,6 +144,21 @@ class FakeLLMClient:
             "examples": [
                 {"example_id": e["example_id"], "example_ja": e["rejected_example"]}
                 for e in examples
+            ]
+        }
+
+    def gloss_words(self, senses):
+        self.gloss_requests.append(senses)
+        if self.before_gloss:
+            before_gloss, self.before_gloss = self.before_gloss, None
+            before_gloss()
+        self._recorded("word_gloss", self.error or self.gloss_error)
+        if self.gloss_response is not None:
+            return self.gloss_response
+        return {
+            "senses": [
+                {"sense_id": s["sense_id"], "meaning_ko": f"{s['dictionary_form']} 뜻"}
+                for s in senses
             ]
         }
 

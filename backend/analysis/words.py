@@ -184,6 +184,44 @@ def response_item(start, end, word, reading, sense):
     }
 
 
+def missing_meanings(sense_ids):
+    """그 뜻들 가운데 한국어 뜻이 없는 뜻(생성 실패 포함, id 순서)."""
+    return list(
+        WordSense.objects.filter(pk__in=sense_ids, meaning_ko__isnull=True)
+        .select_related("word")
+        .order_by("id")
+    )
+
+
+def gloss_input(sense):
+    """word_gloss에 넘길 뜻 하나. 근거는 사전 칸뿐이고 문장은 넣지 않는다(#97)."""
+    return {
+        "sense_id": sense.id,
+        "dictionary_form": sense.word.dictionary_form,
+        "reading": sense.word.reading,
+        "pos": sense.word.pos,
+        "gloss_en": sense.gloss_en or [],
+        "tags": sense.tags,
+    }
+
+
+def save_meanings(asked, made):
+    """만든 한국어 뜻을 저장하고, 요청했지만 만들지 못한 뜻은 생성 실패로 둔다.
+
+    아직 한국어 뜻이 없는 뜻만 쓰는 조건부 UPDATE라, 그사이 다른 작업이나 관리자가 저장한 값을
+    덮지 않는다.
+    """
+    for sense_id, meaning in made.items():
+        WordSense.objects.filter(pk=sense_id, meaning_ko__isnull=True).update(
+            meaning_ko=meaning,
+            meaning_source=WordSense.MeaningSource.LLM,
+            meaning_status=WordSense.MeaningStatus.AI,
+        )
+    WordSense.objects.filter(pk__in=set(asked) - set(made), meaning_ko__isnull=True).update(
+        meaning_status=WordSense.MeaningStatus.FAILED
+    )
+
+
 def llm_candidates(candidates):
     """LLM에 넘길 후보: '뜻 ID: 영어 뜻 최대 3개'."""
     return [f"{c.sense.id}: {'; '.join((c.sense.gloss_en or [])[:3])}" for c in candidates]

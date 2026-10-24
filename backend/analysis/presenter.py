@@ -250,6 +250,19 @@ class Presenter:
             ),
         }
 
+    def words_event(self, word_spans):
+        """저장 전에 작업자가 알린 단어(LLM이 고른 뜻, 새로 만든 한국어 뜻, #97).
+
+        뜻은 DB에서 읽는다.
+        """
+        s = self.sentence
+        return {
+            "type": "words",
+            "words": _words_response(
+                word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16
+            ),
+        }
+
     def grammar_entries(self, analysis):
         """저장 구간의 (항목, show_parts) 목록(원문 순서, _grammar_entries)."""
         s = self.sentence

@@ -222,6 +222,25 @@ def _validate_word_answers(answers, ambiguous):
     return {token: sense_id for token, sense_id in chosen.items() if token not in repeated}
 
 
+def _validate_meanings(result, asked):
+    """LLM이 만든 한국어 뜻을 검증한다(#97). {뜻 ID: 한국어 뜻}이고, 요청한 뜻(asked)마다 답이
+    없거나 빈 답이거나 두 번 답한 뜻은 빠진다(호출하는 쪽이 그 뜻만 실패로 둔다).
+    """
+    answers = result.get("senses") if isinstance(result, dict) else None
+    made, repeated = {}, set()
+    for item in answers if isinstance(answers, list) else []:
+        if not isinstance(item, dict):
+            continue
+        sense_id, meaning = item.get("sense_id"), item.get("meaning_ko")
+        # bool은 int의 하위 타입이고 True == 1이라 따로 거른다.
+        if type(sense_id) is not int or sense_id not in asked or not _is_text(meaning):
+            continue
+        if sense_id in made:
+            repeated.add(sense_id)
+        made[sense_id] = meaning.strip()
+    return {sense_id: meaning for sense_id, meaning in made.items() if sense_id not in repeated}
+
+
 def _validate_translation(translation, numbers):
     """번역을 검증한다. 문법·단어보다 먼저 보내므로 따로 검증한다."""
     if not _is_text(translation):

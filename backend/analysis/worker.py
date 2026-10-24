@@ -2,12 +2,13 @@
 
 from django.db import IntegrityError, transaction
 
-from analysis import jobs, llm, patterns
+from analysis import jobs, llm, patterns, words
 from analysis.answers import (
     FIRST_VERDICTS,
     RECHECK_VERDICTS,
     _is_text,
     _validate,
+    _validate_meanings,
     _validate_recheck_answers,
     _validate_translation,
     reject_quotes,
@@ -163,8 +164,32 @@ class Worker:
             self.share_translation(validated["translation_ko"])
         # 거부될 응답이면 다시 묻지 않는다.
         reject_quotes(validated, s)
+        stored_words = s.word_spans(validated["words"])
+        if s.ambiguous:
+            # LLM이 고른 뜻을 저장 전에 알린다. 소식에는 키 텍스트 위치와 뜻 ID만 싣는다.
+            self.publish({"type": "words", "word_spans": stored_words})
+        if self.make_meanings(_sense_ids(stored_words)):
+            self.publish({"type": "words", "word_spans": stored_words})
         # 다시 묻기는 번역을 알린 뒤, 저장 트랜잭션 밖에서 한다.
         self.save(self.ask_again(self.prepare(validated)))
+
+    def make_meanings(self, sense_ids):
+        """고른 뜻 가운데 한국어 뜻이 없는 뜻을 LLM 호출 한 번(word_gloss)으로 만든다(#97).
+
+        실패하거나 응답이 틀려도 분석은 이어 가고, 만들지 못한 뜻만 생성 실패로 둔다. 호출했으면
+        참이다.
+        """
+        senses = words.missing_meanings(sense_ids)
+        if not senses:
+            return False
+        asked = [sense.id for sense in senses]
+        try:
+            result = self.client.gloss_words([words.gloss_input(sense) for sense in senses])
+        except BusinessError as e:
+            log_business_error(e)
+            result = None
+        words.save_meanings(asked, _validate_meanings(result, set(asked)))
+        return True
 
     def share_translation(self, translation):
         """검증한 번역을 먼저 저장하고 알린다. 늦게 붙은 요청은 저장된 번역을 읽는다."""

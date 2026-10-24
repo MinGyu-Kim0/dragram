@@ -187,6 +187,19 @@ def test_words_are_sent_before_the_llm_answers(client, fake_llm, gakusei, hiraku
     }
 
 
+def test_word_of_several_entries_shows_all_readings_and_common_tags_before_choosing(
+    client, fake_llm, hiraku
+):
+    # 開く: あく / ひらく는 다른 항목이다. 고르기 전에는 한 읽기로 단정하지 않는다.
+    add_word(5, ["開く"], ["あく"], [(["to open (intr.)"], [], None)], tags=("verb",))
+    response = post(client, "本を開いた")
+
+    first = json.loads(next(iter(response.streaming_content)))
+
+    [word] = first["words"]
+    assert (word["reading"], word["tags"], word["sense"]) == ("あく・ひらく", ["verb"], None)
+
+
 def test_cached_sentence_returns_the_same_words(client, fake_llm, gakusei, hiraku):
     fake_llm.response = {
         "translation_ko": "학생이 열었다",

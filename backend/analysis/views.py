@@ -276,14 +276,14 @@ def _validate(result, numbers, token_count, spans, ambiguous):
     new_patterns = _validate_new_patterns(result.get("new_patterns"), token_count)
     if new_patterns is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 새 구문")
-    words = _validate_word_answers(result.get("words"), ambiguous)
-    if words is None:
+    chosen = _validate_word_answers(result.get("words"), ambiguous)
+    if chosen is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 단어")
     return {
         "translation_ko": result["translation_ko"],
         "spans": span_answers,
         "new_patterns": new_patterns,
-        "words": words,
+        "words": chosen,
     }
 
 
@@ -725,7 +725,7 @@ def _words_response(word_spans, text, token_at, offsets, origins, utf16):
             continue
         reading = words.reading_for(sense, text, token_at.get((span["start"], span["end"])))
         start, end = to_original(origins, utf16, *to_analysis(offsets, span["start"], span["end"]))
-        items.append(words.item(start, end, sense.word, reading, sense))
+        items.append(words.response_item(start, end, sense.word, reading, sense))
     return items
 
 
@@ -1789,14 +1789,25 @@ def analyze(request):
     ]
 
     def sentence_words():
-        """LLM 응답 전에 보낼 단어(원문 순서). 뜻이 여럿인 단어는 첫 후보의 표제·읽기·태그만
-        보낸다(뜻은 None).
+        """LLM 응답 전에 보낼 단어(원문 순서). 뜻이 여럿인 단어는 표제·읽기·태그만 보낸다(뜻은
+        None). 여러 항목이 걸렸으면(開く あく/ひらく) 고르기 전이라 읽기는 모두 잇고(・) 태그는
+        항목들에 공통인 것만 보인다.
         """
         items = []
         for token, cands in found.items():
             start, end = to_original(origins, utf16, morphs[token].begin, morphs[token].end)
-            sense = cands[0].sense if len(cands) == 1 else None
-            items.append(words.item(start, end, cands[0].sense.word, cands[0].reading, sense))
+            if len(cands) == 1:
+                [only] = cands
+                items.append(
+                    words.response_item(start, end, only.sense.word, only.reading, only.sense)
+                )
+                continue
+            item = words.response_item(start, end, cands[0].sense.word, cands[0].reading, None)
+            item["reading"] = "・".join(dict.fromkeys(c.reading for c in cands))
+            item["tags"] = sorted(
+                set.intersection(*(set(words.word_tags(c.sense.word)) for c in cands))
+            )
+            items.append(item)
         return items
 
     def word_spans(chosen):

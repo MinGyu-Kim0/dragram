@@ -11,16 +11,11 @@ from typing import NamedTuple
 
 from django.db.models import Prefetch, Q
 
-from analysis.jmdict import GROUP1_EXCEPTION, WORD_TAGS, to_hiragana
+from analysis.jmdict import WHOLE_WORD_TAGS, to_hiragana
 from analysis.models import ReviewStatus, Word, WordSense
 
 # 가나(장음 ー, 반복 부호 포함)로만 쓴 말. 가타카나 블록의 문장부호(・ ゠)는 가나가 아니다.
 _KANA = re.compile(r"[ぁ-ゖゝゞァ-ヺー-ヾㇰ-ㇿ]+")
-
-# word.tags 가운데 단어 전체 태그(나머지는 검색용으로 모아 둔 뜻 태그다)
-WHOLE_WORD_TAGS = frozenset({tag for tags in WORD_TAGS.values() for tag in tags}) | {
-    GROUP1_EXCEPTION
-}
 
 
 class Candidate(NamedTuple):
@@ -159,7 +154,12 @@ def reading_for(sense, text, morph):
     return word.reading
 
 
-def item(start, end, word, reading, sense):
+def word_tags(word):
+    """단어 전체 태그(word.tags에 함께 모은 검색용 뜻 태그는 뺀다)."""
+    return sorted(set(word.tags) & WHOLE_WORD_TAGS)
+
+
+def response_item(start, end, word, reading, sense):
     """응답의 단어 항목. sense가 None이면 뜻을 아직 고르지 않은 것이다(LLM 응답 전).
 
     태그는 단어 전체 태그와 고른 뜻의 태그다. 뜻은 출처·검수 상태와 한국어 뜻(#97 전에는 NULL)
@@ -170,7 +170,7 @@ def item(start, end, word, reading, sense):
         "end": end,
         "dictionary_form": word.dictionary_form,
         "reading": reading,
-        "tags": sorted(set(word.tags) & WHOLE_WORD_TAGS),
+        "tags": word_tags(word),
         "sense": None
         if sense is None
         else {

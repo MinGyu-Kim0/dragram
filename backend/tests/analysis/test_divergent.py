@@ -294,7 +294,7 @@ def test_failed_recheck_call_fails_and_keeps_the_sent_translation(client, fake_l
 
     response = analyze(client, KITEIRU)
 
-    assert response.types() == ["grammar", "translation", "error"]
+    assert response.types() == ["grammar", "translation", "judged", "error"]
     assert response.events[1]["translation_ko"] == "그가 와 있다"
     assert saved_analyses().count() == 1
 

@@ -2201,6 +2201,203 @@ test("먼저 온 확정 문법은 평평하게 보이고, 분석이 오면 하�
   ).toBe("연결");
 });
 
+test("같은 용법이 두 자리에 걸리면 문법 카드는 한 장이고, 두 자리 형광펜은 카드 칩과 같은 색이다", async () => {
+  respondWith(200, {
+    translation_ko: "고양이가 개를 좋아한다",
+    grammar: [
+      grammarItem(1, 2, "주어 が"),
+      grammarItem(3, 4, "주어 が"),
+      grammarItem(4, 6, "형용동사"),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "猫が犬が好き");
+
+  // 문법 개수는 보이는 카드 수다.
+  await screen.findByRole("tab", { name: "문법 2" });
+  expect(grammarCards().map(cardHeading)).toEqual(["주어 が", "형용동사"]);
+  const marks = [...document.querySelectorAll(".original mark")];
+  expect(marks.map((mark) => mark.textContent)).toEqual(["が", "が", "好き"]);
+  expect(marks[0]!.className).toContain("highlight-0");
+  expect(marks[1]!.className).toContain("highlight-0");
+  expect(marks[2]!.className).toContain("highlight-1");
+  expect(within(cardOf("주어 が")).getByText("が").className).toContain(
+    "highlight-0",
+  );
+});
+
+test("합친 자리 중 하나라도 드래그 범위와 겹치면 그 카드에 '드래그한 부분'을 달고 위로 올린다", async () => {
+  respondWith(200, {
+    translation_ko: "고양이가 개를 좋아한다",
+    grammar: [
+      grammarItem(0, 1, "고양이"),
+      grammarItem(1, 2, "주어 が"),
+      grammarItem(3, 4, "주어 が"),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  // 두 번째 が만 골랐다.
+  await sendSelected(panelWindowId, "猫が犬が好き", 3, 4);
+
+  await screen.findByRole("heading", { name: "고양이" });
+  expect(grammarCards().map(cardHeading)).toEqual(["주어 が", "고양이"]);
+  expect(
+    within(cardOf("주어 が")).getByText("드래그한 부분"),
+  ).toBeInTheDocument();
+});
+
+test("구성 문법의 판정이나 대안이 다르면 같은 용법 카드도 합치지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [
+      withParts(
+        approvedGrammarItem(0, 2, "완료"),
+        approvedGrammarItem(0, 1, "연결"),
+      ),
+      withParts(approvedGrammarItem(2, 4, "완료"), {
+        ...grammarItem(2, 3, "연결"),
+        state: "divergent",
+        alternatives: [alternativeItem("대안", "대안 번역")],
+      }),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "一二三四");
+
+  await screen.findAllByRole("heading", { name: "완료" });
+  expect(grammarCards().map(cardHeading)).toEqual(["완료", "완료"]);
+  expect(screen.getByText("다른 해석: 대안 — 대안 번역")).toBeInTheDocument();
+});
+
+test("해석 갈림·미확정·확인 중 카드는 같은 이름이어도 합치지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [
+      {
+        ...grammarItem(0, 1, "갈림"),
+        state: "divergent",
+        alternatives: [alternativeItem("대안", "대안 번역")],
+      },
+      {
+        ...grammarItem(1, 2, "갈림"),
+        state: "divergent",
+        alternatives: [alternativeItem("대안", "대안 번역")],
+      },
+      {
+        ...grammarItem(2, 3, "미확정"),
+        state: "unresolved",
+        explanation_ko: null,
+      },
+      {
+        ...grammarItem(3, 4, "미확정"),
+        state: "unresolved",
+        explanation_ko: null,
+      },
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "一二三四");
+
+  await screen.findAllByRole("heading", { name: "갈림" });
+  expect(grammarCards().map(cardHeading)).toEqual([
+    "갈림",
+    "갈림",
+    "미확정",
+    "미확정",
+  ]);
+});
+
+test("미검수 배지는 제목 위 배지 줄에 있고, 배지도 '드래그한 부분'도 없는 카드에는 배지 줄이 없다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [
+      { ...grammarItem(1, 2, "주제 は"), register: "colloquial" },
+      approvedGrammarItem(4, 6, "정중 です"),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  // 私만 골라 두 카드 모두 드래그 범위 밖이다.
+  await sendSelected(panelWindowId, "私は学生です。", 0, 1);
+
+  await screen.findByRole("heading", { name: "정중 です" });
+  const pending = cardOf("주제 は");
+  const badges = pending.querySelector(".card-badges")!;
+  expect(
+    within(badges as HTMLElement).getByText("AI 생성·미검수"),
+  ).toBeInTheDocument();
+  expect(within(badges as HTMLElement).getByText("회화체")).toBeInTheDocument();
+  // 배지 줄이 카드 첫 줄이고, 제목 줄에는 배지가 없다.
+  expect(pending.firstElementChild).toBe(badges);
+  const head = within(pending).getByRole("heading").parentElement!;
+  expect(head.querySelector("[class^=badge]")).toBeNull();
+  expect(cardOf("정중 です").querySelector(".card-badges")).toBeNull();
+});
+
+test("확인 중 카드도 미검수 배지와 '드래그한 부분'을 배지 줄에 둔다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await sendSelected(panelWindowId, "一二", 0, 1);
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [
+      {
+        ...checkingItem(0, 1, "후보"),
+        candidates: [{ name: "후보", review_status: "pending" }],
+      },
+    ],
+  });
+
+  const card = (await screen.findByRole("heading", { name: "후보" })).closest(
+    "li",
+  )!;
+  const badges = card.querySelector(".card-badges") as HTMLElement;
+  expect(card.firstElementChild).toBe(badges);
+  expect(within(badges).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(within(badges).getByText("드래그한 부분")).toBeInTheDocument();
+});
+
+test("단어 카드는 배지 줄 → 표제 → 태그 → 뜻 순서다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [],
+    words: [
+      wordItem(0, 1, "一", "いち", { origin: "llm", status: "pending" }),
+      wordItem(1, 2, "二", "に"),
+    ],
+  });
+  render(<App />);
+  await sendSelected(panelWindowId, "一二", 0, 1);
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
+
+  const [llm, reviewed] = within(screen.getByRole("list", { name: "단어" }))
+    .getAllByRole("listitem")
+    .filter((row) => row.classList.contains("word-row"));
+  expect([...llm!.children].map((child) => child.className)).toEqual([
+    "card-badges",
+    "word-head",
+    "word-tags",
+    "word-meaning",
+  ]);
+  const badges = llm!.firstElementChild as HTMLElement;
+  expect(within(badges).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(within(badges).getByText("드래그한 부분")).toBeInTheDocument();
+  expect(reviewed!.querySelector(".card-badges")).toBeNull();
+});
+
 describe("로그인과 확장 연결(#109)", () => {
   test("연결하지 않았으면 로그인 안내를 보이고, 버튼이 웹 연결 화면을 새 탭으로 연다", async () => {
     await fakeBrowser.storage.local.clear();

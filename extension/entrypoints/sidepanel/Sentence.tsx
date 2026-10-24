@@ -7,6 +7,7 @@ import type {
 } from "@/utils/api";
 import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
+import { grammarCardCount } from "./grammar-groups";
 import { WordList } from "./Words";
 
 // 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 번역보다 먼저 온
@@ -121,23 +122,20 @@ export function SentenceView({
   const checking = checkingOf(result);
   const earlyWords = earlyWordsOf(result);
   // 탭에 보일 문법·단어. 분석이 끝나기 전에도 먼저 온 단어가 있으면 먼저 온 문법과 함께 탭으로
-  // 보인다(#96). 문법 개수는 보이는 카드 수다(구성 문법의 하위 박스도 센다).
+  // 보인다(#96). 문법 개수는 보이는 카드 수다(합친 카드는 한 장, 구성 문법의 하위 박스도 센다).
   const tabbed = analysis
     ? {
         grammar: analysis.grammar,
         checking: [],
         words: analysis.words,
-        grammarCount: analysis.grammar.reduce(
-          (count, item) => count + 1 + (item.parts?.length ?? 0),
-          0,
-        ),
+        grammarCount: grammarCardCount(analysis.grammar),
       }
     : earlyWords.length > 0
       ? {
           grammar,
           checking,
           words: earlyWords,
-          grammarCount: grammar.length + checking.length,
+          grammarCount: grammarCardCount(grammar) + checking.length,
         }
       : undefined;
   return (

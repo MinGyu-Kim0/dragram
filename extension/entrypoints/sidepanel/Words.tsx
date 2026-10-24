@@ -1,4 +1,5 @@
 import type { WordItem, WordSense } from "@/utils/api";
+import { BadgeRow } from "./BadgeRow";
 import { draggedFirst, type DragRange } from "./drag-range";
 
 // 태그 코드의 화면 이름(DESIGN.md 5장). 모르는 코드는 보이지 않는다.
@@ -38,9 +39,16 @@ function tagNames(word: WordItem) {
   );
 }
 
-// 뜻 한 줄: 한국어 뜻을 보이고, 배지는 서버가 준 출처·검수 상태로 정한다. LLM이 만든 뜻이나 검수
-// 전 뜻은 'AI 생성·미검수', 사전 뜻을 옮긴 검수 전 한국어 뜻은 'AI 번역'이다. 영어 뜻은 보이지
-// 않는다. 한국어 뜻이 아직 없으면 준비 중, 만들지 못했으면 실패 문구다(#97).
+// 뜻의 배지(배지 줄에 둔다). 서버가 준 출처·검수 상태로 정한다. LLM이 만든 뜻이나 검수 전 뜻은
+// 'AI 생성·미검수', 사전 뜻을 옮긴 검수 전 한국어 뜻은 'AI 번역'이다. 한국어 뜻이 아직 없으면 없다.
+function senseBadges(sense: WordSense | null) {
+  if (sense?.meaning_ko == null) return { pending: false, translated: false };
+  const pending = sense.origin === "llm" || sense.status === "pending";
+  return { pending, translated: !pending && sense.meaning_status === "ai" };
+}
+
+// 뜻 한 줄: 한국어 뜻을 보인다. 영어 뜻은 보이지 않는다. 한국어 뜻이 아직 없으면 준비 중, 만들지
+// 못했으면 실패 문구다(#97).
 function Meaning({ sense }: { sense: WordSense }) {
   if (sense.meaning_ko === null) {
     return sense.meaning_status === "failed" ? (
@@ -49,15 +57,7 @@ function Meaning({ sense }: { sense: WordSense }) {
       <Preparing />
     );
   }
-  const pending = sense.origin === "llm" || sense.status === "pending";
-  const translated = !pending && sense.meaning_status === "ai";
-  return (
-    <p className="word-meaning">
-      {sense.meaning_ko}
-      {pending && <span className="badge-warn">AI 생성·미검수</span>}
-      {translated && <span className="badge-warn">AI 번역</span>}
-    </p>
-  );
+  return <p className="word-meaning">{sense.meaning_ko}</p>;
 }
 
 function Preparing() {
@@ -72,7 +72,7 @@ function Preparing() {
   );
 }
 
-// 단어 행: 사전형(표제), 읽기, 태그, 이 문장에서 고른 뜻. 드래그 범위와 겹친 단어를 먼저 두고,
+// 단어 행: 배지 줄, 사전형(표제)·읽기, 태그, 이 문장에서 고른 뜻. 드래그 범위와 겹친 단어를 먼저 두고,
 // 각 묶음 안은 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
 // 사전(JMdict) 단어가 있으면 목록 아래에 출처 각주를 단다. LLM이 만든 단어만 있으면 달지 않는다(#134).
 export function WordList({
@@ -97,12 +97,12 @@ export function WordList({
               key={`${word.start}-${word.end}`}
               className={dragged ? "word-row dragged" : "word-row"}
             >
+              <BadgeRow {...senseBadges(word.sense)} dragged={dragged} />
               <div className="word-head">
                 <h3 lang="ja">{word.dictionary_form}</h3>
                 <span lang="ja" className="word-reading">
                   {word.reading}
                 </span>
-                {dragged && <span className="card-meta">드래그한 부분</span>}
               </div>
               {tags.length > 0 && (
                 <ul className="word-tags" aria-label="태그">

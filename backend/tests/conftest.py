@@ -135,6 +135,12 @@ class FakeLLMClient:
         }
 
 
+@pytest.fixture(autouse=True)
+def inline_analysis(settings):
+    """분석 작업을 큐에 넣는 자리에서 바로 실행한다. 테스트 트랜잭션 안의 데이터를 보도록."""
+    settings.ANALYSIS_INLINE = True
+
+
 @pytest.fixture
 def fake_llm(monkeypatch):
     client = FakeLLMClient()

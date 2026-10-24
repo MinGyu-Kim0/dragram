@@ -3,14 +3,18 @@ import json
 import logging
 import unicodedata
 from itertools import chain
+from types import SimpleNamespace
 
+from asgiref.sync import sync_to_async
 from django.conf import settings
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, close_old_connections, transaction
+from django.db.models import F
 from django.http import HttpResponse, StreamingHttpResponse
+from django.utils import timezone
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from accounts.tokens import ExtensionTokenAuthentication
-from analysis import llm, patterns, words
+from analysis import jobs, llm, patterns, words
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -854,24 +858,13 @@ def _ruby_response(pieces, origins, utf16):
 
 
 # 응답은 줄 단위 JSON(한 줄에 이벤트 하나)이다(#27).
-# translation(번역, 루비) → analysis(번역, 문법, 단어) 순서다. 번역 전의 실패는 다른 API
-# 오류처럼 상태 코드로, 번역을 보낸 뒤의 실패는 error 이벤트로 알린다.
+# translation(번역, 루비) → analysis(번역, 문법, 단어) 순서다. 형태소 분석 등 응답을 시작하기 전의
+# 실패는 다른 API 오류처럼 상태 코드로, 작업자의 LLM 작업 실패는 error 이벤트로 알린다(#98).
 _NDJSON = "application/x-ndjson"
 
 
 def _ndjson(event):
     return json.dumps(event, ensure_ascii=False) + "\n"
-
-
-def _errors_as_event(events):
-    """응답을 시작한 뒤의 BusinessError는 상태 코드를 바꿀 수 없어 error 이벤트로 알린다.
-    이미 보낸 번역은 사이드 패널에 그대로 남는다.
-    """
-    try:
-        yield from events
-    except BusinessError as e:
-        log_business_error(e)
-        yield {"type": "error", "error": e.error_code.code}
 
 
 def _check_examples(validated, client, key_text, content_tokens, key_span, discarded):
@@ -990,7 +983,44 @@ def analyze(request):
     sentence = request.data.get("text") if isinstance(request.data, dict) else None
     if not _is_text(sentence):
         raise BusinessError(AnalysisError.TEXT_REQUIRED, "분석할 문장이 없음")
+    return _pipeline(sentence).respond(request.user)
 
+
+def run_analysis(analysis_id, text, usage_id):
+    """작업자가 실행하는 분석 LLM 작업(analysis.jobs). text는 분석 텍스트다."""
+    _pipeline(text).run(analysis_id, usage_id)
+
+
+# 요청이 작업 소식을 기다리는 상한. 작업 시간 제한(jobs.JOB_TIMEOUT_SECONDS)보다 길고, 큐에 넣은
+# 때부터 세므로 큐 대기도 포함한다. 넘으면 error 이벤트로 닫고, 작업은 계속된다(ADR 0005).
+WAIT_SECONDS = 130
+
+
+def _in_thread(events):
+    """동기 이벤트 생성기를 비동기 스트림으로 흘려보낸다(재매칭).
+
+    다음 이벤트는 요청 스레드가 아닌 스레드에서 만든다. ASGI에서는 동기 코드가 한 스레드에서 돌아
+    LLM을 기다리는 동안 다른 요청까지 막기 때문이다. 이벤트 사이에 걸친 트랜잭션이 없어 이벤트마다
+    그 스레드의 DB 연결을 정리한다.
+    """
+    inline = settings.ANALYSIS_INLINE
+
+    def step():
+        try:
+            return next(events, None)
+        finally:
+            if not inline:
+                close_old_connections()
+
+    async def stream():
+        while (event := await sync_to_async(step, thread_sensitive=inline)()) is not None:
+            yield _ndjson(event)
+
+    return stream()
+
+
+def _pipeline(sentence):
+    """원문(작업자에서는 분석 텍스트) 하나의 분석. 요청 쪽은 respond, 작업자는 run을 쓴다."""
     text_to_analyze, origins = analysis_text(sentence)
     if not text_to_analyze:
         raise BusinessError(AnalysisError.TEXT_REQUIRED, "정규화 후 빈 문장")
@@ -1036,17 +1066,8 @@ def analyze(request):
     # 분석에는 매칭(candidate_spans) 직전에 읽은 패턴 세트 버전을 기록한다. 그 뒤에 활성화된
     # 패턴은 다음 조회가 다시 매칭해 찾는다. 캐시 분석의 버전이 이보다 낮으면 다시 매칭한다(#41).
     matcher_version = patterns.pattern_set_version()
-    if cached and cached.matcher_version >= matcher_version:
-        RequestUsage.start(UsageLog.Path.CACHE, request.user, cached.pk, success=True)
-        # 이미 다 있으니 한 번에 보낸다.
-        events = [translation_event(cached.translation_ko), analysis_event(cached)]
-        return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
-    # stale 행의 옛 결과는 다시 분석하는 동안 '재분석 중'으로 보이도록 LLM보다 먼저 보낸다(#60).
-    # 저장된 결과를 그대로 내보내지 않고 analysis 이벤트와 같은 경로로 만들어, 반려된 구간은
-    # 빠지고 검수 상태는 지금 지식 상태로 다시 계산된다.
-    previous = None
-    if not cached and existing is not None and existing.word_spans is not None:
-        previous = {**analysis_event(existing), "type": "previous", "ruby": ruby}
+    # 작업자가 쓰는 LLM 클라이언트와 선점한 요청의 사용 기록(run이 채운다)
+    client = usage = None
 
     # LLM에는 키 텍스트 기준 표층형을 보내 원문 숫자가 가지 않게 한다.
     tokens = [{"id": i, "surface": "".join(pieces[m.begin : m.end])} for i, m in enumerate(morphs)]
@@ -1418,77 +1439,57 @@ def analyze(request):
             raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
 
     def save(validated, final=False):
-        """검증한 결과를 공용 캐시에 저장하고 분석 이벤트를 돌려준다.
+        """검증한 결과를 공용 캐시에 저장한다.
 
         저장하는 사이 다른 요청이 같은 조건의 패턴을 먼저 등록했으면, 저장을 되돌리고 그 패턴의
-        용법 목록으로 다시 물은 뒤 한 번만 다시 저장한다.
+        용법 목록으로 다시 물은 뒤 한 번만 다시 저장한다. 분석하는 사이 영향 범위가 바뀌었으면
+        저장하지 않고 ANALYSIS:FAILED다. 다음 요청이 다시 선점해 분석한다(#98).
         """
         # 다시 물어 받은 새 용법도 공용 테이블에 들어가므로 다시 본다.
         reject_quotes(validated)
         _check_examples(validated, client, key_text, content_tokens, key_span, saved_by_another)
         stored_words = word_spans(validated["words"])
 
-        # 분석 행과 구간·새 패턴을 함께 저장하고 응답을 만든다. 다른 요청이 먼저 저장한 문장이면
-        # 그 결과를 쓰고, 이번 결과의 구간·패턴은 저장하지 않는다.
         try:
             with transaction.atomic():
-                saved, outdated = save_once(validated, stored_words, final)
-                usage.link(saved)
-                event = analysis_event(saved)
+                outdated = save_once(validated, stored_words, final)
                 if outdated:
-                    # 분석하는 사이 영향 범위가 바뀌었다. 이번 결과는 보내되 저장하지 않고,
-                    # stale로 남겨 다음 요청이 다시 분석하게 한다.
                     transaction.set_rollback(True)
-                return event
         except _PatternTaken:
             # LLM 호출은 트랜잭션 밖에서 한다.
-            return save(ask_again(validated), final=True)
+            save(ask_again(validated), final=True)
+            return
+        if outdated:
+            raise BusinessError(AnalysisError.FAILED, "분석하는 사이 영향 범위가 바뀜")
 
     def save_once(validated, stored_words, final):
-        """분석 행을 만들거나 다시 채우고 구간 매칭을 저장한다. (행, 시작 뒤 세대 번호나 원형
-        연결이 바뀌었는가)를 돌려준다. 호출하는 쪽이 트랜잭션을 연다.
+        """선점한 분석 행을 이번 결과로 통째로 바꾸고 완료로 둔다. 시작 뒤 세대 번호나 판정 근거가
+        바뀌었으면 참이다(호출하는 쪽이 되돌린다). 호출하는 쪽이 트랜잭션을 연다.
+
+        상태 전이(analysis.review)가 패턴 → 패턴 세트 버전 → 분석 순서로 잠그므로, 분석 행은 패턴
+        쪽을 다 쓴 뒤 잠근다. 구간은 분석 행을 잠근 뒤 지우고 넣는다. 구간을 쓰는 모든 경로가 이
+        순서라 같은 구간이 겹쳐 들어가지 않는다(#41).
         """
         patterns.lock_links()
-        saved, created = SentenceAnalysis.objects.get_or_create(
-            sentence_hash=sentence_hash,
-            defaults={
-                "normalize_version": NORMALIZE_VERSION,
-                "normalized_length": len(key_text),
-                "status": SentenceAnalysis.Status.COMPLETE,
-                "translation_ko": validated["translation_ko"],
-                "word_spans": stored_words,
-                "sense_ids": _sense_ids(stored_words),
-                "matcher_version": matcher_version,
-            },
-        )
-        if created:
-            # 이 트랜잭션에서 만든 행이라 다른 요청은 아직 보지도 잠그지도 못한다.
-            rows = span_matches(saved, validated, final)
-            SpanMatch.objects.bulk_create(rows)
-            return saved, _basis_changed(rows, rules)
-        if _is_fresh(saved):
-            return saved, False
-        # 임시 분석을 받기 전에 저장된 행이나 stale 행이면 이번 결과로 통째로 바꾼다. 상태
-        # 전이(analysis.review)가 패턴 → 패턴 세트 버전 → 분석 순서로 잠그므로, 분석 행은 패턴
-        # 쪽을 다 쓴 뒤 잠근다. 구간은 분석 행을 잠근 뒤 지우고 넣는다. 구간을 쓰는 모든 경로가
-        # 이 순서라 같은 구간이 겹쳐 들어가지 않는다(#41).
         try:
             with transaction.atomic():
-                rows = span_matches(saved, validated, final)
-                locked = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=saved.pk)
+                rows = span_matches(existing, validated, final)
+                locked = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=existing.pk)
                 if _is_fresh(locked):
                     raise _SavedByAnother
-                saved.span_matches.all().delete()
+                locked.span_matches.all().delete()
                 SpanMatch.objects.bulk_create(rows)
         except _SavedByAnother:
             # 그사이 다른 요청이 먼저 채웠다. 이번에 쓴 구간·패턴은 되돌리고 그 값을 쓴다.
-            return SentenceAnalysis.objects.get(pk=saved.pk), False
+            return False
         except IntegrityError as e:
             # 순서를 지키지 않은 쓰기가 같은 구간을 먼저 넣었다. 다른 요청이 저장한 것과 같다.
             if not _is_place_conflict(e):
                 raise
-            return SentenceAnalysis.objects.get(pk=saved.pk), False
+            return False
+        locked.status = SentenceAnalysis.Status.COMPLETE
         locked.translation_ko = validated["translation_ko"]
+        locked.pending_translation_ko = None
         locked.word_spans = stored_words
         locked.sense_ids = _sense_ids(stored_words)
         locked.is_stale = False
@@ -1496,7 +1497,9 @@ def analyze(request):
         locked.matcher_version = max(locked.matcher_version, matcher_version)
         locked.save(
             update_fields=[
+                "status",
                 "translation_ko",
+                "pending_translation_ko",
                 "word_spans",
                 "sense_ids",
                 "is_stale",
@@ -1504,7 +1507,7 @@ def analyze(request):
                 "updated_at",
             ]
         )
-        return locked, locked.generation != started_generation or _basis_changed(rows, rules)
+        return locked.generation != started_generation or _basis_changed(rows, rules)
 
     def closed_grammar():
         """LLM 없이 확정한 구간의 응답 항목(원문 순서)."""
@@ -1531,42 +1534,181 @@ def analyze(request):
             items.append({"start": start, "end": end, "candidates": candidates})
         return items
 
-    def analyze_and_save():
-        """LLM 결과를 나오는 대로 낸다. 번역을 검증해 먼저 내고, 문법·단어까지 검증해 저장한
-        뒤 이어 낸다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
+    def early_events():
+        """LLM을 기다리기 전에 DB만으로 보낼 이벤트.
+
+        stale 행의 옛 결과는 다시 분석하는 동안 '재분석 중'으로 보이도록 먼저 보낸다(#60). 저장된
+        결과를 그대로 내보내지 않고 analysis 이벤트와 같은 경로로 만들어, 반려된 구간은 빠지고 검수
+        상태는 지금 지식 상태로 다시 계산된다. 이어서 확정 구간과 판별 대상 구간(화면의 확인 중),
+        사전에서 찾은 단어를 보낸다(#39, #44, #96).
         """
-        if previous is not None:
-            yield previous
+        events = []
+        if existing is not None and existing.word_spans is not None:
+            events.append({**analysis_event(existing), "type": "previous", "ruby": ruby})
         early_words = sentence_words()
         if closed_spans or spans or early_words:
-            # LLM을 부르기 전에 확정 구간과 판별 대상 구간(화면의 확인 중), 사전에서 찾은 단어부터
-            # 보낸다. 이 뒤 실패는 error 이벤트로 알린다(#39, #44, #96).
-            yield {
-                "type": "grammar",
-                "grammar": closed_grammar(),
-                "checking": checking(spans),
-                "words": early_words,
-            }
-        translation_sent = False
+            events.append(
+                {
+                    "type": "grammar",
+                    "grammar": closed_grammar(),
+                    "checking": checking(spans),
+                    "words": early_words,
+                }
+            )
+        return events
+
+    def claim(user):
+        """이 문장의 LLM 작업을 선점한다. 구독한 뒤에 부른다(ADR 0005).
+
+        (상태, 분석 행, 사용 기록)이다. 상태는 claimed(이 요청이 선점해 작업을 넣음),
+        processing(다른 요청의 작업을 기다림), saved(그사이 다른 요청의 작업이 저장을 마침)다.
+        처리 중이 아니고 다시 분석해야 하는 행만 조건부 UPDATE로 선점하고, 선점할 때마다 세대
+        번호를 올린다. 새 문장은 처리 중 행을 먼저 만들어, 실패한 시도의 LLM 사용 기록도 그 행에
+        잇는다.
+        """
+        processing = SentenceAnalysis.Status.PROCESSING
+        row, claimed = SentenceAnalysis.objects.get_or_create(
+            sentence_hash=sentence_hash,
+            defaults={
+                "normalize_version": NORMALIZE_VERSION,
+                "normalized_length": len(key_text),
+                "status": processing,
+                "processing_started_at": timezone.now(),
+            },
+        )
+        if not claimed:
+            claimed = (
+                SentenceAnalysis.objects.filter(pk=row.pk)
+                .exclude(status=processing)
+                .exclude(word_spans__isnull=False, is_stale=False)
+                .update(
+                    status=processing,
+                    processing_started_at=timezone.now(),
+                    generation=F("generation") + 1,
+                    pending_translation_ko=None,
+                )
+            ) == 1
+            row.refresh_from_db()
+        if not claimed and _is_fresh(row):
+            return "saved", row, RequestUsage.start(UsageLog.Path.CACHE, user, row.pk, True)
+        usage = RequestUsage.start(UsageLog.Path.LLM, user, row.pk)
+        if claimed:
+            jobs.enqueue_analysis(row.pk, text_to_analyze, usage.id)
+        return "claimed" if claimed else "processing", row, usage
+
+    def saved_events(row, translated):
+        """작업이 저장한 행의 이벤트. 번역을 아직 보내지 않았으면 함께 보낸다."""
+        events = [] if translated else [translation_event(row.translation_ko)]
+        return [*events, analysis_event(row)]
+
+    async def llm_stream(user, early):
+        """LLM 작업을 기다리는 요청의 이벤트(ADR 0005).
+
+        DB만으로 정해지는 이벤트를 먼저 보내고, 작업 소식을 구독한 뒤 선점하거나 처리 중인 작업에
+        붙는다. 번역 소식이 오면 번역을, 저장 소식이 오면 저장된 행으로 만든 analysis를 보낸다.
+        늦게 붙은 요청은 작업이 먼저 저장한 번역부터 보낸다. 실패 소식이나 대기 상한이면 error다.
+        """
+        async with jobs.listen(sentence_hash) as pubsub:
+            for event in early:
+                yield _ndjson(event)
+            state, row, request_usage = await sync_to_async(claim)(user)
+            if state == "saved":
+                for event in await sync_to_async(saved_events)(row, False):
+                    yield _ndjson(event)
+                return
+            translated = state == "processing" and row.pending_translation_ko is not None
+            if translated:
+                yield _ndjson(translation_event(row.pending_translation_ko))
+            error = AnalysisError.FAILED.code
+            async for message in jobs.messages(pubsub, WAIT_SECONDS):
+                if message["type"] == "translation":
+                    if not translated:
+                        translated = True
+                        yield _ndjson(translation_event(message["translation_ko"]))
+                    continue
+                if message["type"] == "done":
+                    row = await sync_to_async(SentenceAnalysis.objects.get)(pk=row.pk)
+                    if row.word_spans is not None:
+                        for event in await sync_to_async(saved_events)(row, translated):
+                            yield _ndjson(event)
+                        await sync_to_async(request_usage.succeed)()
+                        return
+                else:
+                    error = message["error"]
+                break
+            else:
+                logger.warning("분석 작업 대기 시간 초과: analysis_id=%s", row.pk)
+            yield _ndjson({"type": "error", "error": error})
+
+    def share_translation(translation):
+        """검증한 번역을 먼저 저장하고 알린다. 늦게 붙은 요청은 저장된 번역을 읽는다."""
+        SentenceAnalysis.objects.filter(
+            pk=existing.pk, status=SentenceAnalysis.Status.PROCESSING
+        ).update(pending_translation_ko=translation)
+        jobs.publish(sentence_hash, {"type": "translation", "translation_ko": translation})
+
+    def work():
+        """작업자에서 LLM 분석을 하고 저장한다. 번역을 검증하자마자 먼저 알리고, 문법·단어까지
+        검증해 저장한다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
+        """
+        translated = False
         result = None
         for kind, value in client.analyze_stream(
             key_text, tokens, llm_spans, decided_spans, llm_words
         ):
             if kind == "translation":
                 _validate_translation(value, numbers)
-                translation_sent = True
-                yield translation_event(value)
+                translated = True
+                share_translation(value)
             else:
                 result = value
         validated = _validate(result, numbers, len(morphs), spans, ambiguous)
-        if not translation_sent:
-            yield translation_event(validated["translation_ko"])
+        if not translated:
+            share_translation(validated["translation_ko"])
         # 거부될 응답이면 다시 묻지 않는다.
         reject_quotes(validated)
-        # 다시 묻기는 번역을 보낸 뒤, 저장 트랜잭션 밖에서 한다.
-        event = save(ask_again(prepare(validated)))
+        # 다시 묻기는 번역을 알린 뒤, 저장 트랜잭션 밖에서 한다.
+        save(ask_again(prepare(validated)))
         usage.succeed()
-        yield event
+
+    def fail(analysis_id, channel_hash, code):
+        """처리 중인 행을 실패로 두고 알린다. 다음 요청이 다시 선점한다."""
+        SentenceAnalysis.objects.filter(
+            pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
+        ).update(status=SentenceAnalysis.Status.FAILED, pending_translation_ko=None)
+        jobs.publish(channel_hash, {"type": "failed", "error": code})
+
+    def run(analysis_id, usage_id):
+        """작업자: 선점된 분석 행(analysis_id)을 분석한다. usage_id는 선점한 요청의 request
+        기록이다.
+
+        저장에 성공하면 done, 실패하면 failed 소식을 보낸다. 우리 코드의 버그도 실패로 알린 뒤
+        그대로 올려, 기다리는 요청이 대기 상한까지 붙잡히지 않게 한다.
+        """
+        nonlocal client, usage
+        if existing is None or existing.pk != analysis_id:
+            # 분석 텍스트를 다시 정규화한 해시가 행과 다르다. 그 행의 채널로 알린다.
+            row = SentenceAnalysis.objects.get(pk=analysis_id)
+            fail(analysis_id, row.sentence_hash, AnalysisError.FAILED.code)
+            raise RuntimeError(f"분석 텍스트의 해시가 분석 행과 다름: analysis_id={analysis_id}")
+        usage = RequestUsage(UsageLog.objects.get(pk=usage_id))
+        client = llm.get_client(usage.record_llm)
+        try:
+            work()
+        except BusinessError as e:
+            log_business_error(e)
+            fail(analysis_id, sentence_hash, e.error_code.code)
+            return
+        except BaseException:
+            fail(analysis_id, sentence_hash, AnalysisError.FAILED.code)
+            raise
+        if SentenceAnalysis.objects.filter(
+            pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
+        ).exists():
+            # 저장하지 못하고 끝났다(다른 쓰기가 같은 구간을 먼저 넣음).
+            fail(analysis_id, sentence_hash, AnalysisError.FAILED.code)
+            return
+        jobs.publish(sentence_hash, {"type": "done"})
 
     def span_key(span):
         """구간의 열쇠: (패턴 ID, 키 텍스트 start, end)."""
@@ -1648,7 +1790,7 @@ def analyze(request):
             locked.save(update_fields=["matcher_version", "updated_at"])
             return analysis_event(locked)
 
-    def rematch():
+    def rematch(user):
         """패턴 세트 버전이 오른 캐시 분석을 이 요청의 원문으로 다시 매칭한다(#41).
 
         저장 구간은 지우거나 바꾸지 않고, 저장 열쇠에 없는 새 구간만 더한다. 승인된 용법 완결
@@ -1659,13 +1801,13 @@ def analyze(request):
         new_spans = [span for span in spans if span_key(span) not in stored_keys]
         if new_spans:
             # 판정을 기다리는 동안 새 구간은 '확인 중'으로 보인다.
-            usage = RequestUsage.start(UsageLog.Path.LLM, request.user, cached.pk)
+            usage = RequestUsage.start(UsageLog.Path.LLM, user, cached.pk)
             events = rematch_and_judge(new_closed, new_spans, usage)
             first = next(events)
-            return StreamingHttpResponse(map(_ndjson, chain([first], events)), content_type=_NDJSON)
+            return StreamingHttpResponse(_in_thread(chain([first], events)), content_type=_NDJSON)
         # LLM이 필요 없으면 클라이언트를 만들지 않고 한 번에 보낸다.
         event = save_rematch(new_closed)
-        RequestUsage.start(UsageLog.Path.DB, request.user, cached.pk, success=event is not None)
+        RequestUsage.start(UsageLog.Path.DB, user, cached.pk, success=event is not None)
         event = event or rematch_fallback(new_closed)
         events = [
             {"type": "translation", "translation_ko": event["translation_ko"], "ruby": ruby},
@@ -1773,14 +1915,16 @@ def analyze(request):
             event = rematch_fallback(new_closed)
         yield event
 
-    if cached:
-        return rematch()
-
     # 학습 단어(조사·조동사·기호·숫자를 뺀 토큰)를 모두 JMdict에서 찾는다. 후보 뜻이 하나면 LLM
     # 없이 정하고, 여럿이면 새 문장 LLM 요청에서 함께 고르게 한다. 못 찾은 토큰은 보이지도
     # 기록하지도 않는다(#96, 사전에 없는 단어는 #97).
-    found = words.lookup(
-        text_to_analyze, morphs, [token for token in range(len(morphs)) if is_vocabulary(token)]
+    # 캐시 분석은 저장된 단어를 쓰므로 찾지 않는다.
+    found = (
+        {}
+        if cached
+        else words.lookup(
+            text_to_analyze, morphs, [token for token in range(len(morphs)) if is_vocabulary(token)]
+        )
     )
     ambiguous = {token: cands for token, cands in found.items() if len(cands) > 1}
     llm_words = [
@@ -1820,16 +1964,19 @@ def analyze(request):
                 stored.append({"start": start, "end": end, "sense_id": sense_id})
         return stored
 
-    # 이 요청의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트로 해서 요청 전체 마감
-    # 시각을 함께 쓴다. stale 재분석은 이미 있는 분석 행에 바로 잇는다.
-    usage = RequestUsage.start(
-        UsageLog.Path.LLM, request.user, existing.pk if existing is not None else None
-    )
-    client = llm.get_client(usage.record_llm)
-    events = analyze_and_save()
-    # 첫 이벤트(옛 결과가 있으면 previous, 확정·판별 대상 구간이 있으면 grammar, 없으면 번역)까지는
-    # 응답을 시작하기 전이라, 그 전에 실패하면 다른 API 오류처럼 오류 핸들러가 상태 코드로 알린다.
-    first = next(events)
-    return StreamingHttpResponse(
-        map(_ndjson, _errors_as_event(chain([first], events))), content_type=_NDJSON
-    )
+    def respond(user):
+        """요청 쪽: 캐시 분석은 한 번에 보내고, 패턴 세트 버전이 올랐으면 다시 매칭하고, 나머지는
+        작업자의 LLM 작업을 기다리며 흘려보낸다.
+        """
+        if cached and cached.matcher_version >= matcher_version:
+            RequestUsage.start(UsageLog.Path.CACHE, user, cached.pk, success=True)
+            # 이미 다 있으니 한 번에 보낸다.
+            events = [translation_event(cached.translation_ko), analysis_event(cached)]
+            return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
+        if cached:
+            return rematch(user)
+        return StreamingHttpResponse(llm_stream(user, early_events()), content_type=_NDJSON)
+
+    # 이 작업의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트로 해서 요청 전체 마감 시각을
+    # 함께 쓴다(run).
+    return SimpleNamespace(respond=respond, run=run)

@@ -12,18 +12,28 @@ class SentenceAnalysis(models.Model):
     """
 
     class Status(models.TextChoices):
+        # 작업자가 LLM 분석을 하고 있다. 조건부 UPDATE로 이 상태를 선점한 요청만 작업을 넣는다(#98).
+        PROCESSING = "processing"
         COMPLETE = "complete"
+        # 마지막 작업이 실패했다. 다음 요청이 다시 선점한다.
+        FAILED = "failed"
 
     sentence_hash = models.CharField(max_length=64, unique=True)
     normalize_version = models.SmallIntegerField()
     normalized_length = models.IntegerField()
     status = models.CharField(max_length=30, choices=Status.choices)
+    # 마지막으로 선점한 때. 멈춘 작업을 찾는 기준이다(#99).
+    processing_started_at = models.DateTimeField(null=True)
     # 스키마가 NULL을 허용한다(자리표시자가 보존된 번역만 저장). 빈 문자열과 구분한다.
     translation_ko = models.TextField(null=True)  # noqa: DJ001
     # 문장 단어의 위치와 고른 뜻: [{start, end, sense_id}](#96). 위치는 키 텍스트 코드포인트 기준
     # [start, end)이고, 같은 단어가 두 번 나오면 위치마다 하나씩 둔다. 공용 테이블이라 위치와
     # ID만 둔다. NULL은 이 칸을 받기 전에 저장된 행이라 다시 분석한다.
     word_spans = models.JSONField(null=True)
+    # 처리 중 작업이 검증해 먼저 저장한 번역(자리표시자 형태). 늦게 온 요청이 소식을 놓쳤어도
+    # 번역을 먼저 보이게 한다. stale 재분석 중에도 translation_ko(옛 결과)를 덮지 않도록 따로 두고,
+    # 작업이 끝나면 비운다(#98).
+    pending_translation_ko = models.TextField(null=True)  # noqa: DJ001
     # word_spans의 뜻 ID를 중복 없이 모은 값(ADR 0002, 내 일본어 계산용). word_spans와 함께 쓴다.
     sense_ids = ArrayField(models.BigIntegerField(), null=True)
     # 다시 분석해야 하는 분석. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법

@@ -6,7 +6,7 @@ import pytest
 from django.db import connection
 
 from analysis import patterns
-from analysis import views as patterns_views
+from analysis import worker as patterns_views
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,

@@ -32,7 +32,7 @@ def channel(sentence_hash):
 
 def enqueue_analysis(analysis_id, text, usage_id):
     """분석 작업을 큐에 넣는다. text는 분석 텍스트, usage_id는 선점한 요청의 request 기록이다."""
-    from analysis.views import run_analysis
+    from analysis.worker import run_analysis
 
     if settings.ANALYSIS_INLINE:
         run_analysis(analysis_id, text, usage_id)

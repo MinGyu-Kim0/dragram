@@ -5,7 +5,7 @@ import threading
 import pytest
 from django.db import connection
 
-from analysis import views
+from analysis import stream
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -156,7 +156,7 @@ def test_concurrent_requests_all_succeed(fake_llm, monkeypatch):
     # runserver·gunicorn 스레드처럼 여러 요청이 동시에 형태소 분석을 한다.
     # 선점한 요청의 작업이 끝나기까지 20초 넘게 걸려, 기다리는 요청이 공통 대기 상한(1초)에
     # 닫히지 않게 늘린다. 테스트 시간 상한(120초)보다는 짧게 둔다.
-    monkeypatch.setattr(views, "WAIT_SECONDS", 60)
+    monkeypatch.setattr(stream, "WAIT_SECONDS", 60)
     long_sentence = "吾輩は猫である。名前はまだ無い。" * 200
     results = []
 

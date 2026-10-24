@@ -4,7 +4,7 @@ import pytest
 from django.db import IntegrityError, transaction
 from django.db.models import F
 
-from analysis import views
+from analysis import worker
 from analysis.models import SentenceAnalysis, UsageLog
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, span_answer
@@ -177,7 +177,7 @@ def test_new_sentence_whose_save_is_rolled_back_keeps_its_calls_on_the_failed_an
     client, fake_llm, monkeypatch
 ):
     # 분석하는 사이 판별 규칙이 바뀌어 새 분석 행까지 되돌린다.
-    monkeypatch.setattr(views, "_basis_changed", lambda *_: True)
+    monkeypatch.setattr(worker, "_basis_changed", lambda *_: True)
 
     analyze(client, KITEIRU)
 

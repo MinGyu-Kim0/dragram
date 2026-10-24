@@ -318,11 +318,14 @@ class OpenAILLMClient:
     def _stream(self, attempt, sentence, tokens, spans, decided_spans, words, unknown_words):
         """analyze_stream의 호출 한 번. attempt는 시도 차수다."""
         parser = TranslationFirstParser()
-        deadline = min(time.monotonic() + STREAM_DEADLINE_SECONDS, self._deadline)
+        # 다시 보낸 스트림도 요청 마감을 넘기지 않는다.
+        now = time.monotonic()
+        deadline = min(now + STREAM_DEADLINE_SECONDS, self._deadline)
         # 사이드 패널이 연결을 끊어 중간에 닫혀도 보낸 호출은 기록한다.
         final, success, received = None, False, False
         try:
             stream = self._client.responses.create(
+                timeout=min(TIMEOUT_SECONDS, self._deadline - now),
                 model=settings.OPENAI_MODEL,
                 instructions=INSTRUCTIONS + NUMBER_RULES,
                 input=json.dumps(
@@ -465,10 +468,11 @@ class OpenAILLMClient:
             DEFINE_SCHEMA,
         )
 
-    def _ask(self, *args):
+    def _ask(self, purpose, label, instructions, payload, name, schema):
         """구조화된 출력을 스트림 없이 받는다(_ask_once). 일시 오류로 실패했으면 한 번 더
         보낸다(#99). 마감이 지났으면 _ask_once가 보내지 않는다.
         """
+        args = (purpose, label, instructions, payload, name, schema)
         try:
             return self._ask_once(1, *args)
         except _NothingReceived:

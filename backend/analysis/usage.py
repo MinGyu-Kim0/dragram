@@ -35,9 +35,19 @@ class RequestUsage:
         )
 
     def record_llm(
-        self, *, purpose, model, input_tokens, cached_input_tokens, output_tokens, success
+        self,
+        *,
+        purpose,
+        model,
+        input_tokens,
+        cached_input_tokens,
+        output_tokens,
+        success,
+        attempt=1,
     ):
-        """LLM 클라이언트가 보낸 호출마다 부른다. 재시도는 하지 않아 시도 차수는 1이다."""
+        """LLM 클라이언트가 보낸 호출마다 부른다. attempt는 시도 차수다(일시 오류로 다시 보낸
+        호출은 2, #99).
+        """
         row = UsageLog.objects.create(
             kind=UsageLog.Kind.LLM,
             user=self._user,
@@ -48,7 +58,7 @@ class RequestUsage:
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
             success=success,
-            attempt=1,
+            attempt=attempt,
         )
         self._ids.append(row.pk)
 

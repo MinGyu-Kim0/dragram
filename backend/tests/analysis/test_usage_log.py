@@ -1,10 +1,15 @@
 """분석 요청·LLM 호출 사용 기록(usage_log, #94)."""
 
+import json
+from types import SimpleNamespace
+
+import httpx2 as httpx
+import openai
 import pytest
 from django.db import IntegrityError, transaction
 from django.db.models import F
 
-from analysis import worker
+from analysis import llm, worker
 from analysis.models import SentenceAnalysis, UsageLog
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, span_answer
@@ -218,3 +223,57 @@ def test_record_kind_decides_which_of_path_and_purpose_it_has(fields):
     # request에는 처리 경로만, llm에는 호출 목적만 있다. 집계가 조용히 오염되지 않게 DB가 막는다.
     with pytest.raises(IntegrityError), transaction.atomic():
         UsageLog.objects.create(success=True, **fields)
+
+
+def transient_then(stream_events):
+    """처음 한 번은 연결 오류를 내고, 그다음은 stream_events를 흘리는 SDK 호출"""
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise openai.APIConnectionError(request=httpx.Request("POST", "https://x"))
+        # SDK 스트림처럼 close가 있다.
+        return (event for event in stream_events)
+
+    return create
+
+
+@pytest.mark.parametrize("second_fails", [False, True])
+def test_llm_call_sent_again_after_a_transient_error_is_attempt_2(
+    client, settings, monkeypatch, second_fails
+):
+    settings.OPENAI_API_KEY = "test-key"
+    answer = json.dumps(
+        {
+            "translation_ko": "비가 내린다",
+            "spans": [],
+            "new_patterns": [],
+            "words": [],
+            "new_words": [],
+        },
+        ensure_ascii=False,
+    )
+    events = [SimpleNamespace(type="response.output_text.delta", delta=answer)]
+    if second_fails:
+        events = [SimpleNamespace(type="error")]
+    real = llm.get_client
+
+    def connect(record):
+        client = real(record)
+        monkeypatch.setattr(client._client.responses, "create", transient_then(events))
+        return client
+
+    monkeypatch.setattr(llm, "get_client", connect)
+
+    response = analyze(client, "雨が降る")
+
+    calls = UsageLog.objects.filter(kind="llm").order_by("id")
+    assert [(c.attempt, c.success) for c in calls] == [(1, False), (2, not second_fails)]
+    status = SentenceAnalysis.objects.get().status
+    if second_fails:
+        assert response.json()["error"] == "ANALYSIS:FAILED"
+        assert status == SentenceAnalysis.Status.FAILED
+    else:
+        assert "error" not in response.json()
+        assert status == SentenceAnalysis.Status.COMPLETE

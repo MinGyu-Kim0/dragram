@@ -123,9 +123,24 @@ class GrammarUsageForm(forms.ModelForm):
 
 
 class GrammarUsageFormSet(BaseInlineFormSet):
+    def get_queryset(self):
+        # 화면을 연 뒤 합쳐지거나 옮겨진 용법이 있으면 용법을 하나도 읽지 않는다. admin은 보낸 행과
+        # 이 목록을 순서대로 짝지어 다시 그리므로, 행이 다른 용법과 짝지어 보이지 않게 한다.
+        if not hasattr(self, "_usages"):
+            usages = super().get_queryset()
+            if self.is_bound:
+                sent = {
+                    self.data.get(f"{self.add_prefix(i)}-id")
+                    for i in range(self.initial_form_count())
+                }
+                if not sent <= {str(pk) for pk in usages.values_list("pk", flat=True)}:
+                    usages = usages.none()
+            self._usages = usages
+        return self._usages
+
     def clean(self):
-        # 화면을 연 뒤 합쳐지거나 옮겨진 용법은 이 패턴의 용법 목록에 없어 새 행으로 읽힌다. admin은
-        # 목록에 있는 행만 다시 그려 그 행의 오류가 보이지 않으므로, 용법 화면과 같은 이유를 보인다.
+        # 그러면 보낸 행이 새 행으로 읽힌다. 그 행은 화면에 다시 그려지지 않으므로 용법 화면과 같은
+        # 이유를 formset 오류로 보인다.
         if any(form.instance.pk is None for form in self.initial_forms):
             raise forms.ValidationError(USAGE_MOVED)
         super().clean()
@@ -317,8 +332,10 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         review.update_test_cases(obj, form.cleaned_data["test_cases"])
 
     def save_formset(self, request, form, formset, change):
-        # 용법은 고칠 수 있는 칸만 쓴다(GrammarUsageAdmin.save_model과 같다). 형태소 인라인은
-        # 고칠 칸이 없어 저장할 행이 없다. commit=False도 admin 변경 기록용 값을 채운다.
+        if formset.model is not GrammarUsage:
+            return super().save_formset(request, form, formset, change)
+        # 용법은 고칠 수 있는 칸만 쓴다(GrammarUsageAdmin.save_model과 같다). commit=False도 admin
+        # 변경 기록에 쓰는 changed_objects 등을 채운다.
         for usage in formset.save(commit=False):
             usage.save(update_fields=[*GrammarUsageForm.Meta.fields, "updated_at"])
 

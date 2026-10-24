@@ -1217,6 +1217,26 @@ def test_inline_usage_opened_before_merging_is_not_saved(admin_client, fake_llm,
         assert GrammarUsage.objects.get(pk=own.pk).explanation_ko != "새 설명"
 
 
+def test_inline_rows_are_not_shown_against_the_wrong_usage_after_a_move(admin_client, fake_llm):
+    # 회화체에 용법이 둘인데 화면을 연 뒤 앞 용법만 원형 아래로 옮겨졌다. admin은 보낸 행과
+    # 지금 목록을 순서대로 짝지으므로, 옮겨진 용법의 행이 남은 용법의 행으로 보이면 안 된다.
+    base, variant, _, own = with_own_usage(fake_llm)
+    with transaction.atomic():
+        other, _ = patterns.add_usage(variant, "유감", "아쉬운 마음을 담는다", None)
+    form = pattern_form(variant, **{"usages-1-explanation_ko": "새 설명"})
+    # 반려된 용법은 연결해도 회화체에 남는다.
+    review.reject_usage(other)
+    review.link_variant(variant, base, {own.pk: None})
+
+    response = admin_client.post(f"{PATTERNS}{variant.pk}/change/", form)
+
+    page = html.unescape(response.content.decode())
+    assert response.status_code == 200
+    assert "옮겨졌습니다" in page
+    assert f"{USAGES}{other.pk}/change/" not in page
+    assert GrammarUsage.objects.get(pk=other.pk).explanation_ko == "아쉬운 마음을 담는다"
+
+
 @pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])
 def test_staff_without_usage_permissions_cannot_merge_or_move(
     client, django_user_model, fake_llm, moved

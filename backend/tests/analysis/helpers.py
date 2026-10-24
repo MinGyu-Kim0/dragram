@@ -160,3 +160,28 @@ def wait_until_blocked():
                 return
         time.sleep(0.05)
     raise AssertionError("다른 연결이 잠금을 기다리지 않음")
+
+
+def usage_rows(pattern):
+    """패턴 변경 화면의 용법 인라인 칸. 화면이 보인 값을 그대로 돌려보낸다."""
+    usages = list(pattern.usages.order_by("id"))
+    data = {"usages-TOTAL_FORMS": len(usages), "usages-INITIAL_FORMS": len(usages)}
+    for i, usage in enumerate(usages):
+        data[f"usages-{i}-id"] = usage.pk
+        data[f"usages-{i}-pattern"] = pattern.pk
+        data[f"usages-{i}-explanation_ko"] = usage.explanation_ko
+        data[f"usages-{i}-example_ja"] = usage.example_ja or ""
+    return data
+
+
+def pattern_form(pattern, **changes):
+    return {
+        "name": pattern.name,
+        "test_cases": json.dumps(pattern.test_cases, ensure_ascii=False),
+        # 체크박스는 꺼져 있으면 POST에 오지 않는다.
+        **({"show_parts": "on"} if pattern.show_parts else {}),
+        "morphemes-TOTAL_FORMS": "0",
+        "morphemes-INITIAL_FORMS": "0",
+        **usage_rows(pattern),
+        **changes,
+    }

@@ -5,7 +5,8 @@ import json
 
 import pytest
 
-from analysis.admin import GrammarUsageAdmin
+from analysis import patterns
+from analysis.admin import GrammarUsageAdmin, GrammarUsageForm
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -13,7 +14,7 @@ from analysis.models import (
     ReviewStatus,
     SentenceAnalysis,
 )
-from tests.analysis.helpers import analyze, new_pattern
+from tests.analysis.helpers import analyze, new_pattern, pattern_form
 
 pytestmark = pytest.mark.django_db
 
@@ -50,18 +51,6 @@ def test_admin_pages_do_not_show_the_original_sentence(admin_client, pattern):
     for page in pages:
         assert page.status_code == 200
         assert ORIGINAL not in page.content.decode()
-
-
-def pattern_form(pattern, **changes):
-    return {
-        "name": pattern.name,
-        "test_cases": json.dumps(pattern.test_cases, ensure_ascii=False),
-        # 체크박스는 꺼져 있으면 POST에 오지 않는다.
-        **({"show_parts": "on"} if pattern.show_parts else {}),
-        "morphemes-TOTAL_FORMS": "0",
-        "morphemes-INITIAL_FORMS": "0",
-        **changes,
-    }
 
 
 def test_pattern_name_and_test_cases_can_be_edited(admin_client, pattern):
@@ -328,3 +317,106 @@ def test_example_that_cannot_be_stored_is_rejected_by_the_form(admin_client, pat
     assert response.status_code == 200
     pattern.refresh_from_db()
     assert pattern.test_cases == before
+
+
+def test_usage_is_edited_inline_on_the_pattern_page(admin_client, pattern):
+    usage = pattern.usages.get()
+    page = admin_client.get(f"{PATTERNS}{pattern.pk}/change/").content.decode()
+    assert f"{USAGES}{usage.pk}/change/" in page
+
+    response = admin_client.post(
+        f"{PATTERNS}{pattern.pk}/change/",
+        pattern_form(
+            pattern,
+            **{
+                "usages-0-explanation_ko": "새 설명",
+                "usages-0-example_ja": "窓が開いている",
+                "usages-0-status": "approved",
+                "usages-0-name": "바뀐 이름",
+            },
+        ),
+    )
+
+    assert response.status_code == 302
+    usage.refresh_from_db()
+    assert (usage.explanation_ko, usage.example_ja, usage.status, usage.name) == (
+        "새 설명",
+        "窓が開いている",
+        ReviewStatus.PENDING,
+        pattern.usages.get().name,
+    )
+
+
+@pytest.mark.parametrize("example_ja", ["雨が降る", "⟨N1⟩人で走っている"])
+def test_inline_usage_example_that_does_not_fit_is_not_saved(admin_client, pattern, example_ja):
+    usage = pattern.usages.get()
+
+    response = admin_client.post(
+        f"{PATTERNS}{pattern.pk}/change/",
+        pattern_form(pattern, name="새 이름", **{"usages-0-example_ja": example_ja}),
+    )
+
+    assert response.status_code == 200
+    assert '<ul class="errorlist' in response.content.decode()
+    usage.refresh_from_db()
+    pattern.refresh_from_db()
+    assert (usage.example_ja, pattern.name) == ("雨が降っている", "ている")
+
+
+def test_inline_usage_save_does_not_overwrite_a_status_changed_meanwhile(
+    admin_client, pattern, monkeypatch
+):
+    usage = pattern.usages.get()
+
+    def reject_meanwhile(form):
+        # 화면이 용법을 읽은 뒤 다른 요청이 그 용법을 반려했다.
+        GrammarUsage.objects.filter(pk=usage.pk).update(status=ReviewStatus.REJECTED)
+        return form.cleaned_data["explanation_ko"]
+
+    monkeypatch.setattr(GrammarUsageForm, "clean_explanation_ko", reject_meanwhile, raising=False)
+
+    response = admin_client.post(
+        f"{PATTERNS}{pattern.pk}/change/",
+        pattern_form(pattern, **{"usages-0-explanation_ko": "새 설명"}),
+    )
+
+    assert response.status_code == 302
+    usage.refresh_from_db()
+    assert (usage.explanation_ko, usage.status) == ("새 설명", ReviewStatus.REJECTED)
+
+
+def test_usages_are_not_added_or_deleted_inline(admin_client, pattern):
+    usage = pattern.usages.get()
+    form = pattern_form(
+        pattern,
+        **{
+            "usages-0-DELETE": "on",
+            "usages-TOTAL_FORMS": 2,
+            "usages-1-pattern": pattern.pk,
+            "usages-1-explanation_ko": "새 용법",
+            "usages-1-example_ja": "窓が開いている",
+        },
+    )
+
+    admin_client.post(f"{PATTERNS}{pattern.pk}/change/", form)
+
+    assert list(pattern.usages.values_list("pk", flat=True)) == [usage.pk]
+
+
+def test_pattern_is_found_once_by_its_usage_name(admin_client, pattern, fake_llm):
+    patterns.add_usage(pattern, "결과 상태", "동작의 결과가 남아 있다", None)
+    patterns.add_usage(pattern, "결과 지속", "결과가 이어진다", None)
+
+    page = admin_client.get(PATTERNS, {"q": "결과"}).content.decode()
+
+    assert page.count(f"{PATTERNS}{pattern.pk}/change/") == 1
+
+
+@pytest.mark.parametrize("value, shown", [("no", ["결과 지속"]), ("yes", ["결과 상태"])])
+def test_usages_are_filtered_by_whether_they_have_an_example(admin_client, pattern, value, shown):
+    pattern.usages.update(name="결과 상태")
+    patterns.add_usage(pattern, "결과 지속", "예문 검사를 통과하지 못했다", None)
+
+    page = admin_client.get(USAGES, {"example": value}).content.decode()
+
+    assert [name for name in ["결과 상태", "결과 지속"] if f">{name}<" in page] == shown

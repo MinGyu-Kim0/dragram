@@ -13,6 +13,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
 from django.db.models import Q
+from django.forms.models import BaseInlineFormSet
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
@@ -82,6 +83,83 @@ class GrammarPatternForm(forms.ModelForm):
         if refusal:
             raise forms.ValidationError(refusal)
         return cases
+
+
+USAGE_MOVED = "그사이 용법이 원형 용법으로 합쳐지거나 원형 아래로 옮겨졌습니다(다시 엽니다)"
+
+
+class GrammarUsageForm(forms.ModelForm):
+    # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
+    example_ja = forms.CharField(widget=forms.Textarea, required=False)
+
+    class Meta:
+        model = GrammarUsage
+        fields = ["explanation_ko", "example_ja"]
+
+    def clean_example_ja(self):
+        example = self.cleaned_data["example_ja"] or None
+        if example is None:
+            return None
+        problem = _example_problem(example)
+        if problem:
+            raise forms.ValidationError(problem)
+        if not review.matches(patterns.conditions_of(self.instance.pattern), example):
+            raise forms.ValidationError("예문이 이 용법의 패턴에 걸리지 않습니다")
+        return example
+
+    def clean(self):
+        # admin 변경 화면은 한 트랜잭션이라, 여기서 잠근 용법을 저장(save_model)까지 붙든다. 예문은
+        # 화면이 읽어 둔 패턴의 조건으로 검사했으므로, 그사이 용법이 원형 용법으로 합쳐지거나
+        # 원형 아래로 옮겨졌으면 저장하지 않는다(#64).
+        current = (
+            GrammarUsage.objects.select_for_update(no_key=True)
+            .filter(pk=self.instance.pk)
+            .values_list("pattern_id", flat=True)
+            .first()
+        )
+        if current != self.instance.pattern_id:
+            raise forms.ValidationError(USAGE_MOVED)
+        return super().clean()
+
+
+class GrammarUsageFormSet(BaseInlineFormSet):
+    def get_queryset(self):
+        # 화면을 연 뒤 합쳐지거나 옮겨진 용법이 있으면 용법을 하나도 읽지 않는다. admin은 보낸 행과
+        # 이 목록을 순서대로 짝지어 다시 그리므로, 행이 다른 용법과 짝지어 보이지 않게 한다.
+        if not hasattr(self, "_usages"):
+            usages = super().get_queryset()
+            if self.is_bound:
+                sent = {
+                    self.data.get(f"{self.add_prefix(i)}-id")
+                    for i in range(self.initial_form_count())
+                }
+                if not sent <= {str(pk) for pk in usages.values_list("pk", flat=True)}:
+                    usages = usages.none()
+            self._usages = usages
+        return self._usages
+
+    def clean(self):
+        # 그러면 보낸 행이 새 행으로 읽힌다. 그 행은 화면에 다시 그려지지 않으므로 용법 화면과 같은
+        # 이유를 formset 오류로 보인다.
+        if any(form.instance.pk is None for form in self.initial_forms):
+            raise forms.ValidationError(USAGE_MOVED)
+        super().clean()
+
+
+class GrammarUsageInline(admin.TabularInline):
+    # 용법 화면과 같은 폼이라 같은 예문 검사·합침 확인을 쓴다. 상태는 용법 화면 액션으로 바꾼다.
+    model = GrammarUsage
+    form = GrammarUsageForm
+    formset = GrammarUsageFormSet
+    fields = ["name", "status", "origin", "explanation_ko", "example_ja"]
+    readonly_fields = ["name", "status", "origin"]
+    ordering = ["id"]
+    extra = 0
+    can_delete = False
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
 
 
 class PatternMorphemeInline(admin.TabularInline):
@@ -224,7 +302,8 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         "created_at",
     ]
     list_filter = ["status", "is_active", "usage_closed", "register"]
-    search_fields = ["name"]
+    # 용법 이름으로 찾아도 admin이 중복 행을 걸러 패턴은 한 번 나온다.
+    search_fields = ["name", "usages__name"]
     fields = [
         "name",
         "test_cases",
@@ -244,13 +323,21 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         "variant_of",
         "morpheme_key",
     ]
-    inlines = [PatternMorphemeInline]
+    inlines = [PatternMorphemeInline, GrammarUsageInline]
 
     def save_model(self, request, obj, form, change):
         # show_parts는 조회할 때만 읽는 표시 칸이라 그대로 쓴다(#65). test_cases는 활성 상태·
         # 패턴 세트 버전과 함께 바꾼다.
         GrammarPattern.objects.filter(pk=obj.pk).update(name=obj.name, show_parts=obj.show_parts)
         review.update_test_cases(obj, form.cleaned_data["test_cases"])
+
+    def save_formset(self, request, form, formset, change):
+        if formset.model is not GrammarUsage:
+            return super().save_formset(request, form, formset, change)
+        # 용법은 고칠 수 있는 칸만 쓴다(GrammarUsageAdmin.save_model과 같다). commit=False도 admin
+        # 변경 기록에 쓰는 changed_objects 등을 채운다.
+        for usage in formset.save(commit=False):
+            usage.save(update_fields=[*GrammarUsageForm.Meta.fields, "updated_at"])
 
     actions = [
         _review_action("approve", review.approve_pattern, "승인"),
@@ -264,54 +351,33 @@ class GrammarPatternAdmin(_ReviewedAdmin):
     ]
 
 
-class GrammarUsageForm(forms.ModelForm):
-    # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
-    example_ja = forms.CharField(widget=forms.Textarea, required=False)
+class ExampleFilter(admin.SimpleListFilter):
+    """예문 검사를 통과하지 못해 예문 없이(NULL) 등록된 용법."""
 
-    class Meta:
-        model = GrammarUsage
-        fields = ["explanation_ko", "example_ja"]
+    title = "예문"
+    parameter_name = "example"
 
-    def clean_example_ja(self):
-        example = self.cleaned_data["example_ja"] or None
-        if example is None:
-            return None
-        problem = _example_problem(example)
-        if problem:
-            raise forms.ValidationError(problem)
-        if not review.matches(patterns.conditions_of(self.instance.pattern), example):
-            raise forms.ValidationError("예문이 이 용법의 패턴에 걸리지 않습니다")
-        return example
+    def lookups(self, request, model_admin):
+        return [("no", "예문 없음"), ("yes", "예문 있음")]
 
-    def clean(self):
-        # admin 변경 화면은 한 트랜잭션이라, 여기서 잠근 용법을 저장(save_model)까지 붙든다. 예문은
-        # 화면이 읽어 둔 패턴의 조건으로 검사했으므로, 그사이 용법이 원형 용법으로 합쳐지거나
-        # 원형 아래로 옮겨졌으면 저장하지 않는다(#64).
-        current = (
-            GrammarUsage.objects.select_for_update(no_key=True)
-            .filter(pk=self.instance.pk)
-            .values_list("pattern_id", flat=True)
-            .first()
-        )
-        if current != self.instance.pattern_id:
-            raise forms.ValidationError(
-                "그사이 용법이 원형 용법으로 합쳐지거나 원형 아래로 옮겨졌습니다(다시 엽니다)"
-            )
-        return super().clean()
+    def queryset(self, request, queryset):
+        if self.value() not in ("no", "yes"):
+            return queryset
+        return queryset.filter(example_ja__isnull=self.value() == "no")
 
 
 @admin.register(GrammarUsage)
 class GrammarUsageAdmin(_ReviewedAdmin):
     form = GrammarUsageForm
     list_display = ["id", "name", "pattern", "status", "origin", "updated_at"]
-    list_filter = ["status", "origin"]
+    list_filter = ["status", "origin", ExampleFilter]
     search_fields = ["name", "pattern__name"]
     fields = ["name", "pattern", "status", "origin", "explanation_ko", "example_ja"]
     readonly_fields = ["name", "pattern", "status", "origin"]
 
     def save_model(self, request, obj, form, change):
         # 고칠 수 있는 칸만 쓴다. 폼을 연 뒤 액션이 바꾼 상태를 화면이 읽어 둔 값으로 덮지 않는다.
-        obj.save(update_fields=["explanation_ko", "example_ja", "updated_at"])
+        obj.save(update_fields=[*GrammarUsageForm.Meta.fields, "updated_at"])
 
     actions = [
         _review_action("approve", review.approve_usage, "승인"),

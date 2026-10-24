@@ -11,7 +11,7 @@ from django.test import Client
 
 from accounts import tokens
 from analysis.jmdict import to_hiragana
-from analysis.models import ReviewStatus, Word, WordSense
+from analysis.models import ReviewStatus, SentenceAnalysis, Word, WordSense
 
 
 class Analyzed:
@@ -45,6 +45,11 @@ class Analyzed:
 
     def types(self):
         return [event["type"] for event in self.events]
+
+
+def saved_analyses():
+    """결과까지 저장된 분석. 실패한 시도는 결과 없이 failed 행으로 남는다(#98)."""
+    return SentenceAnalysis.objects.filter(word_spans__isnull=False)
 
 
 def read_body(response):

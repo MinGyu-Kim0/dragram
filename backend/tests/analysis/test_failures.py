@@ -2,9 +2,8 @@
 
 import pytest
 
-from analysis.models import SentenceAnalysis
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze
+from tests.analysis.helpers import analyze, saved_analyses
 
 pytestmark = pytest.mark.django_db
 
@@ -43,7 +42,7 @@ def test_llm_error_fails_the_sentence(client, fake_llm):
     response = analyze(client, "私は学生です。")
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
+    assert saved_analyses().count() == 0
 
 
 def test_unexpected_error_is_not_hidden_as_analysis_failure(client, fake_llm):

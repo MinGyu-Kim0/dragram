@@ -840,10 +840,6 @@ def _is_fresh(analysis):
     return analysis.word_spans is not None and not analysis.is_stale
 
 
-class _SavedByAnother(Exception):  # noqa: N818
-    """다시 채우려던 분석 행을 그사이 다른 요청이 먼저 채웠다."""
-
-
 class _PatternTaken(Exception):  # noqa: N818
     """새 패턴을 등록하는 사이 다른 요청이 같은 조건의 패턴을 먼저 등록했다."""
 
@@ -877,8 +873,8 @@ def _check_examples(validated, client, key_text, content_tokens, key_span, disca
     않는다. 이미 검사한 예문은 다시 보지 않는다(다시 묻기 뒤 재시도). LLM 호출이라 저장
     트랜잭션 밖에서 부른다.
 
-    discarded()가 참이면 이 결과가 버려질 것이라 다시 쓰기를 보내지 않는다. 첫 분석은 다른
-    요청이 이 문장의 분석을 먼저 저장했는지, 재매칭은 이번 새 구간이 이미 저장됐는지 본다(#41).
+    discarded()가 참이면 이 결과가 버려질 것이라 다시 쓰기를 보내지 않는다. 첫 분석은 작업을
+    시작한 뒤 세대 번호가 올랐는지(#98), 재매칭은 이번 새 구간이 이미 저장됐는지 본다(#41).
     """
 
     def fixed_spans(start_token, conditions):
@@ -1126,11 +1122,13 @@ def _pipeline(sentence):
             new_patterns.append({**proposal, "conditions": conditions, "existing": None})
         return {**validated, "new_patterns": new_patterns, "span_list": spans}
 
-    def saved_by_another():
-        """첫 호출을 기다리는 사이 다른 요청이 이 문장의 분석을 저장했는가."""
-        return SentenceAnalysis.objects.filter(
-            sentence_hash=sentence_hash, word_spans__isnull=False, is_stale=False
-        ).exists()
+    def job_outdated():
+        """이 작업의 결과가 버려질 것인가. 시작한 뒤 세대 번호가 올랐으면 저장하지 않는다(save)."""
+        return (
+            SentenceAnalysis.objects.filter(pk=existing.pk)
+            .exclude(generation=started_generation)
+            .exists()
+        )
 
     def ask_again(validated):
         """첫 응답의 해석 갈림·미확정 구간과, 형태소 조건이 같은 패턴이 이미 있는 새 구문을 한
@@ -1175,8 +1173,8 @@ def _pipeline(sentence):
                 asked.append(span)
         if not asked and not recheck:
             return {**validated, "new_patterns": rest}
-        if saved_by_another():
-            # 그 결과를 쓰므로(save_once) 버려질 재질문을 보내지 않는다.
+        if job_outdated():
+            # 저장하지 않을 결과라 버려질 재질문을 보내지 않는다.
             return validated
         llm_spans = _llm_spans(recheck_spans + asked)
         # 해석이 정해진 구간은 그 해석대로 번역하게 알린다(답은 받지 않는다).
@@ -1447,7 +1445,7 @@ def _pipeline(sentence):
         """
         # 다시 물어 받은 새 용법도 공용 테이블에 들어가므로 다시 본다.
         reject_quotes(validated)
-        _check_examples(validated, client, key_text, content_tokens, key_span, saved_by_another)
+        _check_examples(validated, client, key_text, content_tokens, key_span, job_outdated)
         stored_words = word_spans(validated["words"])
 
         try:
@@ -1475,15 +1473,11 @@ def _pipeline(sentence):
             with transaction.atomic():
                 rows = span_matches(existing, validated, final)
                 locked = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=existing.pk)
-                if _is_fresh(locked):
-                    raise _SavedByAnother
                 locked.span_matches.all().delete()
                 SpanMatch.objects.bulk_create(rows)
-        except _SavedByAnother:
-            # 그사이 다른 요청이 먼저 채웠다. 이번에 쓴 구간·패턴은 되돌리고 그 값을 쓴다.
-            return False
         except IntegrityError as e:
-            # 순서를 지키지 않은 쓰기가 같은 구간을 먼저 넣었다. 다른 요청이 저장한 것과 같다.
+            # 순서를 지키지 않은 쓰기가 같은 구간을 먼저 넣었다. 저장하지 못한 채 끝나 run이
+            # 실패로 알린다.
             if not _is_place_conflict(e):
                 raise
             return False

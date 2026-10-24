@@ -558,7 +558,8 @@ def test_analysis_is_not_saved_when_the_variant_is_unlinked_meanwhile(client, fa
 
     response = analyze(client, MICHAU)
 
-    assert "error" not in response.json()
+    # 분석하는 사이 영향 범위가 바뀐 결과는 저장하지 않고 실패로 알린다(#98).
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert not SentenceAnalysis.objects.filter(translation_ko="전부 봐 버렸다").exists()
 
 
@@ -750,7 +751,8 @@ def test_analysis_is_not_saved_when_a_new_base_usage_opens_a_closed_span(client,
     response = analyze(client, "見ちゃって食べちまった")
 
     assert fake_llm.requests[-1]["decided_spans"][0]["start_token_id"] == 1
-    assert "error" not in response.json()
+    # 분석하는 사이 영향 범위가 바뀐 결과는 저장하지 않고 실패로 알린다(#98).
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert not SentenceAnalysis.objects.filter(translation_ko="봐 버리고 먹어 버렸다").exists()
 
 
@@ -932,7 +934,8 @@ def test_analysis_started_before_merging_is_not_saved(client, fake_llm, moved):
 
     response = analyze(client, MICHAU)
 
-    assert "error" not in response.json()
+    # 분석하는 사이 영향 범위가 바뀐 결과는 저장하지 않고 실패로 알린다(#98).
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert not SentenceAnalysis.objects.filter(translation_ko="전부 봐 버렸다").exists()
 
 

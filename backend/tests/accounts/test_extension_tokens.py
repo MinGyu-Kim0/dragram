@@ -14,6 +14,7 @@ from accounts import views as account_views
 from accounts.models import ExtensionToken
 from analysis import views
 from analysis.models import UsageLog
+from tests.analysis.helpers import read_body
 
 pytestmark = pytest.mark.django_db
 
@@ -70,13 +71,13 @@ def test_issuing_again_keeps_the_working_token_until_the_new_one_is_used(fake_ll
     # 확장에 새 토큰을 넘기지 못해도(확장이 답하지 않음 등) 쓰던 연결은 끊기지 않는다.
     web, headers = web_session()
     previous = issue(web, headers)
-    b"".join(analyze(previous).streaming_content)
+    read_body(analyze(previous))
 
     current = issue(web, headers)
     assert analyze(previous).status_code == 200
 
     # 새 토큰이 처음 쓰이면 같은 세션의 예전 토큰을 지운다.
-    b"".join(analyze(current, "私は先生です。").streaming_content)
+    read_body(analyze(current, "私は先生です。"))
     assert analyze(previous).status_code == 401
     assert ExtensionToken.objects.count() == 1
 
@@ -118,7 +119,7 @@ def test_valid_token_analyzes_and_usage_log_records_its_owner(fake_llm):
     response = analyze(issue(web, headers))
 
     assert response.status_code == 200
-    b"".join(response.streaming_content)
+    read_body(response)
     owner = User.objects.get()
     assert {log.user for log in UsageLog.objects.all()} == {owner}
     assert set(UsageLog.objects.values_list("kind", flat=True)) == {"request", "llm"}
@@ -174,9 +175,9 @@ def test_last_used_time_changes_once_a_day(fake_llm):
     yesterday = timezone.now() - timedelta(days=1)
     ExtensionToken.objects.update(last_used_at=yesterday)
 
-    b"".join(analyze(token).streaming_content)
+    read_body(analyze(token))
     first = ExtensionToken.objects.get().last_used_at
-    b"".join(analyze(token, "私は先生です。").streaming_content)
+    read_body(analyze(token, "私は先生です。"))
 
     assert first > yesterday
     assert ExtensionToken.objects.get().last_used_at == first
@@ -347,7 +348,7 @@ def test_second_concurrent_first_use_does_not_delete_a_token_issued_in_between(
             return stale["row"]
         return stale["row"]
 
-    b"".join(analyze(b_token).streaming_content)
+    read_body(analyze(b_token))
     c_token = issue(web, headers)
     stale["row"] = ExtensionToken.objects.get(
         token_hash=hashlib.sha256(b_token.encode()).hexdigest()

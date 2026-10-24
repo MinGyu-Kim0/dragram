@@ -4,11 +4,19 @@ import threading
 
 import pytest
 from django.db import connection, transaction
+from django.db.models import F
 
 from analysis import patterns, review
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, connected_client, new_pattern, new_usage, span_answer
+from tests.analysis.helpers import (
+    analyze,
+    connected_client,
+    new_pattern,
+    new_usage,
+    saved_analyses,
+    span_answer,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -245,7 +253,7 @@ def test_invalid_answer_when_rechecking_fails_and_nothing_is_stored(client, fake
     response, *_ = ask_divergent(client, fake_llm, rejudge)
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 1
+    assert saved_analyses().count() == 1
 
 
 def test_divergent_first_answer_on_a_span_with_one_candidate_fails(client, fake_llm):
@@ -263,7 +271,7 @@ def test_divergent_first_answer_on_a_span_with_one_candidate_fails(client, fake_
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert fake_llm.rejudge_requests == []
-    assert SentenceAnalysis.objects.count() == 1
+    assert saved_analyses().count() == 1
 
 
 @pytest.mark.parametrize("translation", ["", None, "⟨N1⟩ 그가 와 있다"])
@@ -273,7 +281,7 @@ def test_changed_translation_that_is_invalid_fails(client, fake_llm, translation
     )
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 1
+    assert saved_analyses().count() == 1
 
 
 def test_failed_recheck_call_fails_and_keeps_the_sent_translation(client, fake_llm):
@@ -288,7 +296,7 @@ def test_failed_recheck_call_fails_and_keeps_the_sent_translation(client, fake_l
 
     assert response.types() == ["grammar", "translation", "error"]
     assert response.events[1]["translation_ko"] == "그가 와 있다"
-    assert SentenceAnalysis.objects.count() == 1
+    assert saved_analyses().count() == 1
 
 
 def register_inactive_ga(client, fake_llm):
@@ -569,30 +577,21 @@ def test_recheck_request_carries_spans_decided_without_the_llm(client, fake_llm)
     assert rejudge["decided_spans"] == [{"start_token_id": 1, "end_token_id": 1, "name": "주격"}]
 
 
-def test_divergent_span_not_asked_again_is_never_saved(client, fake_llm, monkeypatch):
-    # 첫 호출을 기다리는 사이 다른 요청이 같은 문장을 저장해 재질문을 건너뛰었는데, 저장 직전에
-    # 그 행이 stale이 되어 이 요청이 행을 다시 채우게 되는 경합
+def test_divergent_span_not_asked_again_is_never_saved(client, fake_llm):
+    # 첫 호출을 기다리는 사이 세대 번호가 올라 버려질 결과라 재질문을 건너뛰었다. 다시 묻지 않은
+    # 해석 갈림은 저장하지 않는다.
     teiru_with_two_usages(client, fake_llm)
+    stored = SpanMatch.objects.count()
     fake_llm.response = {
         "translation_ko": "그가 와 있다",
         "spans": [span_answer(0, "divergent", 1)],
     }
-    fake_llm.rejudge_response = {
-        "translation_ko": "그가 와 있다",
-        "spans": [divergent(0, 1, alternative(2, "그가 와 있는 상태다"))],
-    }
-    fake_llm.before_respond = lambda: analyze(connected_client(), KITEIRU)
-    get_or_create = SentenceAnalysis.objects.get_or_create
-
-    def made_stale_before_saving(**kwargs):
-        SentenceAnalysis.objects.filter(sentence_hash=kwargs["sentence_hash"]).update(is_stale=True)
-        return get_or_create(**kwargs)
-
-    monkeypatch.setattr(SentenceAnalysis.objects, "get_or_create", made_stale_before_saving)
+    fake_llm.before_respond = lambda: SentenceAnalysis.objects.update(
+        generation=F("generation") + 1
+    )
 
     response = analyze(client, KITEIRU)
 
     assert response.types()[-1] == "error"
-    # 다른 요청의 재질문만 있었다. 그 요청의 결과는 stale로 남아 다음 요청이 다시 분석한다.
-    assert len(fake_llm.rejudge_requests) == 1
-    assert SpanMatch.objects.filter(state="divergent").count() == 1
+    assert fake_llm.rejudge_requests == []
+    assert SpanMatch.objects.count() == stored

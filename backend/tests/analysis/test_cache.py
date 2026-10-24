@@ -68,7 +68,9 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
         "normalize_version",
         "normalized_length",
         "status",
+        "processing_started_at",
         "translation_ko",
+        "pending_translation_ko",
         "is_stale",
         "generation",
         "matcher_version",
@@ -117,21 +119,6 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
             assert "私は" not in stored
             assert "走っている" not in stored
     assert not PatternMorpheme.objects.filter(lemma__contains="3").exists()
-
-
-def test_first_saved_analysis_wins_when_same_sentence_is_saved_concurrently(client, fake_llm):
-    # 첫 요청이 LLM 응답을 기다리는 사이에 같은 문장의 다른 요청이 먼저 저장한다.
-    def other_request_saves_first():
-        fake_llm.response = {"translation_ko": "먼저 저장된 번역"}
-        analyze(connected_client(), "私は学生です。")
-        fake_llm.response = {"translation_ko": "늦게 끝난 번역"}
-
-    fake_llm.before_respond = other_request_saves_first
-
-    response = analyze(client, "私は学生です。")
-
-    assert response.json()["translation_ko"] == "먼저 저장된 번역"
-    assert SentenceAnalysis.objects.count() == 1
 
 
 def test_first_filled_grammar_wins_when_row_without_grammar_is_filled_concurrently(

@@ -1,6 +1,6 @@
 import pytest
 
-from analysis import llm
+from analysis import llm, views
 
 
 class FakeLLMClient:
@@ -136,9 +136,13 @@ class FakeLLMClient:
 
 
 @pytest.fixture(autouse=True)
-def inline_analysis(settings):
-    """분석 작업을 큐에 넣는 자리에서 바로 실행한다. 테스트 트랜잭션 안의 데이터를 보도록."""
+def inline_analysis(settings, monkeypatch):
+    """분석 작업을 큐에 넣는 자리에서 바로 실행한다. 테스트 트랜잭션 안의 데이터를 보도록.
+
+    작업 소식은 요청이 읽기 전에 모두 와 있으므로, 기다릴 소식이 없는 요청은 곧바로 닫는다.
+    """
     settings.ANALYSIS_INLINE = True
+    monkeypatch.setattr(views, "WAIT_SECONDS", 1)
 
 
 @pytest.fixture

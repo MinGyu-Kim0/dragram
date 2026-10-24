@@ -98,7 +98,7 @@ def test_same_span_cannot_be_stored_twice(client, fake_llm):
 
 # 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
-def test_stale_replacement_conflicting_on_the_same_span_uses_the_stored_result(fake_llm):
+def test_stale_replacement_conflicting_on_the_same_span_saves_nothing(fake_llm):
     register(fake_llm, "走っている", TEIRU)
     fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "usage", 1)]}
     analyze(connected_client(), KITEIRU)
@@ -125,9 +125,10 @@ def test_stale_replacement_conflicting_on_the_same_span_uses_the_stored_result(f
         wait_until_blocked()
     thread.join()
 
-    response = result["response"].json()
-    assert "error" not in response
-    assert response["translation_ko"] == "그가 와 있다"
+    # 같은 구간이 먼저 들어가 저장하지 못했다. 덮어쓰지 않고 실패로 알려 다음 요청이 다시 분석한다.
+    assert result["response"].json() == {"error": "ANALYSIS:FAILED"}
+    analysis.refresh_from_db()
+    assert (analysis.translation_ko, analysis.status) == ("그가 와 있다", "failed")
     assert analysis.span_matches.count() == 1
 
 
@@ -266,7 +267,8 @@ def test_first_usage_raises_the_version_before_locking_the_analysis(fake_llm):
         patterns.make_stale(pattern=ga)
     thread.join()
 
-    assert "error" not in result["response"].json()
+    # 교착 없이 끝났다. 분석하는 사이 전이가 세대 번호를 올려 저장하지 않고 실패로 알린다(#98).
+    assert result["response"].json() == {"error": "ANALYSIS:FAILED"}
 
 
 def test_rematch_without_new_spans_only_raises_the_matcher_version(client, fake_llm):

@@ -137,17 +137,20 @@ def test_failed_llm_call_is_recorded_and_the_request_fails(client, fake_llm):
     analyze(client, KITEIRU)
 
     assert rows() == [("request", "llm", None, False), ("llm", None, "first_response", False)]
-    assert set(UsageLog.objects.values_list("analysis", flat=True)) == {None}
+    # 선점할 때 처리 중 행을 먼저 만들므로 실패한 시도도 그 행에 잇는다(#98).
+    failed = SentenceAnalysis.objects.get(status="failed")
+    assert set(UsageLog.objects.values_list("analysis", flat=True)) == {failed.pk}
 
 
-def test_rejected_llm_answer_keeps_the_call_and_leaves_the_request_unlinked(client, fake_llm):
+def test_rejected_llm_answer_keeps_the_call_on_the_failed_analysis(client, fake_llm):
     # 호출 자체는 성공했지만 검증에서 거부돼 저장하지 않았다.
     fake_llm.response = {"translation_ko": 1}
 
     analyze(client, KITEIRU)
 
     assert rows() == [("request", "llm", None, False), ("llm", None, "first_response", True)]
-    assert set(UsageLog.objects.values_list("analysis", flat=True)) == {None}
+    failed = SentenceAnalysis.objects.get(status="failed")
+    assert set(UsageLog.objects.values_list("analysis", flat=True)) == {failed.pk}
 
 
 def test_llm_call_stays_recorded_when_the_save_is_rolled_back(client, fake_llm):
@@ -165,11 +168,12 @@ def test_llm_call_stays_recorded_when_the_save_is_rolled_back(client, fake_llm):
 
     analysis = SentenceAnalysis.objects.get()
     assert (analysis.is_stale, analysis.translation_ko) == (True, "그가 와 있다")
-    assert rows() == [("request", "llm", None, True), ("llm", None, "first_response", True)]
+    # 저장하지 않은 결과는 보내지 않고 실패로 알리므로 요청도 실패다(#98).
+    assert rows() == [("request", "llm", None, False), ("llm", None, "first_response", True)]
     assert set(UsageLog.objects.values_list("analysis", flat=True)) == {analysis.pk}
 
 
-def test_new_sentence_whose_save_is_rolled_back_keeps_its_calls_unlinked(
+def test_new_sentence_whose_save_is_rolled_back_keeps_its_calls_on_the_failed_analysis(
     client, fake_llm, monkeypatch
 ):
     # 분석하는 사이 판별 규칙이 바뀌어 새 분석 행까지 되돌린다.
@@ -177,9 +181,10 @@ def test_new_sentence_whose_save_is_rolled_back_keeps_its_calls_unlinked(
 
     analyze(client, KITEIRU)
 
-    assert not SentenceAnalysis.objects.exists()
-    assert rows() == [("request", "llm", None, True), ("llm", None, "first_response", True)]
-    assert set(UsageLog.objects.values_list("analysis", flat=True)) == {None}
+    failed = SentenceAnalysis.objects.get()
+    assert (failed.status, failed.word_spans) == ("failed", None)
+    assert rows() == [("request", "llm", None, False), ("llm", None, "first_response", True)]
+    assert set(UsageLog.objects.values_list("analysis", flat=True)) == {failed.pk}
 
 
 def test_records_hold_no_original_text(client, fake_llm):

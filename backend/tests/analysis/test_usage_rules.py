@@ -351,7 +351,8 @@ def test_rule_retired_while_analyzing_is_not_saved_as_the_basis(client, fake_llm
 
     response = analyze(client, TOKYO_DE)
 
-    assert [item["name"] for item in response.json()["grammar"]] == ["장소"]
+    # 분석하는 사이 영향 범위가 바뀐 결과는 저장하지 않고 실패로 알린다(#98).
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert not SpanMatch.objects.filter(rule=place).exists()
 
 
@@ -633,7 +634,8 @@ def test_rule_approved_while_analyzing_keeps_the_result_from_being_saved(client,
 
     response = analyze(client, TOKYO_DE)
 
-    assert response.json()["translation_ko"] == "도쿄에서 만난다"
+    # 분석하는 사이 영향 범위가 바뀐 결과는 저장하지 않고 실패로 알린다(#98).
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert not SentenceAnalysis.objects.filter(translation_ko="도쿄에서 만난다").exists()
 
 

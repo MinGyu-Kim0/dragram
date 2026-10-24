@@ -2,8 +2,7 @@
 
 import pytest
 
-from analysis.models import SentenceAnalysis
-from tests.analysis.helpers import analyze, new_pattern
+from tests.analysis.helpers import analyze, new_pattern, saved_analyses
 
 pytestmark = pytest.mark.django_db
 
@@ -162,7 +161,7 @@ def test_grammar_text_quoting_whole_sentence_fails_and_is_not_stored(
     response = analyze(client, "私は学生です。")
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
+    assert saved_analyses().count() == 0
 
 
 def test_grammar_spanning_whole_sentence_may_not_quote_it(client, fake_llm):
@@ -177,7 +176,7 @@ def test_grammar_spanning_whole_sentence_may_not_quote_it(client, fake_llm):
     response = analyze(client, "私は学生です。")
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
+    assert saved_analyses().count() == 0
 
 
 def test_grammar_text_may_quote_sentence_that_is_the_grammar_span_itself(client, fake_llm):

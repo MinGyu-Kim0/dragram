@@ -34,8 +34,3 @@ export function grammarCardCount(grammar: GrammarItem[]): number {
     0,
   );
 }
-
-// 응답에서 대안이 모두 빠진 해석 갈림은 보통 카드로 보인다.
-export function isDivergent(item: GrammarItem): boolean {
-  return (item.alternatives ?? []).length > 0;
-}

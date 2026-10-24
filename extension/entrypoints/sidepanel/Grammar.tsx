@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from "react";
 import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
 import { BadgeRow } from "./BadgeRow";
 import { draggedFirst, type DragRange } from "./drag-range";
-import { groupGrammar, isDivergent, sortGrammar } from "./grammar-groups";
+import { groupGrammar, sortGrammar } from "./grammar-groups";
 
 // 형광펜은 4색을 돌아가며 쓴다(DESIGN.md 형광펜). 원문 형광펜과 카드 칩이 같은 색이다.
 const HIGHLIGHT_COLORS = 4;
@@ -267,6 +267,11 @@ function GrammarCard({
       )}
     </li>
   );
+}
+
+// 응답에서 대안이 모두 빠진 해석 갈림은 보통 카드로 보인다.
+function isDivergent(item: GrammarItem): boolean {
+  return (item.alternatives ?? []).length > 0;
 }
 
 // 문법 카드와 하위 박스가 함께 쓰는 내용: 배지 줄, 칩·이름, 원형 안내, 설명이나 "판단하지 못함",

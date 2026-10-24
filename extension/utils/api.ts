@@ -70,12 +70,26 @@ export interface WordItem {
   // 원문 기준 UTF-16 위치 [start, end). 문장에 나온 그 단어(활용형 포함)의 자리다.
   start: number;
   end: number;
-  // 사전형과 그 읽기(食べて → 食べる / たべる), 이 문장에서의 뜻
-  lemma: string;
+  // JMdict 표제(사전형)와 이 표기에 맞는 읽기(食べて → 食べる / たべる)
+  dictionary_form: string;
   reading: string;
-  meaning_ko: string;
-  // pending은 JMdict 없이 LLM이 만든 뜻이라 아직 검수되지 않았다.
-  review_status: "pending" | "approved";
+  // 단어 전체 태그(품사, 동사 그룹 등) 코드
+  tags: string[];
+  // 이 문장에서 고른 뜻. null이면 뜻이 여럿이라 아직 고르는 중이다(LLM 응답 전).
+  sense: WordSense | null;
+}
+
+export interface WordSense {
+  // 뜻마다 다른 태그(자동사·타동사 등) 코드
+  tags: string[];
+  // JMdict 영어 뜻(한국어 뜻이 없을 때 보인다)
+  gloss_en: string[];
+  // 뜻의 출처와 검수 상태. llm이거나 pending이면 미검수다.
+  origin: "jmdict" | "llm";
+  status: "pending" | "approved";
+  // 한국어 뜻과 그 검수 상태(ai는 검수 전 'AI 번역'). 아직 없으면 null이다(#97).
+  meaning_ko: string | null;
+  meaning_status: "ai" | "reviewed";
 }
 
 export interface RubyItem {
@@ -112,9 +126,9 @@ export class AnalysisFailed extends Error {
 }
 
 // 서버는 줄 단위 JSON으로 translation(번역, 루비) → analysis(번역, 문법, 단어)를 보내고,
-// 실패하면 error를 보낸다. LLM 없이 확정한 문법이나 판별 대상 구간이 있으면 그보다 먼저
-// grammar(확정 문법, 판별 대상 구간)를 보낸다. 실패(AnalysisFailed)에는 받은 확정 문법만 싣고,
-// 판별 대상 구간은 싣지 않는다(화면에서 지운다). stale 분석이면 맨 먼저 previous(옛 번역, 루비,
+// 실패하면 error를 보낸다. LLM 없이 확정한 문법이나 판별 대상 구간, 사전에서 찾은 단어가 있으면
+// 그보다 먼저 grammar(확정 문법, 판별 대상 구간, 단어)를 보낸다. 실패(AnalysisFailed)에는 받은
+// 확정 문법만 싣고, 판별 대상 구간과 먼저 온 단어는 싣지 않는다(화면에서 지운다). stale 분석이면 맨 먼저 previous(옛 번역, 루비,
 // 문법, 단어)를 보내고 onPrevious를 부른다. 이어지는 이벤트는 다시 분석하는 흐름 그대로다.
 // 패턴 세트 버전이 올라 다시 매칭한 캐시 문장에 판별 대상 새 구간이 있으면 같은 순서로
 // grammar(저장 문법과 새 확정 문법, 새 판별 대상 구간) → translation(저장 번역) → analysis를
@@ -124,7 +138,11 @@ export class AnalysisFailed extends Error {
 export async function analyzeSentence(
   text: string,
   onTranslation: (translation: Translation) => void,
-  onEarlyGrammar?: (grammar: GrammarItem[], checking: CheckingItem[]) => void,
+  onEarlyGrammar?: (
+    grammar: GrammarItem[],
+    checking: CheckingItem[],
+    words: WordItem[],
+  ) => void,
   onPrevious?: (previous: Analysis) => void,
 ): Promise<Analysis> {
   const token = await loadToken();
@@ -157,7 +175,7 @@ export async function analyzeSentence(
         onPrevious?.(previous);
       } else if (event.type === "grammar") {
         earlyGrammar = event.grammar;
-        onEarlyGrammar?.(earlyGrammar, event.checking);
+        onEarlyGrammar?.(earlyGrammar, event.checking, event.words ?? []);
       } else if (event.type === "translation") {
         translation = {
           translation_ko: event.translation_ko,
@@ -184,7 +202,13 @@ export async function analyzeSentence(
 
 type StreamEvent =
   | ({ type: "previous" } & Analysis)
-  | { type: "grammar"; grammar: GrammarItem[]; checking: CheckingItem[] }
+  | {
+      type: "grammar";
+      grammar: GrammarItem[];
+      checking: CheckingItem[];
+      // 새 문장에서 사전으로 찾은 단어(LLM 응답 전). 재매칭의 grammar 이벤트에는 없다.
+      words?: WordItem[];
+    }
   | ({ type: "translation" } & Translation)
   | ({ type: "analysis" } & Omit<Analysis, "ruby">)
   | { type: "error"; error: string };

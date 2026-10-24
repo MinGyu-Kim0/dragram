@@ -7,22 +7,18 @@ import pytest
 from analysis import review
 from analysis.models import GrammarPattern, SentenceAnalysis
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, post, span_answer, word_item
+from tests.analysis.helpers import add_word, analyze, new_pattern, post, span_answer
 
 pytestmark = pytest.mark.django_db
 
 # 토큰: 0 走っ / 1 て / 2 いる
 TEIRU = new_pattern((1, "lemma"), (2, "lemma"))
-HASHIRU = word_item(token_id=0, lemma="走る", reading="はしる", meaning_ko="달리다")
 
 
 def stale_teiru(client, fake_llm):
     """ている를 등록한 走っている 분석을 만들고 stale로 만든다."""
-    fake_llm.response = {
-        "translation_ko": "달리고 있다",
-        "new_patterns": [TEIRU],
-        "words": [HASHIRU],
-    }
+    add_word(1, ["走る"], ["はしる"], [(["to run"], [], None)], tags=("verb", "group1"))
+    fake_llm.response = {"translation_ko": "달리고 있다", "new_patterns": [TEIRU]}
     analyze(client, "走っている")
     SentenceAnalysis.objects.update(is_stale=True)
     fake_llm.response = {"translation_ko": "달리는 중이다", "spans": [span_answer(0, "usage", 1)]}
@@ -57,7 +53,9 @@ def test_stale_analysis_sends_its_previous_result_before_calling_the_llm(client,
             "variant_of": None,
         }
     ]
-    assert [(w["lemma"], w["meaning_ko"]) for w in first["words"]] == [("走る", "달리다")]
+    assert [(w["dictionary_form"], w["sense"]["gloss_en"]) for w in first["words"]] == [
+        ("走る", ["to run"])
+    ]
 
 
 def test_reanalysis_after_the_previous_result_makes_the_same_llm_calls(client, fake_llm):
@@ -116,7 +114,7 @@ def test_llm_failure_after_the_previous_result_is_an_error_event_and_keeps_it_st
 
 def test_row_without_a_previous_result_is_analyzed_as_new(client, fake_llm):
     stale_teiru(client, fake_llm)
-    SentenceAnalysis.objects.update(draft_analysis=None)
+    SentenceAnalysis.objects.update(word_spans=None, sense_ids=None)
 
     response = analyze(client, "走っている")
 

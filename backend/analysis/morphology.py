@@ -39,6 +39,10 @@ class Morpheme(NamedTuple):
     # 품사 소분류(固有名詞 아래 地名 등). 없으면(*) None. 판별 규칙 조건에만 쓰고 패턴 조건에는
     # 넣지 않는다(#55).
     pos3: str | None = None
+    # 사전형(SudachiPy dictionary_form, 표기는 원문 그대로)과 활용 여부(활용형 칸이 있는가).
+    # 단어 찾기에 쓴다(#96).
+    dictionary_form: str = ""
+    conjugates: bool = False
 
 
 _FUNCTION_POS = {"助詞", "助動詞"}
@@ -77,7 +81,16 @@ def _morpheme(m):
         None if value == "*" else value for value in (pos[1], pos[2], pos[5])
     )
     return Morpheme(
-        m.begin(), m.end(), pos[0], m.reading_form(), lemma, pos2, conjugation_form, pos3
+        m.begin(),
+        m.end(),
+        pos[0],
+        m.reading_form(),
+        lemma,
+        pos2,
+        conjugation_form,
+        pos3,
+        m.dictionary_form(),
+        pos[4] != "*",
     )
 
 

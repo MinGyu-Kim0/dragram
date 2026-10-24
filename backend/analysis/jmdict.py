@@ -48,12 +48,13 @@ SENSE_TAGS = {
 }
 LOANWORD = "loanword"
 
-# 태그 허용 목록
-ALLOWED_TAGS = frozenset(
-    {tag for tags in WORD_TAGS.values() for tag in tags}
-    | set(SENSE_TAGS.values())
-    | {GROUP1_EXCEPTION, LOANWORD}
+# 단어 전체 태그. word.tags에는 검색용 뜻 태그도 함께 모으므로 응답할 때 이것으로 가른다.
+WHOLE_WORD_TAGS = frozenset(
+    {tag for tags in WORD_TAGS.values() for tag in tags} | {GROUP1_EXCEPTION}
 )
+
+# 태그 허용 목록
+ALLOWED_TAGS = WHOLE_WORD_TAGS | set(SENSE_TAGS.values()) | {LOANWORD}
 
 # XML 기본 엔티티는 그대로 두고 나머지 엔티티 참조만 코드 이름으로 바꾼다.
 _ENTITY = re.compile(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)([\w-]+);")

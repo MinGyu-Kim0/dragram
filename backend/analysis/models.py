@@ -20,11 +20,12 @@ class SentenceAnalysis(models.Model):
     status = models.CharField(max_length=30, choices=Status.choices)
     # 스키마가 NULL을 허용한다(자리표시자가 보존된 번역만 저장). 빈 문자열과 구분한다.
     translation_ko = models.TextField(null=True)  # noqa: DJ001
-    # 테스트 단계 임시 칼럼(design-decisions 28절 12). LLM이 쓴 단어 항목
-    # {"words": [{start, end, lemma, reading, meaning_ko}]}. 문법은 span_match에 둔다(#35).
-    # 위치는 키 텍스트 코드포인트 기준 [start, end). NULL은 이 모양을 받기 전에 저장된 행이라
-    # 다시 분석한다.
-    draft_analysis = models.JSONField(null=True)
+    # 문장 단어의 위치와 고른 뜻: [{start, end, sense_id}](#96). 위치는 키 텍스트 코드포인트 기준
+    # [start, end)이고, 같은 단어가 두 번 나오면 위치마다 하나씩 둔다. 공용 테이블이라 위치와
+    # ID만 둔다. NULL은 이 칸을 받기 전에 저장된 행이라 다시 분석한다.
+    word_spans = models.JSONField(null=True)
+    # word_spans의 뜻 ID를 중복 없이 모은 값(ADR 0002, 내 일본어 계산용). word_spans와 함께 쓴다.
+    sense_ids = ArrayField(models.BigIntegerField(), null=True)
     # 다시 분석해야 하는 분석. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법
     # 완결이 바뀌면 켠다(#38). 판 번호는 아직 두지 않는다.
     is_stale = models.BooleanField(default=False)
@@ -38,6 +39,7 @@ class SentenceAnalysis(models.Model):
 
     class Meta:
         db_table = "sentence_analysis"
+        indexes = [GinIndex(fields=["sense_ids"], name="analysis_sense_ids_gin")]
 
     def __str__(self):
         return self.sentence_hash[:12]

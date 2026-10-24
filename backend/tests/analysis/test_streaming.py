@@ -19,7 +19,6 @@ def test_translation_is_sent_before_grammar_and_words(client, fake_llm):
                 (0, "lemma"), pattern_name="食べる", usage_name="문법", example_ja="パンを食べる"
             )
         ],
-        "words": [{"token_id": 0, "lemma": "食べる", "reading": "たべる", "meaning_ko": "먹다"}],
     }
 
     response = post(client, "食べる")
@@ -38,7 +37,7 @@ def test_translation_is_sent_before_grammar_and_words(client, fake_llm):
     assert second["type"] == "analysis"
     assert second["translation_ko"] == "먹는다"
     assert [item["name"] for item in second["grammar"]] == ["문법"]
-    assert [item["lemma"] for item in second["words"]] == ["食べる"]
+    assert second["words"] == []
     assert list(lines) == []
 
 

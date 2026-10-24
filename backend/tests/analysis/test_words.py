@@ -1,83 +1,130 @@
-"""분석 API: 단어 구간·검증·걸러 내기·재사용."""
+"""분석 API: 문장 단어를 JMdict에서 찾아 위치별 뜻으로 기록한다(#96)."""
+
+import json
 
 import pytest
 
-from analysis.models import SentenceAnalysis
-from tests.analysis.helpers import analyze, word_item
+from analysis.models import SentenceAnalysis, WordSense
+from tests.analysis.helpers import add_word, analyze, post
 
 pytestmark = pytest.mark.django_db
 
 
-def test_new_sentence_returns_words_at_original_positions(client, fake_llm):
-    # 토큰: 0 私 / 1 は / 2 学生 / 3 です
-    fake_llm.response = {
-        "translation_ko": "나는 학생입니다.",
-        "words": [
-            {"token_id": 0, "lemma": "私", "reading": "わたし", "meaning_ko": "나"},
-            {"token_id": 2, "lemma": "学生", "reading": "がくせい", "meaning_ko": "학생"},
-        ],
-    }
+@pytest.fixture
+def gakusei():
+    """학생: 뜻이 하나라 LLM 없이 정해진다."""
+    return add_word(3, ["学生"], ["がくせい"], [(["student"], [], None)])
+
+
+@pytest.fixture
+def hiraku():
+    """開く(ひらく): 뜻이 둘이라 LLM이 고른다."""
+    return add_word(
+        6,
+        ["開く"],
+        ["ひらく"],
+        [(["to open", "to undo", "to unseal", "to unpack"], ["transitive"], None)]
+        + [(["to bloom"], ["intransitive"], None)],
+        tags=("verb", "group1"),
+    )
+
+
+def sense(word, index):
+    return word.senses.get(jmdict_sense_index=index)
+
+
+def word_answer(token_id, sense_id):
+    return {"token_id": token_id, "sense_id": sense_id}
+
+
+def test_single_sense_word_is_recorded_without_asking_the_llm(client, fake_llm, gakusei):
+    # 토큰: 0 私 / 1 は / 2 学生 / 3 です. 私는 사전에 없어 빠진다.
+    fake_llm.response = {"translation_ko": "나는 학생입니다."}
 
     response = analyze(client, "私は学生です。")
 
     assert response.json()["words"] == [
         {
-            "start": 0,
-            "end": 1,
-            "lemma": "私",
-            "reading": "わたし",
-            "meaning_ko": "나",
-            "review_status": "pending",
-        },
-        {
             "start": 2,
             "end": 4,
-            "lemma": "学生",
+            "dictionary_form": "学生",
             "reading": "がくせい",
-            "meaning_ko": "학생",
-            "review_status": "pending",
-        },
+            "tags": ["noun"],
+            "sense": {
+                "tags": [],
+                "gloss_en": ["student"],
+                "origin": "jmdict",
+                "status": "approved",
+                "meaning_ko": None,
+                "meaning_status": "ai",
+            },
+        }
     ]
+    assert fake_llm.requests[0]["words"] == []
+    row = SentenceAnalysis.objects.get()
+    student = sense(gakusei, 1).id
+    assert row.word_spans == [{"start": 2, "end": 4, "sense_id": student}]
+    assert row.sense_ids == [student]
 
 
-def test_llm_response_without_words_fails(client, fake_llm):
-    fake_llm.fill_defaults = False
-    fake_llm.response = {"translation_ko": "나는 학생입니다.", "spans": [], "new_patterns": []}
+def test_same_word_in_other_sentences_points_at_the_same_sense(client, fake_llm, gakusei):
+    analyze(client, "私は学生です。")
+    analyze(client, "学生が来た。")
 
-    response = analyze(client, "私は学生です。")
+    first, second = SentenceAnalysis.objects.order_by("id")
+    assert first.sense_ids == second.sense_ids == [sense(gakusei, 1).id]
 
-    assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
+
+def test_word_with_several_senses_is_chosen_by_the_llm(client, fake_llm, hiraku):
+    # 토큰: 0 本 / 1 を / 2 開い / 3 た
+    bloom = sense(hiraku, 2).id
+    fake_llm.response = {"translation_ko": "책을 펼쳤다", "words": [word_answer(2, bloom - 1)]}
+
+    response = analyze(client, "本を開いた")
+
+    # 후보는 '뜻 ID: 영어 뜻 최대 3개' 모양이다.
+    assert fake_llm.requests[0]["words"] == [
+        {
+            "token_id": 2,
+            "candidates": [f"{bloom - 1}: to open; to undo; to unseal", f"{bloom}: to bloom"],
+        }
+    ]
+    [word] = response.json()["words"]
+    assert (word["start"], word["end"], word["dictionary_form"], word["reading"]) == (
+        2,
+        4,
+        "開く",
+        "ひらく",
+    )
+    assert word["tags"] == ["group1", "verb"]
+    assert word["sense"]["tags"] == ["transitive"]
+    assert SentenceAnalysis.objects.get().sense_ids == [bloom - 1]
 
 
 @pytest.mark.parametrize(
-    "words",
+    "answers",
     [
-        [word_item(token_id=4)],  # 범위 밖
-        [word_item(token_id=-1)],
-        [word_item(token_id="2")],
-        [word_item(token_id=True)],
-        [word_item(lemma="")],
-        [word_item(reading=" ")],
-        [word_item(meaning_ko="")],
-        # 읽기는 가나(와 장음)로만 쓴다.
-        [word_item(reading="gakusei")],
-        [word_item(reading="学生")],
-        [word_item(reading="がく生")],
-        [word_item(reading="학생")],
-        [word_item(reading="・")],  # 가타카나 블록의 문장부호는 가나가 아니다
-        [word_item(reading="゠")],
-        [word_item(reading="ー")],  # 가나 없이 장음만
-        [word_item(meaning_ko="⟨N1⟩명")],  # 숫자가 없는 문장의 자리표시자
-        [{"token_id": 2, "lemma": "学生", "reading": "がくせい"}],  # 뜻 없음
+        [],  # 답이 빠짐
+        [word_answer(2, 0)],  # 후보에 없는 ID
+        [word_answer(2, "1")],
+        [word_answer(0, None)],
         ["not an object"],
-        "not a list",
-        None,
     ],
 )
-def test_invalid_words_fail_the_sentence_and_are_not_stored(client, fake_llm, words):
-    # 토큰은 0~3 네 개다.
-    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": words}
+def test_wrong_sense_answer_drops_only_that_word(client, fake_llm, gakusei, hiraku, answers):
+    # 토큰: 0 学生 / 1 が / 2 開い / 3 た
+    fake_llm.response = {"translation_ko": "학생이 열었다", "words": answers}
+
+    response = analyze(client, "学生が開いた")
+
+    assert [w["dictionary_form"] for w in response.json()["words"]] == ["学生"]
+    row = SentenceAnalysis.objects.get()
+    assert row.translation_ko == "학생이 열었다"
+    assert row.sense_ids == [sense(gakusei, 1).id]
+
+
+def test_non_list_words_answer_fails(client, fake_llm):
+    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": None}
 
     response = analyze(client, "私は学生です。")
 
@@ -85,154 +132,103 @@ def test_invalid_words_fail_the_sentence_and_are_not_stored(client, fake_llm, wo
     assert SentenceAnalysis.objects.count() == 0
 
 
-def test_word_meaning_quoting_whole_sentence_fails_and_is_not_stored(client, fake_llm):
+def test_same_word_twice_keeps_a_sense_for_each_place(client, fake_llm, hiraku):
+    # 토큰: 0 開い / 1 て / 2 開い / 3 た
+    open_, bloom = sense(hiraku, 1).id, sense(hiraku, 2).id
     fake_llm.response = {
-        "translation_ko": "나는 학생입니다.",
-        "words": [word_item(meaning_ko="私は学生です에서 학생")],
+        "translation_ko": "열고 피었다",
+        "words": [word_answer(0, open_), word_answer(2, bloom)],
     }
 
-    response = analyze(client, "私は学生です。")
+    response = analyze(client, "開いて開いた")
 
-    assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
+    assert [(w["start"], w["sense"]["gloss_en"]) for w in response.json()["words"]] == [
+        (0, ["to open", "to undo", "to unseal", "to unpack"]),
+        (3, ["to bloom"]),
+    ]
+    row = SentenceAnalysis.objects.get()
+    assert row.word_spans == [
+        {"start": 0, "end": 2, "sense_id": open_},
+        {"start": 3, "end": 5, "sense_id": bloom},
+    ]
+    assert sorted(row.sense_ids) == [open_, bloom]
 
 
-@pytest.mark.parametrize(
-    ("sentence", "translation", "dropped", "kept"),
-    [
-        # 숫자만 있는 토큰. 토큰: 0 3 / 1 人 / 2 で / 3 行く
-        (
-            "3人で行く",
-            "⟨N1⟩명이서 간다",
-            word_item(0, "⟨N1⟩", "⟨N1⟩", "⟨N1⟩"),
-            word_item(3, "行く", "いく", "가다"),
-        ),
-        # 숫자가 섞인 토큰. LLM이 사전형에 숫자를 지어내면 다른 숫자 문장에 잘못 재사용된다.
-        # 토큰: 0 X1 / 1 2 / 2 を / 3 買う
-        (
-            "X12を買う",
-            "X⟨N1⟩를 산다",
-            word_item(0, "X1", "えっくすいち", "X1"),
-            word_item(3, "買う", "かう", "사다"),
-        ),
-        # 기호 토큰. 토큰: 0 行く / 1 ！
-        (
-            "行く！",
-            "간다!",
-            word_item(1, "！", "！", "느낌표"),
-            word_item(0, "行く", "いく", "가다"),
-        ),
-        # 숫자열 뒤쪽 토큰(키 텍스트에서 빈 조각). 토큰: 0 X1 / 1 2 / 2 を / 3 買う
-        (
-            "X12を買う",
-            "X⟨N1⟩를 산다",
-            word_item(1, "2", "に", "2"),
-            word_item(3, "買う", "かう", "사다"),
-        ),
-        # 조사·조동사는 단어가 아니라 문법이다. 토큰: 0 私 / 1 は / 2 学生 / 3 です
-        ("私は学生です。", "나는 학생입니다.", word_item(1, "は", "は", "주제"), word_item(2)),
-        ("私は学生です。", "나는 학생입니다.", word_item(3, "です", "です", "이다"), word_item(2)),
-    ],
-)
-def test_words_on_number_or_symbol_tokens_are_dropped_and_the_rest_is_kept(
-    client, fake_llm, sentence, translation, dropped, kept
+def test_particles_and_numbers_are_not_looked_up(client, fake_llm):
+    # は·3은 JMdict에 있어도 학습 단어가 아니다. 토큰: 0 3 / 1 人 / 2 は / 3 行く
+    add_word(20, [], ["は"], [(["topic marker"], [], None)])
+    add_word(21, ["3"], ["さん"], [(["three"], [], None)])
+    fake_llm.response = {"translation_ko": "⟨N1⟩명은 간다"}
+
+    response = analyze(client, "3人は行く")
+
+    assert response.json()["words"] == []
+    assert SentenceAnalysis.objects.get().sense_ids == []
+
+
+def test_words_are_sent_before_the_llm_answers(client, fake_llm, gakusei, hiraku):
+    # 토큰: 0 学生 / 1 が / 2 開い / 3 た
+    fake_llm.response = {"translation_ko": "학생이 열었다"}
+    response = post(client, "学生が開いた")
+    stream = iter(response.streaming_content)
+
+    first = json.loads(next(stream))
+
+    assert first["type"] == "grammar"
+    assert fake_llm.requests == []
+    student, undecided = first["words"]
+    assert student["sense"]["gloss_en"] == ["student"]
+    # 뜻이 여럿이면 표제·읽기·태그만 보내고 뜻은 아직 없다.
+    assert {key: undecided[key] for key in ("start", "end", "dictionary_form", "sense")} == {
+        "start": 3,
+        "end": 5,
+        "dictionary_form": "開く",
+        "sense": None,
+    }
+
+
+def test_word_of_several_entries_shows_all_readings_and_common_tags_before_choosing(
+    client, fake_llm, hiraku
 ):
-    # 지침을 어긴 단어 하나 때문에 번역·문법까지 버리면 LLM을 다시 불러야 하므로 그 단어만 뺀다.
-    fake_llm.response = {"translation_ko": translation, "words": [dropped, kept]}
+    # 開く: あく / ひらく는 다른 항목이다. 고르기 전에는 한 읽기로 단정하지 않는다.
+    add_word(5, ["開く"], ["あく"], [(["to open (intr.)"], [], None)], tags=("verb",))
+    response = post(client, "本を開いた")
 
-    response = analyze(client, sentence)
+    first = json.loads(next(iter(response.streaming_content)))
 
-    assert response.status_code == 200
-    assert [word["lemma"] for word in response.json()["words"]] == [kept["lemma"]]
-    [row] = SentenceAnalysis.objects.values("draft_analysis")
-    assert [word["lemma"] for word in row["draft_analysis"]["words"]] == [kept["lemma"]]
+    [word] = first["words"]
+    assert (word["reading"], word["tags"], word["sense"]) == ("あく・ひらく", ["verb"], None)
 
 
-def test_duplicate_word_for_same_token_keeps_only_the_first(client, fake_llm):
+def test_cached_sentence_returns_the_same_words(client, fake_llm, gakusei, hiraku):
     fake_llm.response = {
-        "translation_ko": "나는 학생입니다.",
-        "words": [word_item(2, meaning_ko="학생"), word_item(2, meaning_ko="생도")],
+        "translation_ko": "학생이 열었다",
+        "words": [word_answer(2, sense(hiraku, 1).id)],
     }
+    first = analyze(client, "学生が開いた")
+
+    second = analyze(client, "  学生が開いた。")
+
+    assert len(fake_llm.requests) == 1
+    shifted = [{**w, "start": w["start"] + 2, "end": w["end"] + 2} for w in first.json()["words"]]
+    assert second.json()["words"] == shifted
+
+
+def test_row_without_word_spans_is_analyzed_again(client, fake_llm, gakusei):
+    analyze(client, "私は学生です。")
+    SentenceAnalysis.objects.update(word_spans=None, sense_ids=None)
 
     response = analyze(client, "私は学生です。")
 
-    assert [word["meaning_ko"] for word in response.json()["words"]] == ["학생"]
+    assert len(fake_llm.requests) == 2
+    assert [w["dictionary_form"] for w in response.json()["words"]] == ["学生"]
+    assert SentenceAnalysis.objects.get().word_spans is not None
 
 
-@pytest.mark.parametrize(
-    "meaning",
-    [
-        "私 は 学生 です에서 학생",
-        "私・は・学生・です에서 학생",
-        "私\u200bは学生です에서 학생",
-    ],
-)
-def test_word_meaning_quoting_whole_sentence_with_separators_fails(client, fake_llm, meaning):
-    # 형태소 사이에 공백·가운데점·보이지 않는 문자를 넣어 인용해도 원문을 옮긴 것이다.
-    fake_llm.response = {
-        "translation_ko": "나는 학생입니다.",
-        "words": [word_item(meaning_ko=meaning)],
-    }
+def test_rejected_sense_is_not_shown_from_cache(client, fake_llm, gakusei):
+    analyze(client, "私は学生です。")
+    WordSense.objects.update(sense_status="rejected")
 
     response = analyze(client, "私は学生です。")
 
-    assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
-
-
-def test_katakana_reading_of_loanword_is_kept_as_is(client, fake_llm):
-    # 외래어(사전에 없는 새 말 포함)의 가타카나 읽기는 히라가나로 바꾸지 않는다.
-    # 토큰: 0 コーヒー / 1 を / 2 飲む
-    fake_llm.response = {
-        "translation_ko": "커피를 마신다",
-        "words": [
-            word_item(0, "コーヒー", "コーヒー", "커피"),
-            word_item(2, "飲む", "のむ", "마시다"),
-        ],
-    }
-
-    response = analyze(client, "コーヒーを飲む")
-
-    assert [word["reading"] for word in response.json()["words"]] == ["コーヒー", "のむ"]
-
-
-def test_cached_sentence_returns_same_words(client, fake_llm):
-    fake_llm.response = {"translation_ko": "나는 학생입니다.", "words": [word_item()]}
-    first = analyze(client, "私は学生です。")
-
-    second = analyze(client, "私は学生です。")
-
-    assert second.json()["words"] == first.json()["words"]
-    assert len(second.json()["words"]) == 1
-    assert len(fake_llm.requests) == 1
-
-
-def test_reused_words_point_at_same_characters_and_restore_numbers(client, fake_llm):
-    # 토큰: 0 3 / 1 人 / 2 で / 3 行く
-    fake_llm.response = {
-        "translation_ko": "⟨N1⟩명이서 간다",
-        "words": [word_item(token_id=3, lemma="行く", reading="いく", meaning_ko="가다")]
-        + [word_item(token_id=1, lemma="人", reading="にん", meaning_ko="⟨N1⟩명의 명")],
-    }
-    analyze(client, "3人で行く")
-
-    response = analyze(client, "  「12人で行く。」")
-
-    words = response.json()["words"]
-    assert [(word["start"], word["end"]) for word in words] == [(7, 9), (5, 6)]
-    assert words[1]["meaning_ko"] == "12명의 명"
-    assert len(fake_llm.requests) == 1
-
-
-def test_reading_with_number_placeholder_fails(client, fake_llm):
-    # 숫자와 겹치는 토큰은 단어에서 빠지므로, 다른 단어의 읽기에 자리표시자가 들어갈 일은 없다.
-    # 토큰: 0 3 / 1 人 / 2 で / 3 行く
-    fake_llm.response = {
-        "translation_ko": "⟨N1⟩명이서 간다",
-        "words": [word_item(3, "行く", "い⟨N1⟩く", "가다")],
-    }
-
-    response = analyze(client, "3人で行く")
-
-    assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert SentenceAnalysis.objects.count() == 0
+    assert response.json()["words"] == []

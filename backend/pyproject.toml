@@ -23,6 +23,7 @@ package = false
 dev = [
     "pytest>=9.1.1",
     "pytest-django>=4.14.0",
+    "pytest-timeout>=2.4.0",
     "ruff>=0.17.1",
 ]
 
@@ -36,3 +37,5 @@ select = ["E", "F", "I", "B", "UP", "DJ"]
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 testpaths = ["tests"]
+# 멈춘 테스트가 대기 상한(분석 대기 130초 등)까지 기다리지 않고, 멈춘 자리를 보여 주며 실패하게 한다.
+timeout = 10

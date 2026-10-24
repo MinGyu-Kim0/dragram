@@ -22,6 +22,7 @@ from tests.analysis.helpers import (
     connected_client,
     new_pattern,
     new_usage,
+    pattern_form,
     span_answer,
     wait_until_blocked,
 )
@@ -1197,6 +1198,23 @@ def test_usage_form_opened_before_merging_is_not_saved(admin_client, fake_llm, m
     assert "옮겨졌습니다" in html.unescape(response.content.decode())
     if moved:
         assert GrammarUsage.objects.get(pk=own.pk).example_ja is None
+
+
+@pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])
+def test_inline_usage_opened_before_merging_is_not_saved(admin_client, fake_llm, moved):
+    # 회화체 패턴 화면을 연 뒤 그 용법이 원형으로 합쳐지거나 옮겨졌다.
+    base, variant, done, own = with_own_usage(fake_llm)
+    form = pattern_form(
+        variant, **{"usages-0-explanation_ko": "새 설명", "usages-0-example_ja": "本を忘れちゃった"}
+    )
+    review.link_variant(variant, base, {own.pk: None if moved else done.pk})
+
+    response = admin_client.post(f"{PATTERNS}{variant.pk}/change/", form)
+
+    assert response.status_code == 200
+    assert "옮겨졌습니다" in html.unescape(response.content.decode())
+    if moved:
+        assert GrammarUsage.objects.get(pk=own.pk).explanation_ko != "새 설명"
 
 
 @pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])

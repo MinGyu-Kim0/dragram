@@ -3,6 +3,7 @@ import type {
   CheckingItem,
   GrammarItem,
   Translation,
+  WordItem,
 } from "@/utils/api";
 import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
@@ -12,15 +13,22 @@ import { WordList } from "./Words";
 // grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별 대상 구간 checking)만 와서
 // 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다. failed에 번역이
 // 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar는 analysis가 오기 전까지 보이고,
-// checking은 실패하면 지운다. reanalyzing은 stale 분석의 옛 결과(previous)를 보이며 새 결과를
+// checking은 실패하면 지운다. earlyWords는 같은 grammar 이벤트로 먼저 온 사전 단어(뜻을 고르는
+// 중인 단어 포함)이고, analysis가 오면 그 단어로 바뀌며 실패하면 지운다. reanalyzing은 stale 분석의 옛 결과(previous)를 보이며 새 결과를
 // 기다리는 중(재분석 중)이고, 그러다 실패하면 failed에 옛 결과만 남는다.
 export type SentenceResult =
-  | { status: "early"; earlyGrammar: GrammarItem[]; checking: CheckingItem[] }
+  | {
+      status: "early";
+      earlyGrammar: GrammarItem[];
+      checking: CheckingItem[];
+      earlyWords?: WordItem[];
+    }
   | {
       status: "translated";
       translation: Translation;
       earlyGrammar?: GrammarItem[];
       checking?: CheckingItem[];
+      earlyWords?: WordItem[];
     }
   | { status: "done"; analysis: Analysis }
   | { status: "reanalyzing"; previous: Analysis }
@@ -44,6 +52,14 @@ function analysisOf(result: SentenceResult | undefined) {
 function checkingOf(result: SentenceResult | undefined) {
   if (result?.status === "early" || result?.status === "translated") {
     return result.checking ?? [];
+  }
+  return [];
+}
+
+// 분석이 끝나기 전에 먼저 온 단어. 분석이 끝나거나 실패하면 없다.
+function earlyWordsOf(result: SentenceResult | undefined) {
+  if (result?.status === "early" || result?.status === "translated") {
+    return result.earlyWords ?? [];
   }
   return [];
 }
@@ -102,6 +118,27 @@ export function SentenceView({
   const translation = translationOf(result);
   const grammar = grammarOf(result);
   const checking = checkingOf(result);
+  const earlyWords = earlyWordsOf(result);
+  // 탭에 보일 문법·단어. 분석이 끝나기 전에도 먼저 온 단어가 있으면 먼저 온 문법과 함께 탭으로
+  // 보인다(#96). 문법 개수는 보이는 카드 수다(구성 문법의 하위 박스도 센다).
+  const tabbed = analysis
+    ? {
+        grammar: analysis.grammar,
+        checking: [],
+        words: analysis.words,
+        grammarCount: analysis.grammar.reduce(
+          (count, item) => count + 1 + (item.parts?.length ?? 0),
+          0,
+        ),
+      }
+    : earlyWords.length > 0
+      ? {
+          grammar,
+          checking,
+          words: earlyWords,
+          grammarCount: grammar.length + checking.length,
+        }
+      : undefined;
   return (
     <>
       <section className="sentence-card">
@@ -156,7 +193,7 @@ export function SentenceView({
           </p>
         )}
       </section>
-      {!analysis && grammar.length + checking.length > 0 && (
+      {!tabbed && grammar.length + checking.length > 0 && (
         <div className="below-card">
           <GrammarCards
             text={text}
@@ -181,7 +218,7 @@ export function SentenceView({
           문법·단어를 분석하지 못했습니다 <RetryButton onRetry={onRetry} />
         </p>
       )}
-      {analysis && (
+      {tabbed && (
         <>
           <div role="tablist" className="tabs">
             <button
@@ -190,12 +227,7 @@ export function SentenceView({
               aria-selected={tab === "grammar"}
               onClick={() => onTabChange("grammar")}
             >
-              {/* 보이는 카드 수다. 구성 문법의 하위 박스도 센다. */}
-              문법{" "}
-              {analysis.grammar.reduce(
-                (count, item) => count + 1 + (item.parts?.length ?? 0),
-                0,
-              )}
+              문법 {tabbed.grammarCount}
             </button>
             <button
               type="button"
@@ -203,18 +235,31 @@ export function SentenceView({
               aria-selected={tab === "words"}
               onClick={() => onTabChange("words")}
             >
-              단어 {analysis.words.length}
+              단어 {tabbed.words.length}
             </button>
           </div>
           <div role="tabpanel">
-            {tab === "grammar" ? (
+            {tab === "grammar" &&
+            !analysis &&
+            tabbed.grammar.length + tabbed.checking.length === 0 ? (
+              // 단어만 먼저 왔다. 문법이 없다고 단정하지 않고 분석을 기다린다.
+              <div
+                role="status"
+                aria-label="문법을 불러오는 중"
+                className="skeleton below-card"
+              >
+                <span />
+                <span />
+              </div>
+            ) : tab === "grammar" ? (
               <GrammarCards
                 text={text}
-                grammar={analysis.grammar}
+                grammar={tabbed.grammar}
+                checking={tabbed.checking}
                 selection={selection}
               />
             ) : (
-              <WordList words={analysis.words} selection={selection} />
+              <WordList words={tabbed.words} selection={selection} />
             )}
           </div>
         </>

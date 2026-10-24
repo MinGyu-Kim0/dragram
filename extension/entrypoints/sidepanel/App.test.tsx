@@ -485,14 +485,30 @@ test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인�
   expect(await screen.findByText("문법 요소 없음")).toBeInTheDocument();
 });
 
-function wordItem(start: number, end: number, lemma: string, reading: string) {
+// 사전 단어. sense를 null로 주면 뜻을 고르는 중인 단어다. 영어 뜻은 `${표제} gloss`다.
+function wordItem(
+  start: number,
+  end: number,
+  form: string,
+  reading: string,
+  sense: object | null = {},
+  tags: string[] = ["noun"],
+) {
   return {
     start,
     end,
-    lemma,
+    dictionary_form: form,
     reading,
-    meaning_ko: `${lemma} 뜻`,
-    review_status: "pending",
+    tags,
+    sense: sense && {
+      tags: [],
+      gloss_en: [`${form} gloss`],
+      origin: "jmdict",
+      status: "approved",
+      meaning_ko: null,
+      meaning_status: "ai",
+      ...sense,
+    },
   };
 }
 
@@ -513,15 +529,25 @@ test("탭에 문법과 단어 개수를 보이고, 처음에는 문법 탭을 �
     "true",
   );
   expect(screen.getByRole("heading", { name: "주제 は" })).toBeInTheDocument();
-  expect(screen.queryByText("学生 뜻")).not.toBeInTheDocument();
+  expect(screen.queryByText("学生 gloss")).not.toBeInTheDocument();
 });
 
-test("단어 탭에 단어마다 사전형, 읽기, 뜻과 'AI 생성·미검수' 배지를 원문 순서대로 보인다", async () => {
+test("단어 탭에 단어마다 사전형, 읽기, 태그, 영어 뜻을 원문 순서대로 보이고 JMdict 출처를 단다", async () => {
   respondWith(200, {
     translation_ko: "나는 학생으로서 먹고 있다.",
     grammar: [grammarItem(1, 2, "주제 は")],
     // 응답 순서와 상관없이 원문 순서대로 보인다.
-    words: [wordItem(5, 7, "食べる", "たべる"), wordItem(0, 1, "私", "わたし")],
+    words: [
+      wordItem(
+        5,
+        7,
+        "食べる",
+        "たべる",
+        { tags: ["transitive"], gloss_en: ["to eat", "to live on"] },
+        ["verb", "group2"],
+      ),
+      wordItem(0, 1, "私", "わたし", {}, ["pronoun"]),
+    ],
   });
   render(<App />);
   await send(panelWindowId, "私は学生で食べている");
@@ -538,14 +564,142 @@ test("단어 탭에 단어마다 사전형, 읽기, 뜻과 'AI 생성·미검수
   const rows = within(screen.getByRole("list", { name: "단어" })).getAllByRole(
     "listitem",
   );
+  const words = rows.filter((row) => row.classList.contains("word-row"));
   expect(
-    rows.map((row) => within(row).getByRole("heading").textContent),
+    words.map((row) => within(row).getByRole("heading").textContent),
   ).toEqual(["私", "食べる"]);
-  expect(within(rows[1]!).getByText("たべる")).toBeInTheDocument();
-  expect(within(rows[1]!).getByText("食べる 뜻")).toBeInTheDocument();
-  for (const row of rows) {
-    expect(within(row).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(within(words[1]!).getByText("たべる")).toBeInTheDocument();
+  expect(within(words[1]!).getByText("to eat; to live on")).toBeInTheDocument();
+  // 단어 전체 태그 뒤에 고른 뜻의 태그를 보인다.
+  expect(
+    within(within(words[1]!).getByRole("list", { name: "태그" }))
+      .getAllByRole("listitem")
+      .map((tag) => tag.textContent),
+  ).toEqual(["동사", "2그룹", "타동사"]);
+  // JMdict 뜻에는 'AI 생성·미검수' 배지가 없고 출처 각주가 있다.
+  for (const row of words) {
+    expect(within(row).queryByText("AI 생성·미검수")).not.toBeInTheDocument();
+    expect(within(row).queryByText("AI 번역")).not.toBeInTheDocument();
   }
+  expect(screen.getByRole("link", { name: "JMdict" })).toBeInTheDocument();
+  expect(
+    screen.getByRole("link", { name: "CC BY-SA 4.0" }),
+  ).toBeInTheDocument();
+});
+
+test("뜻의 출처·검수 상태에 따라 'AI 생성·미검수'와 'AI 번역' 배지를 단다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [],
+    words: [
+      wordItem(0, 1, "一", "いち", { origin: "llm", status: "pending" }),
+      wordItem(1, 2, "二", "に", { meaning_ko: "둘", meaning_status: "ai" }),
+      wordItem(2, 3, "三", "さん", {
+        meaning_ko: "셋",
+        meaning_status: "reviewed",
+      }),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "一二三");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 3" }));
+
+  const [llm, translated, reviewed] = within(
+    screen.getByRole("list", { name: "단어" }),
+  )
+    .getAllByRole("listitem")
+    .filter((row) => row.classList.contains("word-row"));
+  expect(within(llm!).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(within(translated!).getByText("둘")).toBeInTheDocument();
+  expect(within(translated!).getByText("AI 번역")).toBeInTheDocument();
+  expect(within(reviewed!).getByText("셋")).toBeInTheDocument();
+  expect(within(reviewed!).queryByText("AI 번역")).not.toBeInTheDocument();
+});
+
+test("LLM보다 먼저 온 단어는 탭에 바로 보이고, 뜻을 고르는 중인 단어는 분석이 오면 채운다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "学生が開いた");
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [],
+    words: [
+      wordItem(0, 2, "学生", "がくせい"),
+      wordItem(3, 5, "開く", "ひらく", null, ["verb", "group1"]),
+    ],
+  });
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
+  expect(
+    screen.getByRole("status", { name: "번역을 불러오는 중" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText("学生 gloss")).toBeInTheDocument();
+  expect(
+    screen.getByRole("status", { name: "뜻을 고르는 중" }),
+  ).toBeInTheDocument();
+  // 문법은 아직 오지 않아 '문법 요소 없음'이라고 단정하지 않는다.
+  fireEvent.click(screen.getByRole("tab", { name: "문법 0" }));
+  expect(
+    screen.getByRole("status", { name: "문법을 불러오는 중" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("문법 요소 없음")).not.toBeInTheDocument();
+
+  stream.push({
+    type: "translation",
+    translation_ko: "학생이 열었다",
+    ruby: [],
+  });
+  stream.push({
+    type: "analysis",
+    translation_ko: "학생이 열었다",
+    grammar: [],
+    words: [
+      wordItem(0, 2, "学生", "がくせい"),
+      wordItem(3, 5, "開く", "ひらく", { gloss_en: ["to open"] }),
+    ],
+  });
+  stream.end();
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
+  expect(await screen.findByText("to open")).toBeInTheDocument();
+  expect(
+    screen.queryByRole("status", { name: "뜻을 고르는 중" }),
+  ).not.toBeInTheDocument();
+});
+
+test("먼저 온 단어가 있어도 분석이 실패하면 단어를 지우고 실패를 보인다", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        ndjson([
+          {
+            type: "grammar",
+            grammar: [],
+            checking: [],
+            words: [wordItem(3, 5, "開く", "ひらく", null)],
+          },
+          { type: "translation", translation_ko: "학생이 열었다", ruby: [] },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]),
+      ),
+    ),
+  );
+  render(<App />);
+
+  await send(panelWindowId, "学生が開いた");
+
+  expect(
+    await screen.findByText("문법·단어를 분석하지 못했습니다"),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("tab")).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("status", { name: "뜻을 고르는 중" }),
+  ).not.toBeInTheDocument();
 });
 
 test("여러 문장이면 문장마다 한 페이지씩 보이고, 이전·다음으로 넘긴다", async () => {
@@ -690,9 +844,9 @@ test("단어 탭에서도 드래그 범위와 겹친 단어를 먼저 보이고 
 
   fireEvent.click(await screen.findByRole("tab", { name: "단어 3" }));
 
-  const rows = within(screen.getByRole("list", { name: "단어" })).getAllByRole(
-    "listitem",
-  );
+  const rows = within(screen.getByRole("list", { name: "단어" }))
+    .getAllByRole("listitem")
+    .filter((row) => row.classList.contains("word-row"));
   expect(
     rows.map((row) => within(row).getByRole("heading").textContent),
   ).toEqual(["学生", "食べる", "私"]);
@@ -1135,16 +1289,7 @@ function previousEvent() {
     translation_ko: "그가 와 있다",
     ruby: [{ start: 2, end: 3, reading: "き" }],
     grammar: [grammarItem(3, 6, "진행")],
-    words: [
-      {
-        start: 0,
-        end: 1,
-        lemma: "彼",
-        reading: "かれ",
-        meaning_ko: "그",
-        review_status: "approved",
-      },
-    ],
+    words: [wordItem(0, 1, "彼", "かれ", {}, ["pronoun"])],
   };
 }
 

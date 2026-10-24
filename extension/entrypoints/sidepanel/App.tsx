@@ -11,6 +11,7 @@ import {
   type Analysis,
   type CheckingItem,
   type GrammarItem,
+  type WordItem,
 } from "@/utils/api";
 import { loadToken, watchConnection } from "@/utils/auth";
 import { WEB_ORIGIN } from "@/utils/external-messages";
@@ -119,6 +120,8 @@ function App() {
       // LLM 없이 확정한 문법은 번역보다 먼저 와서, 번역이 와도 함께 보인다.
       let earlyGrammar: GrammarItem[] | undefined;
       let checking: CheckingItem[] | undefined;
+      // 사전에서 찾은 단어도 grammar 이벤트로 먼저 온다(#96).
+      let earlyWords: WordItem[] | undefined;
       // stale 분석의 옛 결과. 있으면 새 결과가 다 올 때까지 그것만 보이고 중간 이벤트는 버린다.
       let previous: Analysis | undefined;
       limiter
@@ -133,13 +136,20 @@ function App() {
                   translation,
                   earlyGrammar,
                   checking,
+                  earlyWords,
                 });
               },
-              (grammar, waiting) => {
+              (grammar, waiting, words) => {
                 if (previous) return;
                 earlyGrammar = grammar;
                 checking = waiting;
-                saveAll({ status: "early", earlyGrammar, checking });
+                earlyWords = words;
+                saveAll({
+                  status: "early",
+                  earlyGrammar,
+                  checking,
+                  earlyWords,
+                });
               },
               (old) => {
                 previous = old;

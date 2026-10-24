@@ -2,9 +2,9 @@ from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from accounts.tokens import ExtensionTokenAuthentication
-from analysis import user_sentences
+from analysis import limits, user_sentences
 from analysis.answers import _is_text
-from analysis.models import UsageLog
+from analysis.models import SentenceAnalysis, UsageLog
 from analysis.normalize import analysis_text
 from analysis.presenter import Presenter
 from analysis.rematch import rematch
@@ -41,6 +41,12 @@ def analyze(request):
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
     if cached:
         return rematch(presenter, user)
+    # 다른 요청의 작업에 붙는 요청은 비용이 없어 막지 않는다. 확인한 뒤 상태가 바뀌는 경쟁은 둔다.
+    joining = sentence.existing is not None and (
+        sentence.existing.status == SentenceAnalysis.Status.PROCESSING
+    )
+    if not joining and limits.over_limit(user):
+        raise BusinessError(AnalysisError.USAGE_LIMIT, "하루 토큰 한도를 넘음")
     return StreamingHttpResponse(
         llm_stream(presenter, user, presenter.early_events()), content_type=_NDJSON
     )

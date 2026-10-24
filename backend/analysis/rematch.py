@@ -10,7 +10,7 @@ from itertools import chain
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 
-from analysis import llm, patterns, user_sentences
+from analysis import limits, llm, patterns, user_sentences
 from analysis.answers import FIRST_VERDICTS, _validate_recheck_answers, reject_quotes
 from analysis.examples import _check_examples
 from analysis.models import GrammarPattern, GrammarUsage, SentenceAnalysis, SpanMatch, UsageLog
@@ -40,14 +40,15 @@ def rematch(presenter, user):
     stored_keys = _stored_keys(s.cached)
     new_closed = [closed for closed in s.closed_spans if s.span_key(closed[0]) not in stored_keys]
     new_spans = [span for span in s.spans if s.span_key(span) not in stored_keys]
-    if new_spans:
+    if new_spans and not limits.over_limit(user):
         # 판정을 기다리는 동안 새 구간은 '확인 중'으로 보인다.
         usage = RequestUsage.start(UsageLog.Path.LLM, user, s.cached.pk)
         events = rematch_and_judge(presenter, user, new_closed, new_spans, usage)
         first = next(events)
         return StreamingHttpResponse(_in_thread(chain([first], events)), content_type=_NDJSON)
-    # LLM이 필요 없으면 클라이언트를 만들지 않고 한 번에 보낸다.
-    event = save_rematch(s, presenter.analysis_event, new_closed)
+    # LLM이 필요 없으면 클라이언트를 만들지 않고 한 번에 보낸다. 재판정이 필요한데 하루 한도를
+    # 넘었으면 저장하지 않고 대체 응답을 보내, 다음 조회가 다시 시도한다(#28).
+    event = None if new_spans else save_rematch(s, presenter.analysis_event, new_closed)
     RequestUsage.start(UsageLog.Path.DB, user, s.cached.pk, success=event is not None)
     event = event or rematch_fallback(presenter, new_closed)
     events = [

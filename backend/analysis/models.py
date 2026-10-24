@@ -353,6 +353,8 @@ class UsageLog(models.Model):
                 name="usage_log_kind_fields",
             )
         ]
+        # 하루 토큰 사용량을 사용자별로 센다(#28).
+        indexes = [models.Index(fields=["user", "created_at"], name="usage_log_user_created")]
 
     def __str__(self):
         return f"{self.kind} {self.path or self.purpose} #{self.pk}"

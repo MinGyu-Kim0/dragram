@@ -5,6 +5,7 @@ import json
 
 import pytest
 
+from analysis import patterns
 from analysis.admin import GrammarUsageAdmin, GrammarUsageForm
 from analysis.models import (
     GrammarPattern,
@@ -400,3 +401,22 @@ def test_usages_are_not_added_or_deleted_inline(admin_client, pattern):
     admin_client.post(f"{PATTERNS}{pattern.pk}/change/", form)
 
     assert list(pattern.usages.values_list("pk", flat=True)) == [usage.pk]
+
+
+def test_pattern_is_found_once_by_its_usage_name(admin_client, pattern, fake_llm):
+    patterns.add_usage(pattern, "결과 상태", "동작의 결과가 남아 있다", None)
+    patterns.add_usage(pattern, "결과 지속", "결과가 이어진다", None)
+
+    page = admin_client.get(PATTERNS, {"q": "결과"}).content.decode()
+
+    assert page.count(f"{PATTERNS}{pattern.pk}/change/") == 1
+
+
+@pytest.mark.parametrize("value, shown", [("no", ["결과 지속"]), ("yes", ["결과 상태"])])
+def test_usages_are_filtered_by_whether_they_have_an_example(admin_client, pattern, value, shown):
+    pattern.usages.update(name="결과 상태")
+    patterns.add_usage(pattern, "결과 지속", "예문 검사를 통과하지 못했다", None)
+
+    page = admin_client.get(USAGES, {"example": value}).content.decode()
+
+    assert [name for name in ["결과 상태", "결과 지속"] if f">{name}<" in page] == shown

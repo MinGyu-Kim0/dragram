@@ -287,7 +287,8 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         "created_at",
     ]
     list_filter = ["status", "is_active", "usage_closed", "register"]
-    search_fields = ["name"]
+    # 용법 이름으로 찾아도 admin이 중복 행을 걸러 패턴은 한 번 나온다.
+    search_fields = ["name", "usages__name"]
     fields = [
         "name",
         "test_cases",
@@ -333,11 +334,26 @@ class GrammarPatternAdmin(_ReviewedAdmin):
     ]
 
 
+class ExampleFilter(admin.SimpleListFilter):
+    """예문 검사를 통과하지 못해 예문 없이(NULL) 등록된 용법."""
+
+    title = "예문"
+    parameter_name = "example"
+
+    def lookups(self, request, model_admin):
+        return [("no", "예문 없음"), ("yes", "예문 있음")]
+
+    def queryset(self, request, queryset):
+        if self.value() not in ("no", "yes"):
+            return queryset
+        return queryset.filter(example_ja__isnull=self.value() == "no")
+
+
 @admin.register(GrammarUsage)
 class GrammarUsageAdmin(_ReviewedAdmin):
     form = GrammarUsageForm
     list_display = ["id", "name", "pattern", "status", "origin", "updated_at"]
-    list_filter = ["status", "origin"]
+    list_filter = ["status", "origin", ExampleFilter]
     search_fields = ["name", "pattern__name"]
     fields = ["name", "pattern", "status", "origin", "explanation_ko", "example_ja"]
     readonly_fields = ["name", "pattern", "status", "origin"]

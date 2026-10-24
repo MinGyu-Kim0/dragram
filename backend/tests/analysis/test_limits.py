@@ -1,14 +1,18 @@
 """사용자별 하루 토큰 한도와 동시 분석 요청 제한(#28, NFR-14)."""
 
+import time
+from contextlib import aclosing
 from datetime import timedelta
 
 import pytest
+from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from analysis import limits, stream
+from analysis import jobs, limits, sentence, stream
 from analysis.models import SentenceAnalysis, UsageLog
-from tests.analysis.helpers import analyze, span_answer
+from errors import AnalysisError, BusinessError
+from tests.analysis.helpers import analyze, connected_client, post, span_answer
 from tests.analysis.test_rematch import KITEIRU, cache_then_register_teiru
 
 pytestmark = pytest.mark.django_db
@@ -124,3 +128,80 @@ def test_rematch_over_the_limit_skips_the_judge_and_sends_the_fallback(
     assert fake_llm.all_requests() == []
     # 다시 매칭한 것으로 기록하지 않아, 한도가 풀리면 다음 조회가 재판정한다.
     assert SentenceAnalysis.objects.get(translation_ko="그가 와 있다").span_matches.count() == 0
+
+
+def active(user):
+    """그 사용자의 동시 요청 셈"""
+    with jobs._connection() as connection:
+        return connection.zcard(limits._active_key(user))
+
+
+@pytest.fixture
+def no_active(analyst):
+    """앞선 테스트 실행이 남긴 셈이 없게 한다."""
+    with jobs._connection() as connection:
+        connection.delete(limits._active_key(analyst))
+
+
+def test_requests_over_the_concurrent_limit_are_refused_before_morphology(
+    settings, client, fake_llm, analyst, no_active, monkeypatch
+):
+    settings.ANALYSIS_MAX_CONCURRENT = 2
+    held = [limits.enter(analyst), limits.enter(analyst)]
+
+    # 다른 사용자는 영향을 받지 않는다.
+    assert analyze(connected_client("other"), TEXT).status_code == 200
+    fake_llm.forget_requests()
+
+    def no_morphology(text):
+        raise AssertionError("형태소 분석을 부름")
+
+    monkeypatch.setattr(sentence, "morphemes", no_morphology)
+    response = analyze(client, "雪が降る")
+
+    assert response.status_code == 429
+    assert response.json()["error"] == "ANALYSIS:TOO_MANY_REQUESTS"
+    assert fake_llm.all_requests() == []
+    assert active(analyst) == 2
+    for leave in held:
+        leave()
+    assert active(analyst) == 0
+
+
+def test_finished_requests_leave_the_count(settings, client, fake_llm, analyst, no_active):
+    settings.ANALYSIS_MAX_CONCURRENT = 1
+
+    assert analyze(client, TEXT).status_code == 200  # LLM 스트림
+    assert analyze(client, TEXT).status_code == 200  # 캐시
+    assert analyze(client, "").status_code == 400  # 응답을 시작하기 전의 오류
+    fake_llm.error = BusinessError(AnalysisError.FAILED, "LLM 호출 실패")
+    assert analyze(client, "雪が降る").json()["error"] == "ANALYSIS:FAILED"  # 스트림 안의 오류
+
+    assert active(analyst) == 0
+
+
+def test_disconnected_stream_leaves_the_count(client, fake_llm, analyst, no_active):
+    response = post(client, TEXT)
+    assert active(analyst) == 1
+
+    async def read_one_and_disconnect():
+        # Django ASGI 처리기처럼 응답을 aclosing으로 읽다가 연결이 끊긴다.
+        async with aclosing(aiter(response)) as content:
+            await anext(content)
+
+    async_to_sync(read_one_and_disconnect)()
+
+    assert active(analyst) == 0
+
+
+def test_count_left_by_a_dead_process_expires(settings, analyst, no_active, monkeypatch):
+    settings.ANALYSIS_MAX_CONCURRENT = 1
+    limits.enter(analyst)  # 빼지 못하고 죽은 요청
+    with pytest.raises(BusinessError):
+        limits.enter(analyst)
+
+    now = time.time()
+    monkeypatch.setattr(limits.time, "time", lambda: now + limits.ACTIVE_SECONDS + 1)
+
+    limits.enter(analyst)
+    assert active(analyst) == 1

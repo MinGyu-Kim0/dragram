@@ -20,6 +20,31 @@ from errors import AnalysisError, BusinessError
 @authentication_classes([ExtensionTokenAuthentication])
 @permission_classes([])
 def analyze(request):
+    """사용자의 동시 분석 요청 셈에 넣고 분석한다(#28). 응답이 끝나면(스트림은 정상·오류·연결
+    끊김 모두) 셈에서 뺀다. 상한을 넘으면 형태소 분석 전에 거부한다.
+    """
+    leave = limits.enter(request.user)
+    try:
+        response = _analyze(request)
+    except BaseException:
+        leave()
+        raise
+    if response.streaming:
+        response.streaming_content = _leaving(response.streaming_content, leave)
+    else:
+        leave()
+    return response
+
+
+async def _leaving(content, leave):
+    try:
+        async for part in content:
+            yield part
+    finally:
+        leave()
+
+
+def _analyze(request):
     """캐시 분석은 한 번에 보내고, 패턴 세트 버전이 올랐으면 다시 매칭하고, 나머지는 작업자의
     LLM 작업을 기다리며 흘려보낸다.
     """

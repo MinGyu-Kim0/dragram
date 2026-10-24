@@ -105,19 +105,15 @@ def _fail(analysis_id, started, code):
         jobs.publish(sentence_hash, message)
 
 
-def run_analysis(analysis_id, text, usage_id):
-    """작업자가 실행하는 분석 LLM 작업(analysis.jobs). text는 요청이 정규화한 분석 텍스트다.
+def run_analysis(analysis_id, text, usage_id, started):
+    """작업자가 실행하는 분석 LLM 작업(analysis.jobs). text는 요청이 정규화한 분석 텍스트,
+    started는 선점한 시도다. 행을 읽고 쓰고 소식을 보낼 때 모두 이 시도를 기준으로 한다(#99).
 
     정규화는 두 번 적용하면 결과가 달라질 수 있어(공백을 지운 뒤 결합 탁점이 합쳐지는 등) 다시
     하지 않는다. 그러지 않으면 해시가 달라져 요청이 선점한 행을 찾지 못한다.
     """
-    started = (
-        SentenceAnalysis.objects.filter(pk=analysis_id)
-        .values_list("processing_started_at", flat=True)
-        .first()
-    )
     try:
-        Worker(Sentence(text)).run(analysis_id, usage_id)
+        Worker(Sentence(text), started).run(analysis_id, usage_id)
     except BaseException:
         # 우리 코드의 버그와 작업 시간 초과(RQ가 작업 안에서 올린다)도 실패로 알린 뒤 그대로
         # 올린다. 기다리는 요청이 대기 상한까지 붙잡히거나 행이 처리 중에 남지 않게 한다.
@@ -129,11 +125,13 @@ class Worker:
     """선점된 분석 행 하나의 LLM 분석과 저장.
 
     이 작업의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트(client)로 해서 요청 전체
-    마감 시각을 함께 쓴다. usage는 선점한 요청의 사용 기록이다. 둘 다 run이 채운다.
+    마감 시각을 함께 쓴다. usage는 선점한 요청의 사용 기록이다. 둘 다 run이 채운다. started는
+    이 작업이 맡은 시도다.
     """
 
-    def __init__(self, sentence):
+    def __init__(self, sentence, started):
         self.sentence = sentence
+        self.started = started
         self.client = self.usage = None
 
     def run(self, analysis_id, usage_id):
@@ -145,11 +143,19 @@ class Worker:
         existing = self.sentence.existing
         if existing is None or existing.pk != analysis_id:
             raise RuntimeError(f"분석 텍스트의 해시가 분석 행과 다름: analysis_id={analysis_id}")
+        # 세대 번호(Sentence가 읽음)를 읽은 뒤에 본다. 그 사이 다시 선점됐으면 여기서 걸러진다.
+        if not SentenceAnalysis.objects.filter(
+            pk=analysis_id,
+            status=SentenceAnalysis.Status.PROCESSING,
+            processing_started_at=self.started,
+        ).exists():
+            # 다시 선점된 뒤 큐에서 늦게 꺼낸 옛 작업이다. 새 시도의 행과 소식을 건드리지 않는다.
+            return
         request = UsageLog.objects.get(pk=usage_id)
         if limits.over_limit(request.user):
             # 연결을 끊고 다시 보내기를 되풀이해 쌓인 작업이 하루 한도를 크게 넘기지 않게,
             # 시작할 때 다시 본다(#28, PR #155 리뷰).
-            _fail(analysis_id, existing.processing_started_at, AnalysisError.USAGE_LIMIT.code)
+            _fail(analysis_id, self.started, AnalysisError.USAGE_LIMIT.code)
             return
         self.usage = RequestUsage(request)
         self.client = llm.get_client(self.usage.record_llm)
@@ -157,13 +163,13 @@ class Worker:
             self.work()
         except BusinessError as e:
             log_business_error(e)
-            _fail(analysis_id, existing.processing_started_at, e.error_code.code)
+            _fail(analysis_id, self.started, e.error_code.code)
             return
         if SentenceAnalysis.objects.filter(
             pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
         ).exists():
             # 저장하지 못하고 끝났다(다른 쓰기가 같은 구간을 먼저 넣음).
-            _fail(analysis_id, existing.processing_started_at, AnalysisError.FAILED.code)
+            _fail(analysis_id, self.started, AnalysisError.FAILED.code)
             return
         self.usage.succeed()
         self.publish({"type": "done"})
@@ -289,16 +295,16 @@ class Worker:
     def share_translation(self, translation):
         """검증한 번역을 먼저 저장하고 알린다. 늦게 붙은 요청은 저장된 번역을 읽는다."""
         SentenceAnalysis.objects.filter(
-            pk=self.sentence.existing.pk, status=SentenceAnalysis.Status.PROCESSING
+            pk=self.sentence.existing.pk,
+            status=SentenceAnalysis.Status.PROCESSING,
+            processing_started_at=self.started,
         ).update(processing_translation_ko=translation)
         self.publish({"type": "translation", "translation_ko": translation})
 
     def publish(self, message):
         """이 시도의 작업 소식을 보낸다."""
         s = self.sentence
-        jobs.publish(
-            s.sentence_hash, {**message, "attempt": _attempt(s.existing.processing_started_at)}
-        )
+        jobs.publish(s.sentence_hash, {**message, "attempt": _attempt(self.started)})
 
     def prepare(self, validated):
         """새 구문마다 형태소 조건을 만든다. 패턴 생성 규칙을 어겼으면 None이다. 같은 자리에서
@@ -507,4 +513,5 @@ class Worker:
                 "updated_at",
             ]
         )
+        # 다시 선점하면 세대 번호가 오르므로, 옛 시도의 저장은 여기서 되돌려진다(#99).
         return locked.generation != s.started_generation or _basis_changed(rows, s.rules)

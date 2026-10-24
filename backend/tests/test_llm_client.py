@@ -1,6 +1,7 @@
 import json
 from types import SimpleNamespace
 
+import httpx2 as httpx
 import openai
 import pytest
 
@@ -486,6 +487,7 @@ def test_stream_records_first_response_with_its_model_and_tokens(llm_client, mon
             "cached_input_tokens": 40,
             "output_tokens": 20,
             "success": True,
+            "attempt": 1,
         }
     ]
 
@@ -526,6 +528,7 @@ def test_stream_that_could_not_be_sent_records_failure_without_tokens(
             "cached_input_tokens": None,
             "output_tokens": None,
             "success": False,
+            "attempt": 1,
         }
     ]
 
@@ -586,6 +589,7 @@ def test_follow_up_call_records_its_purpose_model_and_tokens(
             "cached_input_tokens": 0,
             "output_tokens": 10,
             "success": True,
+            "attempt": 1,
         }
     ]
 
@@ -637,3 +641,145 @@ def test_follow_up_call_not_sent_after_the_deadline_is_not_recorded(settings, mo
         llm_client.rewrite_examples("文", EXAMPLES)
 
     assert recorded == []
+
+
+# LLM 일시 오류의 1회 재시도(#99). 받은 것 없이 일시 오류로 실패한 호출만 마감 안에서 한 번 더
+# 보낸다.
+REQUEST = httpx.Request("POST", "https://api.openai.com/v1/responses")
+
+
+def rate_limited():
+    return openai.RateLimitError(
+        "rate limited", response=httpx.Response(429, request=REQUEST), body=None
+    )
+
+
+def server_error():
+    return openai.InternalServerError(
+        "server error", response=httpx.Response(503, request=REQUEST), body=None
+    )
+
+
+def failing_first(error, then):
+    """처음 한 번은 error를 내고, 그다음부터는 then()을 돌려주는 SDK 호출"""
+    calls = []
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise error
+        return then()
+
+    return create, calls
+
+
+@pytest.mark.parametrize(
+    "error", [rate_limited(), server_error(), openai.APIConnectionError(request=REQUEST)]
+)
+def test_transient_error_is_sent_once_more_and_recorded_as_attempt_2(
+    llm_client, monkeypatch, recorded, error
+):
+    create, calls = failing_first(error, lambda: response_with(output_text='{"examples": []}'))
+    monkeypatch.setattr(llm_client._client.responses, "create", create)
+
+    assert llm_client.rewrite_examples("文", EXAMPLES) == {"examples": []}
+
+    assert len(calls) == 2
+    assert [(c["attempt"], c["success"]) for c in recorded] == [(1, False), (2, True)]
+
+
+def test_second_transient_failure_becomes_analysis_failure(llm_client, monkeypatch, recorded):
+    def fail(**_):
+        raise rate_limited()
+
+    monkeypatch.setattr(llm_client._client.responses, "create", fail)
+
+    with pytest.raises(BusinessError):
+        llm_client.rewrite_examples("文", EXAMPLES)
+
+    assert [c["attempt"] for c in recorded] == [1, 2]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        openai.APITimeoutError(request=REQUEST),
+        openai.AuthenticationError(
+            "no key", response=httpx.Response(401, request=REQUEST), body=None
+        ),
+    ],
+)
+def test_timeout_and_other_errors_are_not_sent_again(llm_client, monkeypatch, recorded, error):
+    create, calls = failing_first(error, lambda: response_with(output_text="{}"))
+    monkeypatch.setattr(llm_client._client.responses, "create", create)
+
+    with pytest.raises(BusinessError):
+        llm_client.rewrite_examples("文", EXAMPLES)
+
+    assert len(calls) == 1
+
+
+def test_answer_that_fails_validation_is_not_sent_again(llm_client, monkeypatch):
+    calls = []
+
+    def bad(**kwargs):
+        calls.append(kwargs)
+        return response_with(output_text="JSON 아님")
+
+    monkeypatch.setattr(llm_client._client.responses, "create", bad)
+
+    with pytest.raises(BusinessError):
+        llm_client.rewrite_examples("文", EXAMPLES)
+
+    assert len(calls) == 1
+
+
+def test_transient_error_is_not_sent_again_after_the_request_deadline(settings, monkeypatch):
+    settings.OPENAI_API_KEY = "test-key"
+    # 클라이언트를 만들 때 0, 첫 호출 때 0, 다시 보내려 할 때는 마감이 지났다.
+    now = iter([0, 0, llm.REQUEST_DEADLINE_SECONDS])
+    monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
+    recorded = []
+    llm_client = OpenAILLMClient(recorder(recorded))
+    create, calls = failing_first(rate_limited(), lambda: response_with(output_text="{}"))
+    monkeypatch.setattr(llm_client._client.responses, "create", create)
+
+    with pytest.raises(BusinessError):
+        llm_client.rewrite_examples("文", EXAMPLES)
+
+    assert len(calls) == 1
+
+
+def test_stream_that_failed_before_anything_arrived_is_sent_once_more(
+    llm_client, monkeypatch, recorded
+):
+    create, calls = failing_first(
+        openai.APIConnectionError(request=REQUEST),
+        lambda: stream_of(deltas('{"translation_ko": "번역"}')),
+    )
+    stream_with(llm_client, monkeypatch, create)
+
+    assert list(llm_client.analyze_stream("文", [], [], [], [], [])) == [
+        ("translation", "번역"),
+        ("result", {"translation_ko": "번역"}),
+    ]
+    assert [(c["attempt"], c["success"]) for c in recorded] == [(1, False), (2, True)]
+
+
+def test_stream_that_failed_after_something_arrived_is_not_sent_again(llm_client, monkeypatch):
+    calls = []
+
+    def broken_stream():
+        yield from deltas('{"translation_ko": "번')
+        raise openai.APIConnectionError(request=REQUEST)
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        return broken_stream()
+
+    stream_with(llm_client, monkeypatch, create)
+
+    with pytest.raises(BusinessError):
+        list(llm_client.analyze_stream("文", [], [], [], [], []))
+
+    assert len(calls) == 1

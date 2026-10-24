@@ -3,6 +3,7 @@ import re
 import time
 from contextlib import closing
 
+import openai
 from django.conf import settings
 from openai import OpenAI, OpenAIError
 
@@ -263,6 +264,17 @@ REQUEST_DEADLINE_SECONDS = 110
 MAX_RETRIES = 0
 
 
+def _transient(error):
+    """다시 보내면 나을 수 있는 SDK 오류(연결 오류, 429, 5xx). 타임아웃은 위 이유로 넣지 않는다."""
+    return not isinstance(error, openai.APITimeoutError) and isinstance(
+        error, (openai.APIConnectionError, openai.RateLimitError, openai.InternalServerError)
+    )
+
+
+class _NothingReceived(BusinessError):
+    """받은 것 없이 일시 오류로 실패한 호출. 요청 마감 안이면 한 번만 다시 보낸다(#99)."""
+
+
 # 스트림이 실패했거나 끝까지 쓰지 못했음을 알리는 이벤트
 _FAILED_EVENTS = {"error", "response.failed", "response.incomplete"}
 # 응답(모델명·토큰 사용량)을 싣고 스트림을 끝내는 이벤트. error 이벤트에는 응답이 없다.
@@ -273,8 +285,8 @@ class OpenAILLMClient:
     """요청 하나가 쓰는 클라이언트. 그 요청의 호출들이 마감 시각 하나를 함께 쓴다.
 
     보낸 호출마다 record(purpose, model, input_tokens, cached_input_tokens, output_tokens,
-    success)를 한 번 부른다. 보내지 못했거나 응답이 없으면 토큰은 None이다. 마감이 지나 보내지
-    않은 호출은 부르지 않는다.
+    success, attempt)를 한 번 부른다. 보내지 못했거나 응답이 없으면 토큰은 None이다. 마감이
+    지나 보내지 않은 호출은 부르지 않는다.
     """
 
     def __init__(self, record):
@@ -292,14 +304,28 @@ class OpenAILLMClient:
         사전에서 못 찾은 토큰 ID로, 사전형·읽기만 받는다(#134).
 
         SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
-        응답(거절 등)은 ANALYSIS:FAILED다.
+        응답(거절 등)은 ANALYSIS:FAILED다. 아무것도 받기 전에 일시 오류로 실패했으면 요청 마감
+        안에서 한 번 더 보낸다(#99).
         """
+        args = (sentence, tokens, spans, decided_spans, words, unknown_words)
+        try:
+            yield from self._stream(1, *args)
+        except _NothingReceived:
+            if time.monotonic() >= self._deadline:
+                raise
+            yield from self._stream(2, *args)
+
+    def _stream(self, attempt, sentence, tokens, spans, decided_spans, words, unknown_words):
+        """analyze_stream의 호출 한 번. attempt는 시도 차수다."""
         parser = TranslationFirstParser()
-        deadline = time.monotonic() + STREAM_DEADLINE_SECONDS
+        # 다시 보낸 스트림도 요청 마감을 넘기지 않는다.
+        now = time.monotonic()
+        deadline = min(now + STREAM_DEADLINE_SECONDS, self._deadline)
         # 사이드 패널이 연결을 끊어 중간에 닫혀도 보낸 호출은 기록한다.
-        final, success = None, False
+        final, success, received = None, False, False
         try:
             stream = self._client.responses.create(
+                timeout=min(TIMEOUT_SECONDS, self._deadline - now),
                 model=settings.OPENAI_MODEL,
                 instructions=INSTRUCTIONS + NUMBER_RULES,
                 input=json.dumps(
@@ -326,6 +352,7 @@ class OpenAILLMClient:
             # 사이드 패널이 연결을 끊어 중간에 멈춰도 OpenAI 연결을 닫는다.
             with closing(stream):
                 for event in stream:
+                    received = True
                     if event.type in _FINAL_EVENTS:
                         final = event.response
                     if time.monotonic() > deadline:
@@ -339,9 +366,10 @@ class OpenAILLMClient:
             result = parser.result()
             success = True
         except OpenAIError as e:
-            raise BusinessError(AnalysisError.FAILED, "LLM 호출 실패") from e
+            failure = _NothingReceived if not received and _transient(e) else BusinessError
+            raise failure(AnalysisError.FAILED, "LLM 호출 실패") from e
         finally:
-            self._record_call(UsageLog.Purpose.FIRST_RESPONSE, final, success)
+            self._record_call(UsageLog.Purpose.FIRST_RESPONSE, final, success, attempt)
         yield "result", result
 
     def judge_spans(self, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans):
@@ -441,8 +469,18 @@ class OpenAILLMClient:
         )
 
     def _ask(self, purpose, label, instructions, payload, name, schema):
-        """구조화된 출력을 스트림 없이 받는다. purpose는 사용 기록의 호출 목적, label은 로그용
-        이름이다.
+        """구조화된 출력을 스트림 없이 받는다(_ask_once). 일시 오류로 실패했으면 한 번 더
+        보낸다(#99). 마감이 지났으면 _ask_once가 보내지 않는다.
+        """
+        args = (purpose, label, instructions, payload, name, schema)
+        try:
+            return self._ask_once(1, *args)
+        except _NothingReceived:
+            return self._ask_once(2, *args)
+
+    def _ask_once(self, attempt, purpose, label, instructions, payload, name, schema):
+        """구조화된 출력을 스트림 없이 한 번 받는다. attempt는 시도 차수, purpose는 사용 기록의
+        호출 목적, label은 로그용 이름이다.
 
         요청 마감 시각까지 남은 시간만 기다리고, 이미 지났으면 보내지 않는다. SDK 오류, 끝까지
         쓰지 못한 응답, JSON이 아닌 응답(거절 등)은 ANALYSIS:FAILED다.
@@ -475,11 +513,12 @@ class OpenAILLMClient:
             success = True
             return answer
         except OpenAIError as e:
-            raise BusinessError(AnalysisError.FAILED, f"LLM {label} 호출 실패") from e
+            failure = _NothingReceived if _transient(e) else BusinessError
+            raise failure(AnalysisError.FAILED, f"LLM {label} 호출 실패") from e
         finally:
-            self._record_call(purpose, response, success)
+            self._record_call(purpose, response, success, attempt)
 
-    def _record_call(self, purpose, response, success):
+    def _record_call(self, purpose, response, success, attempt):
         """보낸 호출 하나를 기록한다. response는 SDK 응답이고 받지 못했으면 None이다."""
         model, tokens = settings.OPENAI_MODEL, (None, None, None)
         if response is not None:
@@ -498,6 +537,7 @@ class OpenAILLMClient:
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
             success=success,
+            attempt=attempt,
         )
 
 

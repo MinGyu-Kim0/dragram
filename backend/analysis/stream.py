@@ -15,14 +15,15 @@ from analysis.normalize import NORMALIZE_VERSION
 from analysis.sentence import _is_fresh
 from analysis.usage import RequestUsage
 from analysis.worker import _attempt, _fail
-from errors import AnalysisError
+from errors import AnalysisError, BusinessError
+from errors.handler import log_business_error
 
 logger = logging.getLogger(__name__)
 
 
 # 응답은 줄 단위 JSON(한 줄에 이벤트 하나)이다(#27).
 # translation(번역, 루비) → analysis(번역, 문법, 단어) 순서다. 형태소 분석 등 응답을 시작하기 전의
-# 실패는 다른 API 오류처럼 상태 코드로, 작업자의 LLM 작업 실패는 error 이벤트로 알린다(#98).
+# 실패는 다른 API 오류처럼 상태 코드로, 큐 넣기·작업자의 LLM 작업 실패는 error 이벤트로 알린다(#98).
 _NDJSON = "application/x-ndjson"
 
 
@@ -114,12 +115,19 @@ async def llm_stream(presenter, user, early):
 
     DB만으로 정해지는 이벤트를 먼저 보내고, 작업 소식을 구독한 뒤 선점하거나 처리 중인 작업에
     붙는다. 번역 소식이 오면 번역을, 저장 소식이 오면 저장된 행으로 만든 analysis를 보낸다.
-    늦게 붙은 요청은 작업이 먼저 저장한 번역부터 보낸다. 실패 소식이나 대기 상한이면 error다.
+    늦게 붙은 요청은 작업이 먼저 저장한 번역부터 보낸다. 큐 넣기 실패, 실패 소식, 대기 상한이면
+    error다.
     """
     async with jobs.listen(presenter.sentence.sentence_hash) as pubsub:
         for event in early:
             yield _ndjson(event)
-        state, row, request_usage = await sync_to_async(claim)(presenter.sentence, user)
+        try:
+            state, row, request_usage = await sync_to_async(claim)(presenter.sentence, user)
+        except BusinessError as e:
+            # 선점은 claim이 풀고 기다리던 요청에 실패 소식도 보냈다.
+            log_business_error(e)
+            yield _ndjson({"type": "error", "error": e.error_code.code})
+            return
         if state == "saved":
             for event in await sync_to_async(saved_events)(presenter, row, False):
                 yield _ndjson(event)

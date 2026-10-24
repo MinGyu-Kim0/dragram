@@ -38,7 +38,17 @@ export type SentenceResult =
       translation?: Translation;
       earlyGrammar?: GrammarItem[];
       previous?: Analysis;
+      // 서버가 분석을 시작하기 전에 거부한 오류 코드
+      code?: string;
     };
+
+// 분석을 시작하기 전에 거부된 사유별 문구(#28). 그 밖의 실패는 '분석하지 못했습니다'다.
+const REFUSALS: Record<string, string> = {
+  "ANALYSIS:USAGE_LIMIT":
+    "오늘 쓸 수 있는 분석량을 다 썼습니다. 내일 다시 시도해 주세요.",
+  "ANALYSIS:TOO_MANY_REQUESTS":
+    "동시에 분석하는 문장이 너무 많습니다. 잠시 뒤 다시 시도해 주세요.",
+};
 
 // 지금 보일 완성된 분석. 분석이 끝났으면 그 결과, 다시 분석하는 중이거나 그러다 실패했으면 옛 결과다.
 function analysisOf(result: SentenceResult | undefined) {
@@ -190,7 +200,8 @@ export function SentenceView({
         )}
         {result?.status === "failed" && !translation && (
           <p className="error">
-            분석하지 못했습니다 <RetryButton onRetry={onRetry} />
+            {REFUSALS[result.code ?? ""] ?? "분석하지 못했습니다"}{" "}
+            <RetryButton onRetry={onRetry} />
           </p>
         )}
       </section>

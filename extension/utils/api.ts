@@ -116,12 +116,14 @@ export interface Translation {
 }
 
 // 분석 실패. 실패 전에 받은 번역과 먼저 온 문법(LLM 없이 확정한 구간), stale 분석의 옛 결과를
-// 함께 싣는다.
+// 함께 싣는다. 스트림을 시작하기 전에 거부됐으면 서버 오류 코드(ANALYSIS:USAGE_LIMIT 등, #28)를
+// 싣는다.
 export class AnalysisFailed extends Error {
   constructor(
     readonly translation?: Translation,
     readonly earlyGrammar?: GrammarItem[],
     readonly previous?: Analysis,
+    readonly code?: string,
   ) {
     super("분석 실패");
   }
@@ -169,7 +171,14 @@ export async function analyzeSentence(
     await clearTokenIfStill(token);
     throw new LoginRequired();
   }
-  if (!response.ok || !response.body) throw new AnalysisFailed();
+  if (!response.ok || !response.body) {
+    throw new AnalysisFailed(
+      undefined,
+      undefined,
+      undefined,
+      await errorCode(response),
+    );
+  }
   let translation: Translation | undefined;
   let earlyGrammar: GrammarItem[] | undefined;
   let previous: Analysis | undefined;
@@ -230,6 +239,15 @@ type StreamEvent =
     }
   | ({ type: "analysis" } & Omit<Analysis, "ruby">)
   | { type: "error"; error: string };
+
+// 오류 응답 본문 {"error": 코드}의 코드. JSON이 아니면 없다.
+async function errorCode(response: Response): Promise<string | undefined> {
+  try {
+    return ((await response.json()) as { error?: string }).error;
+  } catch {
+    return undefined;
+  }
+}
 
 // 바이트 스트림을 줄마다 JSON 이벤트로 읽는다. 줄은 조각 경계에서 잘려 올 수 있다.
 async function* ndjsonEvents(

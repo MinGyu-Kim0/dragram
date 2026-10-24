@@ -821,6 +821,30 @@ test("한 문장이 실패해도 다른 문장 결과가 보인다", async () =>
   expect(await screen.findByText("고양이를 좋아합니다.")).toBeInTheDocument();
 });
 
+test("하루 사용량이나 동시 요청 상한에 걸리면 그 문구를 보인다", async () => {
+  respondPerSentence({
+    "私は学生です。": () => json(429, { error: "ANALYSIS:USAGE_LIMIT" }),
+    "猫が好きです。": () => json(429, { error: "ANALYSIS:TOO_MANY_REQUESTS" }),
+  });
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。", "猫が好きです。");
+
+  expect(
+    await screen.findByText(
+      "오늘 쓸 수 있는 분석량을 다 썼습니다. 내일 다시 시도해 주세요.",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "다시 시도" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "다음 문장" }));
+  expect(
+    await screen.findByText(
+      "동시에 분석하는 문장이 너무 많습니다. 잠시 뒤 다시 시도해 주세요.",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("분석하지 못했습니다")).not.toBeInTheDocument();
+});
+
 test("이전 회차의 늦은 응답이 현재 결과를 바꾸지 않는다", async () => {
   let finishOld: (response: Response) => void = () => {};
   respondPerSentence({

@@ -208,6 +208,7 @@ function App() {
                   : {
                       translation: error.translation,
                       earlyGrammar: error.earlyGrammar,
+                      code: error.code,
                     }
                 : {}),
             });

@@ -158,9 +158,11 @@ function App() {
                 previous = old;
                 saveAll({ status: "reanalyzing", previous });
               },
-              // LLM이 고른 뜻과 새로 만든 한국어 뜻(#97). 번역이 왔으면 함께 보인다.
-              (words) => {
+              // 첫 LLM 응답이 판정한 문법과 고른 뜻(#97). 번역이 왔으면 함께 보인다.
+              (grammar, waiting, words) => {
                 if (previous) return;
+                earlyGrammar = grammar;
+                checking = waiting;
                 earlyWords = words;
                 saveAll(
                   translated

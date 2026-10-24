@@ -706,7 +706,7 @@ test("한국어 뜻이 아직 없으면 준비 중, 만들지 못했으면 실�
   expect(screen.getByRole("link", { name: "JMdict" })).toBeInTheDocument();
 });
 
-test("분석 전에 온 words 이벤트로 고른 뜻과 새 한국어 뜻을 채운다", async () => {
+test("분석 전에 온 judged 이벤트로 고른 뜻을 채운다", async () => {
   const stream = streamed();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
   render(<App />);
@@ -720,7 +720,9 @@ test("분석 전에 온 words 이벤트로 고른 뜻과 새 한국어 뜻을 �
   });
   stream.push({ type: "translation", translation_ko: "책을 펼쳤다", ruby: [] });
   stream.push({
-    type: "words",
+    type: "judged",
+    grammar: [],
+    checking: [],
     words: [
       wordItem(2, 4, "開く", "ひらく", {
         meaning_ko: null,
@@ -736,7 +738,9 @@ test("분석 전에 온 words 이벤트로 고른 뜻과 새 한국어 뜻을 �
   ).toBeInTheDocument();
 
   stream.push({
-    type: "words",
+    type: "judged",
+    grammar: [],
+    checking: [],
     words: [
       wordItem(2, 4, "開く", "ひらく", {
         meaning_ko: "피다",
@@ -1227,6 +1231,89 @@ test("판별을 기다리는 구간은 '확인 중' 점선 카드와 점선 밑�
     ),
   ).toEqual(["ている"]);
 });
+
+test("첫 LLM 응답이 판정한 문법은 분석 전에 카드로 보이고, 번역도 그대로 남는다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "彼が来ている");
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [checkingItem(3, 6, "진행", "결과 상태")],
+  });
+  stream.push({
+    type: "translation",
+    translation_ko: "그가 와 있다",
+    ruby: [],
+  });
+  stream.push({
+    type: "judged",
+    grammar: [grammarItem(3, 6, "결과 상태")],
+    checking: [],
+    words: [],
+  });
+
+  expect(
+    await screen.findByRole("heading", { name: "결과 상태" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("확인 중")).not.toBeInTheDocument();
+  expect(
+    within(cardOf("결과 상태")).getByText("AI 생성·미검수"),
+  ).toBeInTheDocument();
+  expect(screen.getByText("그가 와 있다")).toBeInTheDocument();
+  stream.end();
+});
+
+test("판정한 문법을 받은 뒤 실패하면 LLM 없이 확정한 문법만 남긴다", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve(
+        ndjson([
+          {
+            type: "grammar",
+            grammar: [approvedGrammarItem(6, 9, "진행")],
+            checking: [checkingItem(2, 5, "동시 동작")],
+          },
+          {
+            type: "translation",
+            translation_ko: "걸으면서 오고 있다",
+            ruby: [],
+          },
+          {
+            type: "judged",
+            grammar: [
+              grammarItem(2, 5, "동시 동작"),
+              approvedGrammarItem(6, 9, "진행"),
+            ],
+            checking: [],
+            words: [],
+          },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]),
+      ),
+    ),
+  );
+  render(<App />);
+
+  await send(panelWindowId, "歩きながら来ている");
+
+  // 판정은 저장되지 않았으므로 보이지 않는다.
+  expect(
+    await screen.findByText("문법·단어를 분석하지 못했습니다"),
+  ).toBeInTheDocument();
+  expect(
+    screen
+      .getAllByRole("listitem")
+      .map((item) => within(item).getByRole("heading").textContent),
+  ).toEqual(["진행"]);
+});
+
+function cardOf(name: string) {
+  return screen.getByRole("heading", { name }).closest("li")!;
+}
 
 test("확정 문법과 확인 중 구간을 원문 순서대로 함께 보인다", async () => {
   const stream = streamed();

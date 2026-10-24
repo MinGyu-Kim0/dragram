@@ -22,6 +22,7 @@ from tests.analysis.helpers import (
     connected_client,
     new_pattern,
     new_usage,
+    pattern_form,
     span_answer,
     wait_until_blocked,
 )
@@ -1197,6 +1198,43 @@ def test_usage_form_opened_before_merging_is_not_saved(admin_client, fake_llm, m
     assert "옮겨졌습니다" in html.unescape(response.content.decode())
     if moved:
         assert GrammarUsage.objects.get(pk=own.pk).example_ja is None
+
+
+@pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])
+def test_inline_usage_opened_before_merging_is_not_saved(admin_client, fake_llm, moved):
+    # 회화체 패턴 화면을 연 뒤 그 용법이 원형으로 합쳐지거나 옮겨졌다.
+    base, variant, done, own = with_own_usage(fake_llm)
+    form = pattern_form(
+        variant, **{"usages-0-explanation_ko": "새 설명", "usages-0-example_ja": "本を忘れちゃった"}
+    )
+    review.link_variant(variant, base, {own.pk: None if moved else done.pk})
+
+    response = admin_client.post(f"{PATTERNS}{variant.pk}/change/", form)
+
+    assert response.status_code == 200
+    assert "옮겨졌습니다" in html.unescape(response.content.decode())
+    if moved:
+        assert GrammarUsage.objects.get(pk=own.pk).explanation_ko != "새 설명"
+
+
+def test_inline_rows_are_not_shown_against_the_wrong_usage_after_a_move(admin_client, fake_llm):
+    # 회화체에 용법이 둘인데 화면을 연 뒤 앞 용법만 원형 아래로 옮겨졌다. admin은 보낸 행과
+    # 지금 목록을 순서대로 짝지으므로, 옮겨진 용법의 행이 남은 용법의 행으로 보이면 안 된다.
+    base, variant, _, own = with_own_usage(fake_llm)
+    with transaction.atomic():
+        other, _ = patterns.add_usage(variant, "유감", "아쉬운 마음을 담는다", None)
+    form = pattern_form(variant, **{"usages-1-explanation_ko": "새 설명"})
+    # 반려된 용법은 연결해도 회화체에 남는다.
+    review.reject_usage(other)
+    review.link_variant(variant, base, {own.pk: None})
+
+    response = admin_client.post(f"{PATTERNS}{variant.pk}/change/", form)
+
+    page = html.unescape(response.content.decode())
+    assert response.status_code == 200
+    assert "옮겨졌습니다" in page
+    assert f"{USAGES}{other.pk}/change/" not in page
+    assert GrammarUsage.objects.get(pk=other.pk).explanation_ko == "아쉬운 마음을 담는다"
 
 
 @pytest.mark.parametrize("moved", [False, True], ids=["합침", "옮김"])

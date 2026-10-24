@@ -845,6 +845,22 @@ test("하루 사용량이나 동시 요청 상한에 걸리면 그 문구를 보
   expect(screen.queryByText("분석하지 못했습니다")).not.toBeInTheDocument();
 });
 
+test("작업이 시작할 때 하루 한도에 걸린 스트림 오류도 그 문구를 보인다", async () => {
+  respondPerSentence({
+    "私は学生です。": () =>
+      ndjson([{ type: "error", error: "ANALYSIS:USAGE_LIMIT" }]),
+  });
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。");
+
+  expect(
+    await screen.findByText(
+      "오늘 쓸 수 있는 분석량을 다 썼습니다. 내일 다시 시도해 주세요.",
+    ),
+  ).toBeInTheDocument();
+});
+
 test("이전 회차의 늦은 응답이 현재 결과를 바꾸지 않는다", async () => {
   let finishOld: (response: Response) => void = () => {};
   respondPerSentence({

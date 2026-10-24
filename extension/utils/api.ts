@@ -116,8 +116,7 @@ export interface Translation {
 }
 
 // 분석 실패. 실패 전에 받은 번역과 먼저 온 문법(LLM 없이 확정한 구간), stale 분석의 옛 결과를
-// 함께 싣는다. 스트림을 시작하기 전에 거부됐으면 서버 오류 코드(ANALYSIS:USAGE_LIMIT 등, #28)를
-// 싣는다.
+// 함께 싣는다. 서버가 오류 코드(ANALYSIS:USAGE_LIMIT 등, #28)를 보냈으면 그것도 싣는다.
 export class AnalysisFailed extends Error {
   constructor(
     readonly translation?: Translation,
@@ -182,6 +181,7 @@ export async function analyzeSentence(
   let translation: Translation | undefined;
   let earlyGrammar: GrammarItem[] | undefined;
   let previous: Analysis | undefined;
+  let code: string | undefined;
   try {
     for await (const event of ndjsonEvents(response.body)) {
       if (event.type === "previous") {
@@ -211,6 +211,7 @@ export async function analyzeSentence(
           ruby: translation?.ruby ?? [],
         };
       } else {
+        code = event.error;
         break;
       }
     }
@@ -218,7 +219,7 @@ export async function analyzeSentence(
     // 연결이 끊기거나 줄이 JSON이 아니어도 이미 받은 번역은 남긴다.
   }
   // error 이벤트를 받았거나, analysis 전에 스트림이 끝났거나 끊겼다.
-  throw new AnalysisFailed(translation, earlyGrammar, previous);
+  throw new AnalysisFailed(translation, earlyGrammar, previous, code);
 }
 
 type StreamEvent =

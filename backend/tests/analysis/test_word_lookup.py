@@ -3,38 +3,11 @@
 import pytest
 
 from analysis import words
-from analysis.jmdict import to_hiragana
-from analysis.models import ReviewStatus, Word, WordSense
+from analysis.models import ReviewStatus
 from analysis.morphology import morphemes
+from tests.analysis.helpers import add_word
 
 pytestmark = pytest.mark.django_db
-
-
-def add_word(seq, kanji, kana, senses, restrictions=None, common=True, tags=("noun",)):
-    """표본 단어. senses는 (영어 뜻 목록, 뜻 태그, applies_to)들이다."""
-    word = Word.objects.create(
-        dictionary_form=(kanji or kana)[0],
-        reading=kana[0],
-        forms=[*kanji, *kana],
-        readings=list(dict.fromkeys(to_hiragana(k) for k in kana)),
-        is_common=common,
-        reading_restrictions=restrictions,
-        pos="n",
-        tags=list(tags),
-        jmdict_seq=seq,
-    )
-    for index, (gloss, sense_tags, applies_to) in enumerate(senses, start=1):
-        WordSense.objects.create(
-            word=word,
-            jmdict_sense_index=index,
-            gloss_en=gloss,
-            tags=list(sense_tags),
-            applies_to=applies_to,
-            sense_origin=WordSense.Origin.JMDICT,
-            sense_status=ReviewStatus.APPROVED,
-            meaning_status=WordSense.MeaningStatus.AI,
-        )
-    return word
 
 
 def lookup(text):

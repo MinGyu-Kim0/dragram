@@ -11,7 +11,7 @@ from errors import AnalysisError, BusinessError
 
 INSTRUCTIONS = """\
 You help a Korean learner of Japanese read one Japanese sentence.
-You receive the sentence, its tokens, each with an id, spans and decided_spans.
+You receive the sentence, its tokens, each with an id, spans, decided_spans and words.
 Return the Korean translation of the whole sentence in translation_ko.
 
 In spans, answer every span you received. A span is a run of tokens (start_token_id to
@@ -54,14 +54,9 @@ In pattern_name, usage_name and explanation_ko, quote Japanese only from that gr
 own tokens. Never quote the whole sentence or long parts of it. Do not write number
 placeholders (⟨N1⟩) there. If the sentence has no new grammar to learn, return an empty list.
 
-In words, list the content words a learner may not know (nouns, verbs, adjectives, adverbs and
-the like). Particles and auxiliary verbs belong in grammar, not here. Do not list tokens that
-are only a number placeholder or a symbol. For each word give its token id (token_id), its
-dictionary form (lemma, e.g. 食べる for 食べて), the hiragana reading of that dictionary form
-(reading) and a short Korean meaning as used in this sentence (meaning_ko).
-For loanwords, including new ones not in dictionaries, keep the katakana in the reading
-(コーヒー → コーヒー). For a word written in katakana only for emphasis, give its usual
-dictionary form and reading (ヤバい → やばい / やばい). Write readings in kana only.
+In words, answer every token you received in words. Each has candidate senses of that word as
+"sense id: English glosses". Give its token_id and the sense_id of the candidate with the
+meaning the token has in this sentence. Use only sense ids given for that token.
 
 """
 
@@ -179,11 +174,9 @@ RESPONSE_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "token_id": {"type": "integer"},
-                    "lemma": {"type": "string"},
-                    "reading": {"type": "string"},
-                    "meaning_ko": {"type": "string"},
+                    "sense_id": {"type": "integer"},
                 },
-                "required": ["token_id", "lemma", "reading", "meaning_ko"],
+                "required": ["token_id", "sense_id"],
                 "additionalProperties": False,
             },
         },
@@ -262,11 +255,11 @@ class OpenAILLMClient:
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
         )
 
-    def analyze_stream(self, sentence, tokens, spans, decided_spans):
+    def analyze_stream(self, sentence, tokens, spans, decided_spans, words):
         """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을 먼저 넘기고,
         다 받으면 ("result", 검증 전 응답)을 넘긴다. spans는 등록된 패턴에 걸린 구간과 그 후보
         용법이다. decided_spans는 LLM 없이 확정한 구간이라 답을 받지 않고, 새 구문으로 다시 내지
-        않게 알리기만 한다.
+        않게 알리기만 한다. words는 JMdict 후보 뜻이 여럿인 토큰과 그 후보다(#96).
 
         SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
         응답(거절 등)은 ANALYSIS:FAILED다.
@@ -285,6 +278,7 @@ class OpenAILLMClient:
                         "tokens": tokens,
                         "spans": spans,
                         "decided_spans": decided_spans,
+                        "words": words,
                     },
                     ensure_ascii=False,
                 ),

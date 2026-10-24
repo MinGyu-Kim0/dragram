@@ -126,6 +126,7 @@ def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fak
                 "candidates": [{"name": "진행", "review_status": "pending"}],
             }
         ],
+        "words": [],
     }
 
 

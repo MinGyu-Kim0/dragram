@@ -9,6 +9,8 @@ from django.db import connection
 from django.test import Client
 
 from accounts import tokens
+from analysis.jmdict import to_hiragana
+from analysis.models import ReviewStatus, Word, WordSense
 
 
 class Analyzed:
@@ -65,8 +67,31 @@ def post(client, text):
     return client.post("/api/analyses/", {"text": text}, content_type="application/json")
 
 
-def word_item(token_id=2, lemma="学生", reading="がくせい", meaning_ko="학생"):
-    return {"token_id": token_id, "lemma": lemma, "reading": reading, "meaning_ko": meaning_ko}
+def add_word(seq, kanji, kana, senses, restrictions=None, common=True, tags=("noun",)):
+    """표본 단어. senses는 (영어 뜻 목록, 뜻 태그, applies_to)들이다."""
+    word = Word.objects.create(
+        dictionary_form=(kanji or kana)[0],
+        reading=kana[0],
+        forms=[*kanji, *kana],
+        readings=list(dict.fromkeys(to_hiragana(k) for k in kana)),
+        is_common=common,
+        reading_restrictions=restrictions,
+        pos="n",
+        tags=list(tags),
+        jmdict_seq=seq,
+    )
+    for index, (gloss, sense_tags, applies_to) in enumerate(senses, start=1):
+        WordSense.objects.create(
+            word=word,
+            jmdict_sense_index=index,
+            gloss_en=gloss,
+            tags=list(sense_tags),
+            applies_to=applies_to,
+            sense_origin=WordSense.Origin.JMDICT,
+            sense_status=ReviewStatus.APPROVED,
+            meaning_status=WordSense.MeaningStatus.AI,
+        )
+    return word
 
 
 def new_pattern(

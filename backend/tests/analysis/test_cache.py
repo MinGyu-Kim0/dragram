@@ -61,7 +61,8 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
     [row] = SentenceAnalysis.objects.values()
     # 원문을 담을 칸이 없고, 번역은 숫자 대신 자리표시자로 저장한다.
     assert set(row) == {
-        "draft_analysis",
+        "word_spans",
+        "sense_ids",
         "id",
         "sentence_hash",
         "normalize_version",
@@ -77,7 +78,7 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
     assert row["translation_ko"] == "나는 ⟨N1⟩명이서 달리고 있다."
     assert row["status"] == "complete"
     assert row["normalized_length"] == len("私は⟨N1⟩人で走っている")
-    assert row["draft_analysis"] == {"words": []}
+    assert (row["word_spans"], row["sense_ids"]) == ([], [])
     # 구간에는 키 텍스트 위치와 패턴·용법 ID만 있다(⟨N1⟩人で의 人で = 6~8, ている = 10~13).
     spans = SpanMatch.objects.order_by("start_offset").values(
         "start_offset", "end_offset", "state", "decided_by", "candidates"
@@ -136,10 +137,10 @@ def test_first_saved_analysis_wins_when_same_sentence_is_saved_concurrently(clie
 def test_first_filled_grammar_wins_when_row_without_grammar_is_filled_concurrently(
     client, fake_llm, monkeypatch
 ):
-    # 임시 분석을 받기 전에 저장된 행(draft_analysis NULL)을 두 요청이 함께 다시 분석한다.
+    # 단어 칸을 받기 전에 저장된 행(word_spans NULL)을 두 요청이 함께 다시 분석한다.
     fake_llm.response = {"translation_ko": "옛 번역"}
     analyze(client, "私は学生です。")
-    SentenceAnalysis.objects.update(draft_analysis=None)
+    SentenceAnalysis.objects.update(word_spans=None, sense_ids=None)
 
     # 늦은 요청이 NULL인 행을 읽은 직후, 채우기 전에 다른 요청이 먼저 채운다.
     get_or_create = SentenceAnalysis.objects.get_or_create

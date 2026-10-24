@@ -144,3 +144,46 @@ def lookup(text, morphs, tokens):
                 found[token] = candidates
                 break
     return found
+
+
+def reading_for(sense, text, morph):
+    """저장된 뜻을 이 토큰으로 보일 때의 읽기. 찾을 때와 같은 차례로 맞춰 본다.
+
+    형태소 경계가 달라 토큰을 모르면(morph가 None) 그 단어의 대표 읽기다.
+    """
+    word = sense.word
+    for query in _queries(text, morph) if morph is not None else ():
+        readings = _sense_readings(sense, query, _allowed_readings(word, query))
+        if readings:
+            return _display_reading(word, query, readings)
+    return word.reading
+
+
+def item(start, end, word, reading, sense):
+    """응답의 단어 항목. sense가 None이면 뜻을 아직 고르지 않은 것이다(LLM 응답 전).
+
+    태그는 단어 전체 태그와 고른 뜻의 태그다. 뜻은 출처·검수 상태와 한국어 뜻(#97 전에는 NULL)
+    까지 실어, 미검수가 검수처럼 보이지 않게 화면이 이 값으로 표시를 정한다.
+    """
+    return {
+        "start": start,
+        "end": end,
+        "dictionary_form": word.dictionary_form,
+        "reading": reading,
+        "tags": sorted(set(word.tags) & WHOLE_WORD_TAGS),
+        "sense": None
+        if sense is None
+        else {
+            "tags": sense.tags,
+            "gloss_en": sense.gloss_en or [],
+            "origin": sense.sense_origin,
+            "status": sense.sense_status,
+            "meaning_ko": sense.meaning_ko,
+            "meaning_status": sense.meaning_status,
+        },
+    }
+
+
+def llm_candidates(candidates):
+    """LLM에 넘길 후보: '뜻 ID: 영어 뜻 최대 3개'."""
+    return [f"{c.sense.id}: {'; '.join((c.sense.gloss_en or [])[:3])}" for c in candidates]

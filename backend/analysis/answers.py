@@ -2,7 +2,8 @@
 
 import unicodedata
 
-from analysis import llm
+from analysis import llm, words
+from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS, to_hiragana
 from analysis.models import (
     SpanMatch,
 )
@@ -222,6 +223,90 @@ def _validate_word_answers(answers, ambiguous):
     return {token: sense_id for token, sense_id in chosen.items() if token not in repeated}
 
 
+# word 표기·읽기 칸 길이
+_WORD_TEXT_MAX = 255
+
+
+def _word_text(value):
+    """새 단어의 사전형·읽기로 쓸 값(앞뒤 공백을 뗀다). 빈 값, 너무 긴 값, 숫자·자리표시자가
+    든 값(숫자만 다른 문장에 잘못 재사용된다)이면 None이다.
+    """
+    if not _is_text(value):
+        return None
+    value = value.strip()
+    if len(value) > _WORD_TEXT_MAX or any(ch.isdigit() or ch in "⟨⟩" for ch in value):
+        return None
+    return value
+
+
+def _validate_new_words(answers, unknown):
+    """1단계 답: 사전에 없는 토큰의 사전형·읽기(#134). {토큰: (사전형, 히라가나 읽기)}.
+
+    unknown은 {토큰: 표층형}이다. 받지 않은 토큰, 형식이 틀린 답, 가나가 아닌 읽기, 두 번 답한
+    토큰은 그 토큰만 뺀다. 사전형·읽기는 공용 word에 들어가므로, 토큰보다 훨씬 길면(문장 조각을
+    답함) 뺀다. 목록이 아니면 하나도 받지 않은 것으로 본다(단어 때문에 번역·문법을 버리지 않는다).
+    """
+    found, repeated = {}, set()
+    for item in answers if isinstance(answers, list) else []:
+        if not isinstance(item, dict):
+            continue
+        token = item.get("token_id")
+        form, reading = _word_text(item.get("dictionary_form")), _word_text(item.get("reading"))
+        if type(token) is not int or token not in unknown or form is None or reading is None:
+            continue
+        # 활용 어미·표기 차이만큼은 늘 수 있다(走っ → 走る, ばか → 馬鹿, 一昨日 → おととい).
+        surface = len(unknown[token])
+        if not words.is_kana(reading) or len(form) > surface + 3 or len(reading) > 4 * surface + 3:
+            continue
+        if token in found:
+            repeated.add(token)
+        found[token] = (form, to_hiragana(reading))
+    return {token: value for token, value in found.items() if token not in repeated}
+
+
+def _validate_definitions(result, candidates):
+    """2단계 답(#134). candidates는 {word_id: 후보 뜻 ID 집합}이다.
+
+    {word_id: (고른 뜻 ID | None, 한국어 뜻, 뜻 태그, 단어 태그)}이고, 답이 없거나 후보 밖 ID를
+    골랐거나 새 뜻인데 한국어 뜻이 비었거나 두 번 답한 단어는 뺀다. 태그는 허용 목록 밖 값을 버린다.
+    """
+    answers = result.get("words") if isinstance(result, dict) else None
+    made, repeated = {}, set()
+    for item in answers if isinstance(answers, list) else []:
+        if not isinstance(item, dict):
+            continue
+        word_id, sense_id = item.get("word_id"), item.get("sense_id")
+        if type(word_id) is not int or word_id not in candidates:
+            continue
+        meaning = None
+        if sense_id is None:
+            meaning = item.get("meaning_ko")
+            # 문장의 숫자 자리표시자가 공용 뜻에 남지 않게 한다.
+            if not _is_text(meaning) or "⟨" in meaning:
+                continue
+            meaning = meaning.strip()
+        elif type(sense_id) is not int or sense_id not in candidates[word_id]:
+            continue
+        if word_id in made:
+            repeated.add(word_id)
+        made[word_id] = (
+            sense_id,
+            meaning,
+            _allowed(item.get("sense_tags"), SENSE_TAG_NAMES),
+            _allowed(item.get("word_tags"), WHOLE_WORD_TAGS),
+        )
+    return {word_id: answer for word_id, answer in made.items() if word_id not in repeated}
+
+
+def _allowed(tags, allowed):
+    """허용 목록 안의 태그만(중복 없이, 받은 순서)."""
+    return (
+        list(dict.fromkeys(t for t in tags if isinstance(t, str) and t in allowed))
+        if isinstance(tags, list)
+        else []
+    )
+
+
 def _validate_meanings(result, asked):
     """LLM이 만든 한국어 뜻을 검증한다(#97). {뜻 ID: 한국어 뜻}이고, 요청한 뜻(asked)마다 답이
     없거나 빈 답이거나 두 번 답한 뜻은 빠진다(호출하는 쪽이 그 뜻만 실패로 둔다).
@@ -250,7 +335,7 @@ def _validate_translation(translation, numbers):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 번역 자리표시자")
 
 
-def _validate(result, numbers, token_count, spans, ambiguous):
+def _validate(result, numbers, token_count, spans, ambiguous, unknown):
     """LLM 응답에서 쓸 값만 꺼낸다. 형식이 틀리거나 자리표시자가 맞지 않으면 ANALYSIS:FAILED."""
     if not isinstance(result, dict):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 객체 아님")
@@ -269,6 +354,7 @@ def _validate(result, numbers, token_count, spans, ambiguous):
         "spans": span_answers,
         "new_patterns": new_patterns,
         "words": chosen,
+        "new_words": _validate_new_words(result.get("new_words"), unknown),
     }
 
 

@@ -165,18 +165,21 @@ class Sentence:
         self.content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in self.morphs)
 
         # 학습 단어(조사·조동사·기호·숫자를 뺀 토큰)를 모두 JMdict에서 찾는다. 후보 뜻이 하나면
-        # LLM 없이 정하고, 여럿이면 새 문장 LLM 요청에서 함께 고르게 한다. 못 찾은 토큰은 보이지도
-        # 기록하지도 않는다(#96, 사전에 없는 단어는 #97).
+        # LLM 없이 정하고, 여럿이면 새 문장 LLM 요청에서 함께 고르게 한다(#96). 못 찾은 토큰은
+        # 고유명사가 아니면 같은 요청에서 사전형·읽기를 받아 두 단계로 만든다(#134).
         # 캐시 분석은 저장된 단어를 쓰므로 찾지 않는다.
-        self.found = (
-            {}
+        vocabulary = (
+            []
             if self.cached
-            else words.lookup(
-                text,
-                self.morphs,
-                [token for token in range(len(self.morphs)) if self.is_vocabulary(token)],
-            )
+            else [token for token in range(len(self.morphs)) if self.is_vocabulary(token)]
         )
+        self.found = words.lookup(text, self.morphs, vocabulary)
+        # 이름의 뜻은 번역에 맡긴다.
+        self.unknown = [
+            token
+            for token in vocabulary
+            if token not in self.found and self.morphs[token].pos2 != "固有名詞"
+        ]
         self.ambiguous = {token: cands for token, cands in self.found.items() if len(cands) > 1}
         self.llm_words = [
             {"token_id": token, "candidates": words.llm_candidates(cands)}
@@ -204,9 +207,12 @@ class Sentence:
         return (span.pattern.id, *self.key_span(span.start_token, span.end_token))
 
     def word_spans(self, chosen):
-        """저장할 단어 위치와 뜻(토큰 순서). chosen은 LLM이 고른 {토큰: 뜻 ID}다."""
+        """저장할 단어 위치와 뜻(토큰 순서). chosen은 LLM이 고른 {토큰: 뜻 ID}다. 사전에 없던
+        토큰의 2단계 뜻(#134)도 chosen에 있다.
+        """
         stored = []
-        for token, cands in self.found.items():
+        for token in sorted(self.found.keys() | chosen.keys()):
+            cands = self.found.get(token, ())
             sense_id = cands[0].sense.id if len(cands) == 1 else chosen.get(token)
             if sense_id is not None:
                 start, end = self.key_span(token, token)

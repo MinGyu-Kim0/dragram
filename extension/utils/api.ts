@@ -75,6 +75,8 @@ export interface WordItem {
   reading: string;
   // 단어 전체 태그(품사, 동사 그룹 등) 코드
   tags: string[];
+  // 사전(JMdict) 단어인가. 아니면 LLM이 만든 단어다(#134).
+  in_dictionary: boolean;
   // 이 문장에서 고른 뜻. null이면 뜻이 여럿이라 LLM이 아직 고르지 않았다(화면은 '뜻을 준비하는
   // 중').
   sense: WordSense | null;

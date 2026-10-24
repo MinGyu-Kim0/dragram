@@ -3,7 +3,8 @@
 원문이나 원문 위치를 담은 테이블(sentence_analysis, span_match)은 등록하지 않는다. 패턴·용법은
 LLM이 만들므로 여기서 더하거나 지우지 않는다(회화체를 연결하며 자기 용법을 원형 용법으로 합칠
 때만 그 용법을 지운다, #64). 단어·뜻도 문장 분석이 뜻 ID를 가리켜 더하거나 지우지 않고, 한국어
-뜻만 고친다(#97). 판별 규칙은 관리자가 여기서 만든다(#55). 상태는 필드가 아니라
+뜻만 고친다(#97). 사전에 없는 단어(LLM 생성)는 표기·읽기도 고치고, LLM 뜻은 뜻 화면 액션으로
+승인·반려한다(#134). 판별 규칙은 관리자가 여기서 만든다(#55). 상태는 필드가 아니라
 액션으로만 바꾸고, 액션은 analysis.review의 상태 전이를 부른다.
 """
 
@@ -17,7 +18,7 @@ from django.forms.models import BaseInlineFormSet
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
-from analysis import patterns, review
+from analysis import patterns, review, words
 from analysis.jmdict import to_hiragana
 from analysis.models import (
     GrammarPattern,
@@ -498,8 +499,10 @@ class WordSenseForm(forms.ModelForm):
 
 
 class WordSenseInline(admin.TabularInline):
+    # LLM 뜻의 승인·반려는 뜻 화면 액션으로 한다(#134).
     model = WordSense
     form = WordSenseForm
+    show_change_link = True
     fields = [
         "jmdict_sense_index",
         "gloss_en",
@@ -564,8 +567,34 @@ def _meaning_action(name, old, new, description):
     return admin.action(description=description)(action)
 
 
+class WordForm(forms.ModelForm):
+    """사전에 없는 단어(LLM 생성)의 표기·읽기. 사전 단어는 읽기 전용이라 이 칸이 폼에 없다."""
+
+    class Meta:
+        model = Word
+        fields = ["dictionary_form", "reading"]
+
+    def clean_reading(self):
+        reading = self.cleaned_data["reading"].strip()
+        if not words.is_kana(reading):
+            raise forms.ValidationError("읽기는 가나로 씁니다")
+        return to_hiragana(reading)
+
+    def clean(self):
+        cleaned = super().clean()
+        form, reading = cleaned.get("dictionary_form"), cleaned.get("reading")
+        if form and reading:
+            taken = Word.objects.filter(
+                jmdict_seq__isnull=True, dictionary_form=form, reading=reading
+            ).exclude(pk=self.instance.pk)
+            if taken.exists():
+                raise forms.ValidationError("같은 표기·읽기의 사전에 없는 단어가 이미 있습니다")
+        return cleaned
+
+
 @admin.register(Word)
 class WordAdmin(_ReviewedAdmin):
+    form = WordForm
     list_display = ["id", "dictionary_form", "reading", "in_dictionary", "updated_at"]
     list_filter = [MeaningFilter]
     # 검색은 get_search_results가 표기·읽기 목록으로 한다. 검색창을 보이려고 칸을 둔다.
@@ -582,6 +611,22 @@ class WordAdmin(_ReviewedAdmin):
         "jmdict_seq",
     ]
     inlines = [WordSenseInline]
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is not None and obj.jmdict_seq is None:
+            return [f for f in self.readonly_fields if f not in ("dictionary_form", "reading")]
+        return self.readonly_fields
+
+    def save_model(self, request, obj, form, change):
+        # 사전에 없는 단어의 표기·읽기만 쓴다. 찾기는 forms·readings로 하므로 함께 바꾼다.
+        if obj.jmdict_seq is None and form.changed_data:
+            Word.objects.filter(pk=obj.pk).update(
+                dictionary_form=obj.dictionary_form,
+                reading=obj.reading,
+                forms=list(dict.fromkeys([obj.dictionary_form, obj.reading])),
+                readings=[obj.reading],
+                updated_at=timezone.now(),
+            )
 
     @admin.display(boolean=True, description="사전에 있음")
     def in_dictionary(self, word):
@@ -616,5 +661,54 @@ class WordAdmin(_ReviewedAdmin):
             WordSense.MeaningStatus.REVIEWED,
             WordSense.MeaningStatus.AI,
             "검수 취소(AI 번역으로)",
+        ),
+    ]
+
+
+def _sense_action(name, old, new, description):
+    """선택한 뜻 가운데 LLM이 만들고 상태가 old인 뜻을 new로 바꾸는 admin 액션(#134).
+    JMdict 뜻은 바꾸지 않는다.
+    """
+
+    def action(model_admin, request, queryset):
+        done = queryset.filter(sense_origin=WordSense.Origin.LLM, sense_status__in=old).update(
+            sense_status=new, updated_at=timezone.now()
+        )
+        model_admin.message_user(request, f"뜻 {done}개를 처리했습니다", messages.SUCCESS)
+
+    action.__name__ = name
+    return admin.action(description=description)(action)
+
+
+@admin.register(WordSense)
+class WordSenseAdmin(_ReviewedAdmin):
+    """뜻 하나씩 승인·반려한다. 반려된 뜻은 후보·응답에서 빠진다(#134)."""
+
+    list_display = ["id", "word", "meaning_ko", "sense_origin", "sense_status", "meaning_status"]
+    list_filter = ["sense_origin", "sense_status"]
+    search_fields = ["word__dictionary_form", "meaning_ko"]
+    fields = readonly_fields = [
+        "word",
+        "jmdict_sense_index",
+        "gloss_en",
+        "tags",
+        "sense_origin",
+        "sense_status",
+        "meaning_ko",
+        "meaning_source",
+        "meaning_status",
+    ]
+    actions = [
+        _sense_action(
+            "approve_senses", [ReviewStatus.PENDING], ReviewStatus.APPROVED, "LLM 뜻 승인"
+        ),
+        _sense_action(
+            "reject_senses",
+            [ReviewStatus.PENDING, ReviewStatus.APPROVED],
+            ReviewStatus.REJECTED,
+            "LLM 뜻 반려",
+        ),
+        _sense_action(
+            "unreject_senses", [ReviewStatus.REJECTED], ReviewStatus.PENDING, "반려 취소(미검수로)"
         ),
     ]

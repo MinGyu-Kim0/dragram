@@ -6,12 +6,14 @@ from contextlib import closing
 from django.conf import settings
 from openai import OpenAI, OpenAIError
 
+from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS
 from analysis.models import UsageLog
 from errors import AnalysisError, BusinessError
 
 INSTRUCTIONS = """\
 You help a Korean learner of Japanese read one Japanese sentence.
-You receive the sentence, its tokens, each with an id, spans, decided_spans and words.
+You receive the sentence, its tokens, each with an id, spans, decided_spans, words and
+unknown_words.
 Return the Korean translation of the whole sentence in translation_ko.
 
 In spans, answer every span you received. A span is a run of tokens (start_token_id to
@@ -66,6 +68,11 @@ placeholders (⟨N1⟩) there. If the sentence has no new grammar to learn, retu
 In words, answer every token you received in words. Each has candidate senses of that word as
 "sense id: English glosses". Give its token_id and the sense_id of the candidate with the
 meaning the token has in this sentence. Use only sense ids given for that token.
+
+unknown_words are ids of tokens that are not in the dictionary. In new_words, answer each of
+them that is a word a learner can look up: its token_id, its dictionary form as usually
+written (dictionary_form) and the reading of that dictionary form in hiragana (reading). Do
+not answer names of people, places, works or organizations, or tokens that are not words.
 
 """
 
@@ -189,8 +196,21 @@ RESPONSE_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "new_words": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "token_id": {"type": "integer"},
+                    "dictionary_form": {"type": "string"},
+                    "reading": {"type": "string"},
+                },
+                "required": ["token_id", "dictionary_form", "reading"],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": ["translation_ko", "spans", "new_patterns", "words"],
+    "required": ["translation_ko", "spans", "new_patterns", "words", "new_words"],
     "additionalProperties": False,
 }
 
@@ -264,11 +284,12 @@ class OpenAILLMClient:
             api_key=settings.OPENAI_API_KEY, timeout=TIMEOUT_SECONDS, max_retries=MAX_RETRIES
         )
 
-    def analyze_stream(self, sentence, tokens, spans, decided_spans, words):
+    def analyze_stream(self, sentence, tokens, spans, decided_spans, words, unknown_words):
         """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을 먼저 넘기고,
         다 받으면 ("result", 검증 전 응답)을 넘긴다. spans는 등록된 패턴에 걸린 구간과 그 후보
         용법이다. decided_spans는 LLM 없이 확정한 구간이라 답을 받지 않고, 새 구문으로 다시 내지
-        않게 알리기만 한다. words는 JMdict 후보 뜻이 여럿인 토큰과 그 후보다(#96).
+        않게 알리기만 한다. words는 JMdict 후보 뜻이 여럿인 토큰과 그 후보다(#96). unknown_words는
+        사전에서 못 찾은 토큰 ID로, 사전형·읽기만 받는다(#134).
 
         SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
         응답(거절 등)은 ANALYSIS:FAILED다.
@@ -288,6 +309,7 @@ class OpenAILLMClient:
                         "spans": spans,
                         "decided_spans": decided_spans,
                         "words": words,
+                        "unknown_words": unknown_words,
                     },
                     ensure_ascii=False,
                 ),
@@ -402,6 +424,20 @@ class OpenAILLMClient:
             {"senses": senses},
             "word_gloss",
             GLOSS_SCHEMA,
+        )
+
+    def define_words(self, sentence, items):
+        """사전에 없는 단어의 뜻을 고르거나 만든다(#134 2단계). 검증 전 응답을 돌려준다.
+
+        items는 단어마다 word_id·token_id·사전형·읽기·후보 뜻('뜻 ID: 뜻')이다.
+        """
+        return self._ask(
+            UsageLog.Purpose.WORD_GLOSS,
+            "새 단어 뜻",
+            DEFINE_INSTRUCTIONS,
+            {"sentence": sentence, "words": items},
+            "word_definitions",
+            DEFINE_SCHEMA,
         )
 
     def _ask(self, purpose, label, instructions, payload, name, schema):
@@ -582,6 +618,53 @@ GLOSS_SCHEMA = {
         }
     },
     "required": ["senses"],
+    "additionalProperties": False,
+}
+
+
+# 사전에 없는 단어의 2단계(#134). 서버가 다시 찾은 후보에서 고르거나 새 뜻을 만든다.
+DEFINE_INSTRUCTIONS = """\
+You help a Korean learner of Japanese with words that the dictionary lookup missed.
+You receive a Japanese sentence and words of it. Each word has an id (word_id), the token
+(token_id), its dictionary form, its reading and candidate senses of a dictionary entry as
+"sense id: meaning". The candidates may be empty.
+For each word give its word_id and:
+- sense_id: the candidate with the meaning the word has in this sentence, or null if no
+  candidate fits or there are none.
+- meaning_ko: when sense_id is null, one short Korean meaning of the word as used in this
+  sentence, written as a dictionary would, not an explanation of the sentence. Otherwise "".
+- sense_tags: tags of that meaning from the allowed list, if any.
+- word_tags: tags of the whole word from the allowed list (part of speech, verb group, proper
+  noun).
+Answer every word_id you received.
+"""
+
+DEFINE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "words": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "word_id": {"type": "integer"},
+                    "sense_id": {"type": ["integer", "null"]},
+                    "meaning_ko": {"type": "string"},
+                    "sense_tags": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": sorted(SENSE_TAG_NAMES)},
+                    },
+                    "word_tags": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": sorted(WHOLE_WORD_TAGS)},
+                    },
+                },
+                "required": ["word_id", "sense_id", "meaning_ko", "sense_tags", "word_tags"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["words"],
     "additionalProperties": False,
 }
 

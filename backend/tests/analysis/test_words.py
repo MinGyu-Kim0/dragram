@@ -50,6 +50,7 @@ def test_single_sense_word_is_recorded_without_asking_the_llm(client, fake_llm, 
             "dictionary_form": "学生",
             "reading": "がくせい",
             "tags": ["noun"],
+            "in_dictionary": True,
             "sense": {
                 "tags": [],
                 "gloss_en": ["student"],

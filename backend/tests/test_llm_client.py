@@ -66,7 +66,7 @@ def test_stream_gives_translation_first_and_then_the_whole_result(llm_client, mo
         ),
     )
 
-    assert list(llm_client.analyze_stream("文", [], [], [], [])) == [
+    assert list(llm_client.analyze_stream("文", [], [], [], [], [])) == [
         ("translation", "번역"),
         ("result", {"translation_ko": "번역", "grammar": []}),
     ]
@@ -80,7 +80,7 @@ def test_openai_error_becomes_analysis_failure(llm_client, monkeypatch):
     stream_with(llm_client, monkeypatch, fail)
 
     with pytest.raises(BusinessError) as raised:
-        list(llm_client.analyze_stream("文", [], [], [], []))
+        list(llm_client.analyze_stream("文", [], [], [], [], []))
     assert raised.value.error_code == AnalysisError.FAILED
 
 
@@ -91,7 +91,7 @@ def test_openai_error_in_the_middle_of_the_stream_becomes_analysis_failure(llm_c
 
     stream_with(llm_client, monkeypatch, lambda **_: events())
 
-    stream = llm_client.analyze_stream("文", [], [], [], [])
+    stream = llm_client.analyze_stream("文", [], [], [], [], [])
     assert next(stream) == ("translation", "번역")
     with pytest.raises(BusinessError) as raised:
         next(stream)
@@ -117,7 +117,7 @@ def test_failed_stream_event_becomes_analysis_failure(llm_client, monkeypatch, e
     )
 
     with pytest.raises(BusinessError) as raised:
-        list(llm_client.analyze_stream("文", [], [], [], []))
+        list(llm_client.analyze_stream("文", [], [], [], [], []))
     assert raised.value.error_code == AnalysisError.FAILED
 
 
@@ -126,7 +126,7 @@ def test_output_that_is_not_json_becomes_analysis_failure(llm_client, monkeypatc
     stream_with(llm_client, monkeypatch, lambda **_: stream_of(deltas(output_text)))
 
     with pytest.raises(BusinessError) as raised:
-        list(llm_client.analyze_stream("文", [], [], [], []))
+        list(llm_client.analyze_stream("文", [], [], [], [], []))
     assert raised.value.error_code == AnalysisError.FAILED
 
 
@@ -184,7 +184,7 @@ def test_stream_longer_than_the_total_deadline_becomes_analysis_failure(llm_clie
         lambda **_: stream_of(deltas('{"translation_ko": "번역"', *[" "] * 10, "}")),
     )
 
-    stream = llm_client.analyze_stream("文", [], [], [], [])
+    stream = llm_client.analyze_stream("文", [], [], [], [], [])
     assert next(stream) == ("translation", "번역")
     with pytest.raises(BusinessError) as raised:
         next(stream)
@@ -212,7 +212,7 @@ def test_request_carries_sentence_tokens_and_candidate_spans(llm_client, monkeyp
     decided = [{"start_token_id": 0, "end_token_id": 0, "name": "주제"}]
     words = [{"token_id": 0, "candidates": ["7: topic marker"]}]
 
-    list(llm_client.analyze_stream("は", tokens, spans, decided, words))
+    list(llm_client.analyze_stream("は", tokens, spans, decided, words, [3]))
 
     [request] = requests
     assert json.loads(request["input"]) == {
@@ -221,6 +221,7 @@ def test_request_carries_sentence_tokens_and_candidate_spans(llm_client, monkeyp
         "spans": spans,
         "decided_spans": decided,
         "words": words,
+        "unknown_words": [3],
     }
 
 
@@ -436,6 +437,32 @@ def test_gloss_words_sends_only_the_senses_and_returns_the_answer(llm_client, mo
     assert request["text"]["format"]["strict"] is True
 
 
+def test_define_words_sends_the_sentence_and_words_and_returns_the_answer(llm_client, monkeypatch):
+    answer = (
+        '{"words": [{"word_id": 0, "sense_id": null, "meaning_ko": "달리다",'
+        ' "sense_tags": [], "word_tags": ["verb"]}]}'
+    )
+    requests = judge_with(
+        llm_client, monkeypatch, response_with(status="completed", output_text=answer)
+    )
+    items = [
+        {
+            "word_id": 0,
+            "token_id": 0,
+            "dictionary_form": "走る",
+            "reading": "はしる",
+            "candidates": [],
+        }
+    ]
+
+    result = llm_client.define_words("走っている", items)
+
+    assert result == json.loads(answer)
+    [request] = requests
+    assert json.loads(request["input"]) == {"sentence": "走っている", "words": items}
+    assert request["text"]["format"]["strict"] is True
+
+
 def completed_event(model="gpt-test-2026", status="completed", type_="response.completed"):
     return SimpleNamespace(
         type=type_, response=SimpleNamespace(status=status, model=model, usage=usage(100, 40, 20))
@@ -449,7 +476,7 @@ def test_stream_records_first_response_with_its_model_and_tokens(llm_client, mon
         lambda **_: stream_of([*deltas('{"translation_ko": "번역"}'), completed_event()]),
     )
 
-    list(llm_client.analyze_stream("文", [], [], [], []))
+    list(llm_client.analyze_stream("文", [], [], [], [], []))
 
     assert recorded == [
         {
@@ -473,7 +500,7 @@ def test_failed_stream_records_failure_with_the_tokens_it_used(llm_client, monke
     )
 
     with pytest.raises(BusinessError):
-        list(llm_client.analyze_stream("文", [], [], [], []))
+        list(llm_client.analyze_stream("文", [], [], [], [], []))
 
     [call] = recorded
     assert call["success"] is False
@@ -489,7 +516,7 @@ def test_stream_that_could_not_be_sent_records_failure_without_tokens(
     stream_with(llm_client, monkeypatch, fail)
 
     with pytest.raises(BusinessError):
-        list(llm_client.analyze_stream("文", [], [], [], []))
+        list(llm_client.analyze_stream("文", [], [], [], [], []))
 
     assert recorded == [
         {
@@ -511,7 +538,7 @@ def test_stream_that_is_not_json_records_failure(llm_client, monkeypatch, record
     )
 
     with pytest.raises(BusinessError):
-        list(llm_client.analyze_stream("文", [], [], [], []))
+        list(llm_client.analyze_stream("文", [], [], [], [], []))
 
     [call] = recorded
     assert call["success"] is False
@@ -526,7 +553,7 @@ def test_stream_closed_by_the_reader_still_records_the_call(llm_client, monkeypa
         lambda **_: stream_of(deltas('{"translation_ko": "번역"', ', "words": []}')),
     )
 
-    stream = llm_client.analyze_stream("文", [], [], [], [])
+    stream = llm_client.analyze_stream("文", [], [], [], [], [])
     next(stream)
     stream.close()
 

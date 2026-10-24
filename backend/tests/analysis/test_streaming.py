@@ -15,12 +15,12 @@ def test_translation_is_sent_before_grammar_and_words(client, fake_llm):
         "translation_ko": "먹는다",
         "new_patterns": [
             new_pattern(
-                (0, "lemma"), pattern_name="食べる", usage_name="문법", example_ja="パンを食べる"
+                (1, "lemma"), pattern_name="た", usage_name="문법", example_ja="パンを食べた"
             )
         ],
     }
 
-    response = analyze(client, "食べる")
+    response = analyze(client, "食べた")
 
     assert response.response["Content-Type"] == "application/x-ndjson"
     # 응답 전체보다 번역을 먼저 알리는 작업자 쪽은 test_worker에서 본다.

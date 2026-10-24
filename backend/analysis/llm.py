@@ -43,9 +43,18 @@ list them in new_patterns. For each one:
 - tokens: every token of the grammar point in order, from its first to its last token with no
   gap, each with a mark (fix). "lemma" means the same word in any conjugation, "form" means the
   same word in the same conjugated form, "any" means any single token. The first and last
-  tokens cannot be "any".
+  tokens cannot be "any". Fix only the tokens that form the grammar: particles, auxiliary
+  verbs and words that are part of a grammatical expression (such as 居る in ている, or こと and
+  出来る in ことができる). Leave out the content of the sentence, such as the noun being
+  modified or the verb being conjugated, or mark it "any" when it lies between grammar tokens:
+  for 勝ちました list only ます and た. If the grammar point
+  cannot be written without fixing such a token as its first or last token, do not list it.
+  Do not list structures made only of content words, such as a verb or noun modifying a noun.
 - pattern_name: a short name of the pattern, such as ている or 名詞+で.
 - usage_name: a short Korean name of this usage, such as 진행.
+  Divide usages of a grammar point by its general meanings, as a dictionary or grammar book
+  does (for で: place, means, cause, scope, state). Never name a usage after the topic or
+  content of this sentence (such as a score or a match result).
 - explanation_ko: a Korean explanation of the usage in general, so that it fits every sentence
   with this usage. Do not explain this sentence or its content.
 - example_ja: a new short Japanese example sentence with the same grammar and usage. Write a
@@ -473,6 +482,9 @@ Answer every span in recheck_spans and in spans, each by its span_id. Give a ver
   usage in general so that it fits every sentence with this usage, not of this sentence
   (explanation_ko), and a new short Japanese example sentence of your own with the same usage
   (example_ja).
+  Divide usages of a grammar point by its general meanings, as a dictionary or grammar book
+  does (for で: place, means, cause, scope, state). Never name a usage after the topic or
+  content of this sentence (such as a score or a match result).
 - "divergent": the sentence alone can really be read with more than one candidate. Give the
   candidate_id of the main reading and, in alternatives, each other candidate that also fits:
   its candidate_id, the Korean translation of the whole sentence read that way

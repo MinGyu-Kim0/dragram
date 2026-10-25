@@ -211,16 +211,16 @@ function NameRow({
 // 각 묶음 안은 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
 // 사전(JMdict) 단어가 있으면 목록 아래에 출처 각주를 단다. LLM이 만든 단어만 있으면 달지 않는다(#134).
 // 지정한 이름과 표층형이 같은 단어는 공용 이름 구간이 고른 기본 보기로 보인다(#136, #140).
-// '사전 단어 보기'(flipped)로 그 자리만 반대 보기로 바꿔 볼 수 있다.
+// '사전 단어 보기'(chosen)로 그 자리만 반대 보기로 바꿔 볼 수 있다.
 export function WordList({
   text,
   words,
   ruby,
   selection,
   names,
-  flipped,
+  chosen,
   nameSpans,
-  onToggleView,
+  onChooseView,
   onSave,
   onRemove,
 }: {
@@ -229,9 +229,10 @@ export function WordList({
   ruby: RubyItem[];
   selection: DragRange;
   names: ReadonlyMap<string, string | null>;
-  flipped: ReadonlySet<string>;
+  chosen: ReadonlyMap<string, boolean>;
   nameSpans: NameSpan[] | null | undefined;
-  onToggleView: (key: string) => void;
+  // 그 자리를 이름 행(true)이나 사전 단어 행(false)으로 보인다.
+  onChooseView: (key: string, named: boolean) => void;
 } & NameActions) {
   // 읽기 입력을 연 단어 자리
   const [editing, setEditing] = useState<string>();
@@ -240,7 +241,7 @@ export function WordList({
   }
   const sorted = [...words].sort((a, b) => a.start - b.start || a.end - b.end);
   const named = new Set(
-    namedWords(text, words, names, flipped, nameSpans).map(({ word }) =>
+    namedWords(text, words, names, chosen, nameSpans).map(({ word }) =>
       wordKey(word),
     ),
   );
@@ -279,7 +280,7 @@ export function WordList({
                   surface={surface}
                   reading={names.get(surface)!}
                   dragged={dragged}
-                  onShowWord={() => onToggleView(key)}
+                  onShowWord={() => onChooseView(key, false)}
                   onEdit={() => setEditing(key)}
                   onRemove={() => onRemove(surface)}
                 />
@@ -310,7 +311,7 @@ export function WordList({
                   <button
                     type="button"
                     aria-pressed={true}
-                    onClick={() => onToggleView(key)}
+                    onClick={() => onChooseView(key, true)}
                   >
                     사전 단어 보기
                   </button>

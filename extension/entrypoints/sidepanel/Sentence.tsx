@@ -133,14 +133,10 @@ export function SentenceView({
   // 지정한 이름(표기 → 읽기, #136)
   names: ReadonlyMap<string, string | null>;
 } & NameActions) {
-  // '사전 단어 보기' 토글로 기본 보기와 반대로 바꾼 자리. 화면 상태라 저장하지 않는다.
-  const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
-  const toggleView = (key: string) =>
-    setFlipped((current) => {
-      const next = new Set(current);
-      if (!next.delete(key)) next.add(key);
-      return next;
-    });
+  // '사전 단어 보기' 토글로 고른 보기(자리 → 이름 행인가). 화면 상태라 저장하지 않는다.
+  const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
+  const chooseView = (key: string, named: boolean) =>
+    setChosen((current) => new Map(current).set(key, named));
   const analysis = analysisOf(result);
   const translation = translationOf(result);
   const grammar = grammarOf(result);
@@ -166,7 +162,7 @@ export function SentenceView({
   const ruby = translation?.ruby ?? [];
   const shownRuby = withNameRuby(
     ruby,
-    namedWords(text, tabbed?.words ?? [], names, flipped, analysis?.name_spans),
+    namedWords(text, tabbed?.words ?? [], names, chosen, analysis?.name_spans),
   );
   return (
     <>
@@ -295,18 +291,18 @@ export function SentenceView({
                 ruby={ruby}
                 selection={selection}
                 names={names}
-                flipped={flipped}
+                chosen={chosen}
                 nameSpans={analysis?.name_spans}
-                onToggleView={toggleView}
+                onChooseView={chooseView}
                 onSave={onSave}
                 onRemove={async (surface) => {
                   await onRemove(surface);
                   // 해제한 표기의 자리는 다시 지정해도 기본 보기로 시작한다.
-                  setFlipped(
+                  setChosen(
                     (current) =>
-                      new Set(
+                      new Map(
                         [...current].filter(
-                          (key) =>
+                          ([key]) =>
                             !tabbed.words.some(
                               (word) =>
                                 wordKey(word) === key &&

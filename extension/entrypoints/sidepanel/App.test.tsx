@@ -3029,6 +3029,39 @@ describe("이름 지정(#136)", () => {
     expect(rubies()).toEqual([["春", "はる"]]);
   });
 
+  test("분석 전에 고른 보기는 이름 구간이 와도 그대로다", async () => {
+    const stream = streamed();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "春", reading: "しゅん" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    stream.push({
+      type: "grammar",
+      grammar: [],
+      checking: [],
+      words: [wordItem(0, 1, "春", "はる")],
+    });
+    await openWords();
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "사전 단어 보기" }));
+
+    stream.push({ type: "translation", translation_ko: "봄이 왔다", ruby: [] });
+    stream.push({
+      type: "analysis",
+      translation_ko: "봄이 왔다",
+      grammar: [],
+      words: [wordItem(0, 1, "春", "はる")],
+      name_spans: [],
+    });
+    stream.end();
+
+    expect(await screen.findByText("봄이 왔다")).toBeInTheDocument();
+    expect(screen.getByText("春 뜻")).toBeInTheDocument();
+    expect(screen.queryByText("내가 지정한 이름")).not.toBeInTheDocument();
+  });
+
   test("'읽기 고치기'로 읽기를 바꾼다", async () => {
     respondWithSpring();
     vi.mocked(fetchNames).mockResolvedValue([

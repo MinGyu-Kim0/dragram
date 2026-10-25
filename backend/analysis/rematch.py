@@ -306,16 +306,17 @@ def rematch_result(presenter, user, new_closed):
 async def rematch_stream(presenter, user, new_closed, new_spans, may_judge):
     """판별 대상 새 구간이 있는 재매칭의 이벤트. rematch_early → analysis 순서다.
 
-    작업 소식을 구독한 뒤 재판정 잠금을 잡거나 잡은 시도에 붙고, 그 시도의 소식만 받는다.
-    analysis는 성공·실패와 관계없이 저장된 결과로 만든다. 실패 소식, 대기 상한, 큐 넣기
-    실패에도 error 대신 이 대체 응답을 보내고, 다음 조회가 다시 시도한다.
+    rematch_early를 보내고 작업 소식을 구독한 뒤 재판정 잠금을 잡거나 잡은 시도에 붙고, 그
+    시도의 소식만 받는다. analysis는 성공·실패와 관계없이 저장된 결과로 만든다. 실패 소식,
+    대기 상한, 큐 넣기 실패에도 error 대신 이 대체 응답을 보내고, 다음 조회가 다시 시도한다.
     """
     s = presenter.sentence
+    # 구독과 상관없는 이벤트라 먼저 보낸다. 구독에 실패해도 루비가 담긴 번역은 간다(PR #163 리뷰).
+    for event in await sync_to_async(rematch_early)(presenter, new_closed, new_spans):
+        yield _ndjson(event)
     saved = False
     try:
         async with jobs.listen(s.sentence_hash) as pubsub:
-            for event in await sync_to_async(rematch_early)(presenter, new_closed, new_spans):
-                yield _ndjson(event)
             usage = await sync_to_async(RequestUsage.start)(UsageLog.Path.LLM, user, s.cached.pk)
             attempt = await sync_to_async(start_judge)(s, usage, may_judge)
             if attempt is not None:

@@ -202,6 +202,7 @@ def test_lost_redis_subscription_still_sends_the_saved_analysis(client, fake_llm
 
     response = analyze(client, KITEIRU)
 
-    assert response.types()[-1] == "analysis"
+    assert response.types() == ["grammar", "translation", "analysis"]
+    assert response.events[1]["ruby"]
     assert response.json()["translation_ko"] == "그가 와 있다"
     assert fake_llm.all_requests() == []

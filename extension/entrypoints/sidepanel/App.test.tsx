@@ -273,6 +273,9 @@ function grammarItem(start: number, end: number, name: string) {
     explanation_ko: `${name} 설명`,
     korean_equivalent: null,
     korean_equivalent_review_status: null,
+    pos_tags: [],
+    function_tags: [],
+    function_tags_review_status: null,
     review_status: "pending",
     register: "standard",
     variant_of: null,
@@ -1952,6 +1955,8 @@ function alternativeItem(
     name,
     korean_equivalent: null,
     korean_equivalent_review_status: null,
+    function_tags: [],
+    function_tags_review_status: null,
     translation_ko: translation,
     review_status: status,
   };
@@ -2016,6 +2021,11 @@ test("미확정 구간은 패턴 이름과 '판단하지 못함'으로 보이고
         state: "unresolved",
         name: "ている",
         explanation_ko: null,
+        korean_equivalent: null,
+        korean_equivalent_review_status: null,
+        pos_tags: [],
+        function_tags: [],
+        function_tags_review_status: null,
         review_status: "pending",
         register: "standard",
         variant_of: null,
@@ -2259,6 +2269,72 @@ test("대응 표현이 없는 카드에는 대응 표현 줄이 없다", async (
 
   await screen.findAllByRole("listitem");
   expect(document.querySelector(".korean-equivalent")).toBeNull();
+});
+
+test("품사 태그와 기능 태그는 제목과 대응 표현 사이 태그 줄에 보이고, 미검수 배지는 카드에 하나다", async () => {
+  respondWith(200, {
+    translation_ko: "달리고 있다",
+    grammar: [
+      {
+        ...grammarItem(2, 5, "진행"),
+        korean_equivalent: "~고 있다",
+        korean_equivalent_review_status: "pending",
+        pos_tags: ["particle", "verb"],
+        function_tags: ["progressive"],
+        function_tags_review_status: "pending",
+      },
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "走っている");
+
+  const [card] = await screen.findAllByRole("listitem");
+  const tags = within(card!).getByRole("list", { name: "태그" });
+  expect(
+    within(tags)
+      .getAllByRole("listitem")
+      .map((tag) => tag.textContent),
+  ).toEqual(["조사", "동사", "진행"]);
+  // 배지 줄 → 제목 줄 → 태그 줄 → 대응 표현 줄 순서다(DESIGN.md 카드 줄 구조).
+  const heading = within(card!).getByRole("heading", { level: 3 });
+  const equivalent = within(card!).getByText("~고 있다");
+  expect(
+    heading.compareDocumentPosition(tags) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    tags.compareDocumentPosition(equivalent) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  // 기능 태그는 용법의 일부라 따로 배지를 달지 않는다.
+  expect(within(card!).getAllByText("AI 생성·미검수")).toHaveLength(1);
+});
+
+test("승인된 용법에 미검수 기능 태그가 있으면 태그 줄에 배지 하나를 달고, 태그가 없으면 줄이 없다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [
+      {
+        ...grammarItem(1, 2, "주제 は"),
+        review_status: "approved",
+        pos_tags: ["particle"],
+        function_tags: ["topic", "subject"],
+        function_tags_review_status: "pending",
+      },
+      { ...grammarItem(4, 6, "정중 です"), review_status: "approved" },
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。");
+
+  await screen.findAllByRole("listitem");
+  const [tagged, plain] = grammarCards();
+  const tags = within(tagged!).getByRole("list", { name: "태그" });
+  expect(tags.parentElement!.textContent).toContain("AI 생성·미검수");
+  expect(within(tagged!).getAllByText("AI 생성·미검수")).toHaveLength(1);
+  expect(within(plain!).queryByRole("list", { name: "태그" })).toBeNull();
 });
 
 test("하위 박스에도 회화체 배지와 원형 안내, 판단하지 못함, 다른 해석이 보통 카드처럼 붙는다", async () => {

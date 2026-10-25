@@ -103,6 +103,12 @@ them that is a word a learner can look up: its token_id, its dictionary form as 
 written (dictionary_form) and the reading of that dictionary form in hiragana (reading). Do
 not answer names of people, places, works or organizations, or tokens that are not words.
 
+In name_spans, list every proper noun as it is used in this sentence: names of people,
+places, organizations and works, and other names. For each give token_ids (every token of the
+name in order, with no gap) and its type: "person", "place", "org", "work" or "other". Judge
+by the meaning in this sentence: a word that can be a name but is a common word here (春 as
+the season) is not a name. If the sentence has no name, return an empty list.
+
 """
 )
 
@@ -122,6 +128,8 @@ number notation exactly as in the sentence. Do not turn "⟨N1⟩:⟨N2⟩", "�
 SPAN_VERDICTS = ("usage", "not_applicable", "unfound", "divergent", "unresolved")
 # 새 구문 토큰 표시: lemma 고정 / 활용형도 고정 / 아무거나
 TOKEN_FIXES = ("lemma", "form", "any")
+# 이름 구간 종류(#140): 사람 / 장소 / 조직 / 작품 / 기타
+NAME_TYPES = ("person", "place", "org", "work", "other")
 
 # 해석 갈림의 대안. 다시 묻기에서만 받는다. 근거(basis)는 비었는지만 보고 버린다.
 ALTERNATIVES_SCHEMA = {
@@ -251,8 +259,20 @@ RESPONSE_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        "name_spans": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "token_ids": {"type": "array", "items": {"type": "integer"}},
+                    "type": {"type": "string", "enum": list(NAME_TYPES)},
+                },
+                "required": ["token_ids", "type"],
+                "additionalProperties": False,
+            },
+        },
     },
-    "required": ["translation_ko", "spans", "new_patterns", "words", "new_words"],
+    "required": ["translation_ko", "spans", "new_patterns", "words", "new_words", "name_spans"],
     "additionalProperties": False,
 }
 

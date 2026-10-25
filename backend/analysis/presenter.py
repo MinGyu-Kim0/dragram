@@ -235,6 +235,19 @@ def _words_response(word_spans, text, token_at, offsets, origins, utf16, before_
     return items
 
 
+def _names_response(name_spans, offsets, origins, utf16):
+    """저장된 이름 구간을 이 요청 원문의 UTF-16 위치로 보인다(#140). 판단하지 않은 행이면
+    None이다.
+    """
+    if name_spans is None:
+        return None
+    names = []
+    for span in name_spans:
+        start, end = to_original(origins, utf16, *to_analysis(offsets, span["start"], span["end"]))
+        names.append({"start": start, "end": end})
+    return names
+
+
 def _ruby_response(pieces, origins, utf16):
     """분석 텍스트 기준 루비 조각을 이 요청 원문의 UTF-16 위치로 바꾼다."""
     ruby = []
@@ -275,6 +288,7 @@ class Presenter:
             "words": _words_response(
                 saved.word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16
             ),
+            "name_spans": _names_response(saved.name_spans, s.offsets, self.origins, self.utf16),
         }
 
     def judged_event(self, spans, word_spans):

@@ -297,6 +297,27 @@ def _validate_new_words(answers, unknown):
     return {token: value for token, value in found.items() if token not in repeated}
 
 
+def _validate_name_spans(answers, token_count):
+    """이름 구간(#140): [(첫 토큰, 끝 토큰, 종류)]. 토큰이 없거나 범위 밖이거나 이어지지 않거나
+    종류가 목록 밖인 항목은 그 항목만 뺀다. 목록이 아니면 이름이 없는 것으로 본다(이름 때문에
+    번역·문법을 버리지 않는다).
+    """
+    found = []
+    for item in answers if isinstance(answers, list) else []:
+        if not isinstance(item, dict) or item.get("type") not in llm.NAME_TYPES:
+            continue
+        tokens = item.get("token_ids")
+        if (
+            not isinstance(tokens, list)
+            or not tokens
+            or not all(_is_token_id(token, token_count) for token in tokens)
+            or tokens != list(range(tokens[0], tokens[0] + len(tokens)))
+        ):
+            continue
+        found.append((tokens[0], tokens[-1], item["type"]))
+    return found
+
+
 def _validate_definitions(result, candidates):
     """2단계 답(#134). candidates는 {word_id: 후보 뜻 ID 집합}이다.
 
@@ -388,6 +409,7 @@ def _validate(result, numbers, token_count, spans, ambiguous, unknown):
         "new_patterns": new_patterns,
         "words": chosen,
         "new_words": _validate_new_words(result.get("new_words"), unknown),
+        "name_spans": _validate_name_spans(result.get("name_spans"), token_count),
     }
 
 

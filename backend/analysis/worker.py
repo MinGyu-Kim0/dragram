@@ -497,6 +497,7 @@ class Worker:
         locked.translation_ko = validated["translation_ko"]
         locked.processing_translation_ko = None
         locked.word_spans = stored_words
+        locked.name_spans = s.name_spans(validated["name_spans"])
         locked.sense_ids = _sense_ids(stored_words)
         locked.is_stale = False
         # 세대 번호가 같으면 그사이 더 높은 버전으로 저장된 적이 없지만, 값은 낮추지 않는다.
@@ -507,6 +508,7 @@ class Worker:
                 "translation_ko",
                 "processing_translation_ko",
                 "word_spans",
+                "name_spans",
                 "sense_ids",
                 "is_stale",
                 "matcher_version",

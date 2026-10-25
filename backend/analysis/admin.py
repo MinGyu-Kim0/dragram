@@ -95,7 +95,11 @@ class GrammarUsageForm(forms.ModelForm):
 
     class Meta:
         model = GrammarUsage
-        fields = ["explanation_ko", "example_ja"]
+        fields = ["explanation_ko", "example_ja", "korean_equivalent"]
+
+    def clean_korean_equivalent(self):
+        # 비우면 '대응 없음'(NULL)이다(#152).
+        return (self.cleaned_data["korean_equivalent"] or "").strip() or None
 
     def clean_example_ja(self):
         example = self.cleaned_data["example_ja"] or None
@@ -120,6 +124,9 @@ class GrammarUsageForm(forms.ModelForm):
         )
         if current != self.instance.pattern_id:
             raise forms.ValidationError(USAGE_MOVED)
+        # 관리자가 고친 대응 표현(비운 것 포함)은 채우기 명령이 다시 채우지 않는다(#152).
+        if "korean_equivalent" in self.changed_data:
+            self.instance.korean_equivalent_filled = True
         return super().clean()
 
 
@@ -152,7 +159,7 @@ class GrammarUsageInline(admin.TabularInline):
     model = GrammarUsage
     form = GrammarUsageForm
     formset = GrammarUsageFormSet
-    fields = ["name", "status", "origin", "explanation_ko", "example_ja"]
+    fields = ["name", "status", "origin", "explanation_ko", "example_ja", "korean_equivalent"]
     readonly_fields = ["name", "status", "origin"]
     ordering = ["id"]
     extra = 0
@@ -373,12 +380,22 @@ class GrammarUsageAdmin(_ReviewedAdmin):
     list_display = ["id", "name", "pattern", "status", "origin", "updated_at"]
     list_filter = ["status", "origin", ExampleFilter]
     search_fields = ["name", "pattern__name"]
-    fields = ["name", "pattern", "status", "origin", "explanation_ko", "example_ja"]
+    fields = [
+        "name",
+        "pattern",
+        "status",
+        "origin",
+        "explanation_ko",
+        "example_ja",
+        "korean_equivalent",
+    ]
     readonly_fields = ["name", "pattern", "status", "origin"]
 
     def save_model(self, request, obj, form, change):
         # 고칠 수 있는 칸만 쓴다. 폼을 연 뒤 액션이 바꾼 상태를 화면이 읽어 둔 값으로 덮지 않는다.
-        obj.save(update_fields=[*GrammarUsageForm.Meta.fields, "updated_at"])
+        obj.save(
+            update_fields=[*GrammarUsageForm.Meta.fields, "korean_equivalent_filled", "updated_at"]
+        )
 
     actions = [
         _review_action("approve", review.approve_usage, "승인"),

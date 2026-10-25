@@ -11,7 +11,18 @@ from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS
 from analysis.models import UsageLog
 from errors import AnalysisError, BusinessError
 
-INSTRUCTIONS = """\
+# 새 용법의 대응 표현(#152). 새 구문·미발견·다시 묻기·용법 채우기가 같은 규칙을 쓴다.
+KOREAN_EQUIVALENT_RULE = """\
+- korean_equivalent: how this usage is usually rendered in Korean, as one short string, for
+  the usage in general and not for one sentence. Join several Korean expressions with " · ".
+  If the Korean expression depends on the verb or other words, add a short condition with a
+  few typical examples in parentheses. Examples: に for time "~에", に for the other party of
+  an action "~에게 · ~을/를 (会う·乗る 등)", で for means "~(으)로", が for the subject
+  "~이/가 · ~을/를 (好き·できる 등)", ました "~었습니다". Write "" if no Korean expression fits.
+"""
+
+INSTRUCTIONS = (
+    """\
 You help a Korean learner of Japanese read one Japanese sentence.
 You receive the sentence, its tokens, each with an id, spans, decided_spans, words and
 unknown_words.
@@ -25,7 +36,7 @@ For each span give its span_id and a verdict:
 - "not_applicable": there is no grammar to learn at that place (for example の inside a name).
 - "unfound": the span has grammar to learn but no candidate explains it. Give new_usage: the
   usage that explains it, which will be added to the same pattern, with usage_name,
-  explanation_ko and example_ja written as described for new_patterns below.
+  explanation_ko, example_ja and korean_equivalent written as described for new_patterns below.
 - "divergent": the sentence alone can be read with more than one candidate, and nothing in it
   tells which. Give the candidate_id of the candidate with the same reading as your
   translation. Use it only for a span with two or more candidates.
@@ -62,8 +73,11 @@ list them in new_patterns. For each one:
   with this usage. Do not explain this sentence or its content.
 - example_ja: a new short Japanese example sentence with the same grammar and usage. Write a
   sentence of your own. Do not reuse this sentence or its words.
-In pattern_name, usage_name and explanation_ko, quote Japanese only from that grammar point's
-own tokens. Never quote the whole sentence or long parts of it. Do not write number
+"""
+    + KOREAN_EQUIVALENT_RULE
+    + """\
+In pattern_name, usage_name, explanation_ko and korean_equivalent, quote Japanese only from that
+grammar point's own tokens. Never quote the whole sentence or long parts of it. Do not write number
 placeholders (⟨N1⟩) there. If the sentence has no new grammar to learn, return an empty list.
 
 In words, answer every token you received in words. Each has candidate senses of that word as
@@ -76,6 +90,7 @@ written (dictionary_form) and the reading of that dictionary form in hiragana (r
 not answer names of people, places, works or organizations, or tokens that are not words.
 
 """
+)
 
 # 번역(다시 묻기의 번역과 대안 번역 포함)에 숫자 자리표시자를 옮기는 규칙
 NUMBER_RULES = """\
@@ -131,8 +146,14 @@ def span_answers_schema(with_alternatives):
                             "usage_name": {"type": "string"},
                             "explanation_ko": {"type": "string"},
                             "example_ja": {"type": "string"},
+                            "korean_equivalent": {"type": "string"},
                         },
-                        "required": ["usage_name", "explanation_ko", "example_ja"],
+                        "required": [
+                            "usage_name",
+                            "explanation_ko",
+                            "example_ja",
+                            "korean_equivalent",
+                        ],
                         "additionalProperties": False,
                     },
                     {"type": "null"},
@@ -174,6 +195,7 @@ RESPONSE_SCHEMA = {
                     "usage_name": {"type": "string"},
                     "explanation_ko": {"type": "string"},
                     "example_ja": {"type": "string"},
+                    "korean_equivalent": {"type": "string"},
                 },
                 "required": [
                     "tokens",
@@ -181,6 +203,7 @@ RESPONSE_SCHEMA = {
                     "usage_name",
                     "explanation_ko",
                     "example_ja",
+                    "korean_equivalent",
                 ],
                 "additionalProperties": False,
             },
@@ -468,6 +491,21 @@ class OpenAILLMClient:
             DEFINE_SCHEMA,
         )
 
+    def fill_usages(self, usages):
+        """이미 있는 용법의 빈 칸(대응 표현)을 채운다(#152, fill_usages 명령). 검증 전 응답을
+        돌려준다.
+
+        usages는 용법마다 usage_id·패턴 이름·용법 이름·설명·예문이다. 문장 원문은 넘기지 않는다.
+        """
+        return self._ask(
+            UsageLog.Purpose.USAGE_FILL,
+            "용법 채우기",
+            FILL_INSTRUCTIONS,
+            {"usages": usages},
+            "usage_fill",
+            FILL_SCHEMA,
+        )
+
     def _ask(self, purpose, label, instructions, payload, name, schema):
         """구조화된 출력을 스트림 없이 받는다(_ask_once). 일시 오류로 실패했으면 한 번 더
         보낸다(#99). 마감이 지났으면 _ask_once가 보내지 않는다.
@@ -543,7 +581,8 @@ class OpenAILLMClient:
 
 # 첫 응답의 해석 갈림·미확정 구간과, 같은 형태소 조건의 패턴이 이미 있는 구간을 한 번에 다시
 # 묻는 지침(#40). 이 호출이 마지막이라 여기서 받은 해석 갈림·미확정은 다시 묻지 않는다.
-JUDGE_INSTRUCTIONS = """\
+JUDGE_INSTRUCTIONS = (
+    """\
 You help a Korean learner of Japanese read one Japanese sentence.
 You receive the sentence, its tokens, each with an id, its Korean translation (translation_ko),
 decided_spans, recheck_spans and spans. A span is a run of tokens (start_token_id to
@@ -556,8 +595,8 @@ Answer every span in recheck_spans and in spans, each by its span_id. Give a ver
 - "unfound": only for spans in spans. The span has grammar to learn but no candidate explains
   it. Give new_usage: a short Korean name of the usage (usage_name), a Korean explanation of the
   usage in general so that it fits every sentence with this usage, not of this sentence
-  (explanation_ko), and a new short Japanese example sentence of your own with the same usage
-  (example_ja).
+  (explanation_ko), a new short Japanese example sentence of your own with the same usage
+  (example_ja), and korean_equivalent as described below.
   Divide usages of a grammar point by its general meanings, as a dictionary or grammar book
   does (for で: place, means, cause, scope, state). Never name a usage after the topic or
   content of this sentence (such as a score or a match result).
@@ -579,9 +618,12 @@ explain a new usage as a usage of the standard pattern in general, and write its
 with the standard form, not the colloquial form.
 If you receive recheck_spans, also return in translation_ko the Korean translation of the
 whole sentence with your main readings.
-In usage_name and explanation_ko, quote Japanese only from that span's own tokens. Never quote
-the whole sentence or long parts of it. Do not write number placeholders (⟨N1⟩) there.
+In usage_name, explanation_ko and korean_equivalent, quote Japanese only from that span's own
+tokens. Never quote the whole sentence or long parts of it. Do not write number placeholders
+(⟨N1⟩) there.
 """
+    + KOREAN_EQUIVALENT_RULE
+)
 
 
 def judge_schema(with_translation):
@@ -705,6 +747,41 @@ DEFINE_SCHEMA = {
         }
     },
     "required": ["words"],
+    "additionalProperties": False,
+}
+
+
+# 이미 있는 용법의 대응 표현을 채우는 지침(#152). 근거는 용법 칸뿐이다.
+FILL_INSTRUCTIONS = (
+    """\
+You help a Korean learner of Japanese with grammar usages.
+You receive usages. Each has an id (usage_id), the grammar pattern (pattern_name), the usage
+name (usage_name), its Korean explanation (explanation_ko) and an example sentence
+(example_ja, may be null). For each usage give its usage_id and:
+"""
+    + KOREAN_EQUIVALENT_RULE
+    + """\
+Do not write number placeholders (⟨N1⟩). Answer every usage_id you received.
+"""
+)
+
+FILL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "usages": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "usage_id": {"type": "integer"},
+                    "korean_equivalent": {"type": "string"},
+                },
+                "required": ["usage_id", "korean_equivalent"],
+                "additionalProperties": False,
+            },
+        }
+    },
+    "required": ["usages"],
     "additionalProperties": False,
 }
 

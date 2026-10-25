@@ -46,6 +46,11 @@ class FakeLLMClient:
         self.define_response = None
         self.define_error = None
         self.before_define = None
+        # 용법 채우기(#152). 응답을 정하지 않으면 용법마다 '<용법 이름> 대응'을 돌려준다.
+        # fill_errors는 호출마다 앞에서 하나씩 꺼내 낼 오류다(None이면 성공).
+        self.fill_requests = []
+        self.fill_response = None
+        self.fill_errors = []
 
     def connect(self, record):
         """get_client 대신 쓴다. 이 요청의 사용 기록 함수를 받아 둔다."""
@@ -75,6 +80,7 @@ class FakeLLMClient:
             + self.rematch_requests
             + self.gloss_requests
             + self.define_requests
+            + self.fill_requests
         )
 
     def forget_requests(self):
@@ -86,6 +92,7 @@ class FakeLLMClient:
             self.rematch_requests,
             self.gloss_requests,
             self.define_requests,
+            self.fill_requests,
         ):
             requests.clear()
 
@@ -189,6 +196,19 @@ class FakeLLMClient:
                     "word_tags": ["noun"],
                 }
                 for item in items
+            ]
+        }
+
+    def fill_usages(self, usages):
+        self.fill_requests.append(usages)
+        error = self.fill_errors.pop(0) if self.fill_errors else None
+        self._recorded("usage_fill", self.error or error)
+        if self.fill_response is not None:
+            return self.fill_response
+        return {
+            "usages": [
+                {"usage_id": u["usage_id"], "korean_equivalent": f"{u['usage_name']} 대응"}
+                for u in usages
             ]
         }
 

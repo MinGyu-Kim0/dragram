@@ -93,6 +93,7 @@ def test_divergent_span_is_asked_again_once_and_saved_with_its_alternatives(clie
             "state": "divergent",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
+            "korean_equivalent": None,
             "review_status": "pending",
             "register": "standard",
             "variant_of": None,
@@ -100,6 +101,7 @@ def test_divergent_span_is_asked_again_once_and_saved_with_its_alternatives(clie
                 {
                     "name": "결과 상태",
                     "translation_ko": "그가 와 있는 상태다",
+                    "korean_equivalent": None,
                     "review_status": "pending",
                 }
             ],
@@ -178,6 +180,7 @@ def test_divergent_span_whose_alternatives_have_no_basis_is_saved_as_unresolved(
             "state": "unresolved",
             "name": "ている",
             "explanation_ko": None,
+            "korean_equivalent": None,
             "review_status": "pending",
             "register": "standard",
             "variant_of": None,

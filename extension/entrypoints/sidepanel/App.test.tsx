@@ -259,6 +259,7 @@ function grammarItem(start: number, end: number, name: string) {
     state: "decided",
     name,
     explanation_ko: `${name} 설명`,
+    korean_equivalent: null,
     review_status: "pending",
     register: "standard",
     variant_of: null,
@@ -1934,7 +1935,12 @@ function alternativeItem(
   translation: string,
   status = "pending",
 ) {
-  return { name, translation_ko: translation, review_status: status };
+  return {
+    name,
+    korean_equivalent: null,
+    translation_ko: translation,
+    review_status: status,
+  };
 }
 
 test("해석 갈림 구간은 점선 카드 아래에 '다른 해석: 대안 — 대안 번역' 줄을 대안마다 보이고, 미검수 대안에 배지를 단다", async () => {
@@ -2149,6 +2155,59 @@ test("구성 문법은 바깥 카드 안의 하위 박스로 보이고, 글자�
     "た",
   ]);
   expect(marks[0]!.className).toContain("highlight-0");
+});
+
+test("대응 표현이 있으면 제목과 설명 사이에 한 줄로 보이고, 미검수 배지는 카드에 하나다", async () => {
+  respondWith(200, {
+    translation_ko: "친구를 만났다",
+    grammar: [
+      withParts(
+        {
+          ...grammarItem(1, 6, "동작의 상대"),
+          korean_equivalent: "~에게 · ~을/를 (会う·乗る 등)",
+        },
+        { ...grammarItem(4, 6, "정중한 과거"), korean_equivalent: "~었습니다" },
+      ),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "友達に会いました");
+
+  const [card] = await screen.findAllByRole("listitem");
+  const line = within(card!).getByText("~에게 · ~을/를 (会う·乗る 등)");
+  expect(line.className).toContain("korean-equivalent");
+  // 배지 줄 → 제목 줄 → 대응 표현 줄 → 설명 순서다(DESIGN.md 카드 줄 구조).
+  const heading = within(card!).getByRole("heading", { level: 3 });
+  const explanation = within(card!).getByText("동작의 상대 설명");
+  expect(
+    heading.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  expect(
+    line.compareDocumentPosition(explanation) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+  const [part] = within(
+    within(card!).getByRole("list", { name: "구성 문법" }),
+  ).getAllByRole("listitem");
+  expect(within(part!).getByText("~었습니다")).toBeInTheDocument();
+  // 대응 표현은 용법의 일부라 따로 배지를 달지 않는다.
+  expect(within(part!).getAllByText("AI 생성·미검수")).toHaveLength(1);
+});
+
+test("대응 표현이 없는 카드에는 대응 표현 줄이 없다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は")],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。");
+
+  await screen.findAllByRole("listitem");
+  expect(document.querySelector(".korean-equivalent")).toBeNull();
 });
 
 test("하위 박스에도 회화체 배지와 원형 안내, 판단하지 못함, 다른 해석이 보통 카드처럼 붙는다", async () => {

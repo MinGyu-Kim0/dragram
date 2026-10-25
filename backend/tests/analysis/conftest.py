@@ -25,3 +25,17 @@ def redis_db():
     yield connection
     connection.flushdb()
     connection.close()
+
+
+@pytest.fixture
+def holder_calls(monkeypatch):
+    """잠금을 못 잡아 잡은 시도를 읽은 횟수(다른 요청의 재판정을 기다리기 시작함)."""
+    calls = []
+    original = jobs.lock_holder
+
+    def recording(key):
+        calls.append(key)
+        return original(key)
+
+    monkeypatch.setattr(jobs, "lock_holder", recording)
+    return calls

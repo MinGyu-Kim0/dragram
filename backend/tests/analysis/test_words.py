@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from analysis import jobs
 from analysis.models import SentenceAnalysis, WordSense
 from tests.analysis.helpers import add_word, analyze, post, read_body, saved_analyses
 
@@ -239,8 +240,6 @@ def test_chosen_senses_are_sent_as_soon_as_the_words_section_closes(
     client, fake_llm, hiraku, monkeypatch
 ):
     # 단어 칸이 닫히면 새 구문 칸을 기다리지 않고 고른 뜻을 보낸다(#205).
-    from analysis import jobs
-
     bloom = sense(hiraku, 2).id
     fake_llm.response = {"translation_ko": "책을 펼쳤다", "words": [word_answer(2, bloom)]}
     published = []

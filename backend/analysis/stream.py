@@ -48,6 +48,26 @@ def claim(sentence, user):
     선점할 때마다 세대 번호를 올린다. 새 문장은 처리 중 행을 먼저 만들어, 실패한 시도의 LLM 사용
     기록도 그 행에 잇는다.
     """
+    row, claimed = take(sentence)
+    if not claimed and _is_fresh(row):
+        return "saved", row, RequestUsage.start(UsageLog.Path.CACHE, user, row.pk, True)
+    usage = RequestUsage.start(UsageLog.Path.LLM, user, row.pk)
+    if claimed:
+        try:
+            jobs.enqueue_analysis(row.pk, sentence.text, usage.id, row.processing_started_at)
+        except BaseException:
+            # 큐에 넣지 못했으면 선점을 풀어, 다음 요청이 처리 중 행에 붙잡히지 않게 한다.
+            _fail(row.pk, row.processing_started_at, AnalysisError.FAILED.code)
+            raise
+    return "claimed" if claimed else "processing", row, usage
+
+
+def take(sentence, again=False):
+    """처리 중이 아니거나 선점이 만료된 분석 행을 조건부 UPDATE로 선점한다. (분석 행, 선점했는가)다.
+
+    다시 분석해야 하는 행만 선점하고, 선점할 때마다 세대 번호를 올린다. 새 문장은 처리 중 행을
+    먼저 만든다. again이면 캐시로 쓸 수 있는 행도 stale로 돌려 선점한다(평가 실행, #177).
+    """
     processing = SentenceAnalysis.Status.PROCESSING
     row, claimed = SentenceAnalysis.objects.get_or_create(
         sentence_hash=sentence.sentence_hash,
@@ -60,32 +80,25 @@ def claim(sentence, user):
     )
     if not claimed:
         now = timezone.now()
+        rows = SentenceAnalysis.objects.filter(pk=row.pk).exclude(
+            status=processing,
+            processing_started_at__gt=now - timedelta(seconds=CLAIM_EXPIRY_SECONDS),
+        )
+        if not again:
+            rows = rows.exclude(word_spans__isnull=False, is_stale=False)
         claimed = (
-            SentenceAnalysis.objects.filter(pk=row.pk)
-            .exclude(
-                status=processing,
-                processing_started_at__gt=now - timedelta(seconds=CLAIM_EXPIRY_SECONDS),
-            )
-            .exclude(word_spans__isnull=False, is_stale=False)
-            .update(
+            rows.update(
                 status=processing,
                 processing_started_at=now,
                 generation=F("generation") + 1,
                 processing_translation_ko=None,
+                # 캐시로 보지 않게 해서(Sentence.cached) 처음부터 다시 분석한다.
+                **({"is_stale": True} if again else {}),
             )
-        ) == 1
+            == 1
+        )
         row.refresh_from_db()
-    if not claimed and _is_fresh(row):
-        return "saved", row, RequestUsage.start(UsageLog.Path.CACHE, user, row.pk, True)
-    usage = RequestUsage.start(UsageLog.Path.LLM, user, row.pk)
-    if claimed:
-        try:
-            jobs.enqueue_analysis(row.pk, sentence.text, usage.id, row.processing_started_at)
-        except BaseException:
-            # 큐에 넣지 못했으면 선점을 풀어, 다음 요청이 처리 중 행에 붙잡히지 않게 한다.
-            _fail(row.pk, row.processing_started_at, AnalysisError.FAILED.code)
-            raise
-    return "claimed" if claimed else "processing", row, usage
+    return row, claimed
 
 
 def saved_events(presenter, user, row, translated):

@@ -24,7 +24,7 @@ def _grammar_response(analysis, offsets, origins, utf16, restore):
     return _with_parts(_grammar_entries(analysis, offsets, origins, utf16, restore))
 
 
-def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=()):
+def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), span_of=None):
     """용법이 정해진 구간, 해석 갈림, 미확정 구간을 이 요청 원문의 UTF-16 위치로 보인다.
     (항목, 매칭된 패턴의 show_parts) 목록(원문 순서)이다.
 
@@ -33,7 +33,7 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=()):
     고른 용법, 그 용법이 속한 패턴, 실제로 매칭된 패턴 중 하나라도 반려됐으면 빼고, 미검수면
     'AI 생성·미검수'다. 해석 갈림의 대안도 하나씩 같게 보고, 반려된 대안만 뺀다(주 용법 쪽이
     반려면 구간째 뺀다). 미확정은 매칭된 패턴만 본다. excluded는 뺄 저장 행 ID다(다시 판정하는
-    구간, #176).
+    구간, #176). span_of를 주면 {id(항목): 저장 구간}을 채운다.
     """
     spans = list(
         analysis.span_matches.filter(state__in=_SHOWN_STATES)
@@ -80,6 +80,8 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=()):
                         }
                     )
         entries.append((item, span.pattern.show_parts))
+        if span_of is not None:
+            span_of[id(item)] = span
     return entries
 
 
@@ -310,6 +312,14 @@ class Presenter:
         """저장 구간의 (항목, show_parts) 목록(원문 순서, _grammar_entries)."""
         s = self.sentence
         return _grammar_entries(analysis, s.offsets, self.origins, self.utf16, s.restore, excluded)
+
+    def grammar_spans(self, analysis):
+        """analysis 이벤트의 문법과, 항목마다 그 저장 구간 {id(항목): 구간}(평가 #177)."""
+        s, spans = self.sentence, {}
+        entries = _grammar_entries(
+            analysis, s.offsets, self.origins, self.utf16, s.restore, span_of=spans
+        )
+        return _with_parts(entries), spans
 
     def grammar_item(self, pattern, usage, start_offset, end_offset):
         """키 텍스트 구간 하나의 응답 항목(_grammar_item). 반려됐으면 None."""

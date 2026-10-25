@@ -32,6 +32,9 @@ def today_tokens(user):
 
 def over_limit(user):
     """LLM을 새로 부르면 안 되는가. 이미 큐에 들어간 작업은 막지 않아 한도를 조금 넘을 수 있다."""
+    if user is None:
+        # 하루 한도는 사용자별이다. 관리 명령(평가 #177)은 사용자 없이 부른다.
+        return False
     return today_tokens(user) >= settings.ANALYSIS_DAILY_TOKEN_LIMIT
 
 

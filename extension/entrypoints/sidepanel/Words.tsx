@@ -4,6 +4,7 @@ import { isKana, toHiragana } from "@/utils/names";
 import { BadgeRow } from "./BadgeRow";
 import { namedWords, nameTypeLabel, wordKey } from "./named-words";
 import { draggedFirst, type DragRange } from "./drag-range";
+import { groupWords } from "./word-groups";
 import { TAG_NAMES } from "./tag-names";
 
 // 동사 그룹이 품사 바로 뒤에 오도록 화면 순서를 정한다.
@@ -207,8 +208,9 @@ function NameRow({
   );
 }
 
-// 단어 행: 배지 줄, 사전형(표제)·읽기, 태그, 이 문장에서 고른 뜻. 드래그 범위와 겹친 단어를 먼저 두고,
-// 각 묶음 안은 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
+// 단어 행: 배지 줄, 사전형(표제)·읽기, 태그, 이 문장에서 고른 뜻. 같은 단어·같은 뜻은 한 행으로
+// 합치고(화면에서만, #211), 합친 자리 중 하나라도 드래그 범위와 겹친 행을 먼저 두며, 각 묶음 안은
+// 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
 // 사전(JMdict) 단어가 있으면 목록 아래에 출처 각주를 단다. LLM이 만든 단어만 있으면 달지 않는다(#134).
 // 지정한 이름과 표층형이 같은 단어는 공용 이름 구간이 고른 기본 보기로 보인다(#136, #140).
 // '사전 단어 보기'(chosen)로 그 자리만 반대 보기로 바꿔 볼 수 있다.
@@ -239,7 +241,11 @@ export function WordList({
   if (words.length === 0) {
     return <p className="no-words">단어 없음</p>;
   }
-  const sorted = [...words].sort((a, b) => a.start - b.start || a.end - b.end);
+  const rows = groupWords(text, words, names, nameSpans).map((group) => ({
+    start: group[0]!.start,
+    end: group[0]!.end,
+    spans: group,
+  }));
   const named = new Set(
     namedWords(text, words, names, chosen, nameSpans).map(({ word }) =>
       wordKey(word),
@@ -251,7 +257,8 @@ export function WordList({
   return (
     <>
       <ul className="word-list" aria-label="단어">
-        {draggedFirst(sorted, selection).map(({ item: word, dragged }) => {
+        {draggedFirst(rows, selection).map(({ item: row, dragged }) => {
+          const word = row.spans[0]!;
           const key = wordKey(word);
           const surface = text.slice(word.start, word.end);
           const designated = names.has(surface);

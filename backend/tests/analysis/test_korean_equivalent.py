@@ -10,7 +10,7 @@ from django.db import transaction
 from analysis import patterns, review
 from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus, UsageLog
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, new_usage, span_answer
+from tests.analysis.helpers import analyze, new_pattern, new_usage, pattern_form, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -232,6 +232,25 @@ def test_admin_can_edit_the_korean_equivalent(admin_client, client, fake_llm):
     assert usage.korean_equivalent is None
     assert usage.korean_equivalent_status is None
     assert usage.korean_equivalent_filled
+
+
+def test_admin_edit_on_the_pattern_page_marks_the_korean_equivalent_filled(
+    admin_client, client, fake_llm
+):
+    registered(client, fake_llm, "")
+    GrammarUsage.objects.update(korean_equivalent_filled=False)
+    pattern = GrammarPattern.objects.get()
+
+    admin_client.post(
+        f"/admin/analysis/grammarpattern/{pattern.pk}/change/",
+        pattern_form(pattern, **{"usages-0-korean_equivalent": "~고 있다"}),
+    )
+
+    usage = GrammarUsage.objects.get()
+    assert usage.korean_equivalent == "~고 있다"
+    # 채우기 명령이 관리자가 쓴 값을 덮지 않는다.
+    assert usage.korean_equivalent_filled
+    assert usage.korean_equivalent_status == ReviewStatus.APPROVED
 
 
 def test_approving_the_usage_approves_its_korean_equivalent(client, fake_llm):

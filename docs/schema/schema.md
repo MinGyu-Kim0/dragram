@@ -65,7 +65,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null |
+| user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null. 하루 토큰 한도는 이 사용자의 llm 행 입력+출력 토큰 합으로 본다(#28, design-decisions 52절) |
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | (구현이 정함, 확인 필요, design-decisions 51절) 선점한 분석 행에 처음부터 잇는다. 새 문장도 LLM을 부르기 전에 처리 중 행을 먼저 만들어, 실패한 시도의 기록도 그 행에 이어진다. 재매칭은 기존 분석 행에 잇는다 |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정) |
@@ -275,4 +275,4 @@
 
 ## 인덱스
 
-- [인덱스] (PostgreSQL은 FK 인덱스 자동 생성 안 함) word.forms GIN, word.readings GIN, word.tags GIN user_sentence(analysis_id) span_match(analysis_id), span_match(pattern_id), span_match(usage_id) grammar_pattern(variant_of) word_sense(word_id) sentence_analysis.sense_ids GIN
+- [인덱스] (PostgreSQL은 FK 인덱스 자동 생성 안 함) word.forms GIN, word.readings GIN, word.tags GIN user_sentence(analysis_id) span_match(analysis_id), span_match(pattern_id), span_match(usage_id) grammar_pattern(variant_of) word_sense(word_id) sentence_analysis.sense_ids GIN usage_log(user_id, created_at)(하루 사용량 합계, #28·마이그레이션 0018)

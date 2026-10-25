@@ -206,6 +206,18 @@ class Sentence:
         """구간의 열쇠: (패턴 ID, 키 텍스트 start, end)."""
         return (span.pattern.id, *self.key_span(span.start_token, span.end_token))
 
+    def name_spans(self, names):
+        """저장할 이름 구간(#140). names는 검증한 [(첫 토큰, 끝 토큰, 종류)]이고, 판단하지 않았으면
+        None이다.
+        """
+        if names is None:
+            return None
+        stored = []
+        for first, last, type_ in names:
+            start, end = self.key_span(first, last)
+            stored.append({"start": start, "end": end, "type": type_})
+        return stored
+
     def word_spans(self, chosen):
         """저장할 단어 위치와 뜻(토큰 순서). chosen은 LLM이 고른 {토큰: 뜻 ID}다. 사전에 없던
         토큰의 2단계 뜻(#134)도 chosen에 있다.

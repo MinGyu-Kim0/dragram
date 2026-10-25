@@ -63,6 +63,7 @@ def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):
     # 원문을 담을 칸이 없고, 번역은 숫자 대신 자리표시자로 저장한다.
     assert set(row) == {
         "word_spans",
+        "name_spans",
         "sense_ids",
         "id",
         "sentence_hash",

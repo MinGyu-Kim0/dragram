@@ -3,10 +3,11 @@
 표기·읽기는 개인 데이터라 로그·오류 사유·사용 기록에 남기지 않는다.
 """
 
+from django.db import transaction
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
-from accounts.tokens import ExtensionTokenAuthentication
+from accounts.tokens import ExtensionTokenAuthentication, lock_user
 from analysis.jmdict import to_hiragana
 from analysis.models import DesignatedName
 from analysis.words import is_kana
@@ -14,6 +15,8 @@ from errors.base import BusinessError
 from errors.names import DesignatedNameError
 
 MAX_LENGTH = DesignatedName._meta.get_field("surface").max_length
+# 사용자 한 명이 지정할 수 있는 표기 수. 계정 하나가 DB를 끝없이 채우지 못하게 한다(PR #167 리뷰).
+MAX_NAMES = 1000
 
 
 def _surface(data):
@@ -52,7 +55,14 @@ def designated_names(request):
     if request.method == "DELETE":
         DesignatedName.objects.filter(user=user, surface=surface).delete()
         return Response(status=204)
-    name, _ = DesignatedName.objects.update_or_create(
-        user=user, surface=surface, defaults={"reading": _reading(request.data)}
-    )
+    reading = _reading(request.data)
+    with transaction.atomic():
+        # 같은 사용자의 지정을 직렬화해, 동시에 보내도 상한을 넘지 않게 센다.
+        lock_user(user.pk)
+        mine = DesignatedName.objects.filter(user=user)
+        if not mine.filter(surface=surface).exists() and mine.count() >= MAX_NAMES:
+            raise BusinessError(DesignatedNameError.TOO_MANY, "지정한 이름 수 상한")
+        name, _ = DesignatedName.objects.update_or_create(
+            user=user, surface=surface, defaults={"reading": reading}
+        )
     return Response(_item(name))

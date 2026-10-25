@@ -4,6 +4,7 @@ import pytest
 from django.contrib import admin
 from django.test import Client
 
+from analysis import names as names_api
 from analysis.models import DesignatedName, SentenceAnalysis, UsageLog, Word, WordSense
 from tests.analysis.helpers import analyze, connected_client
 
@@ -149,3 +150,18 @@ def test_names_are_deleted_with_the_user(client, analyst):
 
 def test_designated_name_is_not_in_django_admin():
     assert not admin.site.is_registered(DesignatedName)
+
+
+def test_new_names_beyond_the_per_user_limit_are_refused(client, analyst, monkeypatch):
+    monkeypatch.setattr(names_api, "MAX_NAMES", 2)
+    put(client, "春", "はる")
+    put(client, "夏", "なつ")
+
+    response = put(client, "秋", "あき")
+
+    assert response.status_code == 409
+    assert response.json()["error"] == "NAME:TOO_MANY"
+    assert DesignatedName.objects.count() == 2
+    # 이미 지정한 표기의 읽기 고치기와 다른 사용자의 지정은 막지 않는다.
+    assert put(client, "春", "しゅん").status_code == 200
+    assert put(connected_client("other"), "秋", "あき").status_code == 200

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { NameSpan, RubyItem, WordItem, WordSense } from "@/utils/api";
 import { isKana, toHiragana } from "@/utils/names";
 import { BadgeRow } from "./BadgeRow";
-import { namedWords, wordKey } from "./named-words";
+import { namedWords, nameTypeName, wordKey } from "./named-words";
 import { draggedFirst, type DragRange } from "./drag-range";
 import { TAG_NAMES } from "./tag-names";
 
@@ -291,7 +291,11 @@ export function WordList({
           const tags = tagNames(word);
           return (
             <li key={key} className={dragged ? "word-row dragged" : "word-row"}>
-              <BadgeRow {...senseBadges(word.sense)} dragged={dragged} />
+              <BadgeRow
+                {...senseBadges(word.sense)}
+                name={nameTypeName(word, nameSpans)}
+                dragged={dragged}
+              />
               <div className="word-head">
                 <h3 lang="ja">{word.dictionary_form}</h3>
                 <span lang="ja" className="word-reading">

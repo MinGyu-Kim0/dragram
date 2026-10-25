@@ -118,10 +118,11 @@ export interface RubyItem {
   reading: string;
 }
 
-// 공용 이름 구간(#140). 원문 기준 UTF-16 위치 [start, end)
+// 공용 이름 구간(#140)과 그 종류(#184). 원문 기준 UTF-16 위치 [start, end)
 export interface NameSpan {
   start: number;
   end: number;
+  type: "person" | "place" | "org" | "work" | "other";
 }
 
 export interface Analysis {

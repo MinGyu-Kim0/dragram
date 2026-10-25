@@ -3,6 +3,10 @@ import type { NameSpan, RubyItem, WordItem } from "@/utils/api";
 // 단어 자리(원문 위치)의 키. '사전 단어 보기'로 바꾼 자리를 가른다.
 export const wordKey = (word: WordItem) => `${word.start}-${word.end}`;
 
+// 단어 자리가 이름 구간 안에 드는가
+const contains = (span: NameSpan, word: WordItem) =>
+  span.start <= word.start && word.end <= span.end;
+
 // 이름 행으로 보이는 단어와 그 읽기. 지정한 이름과 표층형이 같은 자리의 기본 보기는 공용 이름
 // 구간(#140)이 고른다. 이름 구간이 없으면(null, 판단하기 전 분석) 이름 행, 있으면 그 안에 든 자리만
 // 이름 행이다. chosen은 토글로 고른 보기(자리 → 이름 행인가)이고 기본 보기보다 앞선다. 고른 보기
@@ -19,12 +23,28 @@ export function namedWords(
     if (!names.has(surface)) return [];
     const named =
       chosen.get(wordKey(word)) ??
-      (nameSpans == null ||
-        nameSpans.some(
-          (span) => span.start <= word.start && word.end <= span.end,
-        ));
+      (nameSpans == null || nameSpans.some((span) => contains(span, word)));
     return named ? [{ word, reading: names.get(surface)! }] : [];
   });
+}
+
+const NAME_TYPE_NAMES: Record<NameSpan["type"], string> = {
+  person: "사람 이름",
+  place: "장소 이름",
+  org: "조직 이름",
+  work: "작품 이름",
+  other: "기타 이름",
+};
+
+// 단어 자리가 든 이름 구간의 종류 이름(#184). 구간이 겹치면 원문 순서상 앞선 구간 하나다.
+export function nameTypeName(
+  word: WordItem,
+  nameSpans: NameSpan[] | null | undefined,
+) {
+  const span = [...(nameSpans ?? [])]
+    .sort((a, b) => a.start - b.start)
+    .find((span) => contains(span, word));
+  return span && NAME_TYPE_NAMES[span.type];
 }
 
 // 원문 루비. 읽기가 있는 이름 행 자리는 SudachiPy 루비 대신 지정한 읽기를 그 자리 전체에 단다.

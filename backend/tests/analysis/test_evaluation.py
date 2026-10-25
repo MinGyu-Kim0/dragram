@@ -4,10 +4,22 @@ from io import StringIO
 
 import pytest
 from django.core.management import call_command
+from django.db import connections
+from django.db.models import F
 
+from analysis import evaluation
 from analysis.evaluation import metrics
-from analysis.models import EvalItem, EvalResult, EvalRun, EvalSentence, UsageLog
+from analysis.management.commands import evaluate as evaluate_command
+from analysis.models import (
+    EvalItem,
+    EvalResult,
+    EvalRun,
+    EvalSentence,
+    SentenceAnalysis,
+    UsageLog,
+)
 from tests.analysis.helpers import analyze, saved_analyses, span_answer
+from tests.analysis.test_parts import TABETESHIMATTA, TESHIMAT, TESHIMAU
 
 pytestmark = pytest.mark.django_db
 
@@ -212,6 +224,8 @@ def test_metrics_follow_the_grades(settings):
     m = metrics(graded_run())
 
     assert (m["sentences"], m["failed"], m["items"], m["ungraded"]) == (2, 1, 5, 1)
+    # 실패한 문장은 놓친 문법을 적을 필요가 없다.
+    assert m["missed_unchecked"] == 0
     # 구간이 맞은 3 ÷ (채점한 4 + 놓친 1)
     assert m["span_accuracy"] == pytest.approx(0.6)
     # 맞다 1 ÷ 구간이 맞은 3, 애매 1 ÷ 3
@@ -302,3 +316,79 @@ def test_failed_run_keeps_the_cached_analysis_usable(fake_llm, redis_db, client)
     cached = saved_analyses().get()
     assert (cached.status, cached.is_stale) == ("complete", False)
     assert cached.translation_ko == "달리고 있다"
+
+
+def test_same_range_items_of_different_patterns_keep_their_own_pattern(fake_llm, redis_db):
+    EvalSentence.objects.create(text=TABETESHIMATTA, category="normal")
+    fake_llm.response = {
+        "translation_ko": "먹어 버렸다",
+        "new_patterns": [TESHIMAU, {**TESHIMAT, "usage_name": "완료"}],
+    }
+
+    evaluate("--yes")
+
+    items = EvalResult.objects.get().items.order_by("id")
+    assert {(i.name, i.pattern_name) for i in items} == {("완료", "てしまう"), ("완료", "てしまっ")}
+    assert len({i.pattern_ref for i in items}) == 2
+
+
+def test_missed_count_carries_over_only_with_the_same_items(fake_llm, redis_db):
+    EvalSentence.objects.create(text=HASHITTEIRU, category="normal")
+
+    def missed_one():
+        EvalResult.objects.update(missed=1)
+
+    run_twice(fake_llm, missed_one)
+
+    assert EvalRun.objects.order_by("id").last().results.get().missed == 1
+
+
+def test_missed_count_is_unchecked_when_items_differ(fake_llm, redis_db):
+    EvalSentence.objects.create(text=HASHITTEIRU, category="normal")
+
+    def different_last_time():
+        EvalResult.objects.update(missed=1)
+        EvalItem.objects.update(usage_ref=None)
+
+    run_twice(fake_llm, different_last_time)
+
+    run = EvalRun.objects.order_by("id").last()
+    assert run.results.get().missed is None
+    assert metrics(run)["missed_unchecked"] == 1
+
+
+def test_failed_run_does_not_revive_a_cache_made_stale_before_the_claim(
+    fake_llm, redis_db, client, monkeypatch
+):
+    new_pattern_response(fake_llm)
+    analyze(client, HASHITTEIRU)
+    EvalSentence.objects.create(text=HASHITTEIRU, category="normal")
+    fake_llm.response = {"translation_ko": "달리고 있다", "spans": "틀린 답"}
+    take = evaluation.take
+
+    def rejected_in_between(sentence, again=False):
+        # 평가가 캐시를 읽은 뒤 선점하기 전에 관리자가 반려해 무효화한 경우
+        SentenceAnalysis.objects.update(is_stale=True, generation=F("generation") + 1)
+        return take(sentence, again)
+
+    monkeypatch.setattr(evaluation, "take", rejected_in_between)
+
+    evaluate("--yes")
+
+    assert saved_analyses().get().is_stale is True
+
+
+def test_second_run_waits_for_the_first_to_finish(fake_llm, redis_db):
+    EvalSentence.objects.create(text=HASHITTEIRU, category="normal")
+    other = connections.create_connection("default")
+    try:
+        with other.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(%s)", [evaluate_command.LOCK_KEY])
+
+        out = evaluate("--yes")
+    finally:
+        other.close()
+
+    assert "진행 중" in out
+    assert fake_llm.all_requests() == []
+    assert not EvalRun.objects.exists()

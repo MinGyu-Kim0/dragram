@@ -806,6 +806,7 @@ class EvalRunAdmin(admin.ModelAdmin):
         "note",
         "sentences",
         "ungraded",
+        "missed_unchecked",
         "span_accuracy",
         "usage_accuracy",
         "ambiguous_rate",
@@ -837,6 +838,10 @@ class EvalRunAdmin(admin.ModelAdmin):
     @admin.display(description="미채점")
     def ungraded(self, run):
         return self._metrics(run)["ungraded"]
+
+    @admin.display(description="놓친 문법 미입력")
+    def missed_unchecked(self, run):
+        return self._metrics(run)["missed_unchecked"]
 
     @admin.display(description="구간 정확도")
     def span_accuracy(self, run):

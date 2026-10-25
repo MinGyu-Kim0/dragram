@@ -11,7 +11,6 @@ from django.db.models import Sum
 
 from analysis.models import EvalItem, EvalResult, SentenceAnalysis, SpanMatch, UsageLog
 from analysis.normalize import analysis_text
-from analysis.positions import to_analysis, to_original
 from analysis.presenter import Presenter
 from analysis.sentence import Sentence
 from analysis.stream import take
@@ -65,11 +64,15 @@ def _analyze(result):
     original = result.text
     text, origins = analysis_text(original)
     sentence = Sentence(text)
-    was_fresh = sentence.existing is not None and _is_fresh(sentence.existing)
+    before = sentence.existing
     row, claimed = take(sentence, again=True)
     if not claimed:
         _fail(result, "다른 요청이 처리 중")
         return
+    # 읽은 뒤 선점 하나로만 세대 번호가 올랐으면 그사이 무효화(반려 등)가 없었다.
+    restorable = (
+        before is not None and _is_fresh(before) and row.generation == before.generation + 1
+    )
     usage = RequestUsage.start(UsageLog.Path.LLM, None, row.pk)
     result.usage_request_id = usage.id
     result.save(update_fields=["usage_request"])
@@ -80,9 +83,9 @@ def _analyze(result):
     if not SentenceAnalysis.objects.filter(
         pk=row.pk, status=SentenceAnalysis.Status.COMPLETE
     ).exists():
-        if was_fresh:
-            # 실패한 시도는 저장하지 않아 옛 결과가 그대로다. 그사이 다른 요청이 다시 선점하지
-            # 않았으면 정상 캐시로 되돌려, 다음 사용자가 LLM을 다시 부르지 않게 한다.
+        if restorable:
+            # 실패한 시도는 저장하지 않아 옛 결과가 그대로다. 그사이 다른 요청이 다시 선점하거나
+            # 무효화하지 않았으면 정상 캐시로 되돌려, 다음 사용자가 LLM을 다시 부르지 않게 한다.
             SentenceAnalysis.objects.filter(
                 pk=row.pk, generation=row.generation, status=SentenceAnalysis.Status.FAILED
             ).update(status=SentenceAnalysis.Status.COMPLETE, is_stale=False)
@@ -90,13 +93,10 @@ def _analyze(result):
         return
     row.refresh_from_db()
     presenter = Presenter(Sentence(text), original, origins)
-    event = presenter.analysis_event(row)
-    result.translation_ko = event["translation_ko"]
-    result.save(update_fields=["translation_ko"])
-    spans = _spans_by_item(presenter, row)
+    grammar, spans = presenter.grammar_spans(row)
     items = []
-    for item in _flat(event["grammar"]):
-        span = spans[(item["start"], item["end"], item["state"], item["name"])]
+    for item in _flat(grammar):
+        span = spans[id(item)]
         items.append(
             EvalItem(
                 result=result,
@@ -115,24 +115,36 @@ def _analyze(result):
     for item in items:
         item.grade = _last_grade(result, item)
     EvalItem.objects.bulk_create(items)
+    result.translation_ko = presenter.sentence.restore(row.translation_ko)
+    result.missed = _last_missed(result, items)
+    result.save(update_fields=["translation_ko", "missed"])
 
 
-def _spans_by_item(presenter, row):
-    """응답 항목에 없는 패턴·용법 ID를 찾으려고 저장 구간을 (원문 위치, 상태, 화면 이름)으로
-    둔다.
+def _key(item):
+    """채점을 이어받는 기준: 위치·상태·패턴·용법·대안"""
+    return (
+        item.start,
+        item.end,
+        item.state,
+        item.pattern_ref,
+        item.usage_ref,
+        tuple(item.alternatives),
+    )
+
+
+def _last_missed(result, items):
+    """같은 평가 문장(고치지 않은 같은 글)의 가장 최근 결과가 항목까지 똑같으면 그 놓친 문법 수.
+    다르거나 아직 적지 않았으면 None(아직 안 적음)이다.
     """
-    s = presenter.sentence
-    spans = {}
-    shown = (SpanMatch.State.DECIDED, SpanMatch.State.DIVERGENT, SpanMatch.State.UNRESOLVED)
-    for span in row.span_matches.filter(state__in=shown).select_related("pattern", "usage"):
-        start, end = to_original(
-            presenter.origins,
-            presenter.utf16,
-            *to_analysis(s.offsets, span.start_offset, span.end_offset),
-        )
-        name = span.pattern.name if span.state == SpanMatch.State.UNRESOLVED else span.usage.name
-        spans[(start, end, span.state, name)] = span
-    return spans
+    last = (
+        EvalResult.objects.filter(sentence=result.sentence, text=result.text, failed=False)
+        .exclude(run=result.run)
+        .order_by("-run_id")
+        .first()
+    )
+    if last is None or sorted(map(_key, last.items.all())) != sorted(map(_key, items)):
+        return None
+    return last.missed
 
 
 def _last_grade(result, item):
@@ -178,7 +190,8 @@ def _rate(part, whole):
 
 
 def metrics(run):
-    """실행의 지표(FR-A26). 정확도는 채점한 항목만으로 내고 미채점 수를 함께 낸다. LLM
+    """실행의 지표(FR-A26). 정확도는 채점한 항목과 적어 둔 놓친 문법 수만으로 내고, 미채점
+    항목 수와 놓친 문법 수를 아직 적지 않은 문장 수를 함께 낸다. LLM
     confidence는 쓰지 않는다. 비용은 단가 설정(백만 토큰당 달러)이 모두 있을 때만 낸다.
     """
     results = list(run.results.all())
@@ -205,7 +218,8 @@ def metrics(run):
         "failed": sum(r.failed for r in results),
         "items": len(items),
         "ungraded": len(items) - graded,
-        "span_accuracy": _rate(span_right, graded + sum(r.missed for r in results)),
+        "missed_unchecked": sum(r.missed is None for r in results if not r.failed),
+        "span_accuracy": _rate(span_right, graded + sum(r.missed or 0 for r in results)),
         "usage_accuracy": _rate(grades.count(EvalItem.Grade.CORRECT), span_right),
         "ambiguous_rate": _rate(grades.count(EvalItem.Grade.AMBIGUOUS), span_right),
         "unresolved_rate": _rate(

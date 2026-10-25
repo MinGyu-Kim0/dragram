@@ -5,10 +5,15 @@
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
+from django.db import connection
 from django.utils import timezone
 
 from analysis.evaluation import evaluate_sentence
 from analysis.models import EvalRun, EvalSentence
+
+# 평가 명령끼리 겹치지 않게 잡는 PostgreSQL 권고 잠금 키. 같은 문장을 두 실행이 함께 분석하면
+# 사용자 없는 호출 기록이 섞여 집계된다.
+LOCK_KEY = 177
 
 
 class Command(BaseCommand):
@@ -23,6 +28,18 @@ class Command(BaseCommand):
         if not yes:
             self.stdout.write(f"평가 문장 {len(sentences)}개. 유료 API를 부르려면 --yes를 붙인다.")
             return
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_KEY])
+            if not cursor.fetchone()[0]:
+                self.stderr.write("다른 평가 실행이 진행 중이다. 끝난 뒤 다시 돌린다.")
+                return
+        try:
+            self.evaluate(sentences, note)
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [LOCK_KEY])
+
+    def evaluate(self, sentences, note):
         run = EvalRun.objects.create(model=settings.OPENAI_MODEL, note=note)
         try:
             failed = sum(evaluate_sentence(run, sentence).failed for sentence in sentences)

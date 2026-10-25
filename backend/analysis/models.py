@@ -647,8 +647,9 @@ class EvalResult(models.Model):
     translation_ko = models.TextField("번역", null=True, blank=True)  # noqa: DJ001
     failed = models.BooleanField("실패", default=False)
     error = models.CharField("오류", max_length=100, blank=True)
-    # 관리자가 적는다. 분석이 보이지 않은 문법의 수로, 구간 정확도의 분모에 들어간다.
-    missed = models.PositiveIntegerField("놓친 문법 수", default=0)
+    # 관리자가 적는다. 분석이 보이지 않은 문법의 수로, 구간 정확도의 분모에 들어간다. NULL은 아직
+    # 적지 않음이다. 지난 실행과 항목까지 같은 결과면 그 값을 이어받는다.
+    missed = models.PositiveIntegerField("놓친 문법 수", null=True, blank=True)
     calls = models.PositiveIntegerField("호출 수", default=0)
     input_tokens = models.PositiveIntegerField("입력 토큰", default=0)
     cached_input_tokens = models.PositiveIntegerField("캐시된 입력 토큰", default=0)

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   Analysis,
   CheckingItem,
@@ -8,7 +9,8 @@ import type {
 import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
 import { grammarCardCount } from "./grammar-groups";
-import { WordList } from "./Words";
+import { namedWords, withNameRuby, wordKey } from "./named-words";
+import { WordList, type NameActions } from "./Words";
 
 // 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 번역보다 먼저 온
 // grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별 대상 구간 checking)만 와서
@@ -113,6 +115,9 @@ export function SentenceView({
   tab,
   onTabChange,
   onRetry,
+  names,
+  onSave,
+  onRemove,
 }: {
   text: string;
   selection: DragRange;
@@ -125,7 +130,17 @@ export function SentenceView({
   onTabChange: (tab: ResultTab) => void;
   // 실패한 문장을 처음부터 다시 분석한다.
   onRetry: () => void;
-}) {
+  // 지정한 이름(표기 → 읽기, #136)
+  names: ReadonlyMap<string, string | null>;
+} & NameActions) {
+  // '사전 단어 보기'로 단어 행으로 바꿔 본 자리. 화면 상태라 저장하지 않는다.
+  const [asWord, setAsWord] = useState<ReadonlySet<string>>(new Set());
+  const toggleAsWord = (key: string) =>
+    setAsWord((current) => {
+      const next = new Set(current);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
   const analysis = analysisOf(result);
   const translation = translationOf(result);
   const grammar = grammarOf(result);
@@ -148,6 +163,11 @@ export function SentenceView({
           grammarCount: grammarCardCount(grammar) + checking.length,
         }
       : undefined;
+  const ruby = translation?.ruby ?? [];
+  const shownRuby = withNameRuby(
+    ruby,
+    namedWords(text, tabbed?.words ?? [], names, asWord),
+  );
   return (
     <>
       <section className="sentence-card">
@@ -178,7 +198,7 @@ export function SentenceView({
             text={text}
             grammar={grammar}
             checking={checking}
-            ruby={showRuby && translation ? translation.ruby : []}
+            ruby={showRuby ? shownRuby : []}
             dragHandles={showHandles ? selection : undefined}
           />
         </p>
@@ -269,7 +289,33 @@ export function SentenceView({
                 selection={selection}
               />
             ) : (
-              <WordList words={tabbed.words} selection={selection} />
+              <WordList
+                text={text}
+                words={tabbed.words}
+                ruby={ruby}
+                selection={selection}
+                names={names}
+                asWord={asWord}
+                onToggleAsWord={toggleAsWord}
+                onSave={onSave}
+                onRemove={async (surface) => {
+                  await onRemove(surface);
+                  // 해제한 표기의 자리는 다시 지정해도 이름 행으로 시작한다.
+                  setAsWord(
+                    (current) =>
+                      new Set(
+                        [...current].filter(
+                          (key) =>
+                            !tabbed.words.some(
+                              (word) =>
+                                wordKey(word) === key &&
+                                text.slice(word.start, word.end) === surface,
+                            ),
+                        ),
+                      ),
+                  );
+                }}
+              />
             )}
           </div>
         </>

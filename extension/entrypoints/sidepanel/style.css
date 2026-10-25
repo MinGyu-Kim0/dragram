@@ -592,3 +592,76 @@ h1 {
   font-weight: 600;
   cursor: pointer;
 }
+
+/* 이름 지정(#136): 이름 행 표시, 버튼 줄, 읽기 입력 */
+.name-mark {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.name-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.name-actions button:not(.text-button, .primary-button) {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.name-actions .primary-button {
+  padding: 0 16px;
+}
+
+.name-actions .name-remove {
+  margin-left: auto;
+}
+
+.name-editor {
+  margin-top: 8px;
+}
+
+.name-editor label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.name-editor input {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 16px;
+}
+
+.name-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.name-chips button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}

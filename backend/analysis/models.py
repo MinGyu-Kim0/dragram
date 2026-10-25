@@ -502,3 +502,31 @@ class UserSentence(models.Model):
     def __str__(self):
         # 원문을 담지 않는다.
         return f"{self.user_id} #{self.pk}"
+
+
+class DesignatedName(models.Model):
+    """지정한 이름(#136): 사용자가 단어 카드의 표기를 이름으로 지정한 것. 개인 데이터다.
+
+    user_sentence 원문과 같이 본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다.
+    공용 분석·공용 단어·LLM 요청에는 넣지 않는다.
+    """
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="designated_names"
+    )
+    # 원문 토큰의 표층형
+    surface = models.CharField(max_length=50)
+    # 히라가나 읽기. 없으면 NULL이다.
+    reading = models.CharField(max_length=50, null=True)  # noqa: DJ001
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "designated_name"
+        constraints = [
+            models.UniqueConstraint(fields=["user", "surface"], name="designated_name_unique"),
+        ]
+
+    def __str__(self):
+        # 표기를 담지 않는다.
+        return f"{self.user_id} #{self.pk}"

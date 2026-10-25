@@ -18,9 +18,13 @@ from django.forms.models import BaseInlineFormSet
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
-from analysis import answers, patterns, review, words
+from analysis import answers, evaluation, patterns, review, words
 from analysis.jmdict import to_hiragana
 from analysis.models import (
+    EvalItem,
+    EvalResult,
+    EvalRun,
+    EvalSentence,
     FunctionTag,
     GrammarPattern,
     GrammarUsage,
@@ -770,3 +774,141 @@ class WordSenseAdmin(_ReviewedAdmin):
             "unreject_senses", [ReviewStatus.REJECTED], ReviewStatus.PENDING, "반려 취소(미검수로)"
         ),
     ]
+
+
+# 평가 세트(FR-A26, #177). 평가 문장은 관리자가 쓴 문장이라 admin에 보여도 된다(NFR-13).
+@admin.register(EvalSentence)
+class EvalSentenceAdmin(admin.ModelAdmin):
+    list_display = ["id", "text", "category", "is_active", "updated_at"]
+    list_filter = ["category", "is_active"]
+    fields = ["text", "category", "is_active", "note"]
+
+    def has_delete_permission(self, request, obj=None):
+        # 지난 실행 결과가 가리킨다. 빼려면 사용을 끈다.
+        return False
+
+
+def _percent(value):
+    return "—" if value is None else f"{value:.1%}"
+
+
+@admin.register(EvalRun)
+class EvalRunAdmin(admin.ModelAdmin):
+    """실행 목록에 지표를 칼럼으로 둬 실행끼리 나란히 비교한다. 실행은 명령(evaluate)으로만
+    만든다.
+    """
+
+    list_display = [
+        "id",
+        "created_at",
+        "status",
+        "model",
+        "note",
+        "sentences",
+        "ungraded",
+        "span_accuracy",
+        "usage_accuracy",
+        "ambiguous_rate",
+        "unresolved_rate",
+        "calls_per_sentence",
+        "tokens",
+        "cost",
+    ]
+    fields = ["status", "model", "created_at", "finished_at", "note"]
+    readonly_fields = ["status", "model", "created_at", "finished_at"]
+
+    def has_add_permission(self, request):
+        return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).order_by("-id")
+
+    def _metrics(self, run):
+        # 한 화면에서 칼럼마다 다시 계산하지 않게 실행마다 한 번 계산한다.
+        if not hasattr(run, "_metrics"):
+            run._metrics = evaluation.metrics(run)
+        return run._metrics
+
+    @admin.display(description="문장(실패)")
+    def sentences(self, run):
+        m = self._metrics(run)
+        return f"{m['sentences']} ({m['failed']})"
+
+    @admin.display(description="미채점")
+    def ungraded(self, run):
+        return self._metrics(run)["ungraded"]
+
+    @admin.display(description="구간 정확도")
+    def span_accuracy(self, run):
+        return _percent(self._metrics(run)["span_accuracy"])
+
+    @admin.display(description="용법 정확도")
+    def usage_accuracy(self, run):
+        return _percent(self._metrics(run)["usage_accuracy"])
+
+    @admin.display(description="애매")
+    def ambiguous_rate(self, run):
+        return _percent(self._metrics(run)["ambiguous_rate"])
+
+    @admin.display(description="판별 보류")
+    def unresolved_rate(self, run):
+        return _percent(self._metrics(run)["unresolved_rate"])
+
+    @admin.display(description="문장당 호출")
+    def calls_per_sentence(self, run):
+        value = self._metrics(run)["calls_per_sentence"]
+        return "—" if value is None else f"{value:.2f}"
+
+    @admin.display(description="토큰(입력/캐시/출력)")
+    def tokens(self, run):
+        m = self._metrics(run)
+        return f"{m['input_tokens']}/{m['cached_input_tokens']}/{m['output_tokens']}"
+
+    @admin.display(description="비용(USD)")
+    def cost(self, run):
+        value = self._metrics(run)["cost_usd"]
+        return "—" if value is None else f"{value:.4f}"
+
+
+class EvalItemInline(admin.TabularInline):
+    model = EvalItem
+    fields = ["surface", "start", "end", "state", "name", "alternatives", "review_status", "grade"]
+    readonly_fields = ["surface", "start", "end", "state", "name", "alternatives", "review_status"]
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(EvalResult)
+class EvalResultAdmin(admin.ModelAdmin):
+    """채점 화면. 항목의 채점과 문장의 놓친 문법 수만 고친다."""
+
+    list_display = ["id", "run", "sentence", "failed", "missed", "graded"]
+    list_filter = ["run"]
+    fields = [
+        "run",
+        "text",
+        "translation_ko",
+        "failed",
+        "error",
+        "missed",
+        "calls",
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+    ]
+    readonly_fields = [f for f in fields if f != "missed"]
+    inlines = [EvalItemInline]
+
+    def has_add_permission(self, request):
+        return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("run", "sentence")
+
+    @admin.display(description="채점(미채점/항목)")
+    def graded(self, result):
+        grades = list(result.items.values_list("grade", flat=True))
+        return f"{grades.count(EvalItem.Grade.UNGRADED)}/{len(grades)}"

@@ -582,3 +582,112 @@ class DesignatedName(models.Model):
     def __str__(self):
         # 표기를 담지 않는다.
         return f"{self.user_id} #{self.pk}"
+
+
+class EvalSentence(models.Model):
+    """평가 문장(FR-A26, #177). 관리자가 직접 쓴 문장, 이용 가능한 자료, 동의를 받은 자료만
+    넣는다(NFR-13). 사용자 원문이 아니라 admin에 보여도 된다.
+    """
+
+    class Category(models.TextChoices):
+        NORMAL = "normal", "정상"
+        NO_GRAMMAR = "no_grammar", "문법 없음"
+        HOMOGRAPH = "homograph", "동형이의"
+        CONTRACTION = "contraction", "축약"
+        QUOTATION = "quotation", "인용"
+        TECHNICAL = "technical", "기술 문서"
+        OUT_OF_SCOPE = "out_of_scope", "범위 밖"
+
+    text = models.TextField("문장")
+    category = models.CharField("유형", max_length=30, choices=Category.choices)
+    # 끄면 다음 실행부터 빠진다. 지난 실행 결과가 가리키므로 지우지 않고 끈다.
+    is_active = models.BooleanField("사용", default=True)
+    note = models.TextField("메모", blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "eval_sentence"
+        verbose_name = verbose_name_plural = "평가 문장"
+
+    def __str__(self):
+        return f"#{self.pk} {self.text[:30]}"
+
+
+class EvalRun(models.Model):
+    """평가 세트를 한 번 돌린 것(#177). 지표는 결과·항목에서 계산한다(analysis.evaluation)."""
+
+    class Status(models.TextChoices):
+        RUNNING = "running", "진행 중"
+        COMPLETE = "complete", "완료"
+        FAILED = "failed", "실패"
+
+    status = models.CharField("상태", max_length=30, choices=Status.choices, default=Status.RUNNING)
+    model = models.CharField("모델", max_length=255, blank=True)
+    note = models.TextField("메모", blank=True)
+    created_at = models.DateTimeField("실행 시각", auto_now_add=True)
+    finished_at = models.DateTimeField("끝난 시각", null=True, blank=True)
+
+    class Meta:
+        db_table = "eval_run"
+        verbose_name = verbose_name_plural = "평가 실행"
+
+    def __str__(self):
+        return f"평가 실행 #{self.pk}"
+
+
+class EvalResult(models.Model):
+    """평가 실행에서 문장 하나의 결과(#177). text는 실행 때의 평가 문장이다. 문장을 고치면 지난
+    채점을 이어받지 않는 기준이 된다.
+    """
+
+    run = models.ForeignKey(EvalRun, on_delete=models.CASCADE, related_name="results")
+    sentence = models.ForeignKey(EvalSentence, on_delete=models.PROTECT, related_name="results")
+    text = models.TextField("문장")
+    translation_ko = models.TextField("번역", null=True, blank=True)  # noqa: DJ001
+    failed = models.BooleanField("실패", default=False)
+    error = models.CharField("오류", max_length=100, blank=True)
+    # 관리자가 적는다. 분석이 보이지 않은 문법의 수로, 구간 정확도의 분모에 들어간다.
+    missed = models.PositiveIntegerField("놓친 문법 수", default=0)
+    calls = models.PositiveIntegerField("호출 수", default=0)
+    input_tokens = models.PositiveIntegerField("입력 토큰", default=0)
+    cached_input_tokens = models.PositiveIntegerField("캐시된 입력 토큰", default=0)
+    output_tokens = models.PositiveIntegerField("출력 토큰", default=0)
+
+    class Meta:
+        db_table = "eval_result"
+        verbose_name = verbose_name_plural = "평가 결과"
+
+    def __str__(self):
+        return f"{self.run} · {self.sentence}"
+
+
+class EvalItem(models.Model):
+    """평가 결과의 문법 항목 하나(#177). 사이드 패널에 보이는 항목(구성 문법 포함)이다. 위치는
+    평가 문장의 UTF-16 위치다.
+    """
+
+    class Grade(models.TextChoices):
+        UNGRADED = "ungraded", "미채점"
+        CORRECT = "correct", "맞다"
+        AMBIGUOUS = "ambiguous", "애매하다"
+        WRONG_USAGE = "wrong_usage", "용법이 틀렸다"
+        WRONG_SPAN = "wrong_span", "구간이 틀렸다"
+
+    result = models.ForeignKey(EvalResult, on_delete=models.CASCADE, related_name="items")
+    start = models.PositiveIntegerField()
+    end = models.PositiveIntegerField()
+    surface = models.CharField("구간", max_length=255)
+    state = models.CharField("상태", max_length=30)
+    name = models.CharField("이름", max_length=255)
+    # 해석 갈림의 대안 용법 이름
+    alternatives = models.JSONField("대안", default=list)
+    review_status = models.CharField("검수 상태", max_length=30)
+    grade = models.CharField("채점", max_length=30, choices=Grade.choices, default=Grade.UNGRADED)
+
+    class Meta:
+        db_table = "eval_item"
+        verbose_name = verbose_name_plural = "평가 항목"
+
+    def __str__(self):
+        return f"{self.surface} {self.name}"

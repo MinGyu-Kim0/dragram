@@ -176,6 +176,18 @@ def test_section_comes_out_when_it_closes_before_later_sections_arrive():
     ]
 
 
+def test_scalar_and_object_sections_with_newlines_come_out():
+    parser = SectionParser()
+    chunks = ['{\n  "ok": true,\n  "none": null', ',\n  "n": -1.5,\n  "obj": {"a": [1]}\n', "}"]
+
+    assert feed_all(parser, chunks) == [
+        (0, "ok", True),
+        (1, "none", None),
+        (1, "n", -1.5),
+        (1, "obj", {"a": [1]}),
+    ]
+
+
 def test_result_that_is_not_json_becomes_analysis_failure():
     parser = SectionParser()
     parser.feed('{"translation_ko": "번역", "gram')

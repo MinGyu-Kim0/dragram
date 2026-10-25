@@ -3,7 +3,7 @@
 원본: `erd.json`(ERDCloud 스냅샷). 이 문서는 그 파일에서 생성했다. 결정 근거는 `../design-decisions.md` 참고.
 
 > 설계 시점 스냅샷이다. 구현을 시작하면 Django 모델과 마이그레이션이 기준이고, 이 문서는 바뀐 부분을 손으로 맞춘다.
-> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명), 51절의 큐·작업자(`sentence_analysis.processing_translation_ko` 칼럼, `status`·`generation` 설명, `usage_log.analysis_id` 설명), #93 트리아지와 구현(`user_sentence.original_hash` 타입과 설명, `analysis_id`·`selected_start`·`selected_end`·`last_analyzed_at` 설명), #136의 이름 지정(`designated_name` 테이블), #152의 대응 표현(`grammar_usage.korean_equivalent`·`korean_equivalent_filled`·`korean_equivalent_status` 칼럼, `usage_log.purpose`의 usage_fill, #151의 기능 태그(`grammar_usage.function_tags`·`function_tags_filled`·`function_tags_status`)는 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
+> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명), 51절의 큐·작업자(`sentence_analysis.processing_translation_ko` 칼럼, `status`·`generation` 설명, `usage_log.analysis_id` 설명), #93 트리아지와 구현(`user_sentence.original_hash` 타입과 설명, `analysis_id`·`selected_start`·`selected_end`·`last_analyzed_at` 설명), #136의 이름 지정(`designated_name` 테이블), #152의 대응 표현(`grammar_usage.korean_equivalent`·`korean_equivalent_filled`·`korean_equivalent_status` 칼럼, `usage_log.purpose`의 usage_fill, #151의 기능 태그(`grammar_usage.function_tags`·`function_tags_filled`·`function_tags_status`), #177의 평가 세트(`eval_sentence`·`eval_run`·`eval_result`·`eval_item` 테이블)는 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
 > `grammar_pattern`, `pattern_morpheme`, `grammar_usage`, `span_match`, `pattern_set_version`은 #35에서 그때 쓰는 칼럼만 만들었다. 나머지 칼럼(승인·자동 승인, 판 번호, 규칙, 회화체, 대안 해석, confidence 등)은 그 칼럼을 쓰는 하위 티켓에서 일반 마이그레이션으로 더한다(design-decisions 32절). 회화체 칼럼(`register`·`variant_of`)은 #63에서, `show_parts`는 #65에서, `usage_rule`과 `span_match.rule_id`는 #55에서, `function_tags`·`function_tags_filled`·`function_tags_status`는 #151에서 더했다.
 
 ## users — 사용자
@@ -291,6 +291,73 @@
 | meaning_status | 뜻 검수 상태 | varchar(20) |  |  | ai(검수 전, 'AI 번역' 표시. 한국어 뜻이 아직 없는 뜻도 ai) / reviewed(관리자가 고쳤거나 '검수 완료') / failed(`word_gloss` 생성 실패, meaning_ko는 NULL이고 다른 새 문장에 나오면 다시 만든다, #97·마이그레이션 0016) — 한국어 뜻의 출처·검수 상태(sense_origin과 별개) |
 | created_at | 생성 시각 | timestamptz |  |  |  |
 | updated_at | 수정 시각 | timestamptz |  |  |  |
+
+## eval_sentence — 평가 문장
+
+품질 평가(FR-A26, #177)의 고정 평가 세트. 관리자가 직접 쓴 문장, 이용 가능한 자료, 동의를 받은 자료만 넣는다(NFR-13). 사용자 원문이 아니라 Django admin에서 쓰고 고친다. 사용자 원문(`user_sentence`)을 옮겨 오는 기능은 없다.
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| text | 문장 | text |  |  | 평가할 문장 |
+| category | 유형 | varchar(30) |  |  | normal(정상) / no_grammar(문법 없음) / homograph(동형이의) / contraction(축약) / quotation(인용) / technical(기술 문서) / out_of_scope(범위 밖). NFR-09의 유형 |
+| is_active | 사용 | boolean |  |  | 기본 true. 끄면 다음 실행부터 빠진다. 지난 결과가 가리키므로 지우지 않고 끈다(admin 삭제 없음) |
+| note | 메모 | text |  |  | 빈 값 허용 |
+| created_at | 생성일시 | timestamptz |  |  |  |
+| updated_at | 수정일시 | timestamptz |  |  |  |
+
+## eval_run — 평가 실행
+
+평가 세트를 한 번 돌린 것. 관리 명령 `evaluate --yes`로만 만들고(admin 추가 없음), 지표는 결과·항목에서 계산한다(design-decisions 57절).
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| status | 상태 | varchar(30) |  |  | running / complete / failed(버그 등 예외로 멈춤) |
+| model | 모델 | varchar(255) |  |  | 실행 때의 `OPENAI_MODEL` |
+| note | 메모 | text |  |  | 무엇을 바꿨는지. admin에서 이 칸만 고친다 |
+| created_at | 실행 시각 | timestamptz |  |  |  |
+| finished_at | 끝난 시각 | timestamptz | Y |  |  |
+
+## eval_result — 평가 결과
+
+평가 실행에서 문장 하나의 결과.
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| run_id | 평가 실행 ID | bigint |  | → eval_run | 실행을 지우면 함께 지움(CASCADE) |
+| sentence_id | 평가 문장 ID | bigint |  | → eval_sentence | PROTECT |
+| text | 문장 | text |  |  | 실행 때의 평가 문장. 문장을 고치면 지난 채점을 이어받지 않는 기준 |
+| translation_ko | 번역 | text | Y |  | 실패면 NULL |
+| failed | 실패 | boolean |  |  | 분석 실패(BusinessError)나 다른 요청이 처리 중이라 선점하지 못함 |
+| error | 오류 | varchar(100) |  |  | 오류 코드나 사유. 빈 값 허용 |
+| missed | 놓친 문법 수 | integer | Y |  | 관리자가 적는다. NULL은 아직 적지 않음. 지난 결과와 항목까지 같으면 그 값을 이어받는다. 구간 정확도 분모에 들어간다 |
+| calls | 호출 수 | integer |  |  | 이 문장 분석의 LLM 호출 수 |
+| input_tokens | 입력 토큰 | integer |  |  | 캐시된 입력 포함 |
+| cached_input_tokens | 캐시된 입력 토큰 | integer |  |  |  |
+| output_tokens | 출력 토큰 | integer |  |  |  |
+| usage_request_id | 사용 기록 ID | bigint | Y | → usage_log | 이 문장을 분석한 request 행(user NULL). LLM 호출 행은 그 뒤의 같은 분석 행 기록이다. SET_NULL |
+
+## eval_item — 평가 항목
+
+평가 결과의 문법 항목 하나. 사이드 패널에 보이는 항목(구성 문법 포함, 숨긴 구성 문법 제외)이다.
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| result_id | 평가 결과 ID | bigint |  | → eval_result | CASCADE |
+| start | 시작 | integer |  |  | 평가 문장의 UTF-16 위치 |
+| end | 끝 | integer |  |  |  |
+| surface | 구간 | varchar(255) |  |  | 그 위치의 글자 |
+| state | 상태 | varchar(30) |  |  | decided / divergent / unresolved |
+| name | 이름 | varchar(255) |  |  | 화면 제목: 미확정이면 패턴 이름, 그 밖에는 용법 이름 |
+| pattern_name | 패턴 | varchar(255) |  |  | 실제로 매칭된 패턴 이름 |
+| pattern_ref | 패턴 ID | bigint |  |  | 참조가 아닌 값. 채점 이어받기 기준 |
+| usage_ref | 용법 ID | bigint | Y |  | 참조가 아닌 값(용법이 합쳐져 지워져도 남는다). 미확정이면 NULL |
+| alternatives | 대안 | jsonb |  |  | 해석 갈림의 대안 용법 이름 목록 |
+| review_status | 검수 상태 | varchar(30) |  |  | 실행 때 화면에 보인 검수 상태(pending / approved) |
+| grade | 채점 | varchar(30) |  |  | ungraded(미채점) / correct(맞다) / ambiguous(애매하다) / wrong_usage(용법이 틀렸다) / wrong_span(구간이 틀렸다). admin에서 이 칸만 고친다. 같은 평가 문장(고치지 않은 같은 글)의 지난 실행에 위치·상태·패턴·용법·대안이 모두 같은 항목이 있으면 가장 최근 채점을 이어받는다 |
 
 ## 인덱스
 

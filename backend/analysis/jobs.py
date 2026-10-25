@@ -59,14 +59,15 @@ def enqueue_analysis(analysis_id, text, usage_id, started):
         raise BusinessError(AnalysisError.FAILED, "분석 작업을 큐에 넣지 못함") from e
 
 
-def enqueue_rematch(analysis_id, text, usage_id, version, token):
+def enqueue_rematch(analysis_id, text, usage_id, version, token, basis=""):
     """재판정 작업을 큐에 넣는다(#114). version은 요청이 매칭한 패턴 세트 버전, token은 잡은
-    재판정 잠금 값이다. 나머지는 enqueue_analysis와 같다. Redis에 넣지 못하면 BusinessError다.
+    재판정 잠금 값, basis는 다시 판정할 저장 구간의 후보 상태(#176)다. 나머지는 enqueue_analysis와
+    같다. Redis에 넣지 못하면 BusinessError다.
     """
     from analysis.rematch import run_rematch
 
     if settings.ANALYSIS_INLINE:
-        run_rematch(analysis_id, text, usage_id, version, token)
+        run_rematch(analysis_id, text, usage_id, version, token, basis)
         return
     try:
         Queue(QUEUE_NAME, connection=_connection()).enqueue(
@@ -76,6 +77,7 @@ def enqueue_rematch(analysis_id, text, usage_id, version, token):
             usage_id,
             version,
             token,
+            basis,
             description=f"rematch {analysis_id}",
             job_timeout=JOB_TIMEOUT_SECONDS,
             result_ttl=0,
@@ -91,9 +93,11 @@ REMATCH_LOCK_SECONDS = 150
 _UNLOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end"
 
 
-def rematch_lock_key(sentence_hash, version):
-    """그 문장·패턴 세트 버전의 재판정 잠금 키. 키 텍스트 해시라 원문이 아니다."""
-    return f"rematch:{sentence_hash}:{version}"
+def rematch_lock_key(sentence_hash, version, basis=""):
+    """그 문장·패턴 세트 버전의 재판정 잠금 키. 키 텍스트 해시라 원문이 아니다. 후보가 늘어난 저장
+    구간이 있으면 그 후보 상태(basis)도 붙여, 버전이 그대로여도 같은 상태는 한 번만 판정한다(#176).
+    """
+    return f"rematch:{sentence_hash}:{version}" + (f":{basis}" if basis else "")
 
 
 def take_lock(key, token):

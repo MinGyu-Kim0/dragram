@@ -171,6 +171,7 @@ def usage_rows(pattern):
         data[f"usages-{i}-pattern"] = pattern.pk
         data[f"usages-{i}-explanation_ko"] = usage.explanation_ko
         data[f"usages-{i}-example_ja"] = usage.example_ja or ""
+        data[f"usages-{i}-function_tags"] = usage.function_tags
     return data
 
 

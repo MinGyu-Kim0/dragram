@@ -8,7 +8,7 @@ from django.conf import settings
 from openai import OpenAI, OpenAIError
 
 from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS
-from analysis.models import UsageLog
+from analysis.models import FunctionTag, UsageLog
 from errors import AnalysisError, BusinessError
 
 # 새 용법의 대응 표현(#152). 새 구문·미발견·다시 묻기·용법 채우기가 같은 규칙을 쓴다.
@@ -20,6 +20,18 @@ KOREAN_EQUIVALENT_RULE = """\
   an action "~에게 · ~을/를 (会う·乗る 등)", で for means "~(으)로", が for the subject
   "~이/가 · ~을/를 (好き·できる 등)", ました "~었습니다". Write "" if no Korean expression fits.
 """
+
+# 새 용법의 기능 태그(#151). 새 용법을 만드는 경로와 용법 채우기가 같은 규칙을 쓴다.
+FUNCTION_TAGS_RULE = """\
+- function_tags: the functions of this usage in general, chosen only from the allowed values
+  (for example passive, past, progressive, polite, negative, conditional, cause, topic,
+  subject, object, place, means). Choose every value that fits the usage itself, in any
+  number, and an empty list if none fits. Do not choose a value for the content of one
+  sentence.
+"""
+
+# 기능 태그 답. 허용 목록 밖 값은 서버도 버린다(answers.function_tags).
+FUNCTION_TAGS_SCHEMA = {"type": "array", "items": {"type": "string", "enum": FunctionTag.values}}
 
 INSTRUCTIONS = (
     """\
@@ -36,7 +48,8 @@ For each span give its span_id and a verdict:
 - "not_applicable": there is no grammar to learn at that place (for example の inside a name).
 - "unfound": the span has grammar to learn but no candidate explains it. Give new_usage: the
   usage that explains it, which will be added to the same pattern, with usage_name,
-  explanation_ko, example_ja and korean_equivalent written as described for new_patterns below.
+  explanation_ko, example_ja, korean_equivalent and function_tags written as described for
+  new_patterns below.
 - "divergent": the sentence alone can be read with more than one candidate, and nothing in it
   tells which. Give the candidate_id of the candidate with the same reading as your
   translation. Use it only for a span with two or more candidates.
@@ -75,6 +88,7 @@ list them in new_patterns. For each one:
   sentence of your own. Do not reuse this sentence or its words.
 """
     + KOREAN_EQUIVALENT_RULE
+    + FUNCTION_TAGS_RULE
     + """\
 In pattern_name, usage_name, explanation_ko and korean_equivalent, quote Japanese only from that
 grammar point's own tokens. Never quote the whole sentence or long parts of it. Do not write number
@@ -147,12 +161,14 @@ def span_answers_schema(with_alternatives):
                             "explanation_ko": {"type": "string"},
                             "example_ja": {"type": "string"},
                             "korean_equivalent": {"type": "string"},
+                            "function_tags": FUNCTION_TAGS_SCHEMA,
                         },
                         "required": [
                             "usage_name",
                             "explanation_ko",
                             "example_ja",
                             "korean_equivalent",
+                            "function_tags",
                         ],
                         "additionalProperties": False,
                     },
@@ -196,6 +212,7 @@ RESPONSE_SCHEMA = {
                     "explanation_ko": {"type": "string"},
                     "example_ja": {"type": "string"},
                     "korean_equivalent": {"type": "string"},
+                    "function_tags": FUNCTION_TAGS_SCHEMA,
                 },
                 "required": [
                     "tokens",
@@ -204,6 +221,7 @@ RESPONSE_SCHEMA = {
                     "explanation_ko",
                     "example_ja",
                     "korean_equivalent",
+                    "function_tags",
                 ],
                 "additionalProperties": False,
             },
@@ -492,10 +510,11 @@ class OpenAILLMClient:
         )
 
     def fill_usages(self, usages):
-        """이미 있는 용법의 빈 칸(대응 표현)을 채운다(#152, fill_usages 명령). 검증 전 응답을
-        돌려준다.
+        """이미 있는 용법의 빈 칸(대응 표현 #152, 기능 태그 #151)을 채운다(fill_usages 명령). 검증
+        전 응답을 돌려준다.
 
-        usages는 용법마다 usage_id·패턴 이름·용법 이름·설명·예문이다. 문장 원문은 넘기지 않는다.
+        usages는 용법마다 usage_id·패턴 이름·형태소 조건·용법 이름·설명·예문이다. 문장 원문은
+        넘기지 않는다.
         """
         return self._ask(
             UsageLog.Purpose.USAGE_FILL,
@@ -596,7 +615,7 @@ Answer every span in recheck_spans and in spans, each by its span_id. Give a ver
   it. Give new_usage: a short Korean name of the usage (usage_name), a Korean explanation of the
   usage in general so that it fits every sentence with this usage, not of this sentence
   (explanation_ko), a new short Japanese example sentence of your own with the same usage
-  (example_ja), and korean_equivalent as described below.
+  (example_ja), and korean_equivalent and function_tags as described below.
   Divide usages of a grammar point by its general meanings, as a dictionary or grammar book
   does (for で: place, means, cause, scope, state). Never name a usage after the topic or
   content of this sentence (such as a score or a match result).
@@ -623,6 +642,7 @@ tokens. Never quote the whole sentence or long parts of it. Do not write number 
 (⟨N1⟩) there.
 """
     + KOREAN_EQUIVALENT_RULE
+    + FUNCTION_TAGS_RULE
 )
 
 
@@ -755,11 +775,13 @@ DEFINE_SCHEMA = {
 FILL_INSTRUCTIONS = (
     """\
 You help a Korean learner of Japanese with grammar usages.
-You receive usages. Each has an id (usage_id), the grammar pattern (pattern_name), the usage
-name (usage_name), its Korean explanation (explanation_ko) and an example sentence
-(example_ja, may be null). For each usage give its usage_id and:
+You receive usages. Each has an id (usage_id), the grammar pattern (pattern_name), the tokens
+of the pattern (morphemes: lemma, part of speech pos1 and conjugation_form, each null for any
+token), the usage name (usage_name), its Korean explanation (explanation_ko) and an example
+sentence (example_ja, may be null). For each usage give its usage_id and:
 """
     + KOREAN_EQUIVALENT_RULE
+    + FUNCTION_TAGS_RULE
     + """\
 Do not write number placeholders (⟨N1⟩). Answer every usage_id you received.
 """
@@ -775,8 +797,9 @@ FILL_SCHEMA = {
                 "properties": {
                     "usage_id": {"type": "integer"},
                     "korean_equivalent": {"type": "string"},
+                    "function_tags": FUNCTION_TAGS_SCHEMA,
                 },
-                "required": ["usage_id", "korean_equivalent"],
+                "required": ["usage_id", "korean_equivalent", "function_tags"],
                 "additionalProperties": False,
             },
         }

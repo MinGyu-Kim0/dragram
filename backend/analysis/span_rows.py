@@ -144,6 +144,7 @@ def judged_rows(sentence, saved, span_list, answers, alternatives):
                 usage_examples[owner.id, name],
                 matched=span.pattern,
                 korean_equivalent=new_usage["korean_equivalent"],
+                function_tags=new_usage["function_tags"],
             )
             activated |= matchable
         new_usages[index] = added[owner.id, name]
@@ -237,6 +238,7 @@ def span_matches(sentence, saved, validated, final):
                     proposal["explanation_ko"],
                     example,
                     korean_equivalent=proposal["korean_equivalent"],
+                    function_tags=proposal["function_tags"],
                 )
             usage = usages.get(name)
         elif pattern is None and proposal["conditions"] is not None:
@@ -248,6 +250,7 @@ def span_matches(sentence, saved, validated, final):
                 example,
                 test_examples.get(order(proposal)),
                 proposal["korean_equivalent"],
+                proposal["function_tags"],
             )
             if usage is None and not final:
                 raise _PatternTaken

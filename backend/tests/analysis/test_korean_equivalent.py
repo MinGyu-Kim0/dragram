@@ -342,7 +342,7 @@ def test_fill_command_fills_only_unfilled_usages_without_any_sentence(fake_llm):
     progress = unfilled_usage()
     done = unfilled_usage("결과 상태")
     GrammarUsage.objects.filter(pk=done.pk).update(
-        korean_equivalent="~어 있다", korean_equivalent_filled=True
+        korean_equivalent="~어 있다", korean_equivalent_filled=True, function_tags_filled=True
     )
     fake_llm.fill_response = {
         "usages": [{"usage_id": progress.pk, "korean_equivalent": "~고 있다"}]
@@ -355,6 +355,7 @@ def test_fill_command_fills_only_unfilled_usages_without_any_sentence(fake_llm):
         {
             "usage_id": progress.pk,
             "pattern_name": "ている",
+            "morphemes": [],
             "usage_name": "진행",
             "explanation_ko": "진행 설명",
             "example_ja": "雨が降っている",

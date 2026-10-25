@@ -1,6 +1,6 @@
 """원문 기준 응답 이벤트."""
 
-from analysis import words
+from analysis import patterns, words
 from analysis.models import (
     GrammarUsage,
     ReviewStatus,
@@ -37,6 +37,7 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore):
     spans = list(
         analysis.span_matches.filter(state__in=_SHOWN_STATES)
         .select_related("pattern__variant_of", "usage__pattern")
+        .prefetch_related("pattern__morphemes")
         .order_by("start_offset", "end_offset", "id")
     )
     alternative_usages = GrammarUsage.objects.select_related("pattern").in_bulk(
@@ -70,6 +71,8 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore):
                             "name": usage.name,
                             "korean_equivalent": usage.korean_equivalent,
                             "korean_equivalent_review_status": usage.korean_equivalent_status,
+                            "function_tags": usage.function_tags,
+                            "function_tags_review_status": usage.function_tags_status,
                             "translation_ko": restore(alt["translation_ko"]),
                             "review_status": review_status,
                         }
@@ -146,8 +149,20 @@ def _grammar_item(
         "explanation_ko": usage.explanation_ko,
         "korean_equivalent": usage.korean_equivalent,
         "korean_equivalent_review_status": usage.korean_equivalent_status,
+        **_tag_fields(pattern, usage),
         "review_status": review_status,
         **_register_fields(pattern),
+    }
+
+
+def _tag_fields(pattern, usage):
+    """태그 줄 칸(#151): 실제로 매칭된 패턴의 품사 태그와, 용법의 기능 태그·그 검수 상태.
+    용법이 없으면(미확정) 기능 태그는 빈 목록이다.
+    """
+    return {
+        "pos_tags": patterns.pos_tags(pattern),
+        "function_tags": usage.function_tags if usage else [],
+        "function_tags_review_status": usage.function_tags_status if usage else None,
     }
 
 
@@ -175,6 +190,7 @@ def _unresolved_item(span, offsets, origins, utf16):
         "explanation_ko": None,
         "korean_equivalent": None,
         "korean_equivalent_review_status": None,
+        **_tag_fields(span.pattern, None),
         "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
         **_register_fields(span.pattern),
     }

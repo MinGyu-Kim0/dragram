@@ -184,13 +184,14 @@ def register(
     example_ja,
     test_example,
     korean_equivalent=None,
+    function_tags=(),
 ):
     """새 패턴과 용법을 미검수로 등록한다. 같은 morpheme_key가 이미 있으면 (그 패턴, None).
 
     example_ja는 이 용법이 쓴 예문, test_example은 같은 조건의 제안 중 검사를 통과한 예문이다
     (첫 test_cases 항목). 없으면 None이고, test_example이 있어야 활성화한다. 활성화했으면
     호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다. korean_equivalent는
-    검증한 대응 표현이고 없으면 None이다(#152).
+    검증한 대응 표현이고 없으면 None이다(#152). function_tags는 검증한 기능 태그다(#151).
     """
     pattern, created = GrammarPattern.objects.get_or_create(
         morpheme_key=morpheme_key(conditions),
@@ -214,16 +215,44 @@ def register(
         # LLM이 용법과 함께 답했으므로 비었어도 채운 것이다.
         korean_equivalent=korean_equivalent,
         korean_equivalent_filled=True,
-        korean_equivalent_status=equivalent_status(korean_equivalent),
+        korean_equivalent_status=filled_status(korean_equivalent),
+        function_tags=list(function_tags),
+        function_tags_filled=True,
+        function_tags_status=filled_status(function_tags),
         status=ReviewStatus.PENDING,
         origin=GrammarUsage.Origin.LLM,
     )
     return pattern, usage
 
 
-def equivalent_status(korean_equivalent):
-    """LLM이 쓴 대응 표현의 검수 상태. 값이 있으면 미검수, 없으면 NULL이다(#152)."""
-    return ReviewStatus.PENDING if korean_equivalent else None
+def filled_status(value):
+    """LLM이 채운 대응 표현(#152)·기능 태그(#151)의 검수 상태. 값이 있으면 미검수, 없으면 NULL."""
+    return ReviewStatus.PENDING if value else None
+
+
+# SudachiPy 품사(pos1) → 품사 태그 코드(#151). 단어 태그와 겹치는 품사는 같은 코드다. 여기에 없는
+# 품사(기호 등)는 태그로 옮기지 않는다.
+POS_TAGS = {
+    "名詞": "noun",
+    "代名詞": "pronoun",
+    "動詞": "verb",
+    "形容詞": "i_adjective",
+    "形状詞": "na_adjective",
+    "副詞": "adverb",
+    "連体詞": "adnominal",
+    "接続詞": "conjunction",
+    "感動詞": "interjection",
+    "助詞": "particle",
+    "助動詞": "auxiliary_verb",
+    "接頭辞": "prefix",
+    "接尾辞": "suffix",
+}
+
+
+def pos_tags(pattern):
+    """패턴의 '아무거나'가 아닌 형태소 조건의 품사 태그(원문 순서, 중복 없음, #151)."""
+    tags = (POS_TAGS.get(c.pos1) for c in conditions_of(pattern) if c != ANY)
+    return list(dict.fromkeys(tag for tag in tags if tag))
 
 
 def pattern_set_version():
@@ -271,7 +300,15 @@ def matchable_family(pattern):
     return set(family.values_list("pk", flat=True))
 
 
-def add_usage(pattern, name, explanation_ko, example_ja, matched=None, korean_equivalent=None):
+def add_usage(
+    pattern,
+    name,
+    explanation_ko,
+    example_ja,
+    matched=None,
+    korean_equivalent=None,
+    function_tags=(),
+):
     """기존 패턴 아래 새 용법을 미검수로 더한다. (용법, 매칭 자격을 새로 얻은 패턴이 있는가)를
     돌려준다. 같은 이름의 용법이 이미 있으면 (None, False)다.
 
@@ -281,9 +318,9 @@ def add_usage(pattern, name, explanation_ko, example_ja, matched=None, korean_eq
     연결된 회화체에는 자기 용법을 두지 않는다(#63).
 
     example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. korean_equivalent는 검증한 대응
-    표현이고 없으면 None이다(#152). 호출하는 쪽이 트랜잭션을 열고,
-    매칭 자격을 새로 얻었으면 분석 행을 잠그기 전에 패턴 세트 버전을 한 번 올린다(잠금 순서:
-    패턴과 그 회화체(lock_families) → 용법 → 버전 → 분석).
+    표현이고 없으면 None이다(#152). function_tags는 검증한 기능 태그다(#151). 호출하는 쪽이
+    트랜잭션을 열고, 매칭 자격을 새로 얻었으면 분석 행을 잠그기 전에 패턴 세트 버전을 한 번
+    올린다(잠금 순서: 패턴과 그 회화체(lock_families) → 용법 → 버전 → 분석).
     """
     # 패턴을 먼저 잠가, 용법 완결 표시(analysis.review)가 커밋 전 용법을 못 본 채 하나라고
     # 판단하지 않게 한다. 상태 전이와 같은 패턴 → 분석 순서다. 연결·해제도 이 패턴을 잠그므로
@@ -307,7 +344,10 @@ def add_usage(pattern, name, explanation_ko, example_ja, matched=None, korean_eq
                 example_ja=example_ja,
                 korean_equivalent=korean_equivalent,
                 korean_equivalent_filled=True,
-                korean_equivalent_status=equivalent_status(korean_equivalent),
+                korean_equivalent_status=filled_status(korean_equivalent),
+                function_tags=list(function_tags),
+                function_tags_filled=True,
+                function_tags_status=filled_status(function_tags),
                 status=ReviewStatus.PENDING,
                 origin=GrammarUsage.Origin.LLM,
             )

@@ -3413,6 +3413,26 @@ describe("같은 단어·같은 뜻인 단어 행 합치기(#211)", () => {
     expect(await wordRows()).toHaveLength(3);
   });
 
+  test("사전형·뜻이 같아도 표기가 다른 자리(활용형)는 따로 둔다", async () => {
+    // 食べた食べる: 食べ(0-2), 食べる(3-6)
+    respondPerSentence({
+      食べた食べる: () =>
+        json(200, {
+          translation_ko: "먹었고 먹는다",
+          grammar: [],
+          words: [
+            wordItem(0, 2, "食べる", "たべる"),
+            wordItem(3, 6, "食べる", "たべる"),
+          ],
+          name_spans: [],
+        }),
+    });
+    render(<App />);
+    await send(panelWindowId, "食べた食べる");
+
+    expect(await wordRows()).toHaveLength(2);
+  });
+
   test("합친 자리 중 하나라도 드래그 범위와 겹치면 '드래그한 부분'으로 앞에 온다", async () => {
     respondWithWords([
       wordItem(1, 2, "回", "かい"),

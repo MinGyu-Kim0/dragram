@@ -95,6 +95,8 @@ ANALYSIS_INLINE = False
 # 사용자별 비용 안전장치(#28, NFR-14). 하루(Asia/Seoul) LLM 토큰 한도와 동시 분석 요청 상한.
 ANALYSIS_DAILY_TOKEN_LIMIT = int(os.environ.get("ANALYSIS_DAILY_TOKEN_LIMIT", "200000"))
 
+ANALYSIS_MAX_CONCURRENT = int(os.environ.get("ANALYSIS_MAX_CONCURRENT", "10"))
+
 
 def _price(name):
     value = os.environ.get(name)
@@ -105,7 +107,6 @@ def _price(name):
 EVAL_PRICE_INPUT = _price("EVAL_PRICE_INPUT")
 EVAL_PRICE_CACHED_INPUT = _price("EVAL_PRICE_CACHED_INPUT")
 EVAL_PRICE_OUTPUT = _price("EVAL_PRICE_OUTPUT")
-ANALYSIS_MAX_CONCURRENT = int(os.environ.get("ANALYSIS_MAX_CONCURRENT", "10"))
 
 # 적재한 JMdict 판본 이름(예: "JMdict_e 2026-10-01"). load_jmdict는 이 값이 있어야 적재한다.
 JMDICT_EDITION = os.environ.get("JMDICT_EDITION", "")

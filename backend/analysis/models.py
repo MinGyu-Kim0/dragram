@@ -653,6 +653,10 @@ class EvalResult(models.Model):
     input_tokens = models.PositiveIntegerField("입력 토큰", default=0)
     cached_input_tokens = models.PositiveIntegerField("캐시된 입력 토큰", default=0)
     output_tokens = models.PositiveIntegerField("출력 토큰", default=0)
+    # 이 문장을 분석한 사용 기록의 request 행. LLM 호출 행은 그 뒤의 같은 분석 행 기록이다.
+    usage_request = models.ForeignKey(
+        UsageLog, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
 
     class Meta:
         db_table = "eval_result"
@@ -679,7 +683,12 @@ class EvalItem(models.Model):
     end = models.PositiveIntegerField()
     surface = models.CharField("구간", max_length=255)
     state = models.CharField("상태", max_length=30)
+    # 미확정이면 패턴 이름, 그 밖에는 용법 이름(화면 제목)
     name = models.CharField("이름", max_length=255)
+    pattern_name = models.CharField("패턴", max_length=255)
+    # 채점 이어받기 기준. 용법이 합쳐져 지워져도 남도록 참조가 아닌 값으로 둔다.
+    pattern_ref = models.BigIntegerField()
+    usage_ref = models.BigIntegerField(null=True)
     # 해석 갈림의 대안 용법 이름
     alternatives = models.JSONField("대안", default=list)
     review_status = models.CharField("검수 상태", max_length=30)

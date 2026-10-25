@@ -55,7 +55,9 @@ def test_run_records_each_sentence_translation_items_and_calls(fake_llm, redis_d
     assert (result.input_tokens, result.output_tokens) == (100, 10)
     item = result.items.get()
     assert (item.start, item.end, item.surface) == (2, 5, "ている")
-    assert (item.state, item.name) == ("decided", "진행")
+    assert (item.state, item.pattern_name, item.name) == ("decided", "ている", "진행")
+    # 실행 결과에서 그 문장의 사용 기록(request 행)으로 거꾸로 찾아간다.
+    assert result.usage_request.path == UsageLog.Path.LLM
     assert item.grade == EvalItem.Grade.UNGRADED
     # 사용 기록에는 사용자 없이 남아 누구의 하루 한도에도 들지 않는다.
     assert not UsageLog.objects.filter(user__isnull=False).exists()
@@ -152,7 +154,7 @@ def test_different_result_is_left_ungraded(fake_llm, redis_db):
     EvalSentence.objects.create(text=HASHITTEIRU, category="normal")
 
     def other_usage_last_time():
-        EvalItem.objects.update(name="결과 상태")
+        EvalItem.objects.update(usage_ref=None)
 
     assert run_twice(fake_llm, other_usage_last_time).grade == EvalItem.Grade.UNGRADED
 
@@ -183,6 +185,8 @@ def graded_run():
             start=0,
             end=1,
             surface="走",
+            pattern_name="패턴",
+            pattern_ref=1,
             state=state,
             name="이름",
             review_status="pending",
@@ -284,3 +288,17 @@ def test_admin_run_list_shows_metrics_side_by_side(admin_client):
 def test_admin_cannot_add_runs_results_or_items(admin_client):
     assert admin_client.get(f"{RUNS}add/").status_code == 403
     assert admin_client.get(f"{RESULTS}add/").status_code == 403
+
+
+def test_failed_run_keeps_the_cached_analysis_usable(fake_llm, redis_db, client):
+    new_pattern_response(fake_llm)
+    analyze(client, HASHITTEIRU)
+    EvalSentence.objects.create(text=HASHITTEIRU, category="normal")
+    fake_llm.response = {"translation_ko": "달리고 있다", "spans": "틀린 답"}
+
+    evaluate("--yes")
+
+    assert EvalResult.objects.get().failed is True
+    cached = saved_analyses().get()
+    assert (cached.status, cached.is_stale) == ("complete", False)
+    assert cached.translation_ko == "달리고 있다"

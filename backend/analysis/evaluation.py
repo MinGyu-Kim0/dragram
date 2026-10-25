@@ -2,63 +2,23 @@
 
 평가 문장을 실제 요청처럼 선점·분석·저장하고, 사이드 패널에 보일 문법 항목과 호출·토큰을 평가
 결과로 남긴다. 결과는 공용 캐시에도 남는다(관리자가 쓴 문장이라 원문 불변식에 걸리지 않는다,
-사용자 결정 2026-10-25). 캐시가 있어도 stale로 돌려 매번 새로 분석한다. 사용자 요청이 아니라
-사용 기록의 user는 NULL이고 하루 한도에 들지 않는다.
+사용자 결정 2026-10-25). 캐시가 있어도 stale로 돌려 매번 새로 분석하고, 분석이 실패하면 원래
+캐시를 되살린다. 사용자 요청이 아니라 사용 기록의 user는 NULL이고 하루 한도에 들지 않는다.
 """
 
-from datetime import timedelta
-
 from django.conf import settings
-from django.db.models import F, Sum
-from django.utils import timezone
+from django.db.models import Sum
 
 from analysis.models import EvalItem, EvalResult, SentenceAnalysis, SpanMatch, UsageLog
-from analysis.normalize import NORMALIZE_VERSION, analysis_text
+from analysis.normalize import analysis_text
+from analysis.positions import to_analysis, to_original
 from analysis.presenter import Presenter
 from analysis.sentence import Sentence
-from analysis.stream import CLAIM_EXPIRY_SECONDS
+from analysis.stream import take
 from analysis.usage import RequestUsage
 from analysis.worker import run_analysis
-
-
-def _claim(sentence):
-    """그 문장의 분석 행을 선점하고 stale로 돌린다. 다른 요청이 처리 중이면 None이다.
-
-    stream.claim과 같은 조건부 선점이지만, 캐시가 있어도 새로 분석하고 큐 대신 이 프로세스에서
-    바로 분석한다.
-    """
-    now = timezone.now()
-    processing = SentenceAnalysis.Status.PROCESSING
-    row, created = SentenceAnalysis.objects.get_or_create(
-        sentence_hash=sentence.sentence_hash,
-        defaults={
-            "normalize_version": NORMALIZE_VERSION,
-            "normalized_length": len(sentence.key_text),
-            "status": processing,
-            "processing_started_at": now,
-        },
-    )
-    if created:
-        return row
-    claimed = (
-        SentenceAnalysis.objects.filter(pk=row.pk)
-        .exclude(
-            status=processing,
-            processing_started_at__gt=now - timedelta(seconds=CLAIM_EXPIRY_SECONDS),
-        )
-        .update(
-            status=processing,
-            processing_started_at=now,
-            generation=F("generation") + 1,
-            processing_translation_ko=None,
-            # 캐시로 보지 않게 해서(Sentence.cached) 처음부터 다시 분석한다.
-            is_stale=True,
-        )
-    )
-    if not claimed:
-        return None
-    row.refresh_from_db()
-    return row
+from errors import BusinessError
+from errors.handler import log_business_error
 
 
 def _surface(text, start, end):
@@ -76,12 +36,15 @@ def _flat(grammar):
 
 
 def evaluate_sentence(run, eval_sentence):
-    """평가 문장 하나를 분석해 결과와 항목을 남긴다. 실패도 결과로 남기고 예외를 내지 않는다."""
+    """평가 문장 하나를 분석해 결과와 항목을 남긴다. 분석 실패(BusinessError)도 결과로 남기고
+    다음 문장으로 넘어간다. 그 밖의 예외는 우리 코드의 버그라 그대로 올린다.
+    """
     result = EvalResult.objects.create(run=run, sentence=eval_sentence, text=eval_sentence.text)
     try:
         _analyze(result)
-    except Exception as e:  # noqa: BLE001  한 문장의 실패가 나머지를 막지 않는다.
-        _fail(result, type(e).__name__)
+    except BusinessError as e:
+        log_business_error(e)
+        _fail(result, e.error_code.code)
     return result
 
 
@@ -90,46 +53,91 @@ def _fail(result, error):
     result.save(update_fields=["failed", "error"])
 
 
+def _is_fresh(row):
+    return (
+        row.status == SentenceAnalysis.Status.COMPLETE
+        and row.word_spans is not None
+        and not row.is_stale
+    )
+
+
 def _analyze(result):
     original = result.text
     text, origins = analysis_text(original)
-    row = _claim(Sentence(text))
-    if row is None:
+    sentence = Sentence(text)
+    was_fresh = sentence.existing is not None and _is_fresh(sentence.existing)
+    row, claimed = take(sentence, again=True)
+    if not claimed:
         _fail(result, "다른 요청이 처리 중")
         return
     usage = RequestUsage.start(UsageLog.Path.LLM, None, row.pk)
+    result.usage_request_id = usage.id
+    result.save(update_fields=["usage_request"])
     try:
         run_analysis(row.pk, text, usage.id, row.processing_started_at)
     finally:
         _count_calls(result, usage.id, row.pk)
-    row.refresh_from_db()
-    if row.status != SentenceAnalysis.Status.COMPLETE:
+    if not SentenceAnalysis.objects.filter(
+        pk=row.pk, status=SentenceAnalysis.Status.COMPLETE
+    ).exists():
+        if was_fresh:
+            # 실패한 시도는 저장하지 않아 옛 결과가 그대로다. 그사이 다른 요청이 다시 선점하지
+            # 않았으면 정상 캐시로 되돌려, 다음 사용자가 LLM을 다시 부르지 않게 한다.
+            SentenceAnalysis.objects.filter(
+                pk=row.pk, generation=row.generation, status=SentenceAnalysis.Status.FAILED
+            ).update(status=SentenceAnalysis.Status.COMPLETE, is_stale=False)
         _fail(result, "분석 실패")
         return
-    event = Presenter(Sentence(text), original, origins).analysis_event(row)
+    row.refresh_from_db()
+    presenter = Presenter(Sentence(text), original, origins)
+    event = presenter.analysis_event(row)
     result.translation_ko = event["translation_ko"]
     result.save(update_fields=["translation_ko"])
-    items = [
-        EvalItem(
-            result=result,
-            start=item["start"],
-            end=item["end"],
-            surface=_surface(original, item["start"], item["end"]),
-            state=item["state"],
-            name=item["name"],
-            alternatives=[alt["name"] for alt in item.get("alternatives", [])],
-            review_status=item["review_status"],
+    spans = _spans_by_item(presenter, row)
+    items = []
+    for item in _flat(event["grammar"]):
+        span = spans[(item["start"], item["end"], item["state"], item["name"])]
+        items.append(
+            EvalItem(
+                result=result,
+                start=item["start"],
+                end=item["end"],
+                surface=_surface(original, item["start"], item["end"]),
+                state=item["state"],
+                name=item["name"],
+                pattern_name=span.pattern.name,
+                pattern_ref=span.pattern_id,
+                usage_ref=span.usage_id,
+                alternatives=[alt["name"] for alt in item.get("alternatives", [])],
+                review_status=item["review_status"],
+            )
         )
-        for item in _flat(event["grammar"])
-    ]
     for item in items:
         item.grade = _last_grade(result, item)
     EvalItem.objects.bulk_create(items)
 
 
+def _spans_by_item(presenter, row):
+    """응답 항목에 없는 패턴·용법 ID를 찾으려고 저장 구간을 (원문 위치, 상태, 화면 이름)으로
+    둔다.
+    """
+    s = presenter.sentence
+    spans = {}
+    shown = (SpanMatch.State.DECIDED, SpanMatch.State.DIVERGENT, SpanMatch.State.UNRESOLVED)
+    for span in row.span_matches.filter(state__in=shown).select_related("pattern", "usage"):
+        start, end = to_original(
+            presenter.origins,
+            presenter.utf16,
+            *to_analysis(s.offsets, span.start_offset, span.end_offset),
+        )
+        name = span.pattern.name if span.state == SpanMatch.State.UNRESOLVED else span.usage.name
+        spans[(start, end, span.state, name)] = span
+    return spans
+
+
 def _last_grade(result, item):
-    """같은 평가 문장(고치지 않은 같은 글)의 지난 실행에서 위치·상태·이름·대안이 모두 같은 항목의
-    가장 최근 채점. 없으면 미채점이다.
+    """같은 평가 문장(고치지 않은 같은 글)의 지난 실행에서 위치·상태·패턴·용법·대안이 모두 같은
+    항목의 가장 최근 채점. 없으면 미채점이다.
     """
     last = (
         EvalItem.objects.filter(
@@ -138,7 +146,8 @@ def _last_grade(result, item):
             start=item.start,
             end=item.end,
             state=item.state,
-            name=item.name,
+            pattern_ref=item.pattern_ref,
+            usage_ref=item.usage_ref,
             alternatives=item.alternatives,
         )
         .exclude(result__run=result.run)

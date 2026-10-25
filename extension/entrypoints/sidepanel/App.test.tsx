@@ -10,7 +10,16 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 import { requestAnalysis } from "@/utils/analysis-request";
 import { loadToken, saveToken, signOut } from "@/utils/auth";
 import { handleExternalMessage, WEB_ORIGIN } from "@/utils/external-messages";
+import { fetchNames, removeName, saveName } from "@/utils/names";
 import App from "./App";
+
+// 지정한 이름 API(#136)는 분석 요청의 fetch 가짜와 섞이지 않게 따로 가짜로 둔다.
+vi.mock("@/utils/names", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/utils/names")>()),
+  fetchNames: vi.fn(),
+  saveName: vi.fn(),
+  removeName: vi.fn(),
+}));
 
 function respondWith(status: number, body: object) {
   // 응답 본문은 한 번만 읽을 수 있어 요청마다 새로 만든다.
@@ -113,6 +122,9 @@ beforeEach(async () => {
   panelWindowId = panelWindow!.id!;
   // 웹에서 연결한 상태로 시작한다(#109).
   await saveToken("extension-token");
+  vi.mocked(fetchNames).mockReset().mockResolvedValue([]);
+  vi.mocked(saveName).mockReset();
+  vi.mocked(removeName).mockReset();
 });
 
 afterEach(() => {
@@ -2454,6 +2466,8 @@ test("단어 카드는 배지 줄 → 표제 → 태그 → 뜻 순서다", asyn
     "word-head",
     "word-tags",
     "word-meaning",
+    // 카드 맨 아래의 '이름으로 지정'(#136)
+    "name-actions",
   ]);
   const badges = llm!.firstElementChild as HTMLElement;
   expect(within(badges).getByText("AI 생성·미검수")).toBeInTheDocument();
@@ -2654,5 +2668,256 @@ describe("로그인과 확장 연결(#109)", () => {
 
     expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("이름 지정(#136)", () => {
+  // 두 문장에 같은 표기 春이 나온다. 루비는 SudachiPy 읽기다.
+  function respondWithSpring() {
+    return respondPerSentence({
+      春が来た: () =>
+        json(200, {
+          translation_ko: "봄이 왔다",
+          grammar: [],
+          words: [wordItem(0, 1, "春", "はる")],
+          ruby: [rubyItem(0, 1, "はる")],
+        }),
+      春の雨: () =>
+        json(200, {
+          translation_ko: "봄비",
+          grammar: [],
+          words: [wordItem(0, 1, "春", "はる"), wordItem(2, 3, "雨", "あめ")],
+          ruby: [rubyItem(0, 1, "はる"), rubyItem(2, 3, "あめ")],
+        }),
+    });
+  }
+
+  async function openWords() {
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+  }
+
+  async function designate(reading?: string) {
+    fireEvent.click(screen.getByRole("button", { name: "이름으로 지정" }));
+    if (reading !== undefined) {
+      fireEvent.change(screen.getByRole("textbox", { name: "읽기" }), {
+        target: { value: reading },
+      });
+    }
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+  }
+
+  test("지정하면 열린 모든 문장 페이지의 같은 표기가 이름 행이 되고 다시 분석하지 않는다", async () => {
+    const fetchMock = respondWithSpring();
+    vi.mocked(saveName).mockResolvedValue({ surface: "春", reading: "はるか" });
+    render(<App />);
+    await send(panelWindowId, "春が来た", "春の雨");
+    await openWords();
+
+    await designate("ハルカ");
+
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(saveName).toHaveBeenCalledWith("春", "ハルカ");
+    expect(screen.queryByText("春 뜻")).not.toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "はるか"]]);
+    fireEvent.click(screen.getByRole("button", { name: "다음 문장" }));
+    await openWords();
+    expect(screen.getAllByText("내가 지정한 이름")).toHaveLength(1);
+    expect(screen.getByText("雨 뜻")).toBeInTheDocument();
+    expect(rubies()).toEqual([
+      ["春", "はるか"],
+      ["雨", "あめ"],
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("읽기 입력에 SudachiPy 읽기를 채우고 사전 읽기 칩을 고를 수 있다", async () => {
+    respondWithSpring();
+    vi.mocked(saveName).mockResolvedValue({ surface: "春", reading: "はる" });
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    fireEvent.click(screen.getByRole("button", { name: "이름으로 지정" }));
+
+    const input = screen.getByRole("textbox", { name: "읽기" });
+    expect(input).toHaveValue("はる");
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "はる" }));
+    expect(input).toHaveValue("はる");
+  });
+
+  test("가나가 아닌 읽기는 그 자리에서 오류를 보이고 저장하지 않는다", async () => {
+    respondWithSpring();
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    await designate("haru");
+
+    expect(
+      screen.getByText("읽기는 가나로만 입력해 주세요"),
+    ).toBeInTheDocument();
+    expect(saveName).not.toHaveBeenCalled();
+  });
+
+  test("저장에 실패하면 화면을 바꾸지 않고 실패 문구를 보인다", async () => {
+    respondWithSpring();
+    vi.mocked(saveName).mockRejectedValue(new Error("실패"));
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    await designate("はる");
+
+    expect(
+      await screen.findByText(
+        "이름을 저장하지 못했습니다. 다시 시도해 주세요.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("내가 지정한 이름")).not.toBeInTheDocument();
+    expect(screen.getByText("春 뜻")).toBeInTheDocument();
+  });
+
+  test("'사전 단어 보기'는 그 자리만 카드와 루비를 바꾸고 서버에 묻지 않는다", async () => {
+    const fetchMock = respondWithSpring();
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "春", reading: "しゅん" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "しゅん"]]);
+
+    fireEvent.click(screen.getByRole("button", { name: "사전 단어 보기" }));
+
+    expect(screen.getByText("春 뜻")).toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "はる"]]);
+    fireEvent.click(screen.getByRole("button", { name: "사전 단어 보기" }));
+    expect(screen.getByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(saveName).not.toHaveBeenCalled();
+    expect(removeName).not.toHaveBeenCalled();
+  });
+
+  test("'읽기 고치기'로 읽기를 바꾼다", async () => {
+    respondWithSpring();
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "春", reading: "しゅん" },
+    ]);
+    vi.mocked(saveName).mockResolvedValue({ surface: "春", reading: "はる" });
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    fireEvent.click(await screen.findByRole("button", { name: "읽기 고치기" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "읽기" }), {
+      target: { value: "はる" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => expect(rubies()).toEqual([["春", "はる"]]));
+    expect(saveName).toHaveBeenCalledWith("春", "はる");
+    expect(screen.getByText("내가 지정한 이름")).toBeInTheDocument();
+  });
+
+  test("'지정 해제' 뒤 같은 표기가 단어 카드와 SudachiPy 루비로 돌아간다", async () => {
+    respondWithSpring();
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "春", reading: "しゅん" },
+    ]);
+    vi.mocked(removeName).mockResolvedValue();
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    fireEvent.click(await screen.findByRole("button", { name: "지정 해제" }));
+
+    expect(await screen.findByText("春 뜻")).toBeInTheDocument();
+    expect(removeName).toHaveBeenCalledWith("春");
+    expect(screen.queryByText("내가 지정한 이름")).not.toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "はる"]]);
+  });
+
+  // 패널을 연 채 다른 계정으로 연결을 바꾼다. 보던 문장은 지워지므로 같은 문장을 다시 보낸다.
+  async function switchAccount() {
+    await saveToken("other-token", "other@example.com");
+    await waitFor(() =>
+      expect(screen.queryByText("春が来た")).not.toBeInTheDocument(),
+    );
+    await send(panelWindowId, "春が来た");
+    await openWords();
+  }
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+
+  test("계정을 바꾸면 새 계정의 목록을 받고, 이전 계정의 늦은 목록은 버린다", async () => {
+    respondWithSpring();
+    const old = deferred<{ surface: string; reading: string | null }[]>();
+    vi.mocked(fetchNames)
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValue([]);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    await switchAccount();
+    old.resolve([{ surface: "春", reading: "しゅん" }]);
+
+    expect(await screen.findByText("春 뜻")).toBeInTheDocument();
+    await waitFor(() => expect(fetchNames).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("내가 지정한 이름")).not.toBeInTheDocument();
+  });
+
+  test("이전 계정에서 보낸 저장의 늦은 응답은 새 계정 화면에 쓰지 않는다", async () => {
+    respondWithSpring();
+    const save = deferred<{ surface: string; reading: string | null }>();
+    vi.mocked(saveName).mockReturnValue(save.promise);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+    await designate("はる");
+
+    await switchAccount();
+    save.resolve({ surface: "春", reading: "はる" });
+
+    expect(await screen.findByText("春 뜻")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("내가 지정한 이름")).not.toBeInTheDocument();
+  });
+
+  test("목록을 받는 사이 저장한 이름은 늦게 온 옛 목록에 덮이지 않는다", async () => {
+    respondWithSpring();
+    const first = deferred<{ surface: string; reading: string | null }[]>();
+    vi.mocked(fetchNames)
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValue([{ surface: "春", reading: "はる" }]);
+    vi.mocked(saveName).mockResolvedValue({ surface: "春", reading: "はる" });
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+    await designate("はる");
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+
+    // 저장 전에 읽은 목록이 늦게 온다.
+    first.resolve([]);
+
+    await waitFor(() => expect(fetchNames).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("내가 지정한 이름")).toBeInTheDocument();
+  });
+
+  test("읽기 없이 지정한 이름은 SudachiPy 루비를 그대로 단다", async () => {
+    respondWithSpring();
+    vi.mocked(fetchNames).mockResolvedValue([{ surface: "春", reading: null }]);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "はる"]]);
   });
 });

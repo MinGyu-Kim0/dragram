@@ -17,6 +17,12 @@ import {
 import { loadToken, watchConnection } from "@/utils/auth";
 import { WEB_ORIGIN } from "@/utils/external-messages";
 import { createLimiter } from "@/utils/limiter";
+import {
+  fetchNames,
+  removeName,
+  saveName,
+  type DesignatedName,
+} from "@/utils/names";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 import { usePreference } from "./use-preference";
 
@@ -51,6 +57,14 @@ function App() {
   const [connected, setConnected] = useState<boolean>();
   // 로그인이 필요해 분석하지 못한 요청이 있다. 연결되면 다시 분석한다.
   const waitingForLogin = useRef(false);
+  // 지정한 이름(#136). 연결되면 한 번 받고, 지정·해제하면 열린 모든 문장 페이지에 바로 쓴다.
+  const [names, setNames] = useState<DesignatedName[]>([]);
+  // 로그인 세대. 로그아웃(다른 계정으로 바꾼 연결 포함)하면 올라, 목록을 새로 받고 이전 로그인에서
+  // 보낸 이름 요청의 늦은 응답은 버린다. 다른 사람의 지정한 이름이 섞이지 않게 한다(PR #167 리뷰).
+  const [login, setLogin] = useState(0);
+  const loginRef = useRef(0);
+  // 끝난 저장·해제 수. 목록을 받는 사이 바뀌었으면 그 목록은 옛것이라 다시 받는다.
+  const edits = useRef(0);
   // 기다리던 요청이 있으면 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
   const resumeAfterLogin = useCallback(() => {
     if (!waitingForLogin.current) return;
@@ -72,10 +86,34 @@ function App() {
           setRequest(undefined);
           setResults(undefined);
           setPage(undefined);
+          setNames([]);
+          loginRef.current += 1;
+          setLogin(loginRef.current);
         },
       }),
     [resumeAfterLogin],
   );
+
+  useEffect(() => {
+    if (!connected) return;
+    let active = true;
+    const load = () => {
+      const seen = edits.current;
+      fetchNames().then(
+        (loaded) => {
+          if (!active) return;
+          if (edits.current !== seen) load();
+          else setNames(loaded);
+        },
+        // 받지 못하면 이름 없이 보인다. 401이면 api가 토큰을 지워 로그인 안내가 보인다.
+        () => {},
+      );
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [connected, login]);
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.
@@ -235,6 +273,26 @@ function App() {
       ? results.bySentence[pageIndex]
       : undefined;
   const goTo = (index: number) => setPage({ requestId: request!.id, index });
+  const nameMap = new Map(
+    names.map(({ surface, reading }) => [surface, reading]),
+  );
+  const onSaveName = async (surface: string, reading: string) => {
+    const started = loginRef.current;
+    const saved = await saveName(surface, reading);
+    if (loginRef.current !== started) return;
+    edits.current += 1;
+    setNames((current) => [
+      ...current.filter((name) => name.surface !== saved.surface),
+      saved,
+    ]);
+  };
+  const onRemoveName = async (surface: string) => {
+    const started = loginRef.current;
+    await removeName(surface);
+    if (loginRef.current !== started) return;
+    edits.current += 1;
+    setNames((current) => current.filter((name) => name.surface !== surface));
+  };
 
   if (connected === false) {
     return (
@@ -284,6 +342,8 @@ function App() {
       )}
       {sentence && (
         <SentenceView
+          // '사전 단어 보기'는 그 페이지의 화면 상태라 페이지마다 새로 시작한다.
+          key={`${request!.id}-${pageIndex}`}
           text={sentence.text}
           selection={sentence.selection}
           showHandles={showHandles}
@@ -294,6 +354,9 @@ function App() {
           tab={tab}
           onTabChange={setTab}
           onRetry={() => retry.current?.(pageIndex)}
+          names={nameMap}
+          onSave={onSaveName}
+          onRemove={onRemoveName}
         />
       )}
     </main>

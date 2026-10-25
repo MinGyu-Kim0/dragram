@@ -14,6 +14,7 @@ from analysis.answers import (
     _validate_recheck_answers,
     _validate_span_answers,
     _validate_translation,
+    _validate_word_answers,
     reject_quotes,
 )
 from analysis.examples import _check_examples
@@ -176,12 +177,14 @@ class Worker:
         self.publish({"type": "done"})
 
     def work(self):
-        """LLM 분석을 하고 저장한다. 번역을 검증하자마자 먼저 알리고, 판정 칸이 닫히면 그 칸만
-        검증해 판정을 알린 뒤(#204), 문법·단어까지 검증해 저장한다. 실패하면 BusinessError이고
-        어느 단계에서 실패해도 저장하지 않는다.
+        """LLM 분석을 하고 저장한다. 번역을 검증하자마자 먼저 알리고, 판정 칸·단어 칸이 닫히면 그
+        칸만 검증해 판정·고른 뜻을 알린 뒤(#204, #205), 문법·단어까지 검증해 저장한다. 실패하면
+        BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
         """
         s = self.sentence
-        translated = judged = False
+        translated = words_judged = False
+        # 먼저 알린 판정. 알리지 않았으면 None
+        span_answers = None
         result = None
         for kind, value in self.client.analyze_stream(
             s.key_text, s.tokens, s.llm_spans, s.decided_spans, s.llm_words, s.unknown
@@ -191,15 +194,31 @@ class Worker:
                 translated = True
                 self.share_translation(value)
             elif kind == "spans":
-                answers = self.early_span_answers(value) if translated and s.spans else None
-                if answers is not None:
-                    judged = True
+                span_answers = self.early_span_answers(value) if translated and s.spans else None
+                if span_answers is not None:
                     # 단어는 아직 고르지 않았다(None). 화면은 먼저 보낸 사전 단어를 그대로 둔다.
                     self.publish(
                         {
                             "type": "judged",
-                            "spans": _judged_spans(s.spans, answers),
+                            "spans": _judged_spans(s.spans, span_answers),
                             "word_spans": None,
+                        }
+                    )
+            elif kind == "words":
+                # judged는 화면의 문법도 통째로 바꾸므로, 판정을 먼저 알렸을 때(판정할 구간이 없을
+                # 때 포함)만 그 판정과 함께 알린다.
+                chosen = (
+                    _validate_word_answers(value, s.ambiguous)
+                    if translated and s.ambiguous and (span_answers is not None or not s.spans)
+                    else None
+                )
+                if chosen is not None:
+                    words_judged = True
+                    self.publish(
+                        {
+                            "type": "judged",
+                            "spans": _judged_spans(s.spans, span_answers or []),
+                            "word_spans": s.word_spans(chosen),
                         }
                     )
             else:
@@ -217,7 +236,7 @@ class Worker:
         # 거부될 응답이면 다시 묻지 않는다.
         reject_quotes(validated, s)
         stored_words = s.word_spans(validated["words"])
-        if s.ambiguous or (s.spans and not judged):
+        if (s.ambiguous and not words_judged) or (s.spans and span_answers is None):
             self.publish(
                 {
                     "type": "judged",

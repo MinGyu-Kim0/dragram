@@ -67,12 +67,20 @@ def test_stream_gives_translation_first_and_then_the_whole_result(llm_client, mo
         ),
     )
 
-    # 판정 칸은 닫히는 대로 응답 전체보다 먼저 나온다(#204).
+    # 판정·단어 칸은 닫히는 대로 응답 전체보다 먼저 나온다(#204, #205).
     assert list(llm_client.analyze_stream("文", [], [], [], [], [])) == [
         ("translation", "번역"),
         ("spans", []),
+        ("words", []),
         ("result", {"translation_ko": "번역", "spans": [], "words": []}),
     ]
+
+
+def test_response_writes_translation_then_judgments_then_word_choices():
+    # 구조화 출력은 스키마 속성 순서대로 쓴다. 먼저 넘기는 칸이 길이가 긴 새 구문보다 앞이다(#205).
+    order = ["translation_ko", "spans", "words", "new_patterns", "new_words", "name_spans"]
+    assert list(llm.RESPONSE_SCHEMA["properties"]) == order
+    assert llm.RESPONSE_SCHEMA["required"] == order
 
 
 def test_openai_error_becomes_analysis_failure(llm_client, monkeypatch):

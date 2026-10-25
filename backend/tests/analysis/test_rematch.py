@@ -6,7 +6,7 @@ import pytest
 from django.db import IntegrityError, connection, transaction
 from django.db.models import F
 
-from analysis import patterns, review
+from analysis import jobs, patterns, review
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -641,6 +641,9 @@ def test_rematch_saved_first_by_another_request_is_rolled_back(client, fake_llm)
     cache_then_register_teiru(client, fake_llm)
 
     def other_request_saves_first():
+        # 재판정 잠금이 만료된 사이 다른 요청이 잠금을 다시 잡아 먼저 저장한다(#114).
+        with jobs._connection() as redis_connection:
+            redis_connection.delete(*redis_connection.keys("rematch:*"))
         fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
         analyze(connected_client(), KITEIRU)
         fake_llm.rematch_response = {

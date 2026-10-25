@@ -1,6 +1,7 @@
 import pytest
 from django.contrib.auth import get_user_model
 
+from analysis import jobs
 from tests.analysis.helpers import connected_client
 
 
@@ -14,3 +15,13 @@ def client(db):
 def analyst(client):
     """client가 쓰는 토큰의 주인"""
     return get_user_model().objects.get(username="analyst")
+
+
+@pytest.fixture
+def redis_db():
+    """작업 큐와 소식을 비운 Redis."""
+    connection = jobs._connection()
+    connection.flushdb()
+    yield connection
+    connection.flushdb()
+    connection.close()

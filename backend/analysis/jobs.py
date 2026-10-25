@@ -59,6 +59,60 @@ def enqueue_analysis(analysis_id, text, usage_id, started):
         raise BusinessError(AnalysisError.FAILED, "분석 작업을 큐에 넣지 못함") from e
 
 
+def enqueue_rematch(analysis_id, text, usage_id, version, token):
+    """재판정 작업을 큐에 넣는다(#114). version은 요청이 매칭한 패턴 세트 버전, token은 잡은
+    재판정 잠금 값이다. 나머지는 enqueue_analysis와 같다. Redis에 넣지 못하면 BusinessError다.
+    """
+    from analysis.rematch import run_rematch
+
+    if settings.ANALYSIS_INLINE:
+        run_rematch(analysis_id, text, usage_id, version, token)
+        return
+    try:
+        Queue(QUEUE_NAME, connection=_connection()).enqueue(
+            run_rematch,
+            analysis_id,
+            text,
+            usage_id,
+            version,
+            token,
+            description=f"rematch {analysis_id}",
+            job_timeout=JOB_TIMEOUT_SECONDS,
+            result_ttl=0,
+            failure_ttl=0,
+        )
+    except redis.RedisError as e:
+        raise BusinessError(AnalysisError.FAILED, "재판정 작업을 큐에 넣지 못함") from e
+
+
+# 재판정 잠금의 만료. 작업 시간 제한(120초)과 요청 대기(130초)보다 길다(#114, 선점 만료와 같음).
+REMATCH_LOCK_SECONDS = 150
+# 그 값일 때만 지운다. 만료 뒤 다른 요청이 잡은 잠금을 풀지 않게 한다.
+_UNLOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end"
+
+
+def rematch_lock(sentence_hash, version):
+    """그 문장·패턴 세트 버전의 재판정 잠금 키. 키 텍스트 해시라 원문이 아니다."""
+    return f"rematch:{sentence_hash}:{version}"
+
+
+def take_lock(key, token):
+    with _connection() as connection:
+        return bool(connection.set(key, token, nx=True, ex=REMATCH_LOCK_SECONDS))
+
+
+def lock_holder(key):
+    """잠금을 잡은 시도의 값. 잠금이 없으면 None이다."""
+    with _connection() as connection:
+        value = connection.get(key)
+    return value.decode() if value is not None else None
+
+
+def release_lock(key, token):
+    with _connection() as connection:
+        connection.eval(_UNLOCK, 1, key, token)
+
+
 def publish(sentence_hash, message):
     """작업 소식 하나를 보낸다.
 

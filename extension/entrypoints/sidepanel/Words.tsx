@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { RubyItem, WordItem, WordSense } from "@/utils/api";
+import type { NameSpan, RubyItem, WordItem, WordSense } from "@/utils/api";
 import { isKana, toHiragana } from "@/utils/names";
 import { BadgeRow } from "./BadgeRow";
 import { namedWords, wordKey } from "./named-words";
@@ -210,16 +210,17 @@ function NameRow({
 // 단어 행: 배지 줄, 사전형(표제)·읽기, 태그, 이 문장에서 고른 뜻. 드래그 범위와 겹친 단어를 먼저 두고,
 // 각 묶음 안은 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
 // 사전(JMdict) 단어가 있으면 목록 아래에 출처 각주를 단다. LLM이 만든 단어만 있으면 달지 않는다(#134).
-// 지정한 이름과 표층형이 같은 단어는 이름 행으로 보인다(#136). '사전 단어 보기'(asWord)로 그 자리만
-// 단어 행으로 바꿔 볼 수 있다.
+// 지정한 이름과 표층형이 같은 단어는 공용 이름 구간이 고른 기본 보기로 보인다(#136, #140).
+// '사전 단어 보기'(flipped)로 그 자리만 반대 보기로 바꿔 볼 수 있다.
 export function WordList({
   text,
   words,
   ruby,
   selection,
   names,
-  asWord,
-  onToggleAsWord,
+  flipped,
+  nameSpans,
+  onToggleView,
   onSave,
   onRemove,
 }: {
@@ -228,8 +229,9 @@ export function WordList({
   ruby: RubyItem[];
   selection: DragRange;
   names: ReadonlyMap<string, string | null>;
-  asWord: ReadonlySet<string>;
-  onToggleAsWord: (key: string) => void;
+  flipped: ReadonlySet<string>;
+  nameSpans: NameSpan[] | null | undefined;
+  onToggleView: (key: string) => void;
 } & NameActions) {
   // 읽기 입력을 연 단어 자리
   const [editing, setEditing] = useState<string>();
@@ -238,7 +240,9 @@ export function WordList({
   }
   const sorted = [...words].sort((a, b) => a.start - b.start || a.end - b.end);
   const named = new Set(
-    namedWords(text, words, names, asWord).map(({ word }) => wordKey(word)),
+    namedWords(text, words, names, flipped, nameSpans).map(({ word }) =>
+      wordKey(word),
+    ),
   );
   const fromDictionary = words.some(
     (word) => word.in_dictionary && !named.has(wordKey(word)),
@@ -275,7 +279,7 @@ export function WordList({
                   surface={surface}
                   reading={names.get(surface)!}
                   dragged={dragged}
-                  onShowWord={() => onToggleAsWord(key)}
+                  onShowWord={() => onToggleView(key)}
                   onEdit={() => setEditing(key)}
                   onRemove={() => onRemove(surface)}
                 />
@@ -306,7 +310,7 @@ export function WordList({
                   <button
                     type="button"
                     aria-pressed={true}
-                    onClick={() => onToggleAsWord(key)}
+                    onClick={() => onToggleView(key)}
                   >
                     사전 단어 보기
                   </button>

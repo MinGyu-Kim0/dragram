@@ -2974,6 +2974,56 @@ describe("이름 지정(#136)", () => {
     expect(removeName).not.toHaveBeenCalled();
   });
 
+  function respondWithSpringNames(nameSpans: { start: number; end: number }[]) {
+    return respondPerSentence({
+      春が来た: () =>
+        json(200, {
+          translation_ko: "봄이 왔다",
+          grammar: [],
+          words: [wordItem(0, 1, "春", "はる")],
+          ruby: [rubyItem(0, 1, "はる")],
+          name_spans: nameSpans,
+        }),
+    });
+  }
+
+  test("이름 구간 밖의 지정한 이름은 사전 단어 행으로 시작하고 토글로 이름 행이 된다", async () => {
+    respondWithSpringNames([]);
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "春", reading: "しゅん" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    expect(await screen.findByText("春 뜻")).toBeInTheDocument();
+    expect(screen.queryByText("내가 지정한 이름")).not.toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "はる"]]);
+    const toggle = screen.getByRole("button", { name: "사전 단어 보기" });
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "しゅん"]]);
+    expect(
+      screen.getByRole("button", { name: "사전 단어 보기" }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("이름 구간 안의 지정한 이름은 이름 행으로 시작한다", async () => {
+    respondWithSpringNames([{ start: 0, end: 1 }]);
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "春", reading: "しゅん" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "しゅん"]]);
+  });
+
   test("'읽기 고치기'로 읽기를 바꾼다", async () => {
     respondWithSpring();
     vi.mocked(fetchNames).mockResolvedValue([

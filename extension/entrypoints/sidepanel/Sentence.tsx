@@ -133,10 +133,10 @@ export function SentenceView({
   // 지정한 이름(표기 → 읽기, #136)
   names: ReadonlyMap<string, string | null>;
 } & NameActions) {
-  // '사전 단어 보기'로 단어 행으로 바꿔 본 자리. 화면 상태라 저장하지 않는다.
-  const [asWord, setAsWord] = useState<ReadonlySet<string>>(new Set());
-  const toggleAsWord = (key: string) =>
-    setAsWord((current) => {
+  // '사전 단어 보기' 토글로 기본 보기와 반대로 바꾼 자리. 화면 상태라 저장하지 않는다.
+  const [flipped, setFlipped] = useState<ReadonlySet<string>>(new Set());
+  const toggleView = (key: string) =>
+    setFlipped((current) => {
       const next = new Set(current);
       if (!next.delete(key)) next.add(key);
       return next;
@@ -166,7 +166,7 @@ export function SentenceView({
   const ruby = translation?.ruby ?? [];
   const shownRuby = withNameRuby(
     ruby,
-    namedWords(text, tabbed?.words ?? [], names, asWord),
+    namedWords(text, tabbed?.words ?? [], names, flipped, analysis?.name_spans),
   );
   return (
     <>
@@ -295,13 +295,14 @@ export function SentenceView({
                 ruby={ruby}
                 selection={selection}
                 names={names}
-                asWord={asWord}
-                onToggleAsWord={toggleAsWord}
+                flipped={flipped}
+                nameSpans={analysis?.name_spans}
+                onToggleView={toggleView}
                 onSave={onSave}
                 onRemove={async (surface) => {
                   await onRemove(surface);
-                  // 해제한 표기의 자리는 다시 지정해도 이름 행으로 시작한다.
-                  setAsWord(
+                  // 해제한 표기의 자리는 다시 지정해도 기본 보기로 시작한다.
+                  setFlipped(
                     (current) =>
                       new Set(
                         [...current].filter(

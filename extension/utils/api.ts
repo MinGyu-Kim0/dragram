@@ -118,11 +118,19 @@ export interface RubyItem {
   reading: string;
 }
 
+// 공용 이름 구간(#140). 원문 기준 UTF-16 위치 [start, end)
+export interface NameSpan {
+  start: number;
+  end: number;
+}
+
 export interface Analysis {
   translation_ko: string;
   grammar: GrammarItem[];
   words: WordItem[];
   ruby: RubyItem[];
+  // 이름 구간을 판단하기 전에 저장된 분석이면 null이다. 이 칸 전에 저장한 결과에는 없다.
+  name_spans?: NameSpan[] | null;
 }
 
 // 문법·단어보다 먼저 오는 번역과 루비
@@ -206,6 +214,7 @@ export async function analyzeSentence(
           grammar: event.grammar,
           words: event.words,
           ruby: event.ruby,
+          name_spans: event.name_spans,
         };
         onPrevious?.(previous);
       } else if (event.type === "grammar") {
@@ -225,6 +234,7 @@ export async function analyzeSentence(
           grammar: event.grammar,
           words: event.words,
           ruby: translation?.ruby ?? [],
+          name_spans: event.name_spans,
         };
       } else {
         code = event.error;

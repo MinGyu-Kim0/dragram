@@ -3339,3 +3339,149 @@ describe("이름 종류 배지(#184)", () => {
     expect(screen.getByText("장소 이름")).toBeInTheDocument();
   });
 });
+
+describe("같은 단어·같은 뜻인 단어 행 합치기(#211)", () => {
+  // 8回と9回に来た: 回가 두 자리(1-2, 4-5), 来る(6-7)
+  const TEXT = "8回と9回に来た";
+
+  function respondWithWords(words: object[], nameSpans: object[] | null = []) {
+    return respondPerSentence({
+      [TEXT]: () =>
+        json(200, {
+          translation_ko: "8회와 9회에 왔다",
+          grammar: [],
+          words,
+          name_spans: nameSpans,
+        }),
+    });
+  }
+
+  async function wordRows() {
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+    const list = await screen.findByRole("list", { name: "단어" });
+    return within(list)
+      .getAllByRole("listitem")
+      .filter((row) => within(row).queryByRole("heading"));
+  }
+
+  test("사전형·읽기·뜻이 같으면 한 장으로 합치고 개수도 합친 뒤로 센다", async () => {
+    respondWithWords([
+      wordItem(1, 2, "回", "かい"),
+      wordItem(4, 5, "回", "かい"),
+      wordItem(6, 7, "来る", "くる"),
+    ]);
+    render(<App />);
+    await send(panelWindowId, TEXT);
+
+    const rows = await wordRows();
+
+    expect(
+      rows.map((row) => within(row).getByRole("heading").textContent),
+    ).toEqual(["回", "来る"]);
+    expect(screen.getByRole("tab", { name: "단어 2" })).toBeInTheDocument();
+  });
+
+  test("분석 중에 먼저 온 단어도 같은 규칙으로 합친다", async () => {
+    const stream = streamed();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+    render(<App />);
+    await send(panelWindowId, TEXT);
+
+    stream.push({
+      type: "grammar",
+      grammar: [],
+      checking: [],
+      words: [wordItem(1, 2, "回", "かい"), wordItem(4, 5, "回", "かい")],
+    });
+
+    expect(
+      await screen.findByRole("tab", { name: "단어 1" }),
+    ).toBeInTheDocument();
+    expect(await wordRows()).toHaveLength(1);
+    stream.end();
+  });
+
+  test("뜻이 다르거나 아직 고르지 않은 자리는 따로 둔다", async () => {
+    respondWithWords([
+      wordItem(1, 2, "回", "かい"),
+      wordItem(4, 5, "回", "かい", { meaning_ko: "번" }),
+      wordItem(6, 7, "来る", "くる", null),
+    ]);
+    render(<App />);
+    await send(panelWindowId, TEXT);
+
+    expect(await wordRows()).toHaveLength(3);
+  });
+
+  test("사전형·뜻이 같아도 표기가 다른 자리(활용형)는 따로 둔다", async () => {
+    // 食べた食べる: 食べ(0-2), 食べる(3-6)
+    respondPerSentence({
+      食べた食べる: () =>
+        json(200, {
+          translation_ko: "먹었고 먹는다",
+          grammar: [],
+          words: [
+            wordItem(0, 2, "食べる", "たべる"),
+            wordItem(3, 6, "食べる", "たべる"),
+          ],
+          name_spans: [],
+        }),
+    });
+    render(<App />);
+    await send(panelWindowId, "食べた食べる");
+
+    expect(await wordRows()).toHaveLength(2);
+  });
+
+  test("합친 자리 중 하나라도 드래그 범위와 겹치면 '드래그한 부분'으로 앞에 온다", async () => {
+    respondWithWords([
+      wordItem(1, 2, "回", "かい"),
+      wordItem(4, 5, "回", "かい"),
+      wordItem(6, 7, "来る", "くる"),
+    ]);
+    render(<App />);
+    // 9回만 골랐다.
+    await sendSelected(panelWindowId, TEXT, 3, 5);
+
+    const [first, second] = await wordRows();
+
+    expect(within(first!).getByRole("heading").textContent).toBe("回");
+    expect(within(first!).getByText("드래그한 부분")).toBeInTheDocument();
+    expect(
+      within(second!).queryByText("드래그한 부분"),
+    ).not.toBeInTheDocument();
+  });
+
+  test("지정한 이름과 표기가 같은 단어와 이름 종류 배지가 다른 자리는 합치지 않는다", async () => {
+    vi.mocked(fetchNames).mockResolvedValue([{ surface: "来", reading: null }]);
+    respondWithWords(
+      [
+        wordItem(1, 2, "回", "かい"),
+        wordItem(4, 5, "回", "かい"),
+        wordItem(6, 7, "来る", "くる"),
+      ],
+      [{ start: 4, end: 5, type: "other" }],
+    );
+    render(<App />);
+    await send(panelWindowId, TEXT);
+
+    const rows = await wordRows();
+
+    expect(rows).toHaveLength(3);
+    expect(within(rows[1]!).getByText("기타 이름")).toBeInTheDocument();
+  });
+
+  test("지정한 이름과 표기가 같은 자리는 뜻이 같아도 자리마다 따로 보인다", async () => {
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "回", reading: "かい" },
+    ]);
+    respondWithWords(
+      [wordItem(1, 2, "回", "かい"), wordItem(4, 5, "回", "かい")],
+      [],
+    );
+    render(<App />);
+    await send(panelWindowId, TEXT);
+
+    expect(await wordRows()).toHaveLength(2);
+  });
+});

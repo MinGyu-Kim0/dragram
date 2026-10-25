@@ -320,19 +320,22 @@ function isDivergent(item: GrammarItem): boolean {
 }
 
 // 문법 카드와 하위 박스가 함께 쓰는 내용: 배지 줄, 칩·이름, 태그(있을 때만), 대응 표현(있을
-// 때만), 원형 안내, 설명이나 "판단하지 못함", 다른 해석
+// 때만), 원형 안내, 설명이나 "판단하지 못함", 다른 해석. checking이면 판정 전이라 칩을 형광펜
+// 색 대신 확인 중 칩으로 두고 제목 줄에 '확인 중'을 단다(#203).
 function GrammarBody({
   text,
   item,
   index,
   Heading,
   dragged = false,
+  checking = false,
 }: {
   text: string;
   item: GrammarItem;
   index: number;
   Heading: "h3" | "h4";
   dragged?: boolean;
+  checking?: boolean;
 }) {
   const alternatives = item.alternatives ?? [];
   const tags = grammarTags(item);
@@ -344,10 +347,14 @@ function GrammarBody({
         dragged={dragged}
       />
       <div className="grammar-card-head">
-        <span lang="ja" className={`grammar-chip ${highlightClass(index)}`}>
+        <span
+          lang="ja"
+          className={`grammar-chip ${checking ? "checking-chip" : highlightClass(index)}`}
+        >
           {text.slice(item.start, item.end)}
         </span>
         <Heading>{item.name}</Heading>
+        {checking && <span className="card-meta">확인 중</span>}
       </div>
       {tags.length > 0 && (
         <div className="grammar-tags">
@@ -401,8 +408,9 @@ function PendingBadge() {
   return <span className="badge-warn">AI 생성·미검수</span>;
 }
 
-// 판별 대상 구간(확인 중). 아직 용법을 고르지 않아 후보 이름만 잇는다. 후보 이름도 LLM이 만든
-// 지식이라 미검수 후보가 하나라도 있으면 'AI 생성·미검수' 배지를 단다(PR #61 리뷰).
+// 판별 대상 구간(확인 중). 후보가 하나면 그 용법 내용을 채운 카드에 '확인 중'만 단다(#203).
+// 여럿이면 아직 용법을 고르지 않아 후보 이름만 잇는다. 후보 이름도 LLM이 만든 지식이라 미검수
+// 후보가 하나라도 있으면 'AI 생성·미검수' 배지를 단다(PR #61 리뷰).
 function CheckingCard({
   text,
   item,
@@ -412,12 +420,30 @@ function CheckingCard({
   item: CheckingItem;
   dragged: boolean;
 }) {
+  const className = dragged
+    ? "grammar-card checking dragged"
+    : "grammar-card checking";
+  if (item.usage) {
+    return (
+      <li className={className}>
+        <GrammarBody
+          text={text}
+          item={{
+            ...item.usage,
+            start: item.start,
+            end: item.end,
+            state: "decided",
+          }}
+          index={0}
+          Heading="h3"
+          dragged={dragged}
+          checking
+        />
+      </li>
+    );
+  }
   return (
-    <li
-      className={
-        dragged ? "grammar-card checking dragged" : "grammar-card checking"
-      }
-    >
+    <li className={className}>
       <BadgeRow
         pending={item.candidates.some(
           (candidate) => candidate.review_status === "pending",

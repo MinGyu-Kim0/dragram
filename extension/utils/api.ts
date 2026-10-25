@@ -78,7 +78,14 @@ export interface CheckingItem {
   end: number;
   // 후보 이름도 LLM이 만든 지식이라 검수 상태를 함께 받는다(pending이면 미검수).
   candidates: { name: string; review_status: "pending" | "approved" }[];
+  // 후보가 하나면 판정 전에도 카드를 채우는 그 용법 칸, 여럿이면 null이다(#203).
+  usage?: CheckingUsage | null;
 }
+
+export type CheckingUsage = Omit<
+  GrammarItem,
+  "start" | "end" | "state" | "alternatives" | "parts"
+>;
 
 export interface WordItem {
   // 원문 기준 UTF-16 위치 [start, end). 문장에 나온 그 단어(활용형 포함)의 자리다.

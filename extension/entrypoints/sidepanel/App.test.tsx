@@ -1556,6 +1556,59 @@ test("확인 중 카드의 후보에 미검수 용법이 있으면 'AI 생성·�
   expect(within(card!).getByText("AI 생성·미검수")).toBeInTheDocument();
 });
 
+test("후보가 하나인 확인 중 카드는 판정 전에도 그 용법의 설명·대응 표현·태그를 보이고, 판정이 오면 확인 중만 뗀다(#203)", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "彼が来ている");
+
+  const usage = {
+    ...grammarItem(3, 6, "진행"),
+    korean_equivalent: "~고 있다",
+    korean_equivalent_review_status: "pending",
+    pos_tags: ["particle", "verb"],
+  };
+  const { start, end, state: _state, ...fields } = usage;
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [
+      {
+        start,
+        end,
+        candidates: [{ name: "진행", review_status: "pending" }],
+        usage: fields,
+      },
+    ],
+  });
+
+  const [card] = await screen.findAllByRole("listitem");
+  expect(card).toHaveClass("checking");
+  expect(within(card!).getByRole("heading").textContent).toBe("진행");
+  expect(within(card!).getByText("확인 중")).toBeInTheDocument();
+  expect(within(card!).getByText("진행 설명")).toBeInTheDocument();
+  expect(within(card!).getByText("~고 있다")).toBeInTheDocument();
+  expect(within(card!).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(card!.querySelector(".skeleton")).toBeNull();
+  // 판정 전이라 원문은 형광펜이 아니라 점선 밑줄이다.
+  expect(document.querySelectorAll(".original mark.checking")).toHaveLength(1);
+  expect(document.querySelectorAll(".original mark.highlight")).toHaveLength(0);
+
+  stream.push({
+    type: "analysis",
+    translation_ko: "그가 와 있다",
+    grammar: [usage],
+    words: [],
+  });
+  stream.end();
+
+  expect(
+    await screen.findByRole("tab", { name: "문법 1" }),
+  ).toBeInTheDocument();
+  expect(screen.queryByText("확인 중")).not.toBeInTheDocument();
+  expect(screen.getByText("진행 설명")).toBeInTheDocument();
+});
+
 // stale 분석의 옛 결과(번역, 루비, 문법, 단어)
 function previousEvent() {
   return {

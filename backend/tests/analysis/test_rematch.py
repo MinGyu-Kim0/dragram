@@ -388,13 +388,12 @@ def test_new_span_after_a_pattern_is_activated_is_judged_once_and_saved(client, 
     response = analyze(client, KITEIRU)
 
     assert response.types() == ["grammar", "translation", "analysis"]
-    assert response.events[0] == {
-        "type": "grammar",
-        "grammar": [],
-        "checking": [
-            {"start": 3, "end": 6, "candidates": [{"name": "진행", "review_status": "pending"}]}
-        ],
-    }
+    first = response.events[0]
+    assert (first["type"], first["grammar"]) == ("grammar", [])
+    [checking] = first["checking"]
+    assert (checking["start"], checking["end"]) == (3, 6)
+    assert checking["candidates"] == [{"name": "진행", "review_status": "pending"}]
+    assert checking["usage"]["name"] == "진행"
     assert response.events[1]["translation_ko"] == "그가 와 있다"
     [request] = fake_llm.rematch_requests
     assert request["translation_ko"] == "그가 와 있다"

@@ -1,21 +1,25 @@
 """패턴 세트 버전이 오른 캐시 분석의 재매칭(#41).
 
-재판정·저장(save_rematch, judge_rematched)은 Sentence와, 잠근 분석 행으로 결과를 만드는
-event_of만 받는다. 요청이 아닌 쪽(#114의 작업자)에서도 부를 수 있게 하기 위해서다.
+LLM 재판정은 요청이 아닌 작업자(run_rematch)가 한다(#114). 같은 문장·패턴 세트 버전의 재판정은
+Redis 잠금을 잡은 요청만 큐에 넣고, 다른 요청은 그 시도의 소식을 기다린다. 재판정 잠금은 첫
+분석·stale 재분석의 선점과 따로 두며 그 선점을 막지 않는다.
 """
 
+import contextlib
 import logging
-from itertools import chain
+import uuid
 
+import redis
+from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 
-from analysis import limits, llm, patterns, user_sentences
+from analysis import jobs, limits, llm, patterns, stream, user_sentences
 from analysis.answers import FIRST_VERDICTS, _validate_recheck_answers, reject_quotes
 from analysis.examples import _check_examples
 from analysis.models import GrammarPattern, GrammarUsage, SentenceAnalysis, SpanMatch, UsageLog
 from analysis.presenter import _review_status, _with_parts
-from analysis.sentence import _is_fresh, _llm_spans
+from analysis.sentence import Sentence, _is_fresh, _llm_spans
 from analysis.span_rows import (
     _basis_changed,
     _is_place_conflict,
@@ -23,11 +27,29 @@ from analysis.span_rows import (
     closed_rows,
     judged_rows,
 )
-from analysis.stream import _NDJSON, _in_thread, _ndjson
+from analysis.stream import _NDJSON, _ndjson
 from analysis.usage import RequestUsage
 from errors import AnalysisError, BusinessError
+from errors.handler import log_business_error
 
 logger = logging.getLogger(__name__)
+
+
+def _new_spans(sentence):
+    """저장 열쇠에 없는 새 구간. (새 DB 확정 구간, 새 판별 대상 구간)이다."""
+    stored_keys = _stored_keys(sentence.cached)
+    s = sentence
+    new_closed = [closed for closed in s.closed_spans if s.span_key(closed[0]) not in stored_keys]
+    new_spans = [span for span in s.spans if s.span_key(span) not in stored_keys]
+    return new_closed, new_spans
+
+
+def _lock_holder(key):
+    try:
+        return jobs.lock_holder(key)
+    except redis.RedisError:
+        logger.warning("재판정 잠금을 읽지 못함")
+        return None
 
 
 def rematch(presenter, user):
@@ -37,17 +59,18 @@ def rematch(presenter, user):
     패턴의 구간은 LLM 없이 정한다. 일괄 재처리는 하지 않아 다시 조회한 문장에만 비용이 든다.
     """
     s = presenter.sentence
-    stored_keys = _stored_keys(s.cached)
-    new_closed = [closed for closed in s.closed_spans if s.span_key(closed[0]) not in stored_keys]
-    new_spans = [span for span in s.spans if s.span_key(span) not in stored_keys]
-    if new_spans and not limits.over_limit(user):
-        # 판정을 기다리는 동안 새 구간은 '확인 중'으로 보인다.
-        usage = RequestUsage.start(UsageLog.Path.LLM, user, s.cached.pk)
-        events = rematch_and_judge(presenter, user, new_closed, new_spans, usage)
-        first = next(events)
-        return StreamingHttpResponse(_in_thread(chain([first], events)), content_type=_NDJSON)
-    # LLM이 필요 없으면 클라이언트를 만들지 않고 한 번에 보낸다. 재판정이 필요한데 하루 한도를
-    # 넘었으면 저장하지 않고 대체 응답을 보내, 다음 조회가 다시 시도한다(#28).
+    new_closed, new_spans = _new_spans(s)
+    may_judge = bool(new_spans) and not limits.over_limit(user)
+    # 하루 한도를 넘은 사용자도 다른 요청이 이미 잡은 재판정은 기다린다(#28).
+    if may_judge or (
+        new_spans and _lock_holder(jobs.rematch_lock_key(s.sentence_hash, s.matcher_version))
+    ):
+        return StreamingHttpResponse(
+            rematch_stream(presenter, user, new_closed, new_spans, may_judge),
+            content_type=_NDJSON,
+        )
+    # LLM이 필요 없으면 한 번에 보낸다. 재판정이 필요한데 하루 한도를 넘었으면 저장하지 않고
+    # 대체 응답을 보내, 다음 조회가 다시 시도한다(#28).
     event = None if new_spans else save_rematch(s, presenter.analysis_event, new_closed)
     RequestUsage.start(UsageLog.Path.DB, user, s.cached.pk, success=event is not None)
     event = event or rematch_fallback(presenter, new_closed)
@@ -88,7 +111,8 @@ def rematch_grammar(presenter, analysis, new_closed):
 
 
 def rematch_fallback(presenter, new_closed):
-    """다시 매칭한 결과를 저장하지 못했을 때의 analysis 이벤트.
+    """저장된 결과로 만든 analysis 이벤트. 재판정 작업이 저장했으면 그 결과가, 저장하지 못했으면
+    대체 응답이 된다.
 
     분석 행을 잠가 행과 구간을 한 시점에서 다시 읽는다(구간을 쓰는 모든 경로가 분석 행을
     잠근 뒤 커밋한다). 시작 때 읽은 행은 쓰지 않는다. 오래 기다린 뒤라 옛 번역과 새 구간이
@@ -226,30 +250,141 @@ def judge_rematched(sentence, event_of, new_closed, new_spans, usage):
     return save_rematch(sentence, event_of, new_closed, new_spans, answers, alternatives)
 
 
-def rematch_and_judge(presenter, user, new_closed, new_spans, usage):
-    """판별 대상 새 구간이 있는 재매칭의 이벤트. 저장 구간과 새 DB 확정 구간, 판별 대상(확인
-    중) → 저장 번역 → 재판정·저장 → analysis 순서다.
-
-    재판정이나 저장이 실패하면 아무것도 저장하지 않고 error 대신 대체 응답을 보낸다. 다음
-    조회가 다시 시도한다. 로그에는 원문 없이 목적·분석 ID·오류 코드만 남긴다.
+def rematch_early(presenter, new_closed, new_spans):
+    """재판정을 기다리기 전에 보낼 이벤트. 저장 구간과 새 DB 확정 구간, 판별 대상(확인 중) →
+    저장 번역 순서다. 먼저 오는 grammar 이벤트는 평평하게 둔다. 하위 박스는 analysis에만 있다(#65).
     """
     s = presenter.sentence
-    # 먼저 오는 grammar 이벤트는 평평하게 둔다. 하위 박스는 analysis에만 있다(#65).
-    yield {
-        "type": "grammar",
-        "grammar": [item for item, _ in rematch_grammar(presenter, s.cached, new_closed)],
-        "checking": presenter.checking(new_spans),
-    }
-    yield presenter.translation_event(s.cached.translation_ko)
+    return [
+        {
+            "type": "grammar",
+            "grammar": [item for item, _ in rematch_grammar(presenter, s.cached, new_closed)],
+            "checking": presenter.checking(new_spans),
+        },
+        presenter.translation_event(s.cached.translation_ko),
+    ]
+
+
+def start_judge(sentence, usage, may_judge):
+    """재판정 잠금을 잡았으면 작업을 큐에 넣는다. 기다릴 시도(잠금 값)를 돌려주고, 기다릴 작업이
+    없으면(큐 넣기 실패 포함) None이다.
+
+    못 잡았으면 잡은 시도를 기다린다. 그사이 풀렸으면 다시 잡는다. 하루 한도를 넘은 요청
+    (may_judge가 거짓)은 잡지 않고 기다리기만 한다.
+    """
+    key = jobs.rematch_lock_key(sentence.sentence_hash, sentence.matcher_version)
     try:
-        event = judge_rematched(s, presenter.analysis_event, new_closed, new_spans, usage)
-        if event is None:
-            raise BusinessError(AnalysisError.FAILED, "재판정 저장 전 분석이 바뀜")
-        usage.succeed()
+        while True:
+            token = uuid.uuid4().hex
+            if may_judge and jobs.take_lock(key, token):
+                break
+            holder = jobs.lock_holder(key)
+            if holder is not None or not may_judge:
+                return holder
+    except redis.RedisError:
+        logger.warning("재판정 잠금을 잡지 못함: analysis_id=%s", sentence.cached.pk)
+        return None
+    try:
+        jobs.enqueue_rematch(
+            sentence.cached.pk, sentence.text, usage.id, sentence.matcher_version, token
+        )
+    except BusinessError as e:
+        log_business_error(e)
+        # 풀지 못해도 만료되면 다음 조회가 다시 잡는다.
+        with contextlib.suppress(redis.RedisError):
+            jobs.release_lock(key, token)
+        return None
+    return token
+
+
+def rematch_result(presenter, user, new_closed):
+    event = rematch_fallback(presenter, new_closed)
+    user_sentences.record(user, presenter.original, presenter.sentence.cached.pk)
+    return event
+
+
+async def rematch_stream(presenter, user, new_closed, new_spans, may_judge):
+    """판별 대상 새 구간이 있는 재매칭의 이벤트. rematch_early → analysis 순서다.
+
+    rematch_early를 보내고 작업 소식을 구독한 뒤 재판정 잠금을 잡거나 잡은 시도에 붙고, 그
+    시도의 소식만 받는다. analysis는 성공·실패와 관계없이 저장된 결과로 만든다. 실패 소식,
+    대기 상한, 큐 넣기 실패에도 error 대신 이 대체 응답을 보내고, 다음 조회가 다시 시도한다.
+    """
+    s = presenter.sentence
+    # 구독과 상관없는 이벤트라 먼저 보낸다. 구독에 실패해도 루비가 담긴 번역은 간다(PR #163 리뷰).
+    for event in await sync_to_async(rematch_early)(presenter, new_closed, new_spans):
+        yield _ndjson(event)
+    saved = False
+    try:
+        async with jobs.listen(s.sentence_hash) as pubsub:
+            usage = await sync_to_async(RequestUsage.start)(UsageLog.Path.LLM, user, s.cached.pk)
+            attempt = await sync_to_async(start_judge)(s, usage, may_judge)
+            if attempt is not None:
+                async for message in jobs.messages(pubsub, stream.WAIT_SECONDS):
+                    if message.get("attempt") == attempt:
+                        saved = message["type"] == "done"
+                        break
+                else:
+                    logger.warning("재판정 작업 대기 시간 초과: analysis_id=%s", s.cached.pk)
+    except redis.RedisError:
+        # 소식을 받지 못해도 저장된 결과는 DB에 있다(PR #163 리뷰).
+        logger.warning("재판정 작업 소식을 받지 못함: analysis_id=%s", s.cached.pk)
+    if saved:
+        await sync_to_async(usage.succeed)()
+    yield _ndjson(await sync_to_async(rematch_result)(presenter, user, new_closed))
+
+
+def run_rematch(analysis_id, text, usage_id, version, token):
+    """작업자가 실행하는 재판정 작업(analysis.jobs). text는 분석 텍스트, version·token은 요청이
+    잡은 재판정 잠금이다.
+
+    잠금이 자기 것이 아니면 LLM을 부르지 않고 끝낸다. 끝나면 성공·실패와 관계없이 자기 잠금만
+    풀고 done 또는 failed를 알린다. 잠금을 먼저 풀어, 실패 소식을 받은 뒤의 조회가 다시 잡게 한다.
+    """
+    sentence_hash = SentenceAnalysis.objects.values_list("sentence_hash", flat=True).get(
+        pk=analysis_id
+    )
+    key = jobs.rematch_lock_key(sentence_hash, version)
+    if jobs.lock_holder(key) != token:
+        return
+    saved = False
+    try:
+        saved = _judge(Sentence(text), analysis_id, usage_id, version)
+    finally:
+        # 풀지 못해도 만료된다. 기다리는 요청이 대기 상한까지 붙잡히지 않게 소식은 꼭 보낸다.
+        with contextlib.suppress(redis.RedisError):
+            jobs.release_lock(key, token)
+        jobs.publish(sentence_hash, {"type": "done" if saved else "failed", "attempt": token})
+
+
+def _judge(sentence, analysis_id, usage_id, version):
+    """작업자가 다시 매칭해 재판정·저장한다. 저장된 결과가 이 버전 이상이면 참이다.
+
+    로그에는 원문 없이 목적·분석 ID·오류 코드만 남긴다.
+    """
+    cached = sentence.cached
+    if cached is None or cached.pk != analysis_id:
+        # 그사이 stale이 됐다. stale 재분석이 이긴다.
+        return False
+    if cached.matcher_version >= sentence.matcher_version:
+        # 잠금이 만료된 사이 다른 시도가 먼저 저장했다.
+        return True
+    if sentence.matcher_version != version:
+        # 큐에서 기다리는 사이 패턴 세트 버전이 올랐다. 새 버전의 잠금을 잡을 조회에 맡긴다.
+        return False
+    request = UsageLog.objects.get(pk=usage_id)
+    if limits.over_limit(request.user):
+        return False
+    new_closed, new_spans = _new_spans(sentence)
+    try:
+        if new_spans:
+            usage = RequestUsage(request)
+            saved = judge_rematched(sentence, lambda row: row, new_closed, new_spans, usage)
+        else:
+            saved = save_rematch(sentence, lambda row: row, new_closed)
     except BusinessError as e:
         logger.warning(
-            "rematch_judge 실패: analysis_id=%s error=%s", s.cached.pk, e.error_code.code
+            "rematch_judge 실패: analysis_id=%s error=%s", analysis_id, e.error_code.code
         )
-        event = rematch_fallback(presenter, new_closed)
-    user_sentences.record(user, presenter.original, s.cached.pk)
-    yield event
+        return False
+    return saved is not None

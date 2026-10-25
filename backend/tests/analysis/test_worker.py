@@ -24,16 +24,6 @@ from tests.analysis.helpers import Analyzed, analyze, connected_client, post
 TEXT = "私は学生です。"
 
 
-@pytest.fixture
-def redis_db():
-    """작업 큐와 소식을 비운 Redis."""
-    connection = jobs._connection()
-    connection.flushdb()
-    yield connection
-    connection.flushdb()
-    connection.close()
-
-
 def _requests():
     return UsageLog.objects.filter(kind=UsageLog.Kind.REQUEST)
 

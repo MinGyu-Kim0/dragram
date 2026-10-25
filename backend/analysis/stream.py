@@ -5,8 +5,6 @@ import logging
 from datetime import timedelta
 
 from asgiref.sync import sync_to_async
-from django.conf import settings
-from django.db import close_old_connections
 from django.db.models import F
 from django.utils import timezone
 
@@ -39,29 +37,6 @@ WAIT_SECONDS = 130
 # 이만큼 지난 처리 중 행은 작업자가 죽은 것으로 보고 다음 요청이 다시 선점한다(#99). 작업 시간
 # 제한(120초)과 요청 대기(130초)보다 길다.
 CLAIM_EXPIRY_SECONDS = 150
-
-
-def _in_thread(events):
-    """동기 이벤트 생성기를 비동기 스트림으로 흘려보낸다(재매칭).
-
-    다음 이벤트는 요청 스레드가 아닌 스레드에서 만든다. ASGI에서는 동기 코드가 한 스레드에서 돌아
-    LLM을 기다리는 동안 다른 요청까지 막기 때문이다. 이벤트 사이에 걸친 트랜잭션이 없어 이벤트마다
-    그 스레드의 DB 연결을 정리한다.
-    """
-    inline = settings.ANALYSIS_INLINE
-
-    def step():
-        try:
-            return next(events, None)
-        finally:
-            if not inline:
-                close_old_connections()
-
-    async def stream():
-        while (event := await sync_to_async(step, thread_sensitive=inline)()) is not None:
-            yield _ndjson(event)
-
-    return stream()
 
 
 def claim(sentence, user):

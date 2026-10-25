@@ -3183,3 +3183,106 @@ describe("이름 지정(#136)", () => {
     expect(rubies()).toEqual([["春", "はる"]]);
   });
 });
+
+describe("이름 종류 배지(#184)", () => {
+  // 東京へ行った: 東京 / 行く
+  function respondWithTokyo(nameSpans: object[] | null) {
+    return respondPerSentence({
+      東京へ行った: () =>
+        json(200, {
+          translation_ko: "도쿄에 갔다",
+          grammar: [],
+          words: [
+            wordItem(0, 2, "東京", "とうきょう"),
+            wordItem(3, 5, "行く", "いく"),
+          ],
+          name_spans: nameSpans,
+        }),
+    });
+  }
+
+  async function wordRows() {
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+    const list = await screen.findByRole("list", { name: "단어" });
+    return within(list)
+      .getAllByRole("listitem")
+      .filter((row) => within(row).queryByRole("heading"));
+  }
+
+  test.each([
+    ["person", "사람 이름"],
+    ["place", "장소 이름"],
+    ["org", "조직 이름"],
+    ["work", "작품 이름"],
+    ["other", "기타 이름"],
+  ])(
+    "%s 이름 구간 안의 단어 카드에만 '%s' 배지를 단다",
+    async (type, label) => {
+      respondWithTokyo([{ start: 0, end: 2, type }]);
+      render(<App />);
+      await send(panelWindowId, "東京へ行った");
+
+      const [tokyo, iku] = await wordRows();
+
+      expect(within(tokyo!).getByText(label)).toHaveClass("badge-neutral");
+      expect(within(iku!).queryByText(label)).not.toBeInTheDocument();
+      expect(screen.queryByText("AI 생성·미검수")).not.toBeInTheDocument();
+    },
+  );
+
+  test("단어 카드 두 장에 걸친 이름 구간은 두 카드 모두에 배지를 단다", async () => {
+    respondWithTokyo([{ start: 0, end: 5, type: "work" }]);
+    render(<App />);
+    await send(panelWindowId, "東京へ行った");
+
+    const rows = await wordRows();
+
+    for (const row of rows) {
+      expect(within(row).getByText("작품 이름")).toBeInTheDocument();
+    }
+  });
+
+  test("겹친 이름 구간에 든 단어는 원문 순서상 앞선 구간의 종류 하나만 단다", async () => {
+    // 行く(3-5)는 두 구간에 모두 든다. 응답 순서와 관계없이 먼저 시작하는 구간을 쓴다.
+    respondWithTokyo([
+      { start: 3, end: 5, type: "place" },
+      { start: 0, end: 5, type: "work" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, "東京へ行った");
+
+    const [, iku] = await wordRows();
+
+    expect(within(iku!).getByText("작품 이름")).toBeInTheDocument();
+    expect(within(iku!).queryByText("장소 이름")).not.toBeInTheDocument();
+  });
+
+  test.each([[null], [[]]])(
+    "이름 구간이 %j이면 배지가 없다",
+    async (nameSpans) => {
+      respondWithTokyo(nameSpans);
+      render(<App />);
+      await send(panelWindowId, "東京へ行った");
+
+      await wordRows();
+
+      expect(screen.queryByText(/ 이름$/)).not.toBeInTheDocument();
+    },
+  );
+
+  test("지정한 이름으로 이름 행이 된 자리에는 배지가 없고, 사전 단어 보기로 바꾸면 단다", async () => {
+    respondWithTokyo([{ start: 0, end: 2, type: "place" }]);
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "東京", reading: null },
+    ]);
+    render(<App />);
+    await send(panelWindowId, "東京へ行った");
+    await wordRows();
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(screen.queryByText("장소 이름")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "사전 단어 보기" }));
+
+    expect(screen.getByText("장소 이름")).toBeInTheDocument();
+  });
+});

@@ -7,6 +7,24 @@ SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
 DEBUG = os.environ.get("DJANGO_DEBUG", "false") == "true"
 ALLOWED_HOSTS = [h for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",") if h]
 
+# 운영에서만 켠다. 앞단 Caddy가 HTTPS를 끝내고 X-Forwarded-Proto를 넘긴다(infra/).
+# backend는 Caddy 뒤에만 열리므로 이 헤더를 믿을 수 있다.
+HTTPS = os.environ.get("DJANGO_HTTPS", "false") == "true"
+CSRF_TRUSTED_ORIGINS = [
+    o for o in os.environ.get("DJANGO_CSRF_TRUSTED_ORIGINS", "").split(",") if o
+]
+if HTTPS:
+    SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_SSL_REDIRECT = True
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+    # .app은 최상위 도메인째 HSTS 사전 등록 목록에 있어 하위 도메인까지 원래 HTTPS 전용이다.
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+# 컨테이너 상태 확인은 Caddy를 거치지 않고 http로 직접 부른다.
+SECURE_REDIRECT_EXEMPT = [r"^api/health/$"]
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",

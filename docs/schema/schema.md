@@ -3,7 +3,7 @@
 원본: `erd.json`(ERDCloud 스냅샷). 이 문서는 그 파일에서 생성했다. 결정 근거는 `../design-decisions.md` 참고.
 
 > 설계 시점 스냅샷이다. 구현을 시작하면 Django 모델과 마이그레이션이 기준이고, 이 문서는 바뀐 부분을 손으로 맞춘다.
-> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명), 51절의 큐·작업자(`sentence_analysis.processing_translation_ko` 칼럼, `status`·`generation` 설명, `usage_log.analysis_id` 설명), #93 트리아지와 구현(`user_sentence.original_hash` 타입과 설명, `analysis_id`·`selected_start`·`selected_end`·`last_analyzed_at` 설명)는 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
+> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명), 51절의 큐·작업자(`sentence_analysis.processing_translation_ko` 칼럼, `status`·`generation` 설명, `usage_log.analysis_id` 설명), #93 트리아지와 구현(`user_sentence.original_hash` 타입과 설명, `analysis_id`·`selected_start`·`selected_end`·`last_analyzed_at` 설명), #136의 이름 지정(`designated_name` 테이블)는 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
 > `grammar_pattern`, `pattern_morpheme`, `grammar_usage`, `span_match`, `pattern_set_version`은 #35에서 그때 쓰는 칼럼만 만들었다. 나머지 칼럼(승인·자동 승인, 판 번호, 규칙, 회화체, 대안 해석, confidence 등)은 그 칼럼을 쓰는 하위 티켓에서 일반 마이그레이션으로 더한다(design-decisions 32절). 회화체 칼럼(`register`·`variant_of`)은 #63에서, `show_parts`는 #65에서, `usage_rule`과 `span_match.rule_id`는 #55에서 더했다.
 
 ## users — 사용자
@@ -59,6 +59,19 @@
 | source_title | 페이지 제목 | varchar(255) | Y |  |  |
 | first_seen_at | 처음 본 일시 | timestamptz |  |  |  |
 | last_seen_at | 마지막 본 일시 | timestamptz |  |  | 10분 내 재방문은 이 값만 갱신. 새 출처 연결은 누락 없이 행 추가 |
+
+## designated_name — 지정한 이름
+
+사용자가 단어 카드의 표기를 이름으로 지정한 것(이름 지정, #136). 개인 데이터라 user_sentence 원문과 같이 본인 user_id로만 조회·수정·삭제하고, Django admin에 등록하지 않고, 로그·usage_log·오류 사유에 표기·읽기를 남기지 않는다. 공용 테이블·공용 캐시·LLM 요청에는 넣지 않는다. 적용은 확장이 단어의 원문 자리로 표층형을 잘라 맞춘다(#136 구현, 확인 필요).
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| user_id | 사용자 ID | bigint |  | → users | 개인 데이터. 본인만 조회, 탈퇴 시 삭제(CASCADE). 사용자당 1000개까지(#136 구현·PR #167 리뷰, 확인 필요) |
+| surface | 표기 | varchar(50) |  |  | 원문 토큰의 표층형. UNIQUE(user_id, surface). 같은 표기를 다시 지정하면 행을 늘리지 않고 reading만 바꾼다 |
+| reading | 읽기 | varchar(50) | Y |  | 가나만 받아 히라가나로 통일해 저장. 비었으면 NULL(읽기 없음) |
+| created_at | 생성일시 | timestamptz |  |  |  |
+| updated_at | 수정일시 | timestamptz |  |  |  |
 
 ## usage_log — 사용 기록
 

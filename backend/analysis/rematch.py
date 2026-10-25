@@ -311,22 +311,26 @@ async def rematch_stream(presenter, user, new_closed, new_spans, may_judge):
     실패에도 error 대신 이 대체 응답을 보내고, 다음 조회가 다시 시도한다.
     """
     s = presenter.sentence
-    async with jobs.listen(s.sentence_hash) as pubsub:
-        for event in await sync_to_async(rematch_early)(presenter, new_closed, new_spans):
-            yield _ndjson(event)
-        usage = await sync_to_async(RequestUsage.start)(UsageLog.Path.LLM, user, s.cached.pk)
-        attempt = await sync_to_async(start_judge)(s, usage, may_judge)
-        saved = False
-        if attempt is not None:
-            async for message in jobs.messages(pubsub, stream.WAIT_SECONDS):
-                if message.get("attempt") == attempt:
-                    saved = message["type"] == "done"
-                    break
-            else:
-                logger.warning("재판정 작업 대기 시간 초과: analysis_id=%s", s.cached.pk)
-        if saved:
-            await sync_to_async(usage.succeed)()
-        yield _ndjson(await sync_to_async(rematch_result)(presenter, user, new_closed))
+    saved = False
+    try:
+        async with jobs.listen(s.sentence_hash) as pubsub:
+            for event in await sync_to_async(rematch_early)(presenter, new_closed, new_spans):
+                yield _ndjson(event)
+            usage = await sync_to_async(RequestUsage.start)(UsageLog.Path.LLM, user, s.cached.pk)
+            attempt = await sync_to_async(start_judge)(s, usage, may_judge)
+            if attempt is not None:
+                async for message in jobs.messages(pubsub, stream.WAIT_SECONDS):
+                    if message.get("attempt") == attempt:
+                        saved = message["type"] == "done"
+                        break
+                else:
+                    logger.warning("재판정 작업 대기 시간 초과: analysis_id=%s", s.cached.pk)
+    except redis.RedisError:
+        # 소식을 받지 못해도 저장된 결과는 DB에 있다(PR #163 리뷰).
+        logger.warning("재판정 작업 소식을 받지 못함: analysis_id=%s", s.cached.pk)
+    if saved:
+        await sync_to_async(usage.succeed)()
+    yield _ndjson(await sync_to_async(rematch_result)(presenter, user, new_closed))
 
 
 def run_rematch(analysis_id, text, usage_id, version, token):

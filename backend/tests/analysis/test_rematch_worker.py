@@ -6,6 +6,7 @@
 """
 
 import pytest
+import redis
 from django.db.models import F
 
 from analysis import jobs, llm, rematch
@@ -189,3 +190,18 @@ def test_job_whose_version_was_raised_while_queued_does_not_call_the_llm(
     assert fake_llm.all_requests() == []
     assert published == [{"type": "failed", "attempt": "mine"}]
     assert not redis_db.exists(old_key)
+
+
+def test_lost_redis_subscription_still_sends_the_saved_analysis(client, fake_llm, monkeypatch):
+    cache_then_register_teiru(client, fake_llm)
+
+    def unreachable(sentence_hash):
+        raise redis.ConnectionError("Redis에 연결하지 못함")
+
+    monkeypatch.setattr(jobs, "listen", unreachable)
+
+    response = analyze(client, KITEIRU)
+
+    assert response.types()[-1] == "analysis"
+    assert response.json()["translation_ko"] == "그가 와 있다"
+    assert fake_llm.all_requests() == []

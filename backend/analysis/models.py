@@ -131,7 +131,7 @@ KOREAN_EQUIVALENT_LENGTH = 100
 
 
 class FunctionTag(models.TextChoices):
-    """용법의 기능 태그 허용 목록(#151, 초안). 이름은 화면 이름이고 확장도 같은 이름을 쓴다."""
+    """용법의 기능 태그 허용 목록(#151). 이름은 화면 이름이고 확장도 같은 이름을 쓴다."""
 
     # 동사의 모양
     PASSIVE = "passive", "수동"

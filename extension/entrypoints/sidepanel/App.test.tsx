@@ -3242,6 +3242,21 @@ describe("이름 종류 배지(#184)", () => {
     }
   });
 
+  test("겹친 이름 구간에 든 단어는 원문 순서상 앞선 구간의 종류 하나만 단다", async () => {
+    // 行く(3-5)는 두 구간에 모두 든다. 응답 순서와 관계없이 먼저 시작하는 구간을 쓴다.
+    respondWithTokyo([
+      { start: 3, end: 5, type: "place" },
+      { start: 0, end: 5, type: "work" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, "東京へ行った");
+
+    const [, iku] = await wordRows();
+
+    expect(within(iku!).getByText("작품 이름")).toBeInTheDocument();
+    expect(within(iku!).queryByText("장소 이름")).not.toBeInTheDocument();
+  });
+
   test.each([[null], [[]]])(
     "이름 구간이 %j이면 배지가 없다",
     async (nameSpans) => {

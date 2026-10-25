@@ -37,7 +37,7 @@ const NAME_TYPE_NAMES: Record<NameSpan["type"], string> = {
 };
 
 // 단어 자리가 든 이름 구간의 종류 이름(#184). 구간이 겹치면 원문 순서상 앞선 구간 하나다.
-export function nameTypeName(
+export function nameTypeLabel(
   word: WordItem,
   nameSpans: NameSpan[] | null | undefined,
 ) {

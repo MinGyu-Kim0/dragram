@@ -5,7 +5,7 @@ from django.db import transaction
 
 from analysis import jobs, patterns
 from analysis.models import GrammarPattern
-from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.helpers import add_word, analyze, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -164,3 +164,21 @@ def test_wrong_later_section_fails_after_the_judgments(client, fake_llm, teiru):
     response = analyze(client, KITEIRU)
 
     assert response.types() == ["grammar", "translation", "judged", "error"]
+
+
+def test_word_choices_sent_later_keep_the_judged_grammar(client, fake_llm, teiru):
+    # 고른 뜻을 알리는 judged도 화면의 문법을 통째로 바꾸므로 앞서 알린 판정을 함께 싣는다(#205).
+    hiraku = add_word(6, ["開く"], ["ひらく"], [(["to open"], [], None), (["to bloom"], [], None)])
+    bloom = hiraku.senses.get(jmdict_sense_index=2).id
+    # 토큰: 0 本 / 1 を / 2 開い / 3 て / 4 いる
+    fake_llm.response = {
+        "translation_ko": "책을 펼치고 있다",
+        "spans": [span_answer(0, "usage", 2)],
+        "words": [{"token_id": 2, "sense_id": bloom}],
+    }
+
+    response = analyze(client, "本を開いている")
+
+    events = [e for e in response.events if e["type"] == "judged"]
+    assert [[g["name"] for g in e["grammar"]] for e in events] == [["결과 상태"], ["결과 상태"]]
+    assert [w["sense"] is not None for w in events[-1]["words"]] == [True]

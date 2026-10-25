@@ -197,6 +197,18 @@ RESPONSE_SCHEMA = {
     "properties": {
         "translation_ko": {"type": "string"},
         "spans": span_answers_schema(False),
+        "words": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "token_id": {"type": "integer"},
+                    "sense_id": {"type": "integer"},
+                },
+                "required": ["token_id", "sense_id"],
+                "additionalProperties": False,
+            },
+        },
         "new_patterns": {
             "type": "array",
             "items": {
@@ -233,18 +245,6 @@ RESPONSE_SCHEMA = {
                 "additionalProperties": False,
             },
         },
-        "words": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "token_id": {"type": "integer"},
-                    "sense_id": {"type": "integer"},
-                },
-                "required": ["token_id", "sense_id"],
-                "additionalProperties": False,
-            },
-        },
         "new_words": {
             "type": "array",
             "items": {
@@ -271,7 +271,7 @@ RESPONSE_SCHEMA = {
             },
         },
     },
-    "required": ["translation_ko", "spans", "new_patterns", "words", "new_words", "name_spans"],
+    "required": ["translation_ko", "spans", "words", "new_patterns", "new_words", "name_spans"],
     "additionalProperties": False,
 }
 
@@ -358,8 +358,9 @@ class SectionParser:
 
 
 # 응답 전체를 기다리지 않고 닫히는 대로 넘기는 칸 → 넘길 때의 이름. 번역은 먼저 알리고, 판정은
-# 확인 중 카드를 먼저 풀도록 넘긴다(#204). 둘 다 응답 전체(result)에도 그대로 들어 있다.
-_EARLY_SECTIONS = {"translation_ko": "translation", "spans": "spans"}
+# 확인 중 카드를, 단어 뜻 고르기는 '뜻을 준비하는 중'을 먼저 풀도록 넘긴다(#204, #205). 그래서
+# 스키마에서 이 칸들을 길이가 긴 새 구문보다 앞에 둔다. 모두 응답 전체(result)에도 들어 있다.
+_EARLY_SECTIONS = {"translation_ko": "translation", "spans": "spans", "words": "words"}
 
 # 요청 스레드와 사이드 패널을 오래 붙잡지 않게 시간 상한을 둔다(NFR-14). 스트림에서는 연결과
 # 조각 사이 대기마다 적용된다.
@@ -408,11 +409,11 @@ class OpenAILLMClient:
 
     def analyze_stream(self, sentence, tokens, spans, decided_spans, words, unknown_words):
         """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을, 판정 칸이
-        끝나면 ("spans", 검증 전 판정)을 먼저 넘기고(#204), 다 받으면 ("result", 검증 전 응답)을
-        넘긴다. spans는 등록된 패턴에 걸린 구간과 그 후보
-        용법이다. decided_spans는 LLM 없이 확정한 구간이라 답을 받지 않고, 새 구문으로 다시 내지
-        않게 알리기만 한다. words는 JMdict 후보 뜻이 여럿인 토큰과 그 후보다(#96). unknown_words는
-        사전에서 못 찾은 토큰 ID로, 사전형·읽기만 받는다(#134).
+        끝나면 ("spans", 검증 전 판정)을, 단어 칸이 끝나면 ("words", 검증 전 고른 뜻)을 먼저 넘기고
+        (#204, #205), 다 받으면 ("result", 검증 전 응답)을 넘긴다. spans는 등록된 패턴에 걸린
+        구간과 그 후보 용법이다. decided_spans는 LLM 없이 확정한 구간이라 답을 받지 않고, 새
+        구문으로 다시 내지 않게 알리기만 한다. words는 JMdict 후보 뜻이 여럿인 토큰과 그
+        후보다(#96). unknown_words는 사전에서 못 찾은 토큰 ID로, 사전형·읽기만 받는다(#134).
 
         SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
         응답(거절 등)은 ANALYSIS:FAILED다. 아무것도 받기 전에 일시 오류로 실패했으면 요청 마감

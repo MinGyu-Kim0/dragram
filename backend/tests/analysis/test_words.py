@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from analysis import jobs
 from analysis.models import SentenceAnalysis, WordSense
 from tests.analysis.helpers import add_word, analyze, post, read_body, saved_analyses
 
@@ -233,3 +234,27 @@ def test_rejected_sense_is_not_shown_from_cache(client, fake_llm, gakusei):
     response = analyze(client, "私は学生です。")
 
     assert response.json()["words"] == []
+
+
+def test_chosen_senses_are_sent_as_soon_as_the_words_section_closes(
+    client, fake_llm, hiraku, monkeypatch
+):
+    # 단어 칸이 닫히면 새 구문 칸을 기다리지 않고 고른 뜻을 보낸다(#205).
+    bloom = sense(hiraku, 2).id
+    fake_llm.response = {"translation_ko": "책을 펼쳤다", "words": [word_answer(2, bloom)]}
+    published = []
+    original = jobs.publish
+
+    def recording(sentence_hash, message):
+        if message["type"] == "judged":
+            published.append((fake_llm.result_given, message["word_spans"]))
+        original(sentence_hash, message)
+
+    monkeypatch.setattr(jobs, "publish", recording)
+
+    response = analyze(client, "本を開いた")
+
+    assert published == [(False, [{"start": 2, "end": 4, "sense_id": bloom}])]
+    [judged] = (e for e in response.events if e["type"] == "judged")
+    assert judged["words"][0]["sense"]["tags"] == ["intransitive"]
+    assert SentenceAnalysis.objects.get().sense_ids == [bloom]

@@ -18,7 +18,7 @@ from django.forms.models import BaseInlineFormSet
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
-from analysis import patterns, review, words
+from analysis import answers, patterns, review, words
 from analysis.jmdict import to_hiragana
 from analysis.models import (
     FunctionTag,
@@ -119,8 +119,7 @@ class GrammarUsageForm(forms.ModelForm):
 
     def clean_function_tags(self):
         # 허용 목록 순서로 둔다(LLM 답과 같은 모양).
-        chosen = set(self.cleaned_data["function_tags"])
-        return [tag for tag in FunctionTag.values if tag in chosen]
+        return answers.function_tags(self.cleaned_data["function_tags"])
 
     def clean_example_ja(self):
         example = self.cleaned_data["example_ja"] or None

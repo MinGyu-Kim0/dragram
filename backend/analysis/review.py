@@ -193,10 +193,14 @@ def approve_usage(usage):
     if pattern.status == ReviewStatus.REJECTED:
         raise Refused("반려된 패턴의 용법은 승인할 수 없습니다")
     usage.status = ReviewStatus.APPROVED
-    # 대응 표현은 용법의 일부라 함께 승인한다(#152).
+    # 대응 표현(#152)과 기능 태그(#151)는 용법의 일부라 함께 승인한다.
     if usage.korean_equivalent_status == ReviewStatus.PENDING:
         usage.korean_equivalent_status = ReviewStatus.APPROVED
-    usage.save(update_fields=["status", "korean_equivalent_status", "updated_at"])
+    if usage.function_tags_status == ReviewStatus.PENDING:
+        usage.function_tags_status = ReviewStatus.APPROVED
+    usage.save(
+        update_fields=["status", "korean_equivalent_status", "function_tags_status", "updated_at"]
+    )
 
 
 @transaction.atomic
@@ -207,6 +211,16 @@ def approve_korean_equivalent(usage):
         raise Refused("미검수 대응 표현이 없습니다")
     usage.korean_equivalent_status = ReviewStatus.APPROVED
     usage.save(update_fields=["korean_equivalent_status", "updated_at"])
+
+
+@transaction.atomic
+def approve_function_tags(usage):
+    """미검수 기능 태그만 승인한다. 승인된 용법에 나중에 채운 태그를 검수할 때 쓴다(#151)."""
+    _, usage = _locked_usage(usage)
+    if usage.function_tags_status != ReviewStatus.PENDING:
+        raise Refused("미검수 기능 태그가 없습니다")
+    usage.function_tags_status = ReviewStatus.APPROVED
+    usage.save(update_fields=["function_tags_status", "updated_at"])
 
 
 @transaction.atomic

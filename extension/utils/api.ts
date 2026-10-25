@@ -43,6 +43,12 @@ export interface GrammarItem {
   korean_equivalent: string | null;
   // 대응 표현의 검수 상태. 승인된 용법에 나중에 채운 대응 표현은 따로 미검수일 수 있다.
   korean_equivalent_review_status: "pending" | "approved" | null;
+  // 매칭된 패턴의 품사 태그 코드(원문 순서, #151). 화면 이름은 단어 태그와 같다.
+  pos_tags: string[];
+  // 용법의 기능 태그 코드(#151)와 그 검수 상태. 미확정이면 빈 목록이다. 승인된 용법에 나중에
+  // 채운 태그는 따로 미검수일 수 있다.
+  function_tags: string[];
+  function_tags_review_status: "pending" | "approved" | null;
   // pending은 LLM이 썼고 아직 검수되지 않은 문법이다.
   review_status: "pending" | "approved";
   // 매칭된 패턴의 말투. colloquial이면 회화체 패턴(ちゃう 등)이다.
@@ -60,6 +66,8 @@ export interface Alternative {
   name: string;
   korean_equivalent: string | null;
   korean_equivalent_review_status: "pending" | "approved" | null;
+  function_tags: string[];
+  function_tags_review_status: "pending" | "approved" | null;
   translation_ko: string;
   review_status: "pending" | "approved";
 }

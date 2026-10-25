@@ -4,32 +4,7 @@ import { isKana, toHiragana } from "@/utils/names";
 import { BadgeRow } from "./BadgeRow";
 import { namedWords, wordKey } from "./named-words";
 import { draggedFirst, type DragRange } from "./drag-range";
-
-// 태그 코드의 화면 이름(DESIGN.md 5장). 모르는 코드는 보이지 않는다.
-const TAG_NAMES: Record<string, string> = {
-  noun: "명사",
-  proper_noun: "고유명사",
-  pronoun: "대명사",
-  verb: "동사",
-  group1: "1그룹",
-  group1_exception: "예외 1그룹",
-  group2: "2그룹",
-  group3: "3그룹",
-  i_adjective: "い형용사",
-  na_adjective: "な형용사",
-  adverb: "부사",
-  adnominal: "연체사",
-  conjunction: "접속사",
-  interjection: "감탄사",
-  transitive: "타동사",
-  intransitive: "자동사",
-  honorific: "존경어",
-  humble: "겸양어",
-  polite: "정중어",
-  uk: "보통 가나로 씀",
-  onomatopoeia: "의성어·의태어",
-  loanword: "외래어",
-};
+import { TAG_NAMES } from "./tag-names";
 
 // 동사 그룹이 품사 바로 뒤에 오도록 화면 순서를 정한다.
 const TAG_ORDER = Object.keys(TAG_NAMES);

@@ -6,6 +6,7 @@ from analysis import llm, words
 from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS, to_hiragana
 from analysis.models import (
     KOREAN_EQUIVALENT_LENGTH,
+    FunctionTag,
     SpanMatch,
 )
 from analysis.normalize import (
@@ -144,7 +145,11 @@ def _checked_span_answers(answers, spans, allowed, numbers):
             if not isinstance(new_usage, dict) or not _are_new_texts(new_usage, ("usage_name",)):
                 return None
             equivalent = korean_equivalent(new_usage.get("korean_equivalent"))
-            new_usage = {**new_usage, "korean_equivalent": equivalent}
+            new_usage = {
+                **new_usage,
+                "korean_equivalent": equivalent,
+                "function_tags": function_tags(new_usage.get("function_tags")),
+            }
             judged[span_id] = (SpanMatch.State.UNFOUND, None, new_usage)
         else:
             return None
@@ -169,6 +174,15 @@ def _are_new_texts(item, names):
     ):
         return False
     return all(len(item[field]) <= _NAME_LENGTH for field in names)
+
+
+def function_tags(value):
+    """LLM이 고른 기능 태그(#151) 중 허용 목록 안의 것(허용 목록 순서, 중복 없음).
+
+    대응 표현처럼 틀려도 용법 등록이나 응답을 실패시키지 않는다. 목록이 아니면 빈 목록이다.
+    """
+    chosen = {v for v in value if isinstance(v, str)} if isinstance(value, list) else set()
+    return [tag for tag in FunctionTag.values if tag in chosen]
 
 
 def korean_equivalent(value):
@@ -212,6 +226,7 @@ def _validate_new_patterns(items, token_count):
                 "tokens": [(token["token_id"], token["fix"]) for token in tokens],
                 **{field: item[field] for field in fields},
                 "korean_equivalent": korean_equivalent(item.get("korean_equivalent")),
+                "function_tags": function_tags(item.get("function_tags")),
             }
         )
     return proposals

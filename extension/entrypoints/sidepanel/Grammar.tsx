@@ -3,6 +3,51 @@ import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
 import { BadgeRow } from "./BadgeRow";
 import { draggedFirst, type DragRange } from "./drag-range";
 import { groupGrammar, sortGrammar } from "./grammar-groups";
+import { TAG_NAMES } from "./tag-names";
+
+// 기능 태그 코드의 화면 이름(#151, 서버 FunctionTag와 같은 이름). 모르는 코드는 보이지 않는다.
+const FUNCTION_TAG_NAMES: Record<string, string> = {
+  passive: "수동",
+  causative: "사역",
+  causative_passive: "사역수동",
+  potential: "가능",
+  honorific: "존경",
+  humble: "겸양",
+  past: "과거",
+  progressive: "진행",
+  perfective: "완료",
+  resultative: "결과 상태",
+  polite: "정중",
+  casual: "회화체",
+  negative: "부정",
+  conjecture: "추측",
+  hearsay: "전문",
+  obligation: "당위",
+  conditional: "조건",
+  cause: "원인·이유",
+  adversative: "역접",
+  purpose: "목적",
+  listing: "나열",
+  topic: "주제",
+  subject: "주어",
+  object: "목적어",
+  target: "대상",
+  place: "장소",
+  time: "시간",
+  means: "수단",
+  goal: "도달점",
+  source: "출발점",
+  scope: "범위",
+  comparison: "비교",
+};
+
+// 문법 카드 태그 줄: 품사 태그(원문 순서) → 기능 태그(서버가 준 허용 목록 순서)
+function grammarTags(item: GrammarItem): string[] {
+  return [
+    ...item.pos_tags.map((code) => TAG_NAMES[code]),
+    ...item.function_tags.map((code) => FUNCTION_TAG_NAMES[code]),
+  ].filter((name): name is string => name !== undefined);
+}
 
 // 형광펜은 4색을 돌아가며 쓴다(DESIGN.md 형광펜). 원문 형광펜과 카드 칩이 같은 색이다.
 const HIGHLIGHT_COLORS = 4;
@@ -274,8 +319,8 @@ function isDivergent(item: GrammarItem): boolean {
   return (item.alternatives ?? []).length > 0;
 }
 
-// 문법 카드와 하위 박스가 함께 쓰는 내용: 배지 줄, 칩·이름, 대응 표현(있을 때만), 원형 안내,
-// 설명이나 "판단하지 못함", 다른 해석
+// 문법 카드와 하위 박스가 함께 쓰는 내용: 배지 줄, 칩·이름, 태그(있을 때만), 대응 표현(있을
+// 때만), 원형 안내, 설명이나 "판단하지 못함", 다른 해석
 function GrammarBody({
   text,
   item,
@@ -290,6 +335,7 @@ function GrammarBody({
   dragged?: boolean;
 }) {
   const alternatives = item.alternatives ?? [];
+  const tags = grammarTags(item);
   return (
     <>
       <BadgeRow
@@ -303,6 +349,19 @@ function GrammarBody({
         </span>
         <Heading>{item.name}</Heading>
       </div>
+      {tags.length > 0 && (
+        <div className="grammar-tags">
+          <ul className="word-tags" aria-label="태그">
+            {tags.map((name) => (
+              <li key={name}>{name}</li>
+            ))}
+          </ul>
+          {/* 미검수 용법이면 배지 줄의 배지 하나로 함께 보이고, 승인된 용법에 나중에 채운
+              미검수 기능 태그만 이 줄에 배지 하나를 단다(#151, 태그마다 달지 않는다). */}
+          {item.review_status === "approved" &&
+            item.function_tags_review_status === "pending" && <PendingBadge />}
+        </div>
+      )}
       {item.korean_equivalent !== null && (
         <p className="korean-equivalent">
           {item.korean_equivalent}

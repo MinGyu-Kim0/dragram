@@ -130,6 +130,49 @@ class PatternMorpheme(models.Model):
 KOREAN_EQUIVALENT_LENGTH = 100
 
 
+class FunctionTag(models.TextChoices):
+    """용법의 기능 태그 허용 목록(#151, 초안). 이름은 화면 이름이고 확장도 같은 이름을 쓴다."""
+
+    # 동사의 모양
+    PASSIVE = "passive", "수동"
+    CAUSATIVE = "causative", "사역"
+    CAUSATIVE_PASSIVE = "causative_passive", "사역수동"
+    POTENTIAL = "potential", "가능"
+    HONORIFIC = "honorific", "존경"
+    HUMBLE = "humble", "겸양"
+    # 시제·상
+    PAST = "past", "과거"
+    PROGRESSIVE = "progressive", "진행"
+    PERFECTIVE = "perfective", "완료"
+    RESULTATIVE = "resultative", "결과 상태"
+    # 말투
+    POLITE = "polite", "정중"
+    CASUAL = "casual", "회화체"
+    # 판단·부정
+    NEGATIVE = "negative", "부정"
+    CONJECTURE = "conjecture", "추측"
+    HEARSAY = "hearsay", "전문"
+    OBLIGATION = "obligation", "당위"
+    # 문장 연결
+    CONDITIONAL = "conditional", "조건"
+    CAUSE = "cause", "원인·이유"
+    ADVERSATIVE = "adversative", "역접"
+    PURPOSE = "purpose", "목적"
+    LISTING = "listing", "나열"
+    # 조사의 역할
+    TOPIC = "topic", "주제"
+    SUBJECT = "subject", "주어"
+    OBJECT = "object", "목적어"
+    TARGET = "target", "대상"
+    PLACE = "place", "장소"
+    TIME = "time", "시간"
+    MEANS = "means", "수단"
+    GOAL = "goal", "도달점"
+    SOURCE = "source", "출발점"
+    SCOPE = "scope", "범위"
+    COMPARISON = "comparison", "비교"
+
+
 class GrammarUsage(models.Model):
     """용법. 설명은 용법마다 하나이고 모든 문장이 함께 쓴다(문장 기준 해설 없음)."""
 
@@ -151,6 +194,15 @@ class GrammarUsage(models.Model):
     # 대응 표현의 검수 상태(pending·approved). 값이 없으면 NULL이다. 용법을 승인하면 함께
     # 승인되고, 승인된 용법에 LLM이 나중에 채운 값은 따로 승인할 때까지 미검수다(#152).
     korean_equivalent_status = models.CharField(  # noqa: DJ001
+        max_length=30, choices=ReviewStatus.choices, null=True
+    )
+    # 기능 태그(FunctionTag 코드, 허용 목록 순서, #151). 대응 표현처럼 채움 여부와 검수 상태를
+    # 따로 둔다. 상태는 태그가 없으면 NULL이다.
+    function_tags = ArrayField(
+        models.CharField(max_length=30, choices=FunctionTag.choices), default=list, blank=True
+    )
+    function_tags_filled = models.BooleanField(default=False)
+    function_tags_status = models.CharField(  # noqa: DJ001
         max_length=30, choices=ReviewStatus.choices, null=True
     )
     status = models.CharField(max_length=30, choices=ReviewStatus.choices)

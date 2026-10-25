@@ -18,9 +18,10 @@ from django.forms.models import BaseInlineFormSet
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
-from analysis import patterns, review, words
+from analysis import answers, patterns, review, words
 from analysis.jmdict import to_hiragana
 from analysis.models import (
+    FunctionTag,
     GrammarPattern,
     GrammarUsage,
     PatternMorpheme,
@@ -92,10 +93,14 @@ USAGE_MOVED = "그사이 용법이 원형 용법으로 합쳐지거나 원형 �
 class GrammarUsageForm(forms.ModelForm):
     # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
     example_ja = forms.CharField(widget=forms.Textarea, required=False)
+    # 기능 태그는 허용 목록 안에서만 고른다(#151).
+    function_tags = forms.MultipleChoiceField(
+        choices=FunctionTag.choices, widget=forms.CheckboxSelectMultiple, required=False
+    )
 
     class Meta:
         model = GrammarUsage
-        fields = ["explanation_ko", "example_ja", "korean_equivalent"]
+        fields = ["explanation_ko", "example_ja", "korean_equivalent", "function_tags"]
 
     # 용법 화면과 패턴 화면 인라인이 쓰는 칸. 고칠 수 있는 칸과, 대응 표현을 고치면 함께 바뀌는
     # 채움 여부·검수 상태(#152)만 쓴다.
@@ -103,12 +108,18 @@ class GrammarUsageForm(forms.ModelForm):
         *Meta.fields,
         "korean_equivalent_filled",
         "korean_equivalent_status",
+        "function_tags_filled",
+        "function_tags_status",
         "updated_at",
     ]
 
     def clean_korean_equivalent(self):
         # 비우면 '대응 없음'(NULL)이다(#152).
         return (self.cleaned_data["korean_equivalent"] or "").strip() or None
+
+    def clean_function_tags(self):
+        # 허용 목록 순서로 둔다(LLM 답과 같은 모양).
+        return answers.function_tags(self.cleaned_data["function_tags"])
 
     def clean_example_ja(self):
         example = self.cleaned_data["example_ja"] or None
@@ -139,6 +150,12 @@ class GrammarUsageForm(forms.ModelForm):
             self.instance.korean_equivalent_filled = True
             self.instance.korean_equivalent_status = (
                 ReviewStatus.APPROVED if self.cleaned_data.get("korean_equivalent") else None
+            )
+        # 기능 태그도 같다(#151).
+        if "function_tags" in self.changed_data:
+            self.instance.function_tags_filled = True
+            self.instance.function_tags_status = (
+                ReviewStatus.APPROVED if self.cleaned_data.get("function_tags") else None
             )
         return super().clean()
 
@@ -172,7 +189,15 @@ class GrammarUsageInline(admin.TabularInline):
     model = GrammarUsage
     form = GrammarUsageForm
     formset = GrammarUsageFormSet
-    fields = ["name", "status", "origin", "explanation_ko", "example_ja", "korean_equivalent"]
+    fields = [
+        "name",
+        "status",
+        "origin",
+        "explanation_ko",
+        "example_ja",
+        "korean_equivalent",
+        "function_tags",
+    ]
     readonly_fields = ["name", "status", "origin"]
     ordering = ["id"]
     extra = 0
@@ -401,6 +426,7 @@ class GrammarUsageAdmin(_ReviewedAdmin):
         "explanation_ko",
         "example_ja",
         "korean_equivalent",
+        "function_tags",
     ]
     readonly_fields = ["name", "pattern", "status", "origin"]
 
@@ -416,6 +442,7 @@ class GrammarUsageAdmin(_ReviewedAdmin):
         _review_action(
             "approve_korean_equivalent", review.approve_korean_equivalent, "대응 표현 승인"
         ),
+        _review_action("approve_function_tags", review.approve_function_tags, "기능 태그 승인"),
     ]
 
 

@@ -2839,6 +2839,77 @@ describe("이름 지정(#136)", () => {
     expect(rubies()).toEqual([["春", "はる"]]);
   });
 
+  // 패널을 연 채 다른 계정으로 연결을 바꾼다. 보던 문장은 지워지므로 같은 문장을 다시 보낸다.
+  async function switchAccount() {
+    await saveToken("other-token", "other@example.com");
+    await waitFor(() =>
+      expect(screen.queryByText("春が来た")).not.toBeInTheDocument(),
+    );
+    await send(panelWindowId, "春が来た");
+    await openWords();
+  }
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((r) => (resolve = r));
+    return { promise, resolve };
+  }
+
+  test("계정을 바꾸면 새 계정의 목록을 받고, 이전 계정의 늦은 목록은 버린다", async () => {
+    respondWithSpring();
+    const old = deferred<{ surface: string; reading: string | null }[]>();
+    vi.mocked(fetchNames)
+      .mockReturnValueOnce(old.promise)
+      .mockResolvedValue([]);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+
+    await switchAccount();
+    old.resolve([{ surface: "春", reading: "しゅん" }]);
+
+    expect(await screen.findByText("春 뜻")).toBeInTheDocument();
+    await waitFor(() => expect(fetchNames).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText("내가 지정한 이름")).not.toBeInTheDocument();
+  });
+
+  test("이전 계정에서 보낸 저장의 늦은 응답은 새 계정 화면에 쓰지 않는다", async () => {
+    respondWithSpring();
+    const save = deferred<{ surface: string; reading: string | null }>();
+    vi.mocked(saveName).mockReturnValue(save.promise);
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+    await designate("はる");
+
+    await switchAccount();
+    save.resolve({ surface: "春", reading: "はる" });
+
+    expect(await screen.findByText("春 뜻")).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(screen.queryByText("내가 지정한 이름")).not.toBeInTheDocument();
+  });
+
+  test("목록을 받는 사이 저장한 이름은 늦게 온 옛 목록에 덮이지 않는다", async () => {
+    respondWithSpring();
+    const first = deferred<{ surface: string; reading: string | null }[]>();
+    vi.mocked(fetchNames)
+      .mockReturnValueOnce(first.promise)
+      .mockResolvedValue([{ surface: "春", reading: "はる" }]);
+    vi.mocked(saveName).mockResolvedValue({ surface: "春", reading: "はる" });
+    render(<App />);
+    await send(panelWindowId, "春が来た");
+    await openWords();
+    await designate("はる");
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+
+    // 저장 전에 읽은 목록이 늦게 온다.
+    first.resolve([]);
+
+    await waitFor(() => expect(fetchNames).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("내가 지정한 이름")).toBeInTheDocument();
+  });
+
   test("읽기 없이 지정한 이름은 SudachiPy 루비를 그대로 단다", async () => {
     respondWithSpring();
     vi.mocked(fetchNames).mockResolvedValue([{ surface: "春", reading: null }]);

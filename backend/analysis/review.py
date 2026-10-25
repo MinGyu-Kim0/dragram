@@ -193,7 +193,20 @@ def approve_usage(usage):
     if pattern.status == ReviewStatus.REJECTED:
         raise Refused("반려된 패턴의 용법은 승인할 수 없습니다")
     usage.status = ReviewStatus.APPROVED
-    usage.save(update_fields=["status", "updated_at"])
+    # 대응 표현은 용법의 일부라 함께 승인한다(#152).
+    if usage.korean_equivalent_status == ReviewStatus.PENDING:
+        usage.korean_equivalent_status = ReviewStatus.APPROVED
+    usage.save(update_fields=["status", "korean_equivalent_status", "updated_at"])
+
+
+@transaction.atomic
+def approve_korean_equivalent(usage):
+    """미검수 대응 표현만 승인한다. 승인된 용법에 나중에 채운 값을 검수할 때 쓴다(#152)."""
+    _, usage = _locked_usage(usage)
+    if usage.korean_equivalent_status != ReviewStatus.PENDING:
+        raise Refused("미검수 대응 표현이 없습니다")
+    usage.korean_equivalent_status = ReviewStatus.APPROVED
+    usage.save(update_fields=["korean_equivalent_status", "updated_at"])
 
 
 @transaction.atomic

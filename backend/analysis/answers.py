@@ -5,6 +5,7 @@ import unicodedata
 from analysis import llm, words
 from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS, to_hiragana
 from analysis.models import (
+    KOREAN_EQUIVALENT_LENGTH,
     SpanMatch,
 )
 from analysis.normalize import (
@@ -142,6 +143,8 @@ def _checked_span_answers(answers, spans, allowed, numbers):
             new_usage = item.get("new_usage")
             if not isinstance(new_usage, dict) or not _are_new_texts(new_usage, ("usage_name",)):
                 return None
+            equivalent = korean_equivalent(new_usage.get("korean_equivalent"))
+            new_usage = {**new_usage, "korean_equivalent": equivalent}
             judged[span_id] = (SpanMatch.State.UNFOUND, None, new_usage)
         else:
             return None
@@ -166,6 +169,20 @@ def _are_new_texts(item, names):
     ):
         return False
     return all(len(item[field]) <= _NAME_LENGTH for field in names)
+
+
+def korean_equivalent(value):
+    """LLM이 쓴 대응 표현(#152). 글이 아니거나, 자리표시자가 있거나, 상한을 넘으면 None이다.
+
+    용법의 일부일 뿐이라 틀려도 용법 등록이나 응답을 실패시키지 않고 이 칸만 비운다.
+    """
+    if not _is_text(value):
+        return None
+    value = value.strip()
+    # 용법은 모든 문장이 함께 써서 이 문장의 숫자로 되돌릴 수 없다.
+    if not has_only_known_placeholders(value, ()) or len(value) > KOREAN_EQUIVALENT_LENGTH:
+        return None
+    return value
 
 
 def _validate_new_patterns(items, token_count):
@@ -194,6 +211,7 @@ def _validate_new_patterns(items, token_count):
             {
                 "tokens": [(token["token_id"], token["fix"]) for token in tokens],
                 **{field: item[field] for field in fields},
+                "korean_equivalent": korean_equivalent(item.get("korean_equivalent")),
             }
         )
     return proposals
@@ -412,3 +430,13 @@ def reject_quotes(validated, sentence):
     if _quotes_whole_sentence(llm_texts, sentence.key_text, sentence.content_tokens):
         # 이 글들은 공용 테이블에 들어가므로 원문을 통째로 옮긴 결과는 저장하지 않는다.
         raise BusinessError(AnalysisError.FAILED, "LLM이 쓴 글이 문장 전체를 인용함")
+    # 대응 표현은 같은 규칙으로 보되, 인용했으면 그 칸만 비운다(#152).
+    for item in [
+        *validated["new_patterns"],
+        *(new_usage for _, _, new_usage in validated["spans"] if new_usage is not None),
+    ]:
+        equivalent = item.get("korean_equivalent")
+        if equivalent and _quotes_whole_sentence(
+            [equivalent], sentence.key_text, sentence.content_tokens
+        ):
+            item["korean_equivalent"] = None

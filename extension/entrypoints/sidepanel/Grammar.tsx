@@ -274,8 +274,8 @@ function isDivergent(item: GrammarItem): boolean {
   return (item.alternatives ?? []).length > 0;
 }
 
-// 문법 카드와 하위 박스가 함께 쓰는 내용: 배지 줄, 칩·이름, 원형 안내, 설명이나 "판단하지 못함",
-// 다른 해석
+// 문법 카드와 하위 박스가 함께 쓰는 내용: 배지 줄, 칩·이름, 대응 표현(있을 때만), 원형 안내,
+// 설명이나 "판단하지 못함", 다른 해석
 function GrammarBody({
   text,
   item,
@@ -303,6 +303,17 @@ function GrammarBody({
         </span>
         <Heading>{item.name}</Heading>
       </div>
+      {item.korean_equivalent !== null && (
+        <p className="korean-equivalent">
+          {item.korean_equivalent}
+          {/* 미검수 용법이면 배지 줄의 배지 하나로 함께 보이고, 승인된 용법에 나중에 채운
+              미검수 대응 표현만 이 줄에 배지를 단다(#152). */}
+          {item.review_status === "approved" &&
+            item.korean_equivalent_review_status === "pending" && (
+              <PendingBadge />
+            )}
+        </p>
+      )}
       {item.variant_of !== null && (
         <p className="variant-note">「{item.variant_of}」의 회화체</p>
       )}

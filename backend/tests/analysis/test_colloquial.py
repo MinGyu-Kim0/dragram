@@ -267,6 +267,8 @@ CHAU_ITEM = {
     "state": "decided",
     "name": "완료",
     "explanation_ko": "동작이 끝나 버렸음을 나타낸다",
+    "korean_equivalent": None,
+    "korean_equivalent_review_status": None,
     "review_status": "pending",
     "register": "colloquial",
     "variant_of": "てしまう",

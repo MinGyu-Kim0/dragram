@@ -126,6 +126,10 @@ class PatternMorpheme(models.Model):
         return f"{self.pattern_id}#{self.seq}"
 
 
+# 대응 표현 칸 길이. LLM 답이 넘으면 그 칸만 비운다(#152).
+KOREAN_EQUIVALENT_LENGTH = 100
+
+
 class GrammarUsage(models.Model):
     """용법. 설명은 용법마다 하나이고 모든 문장이 함께 쓴다(문장 기준 해설 없음)."""
 
@@ -138,6 +142,17 @@ class GrammarUsage(models.Model):
     explanation_ko = models.TextField()
     # LLM·관리자가 새로 쓴 예문만 둔다. 사용자 원문은 넣지 않는다.
     example_ja = models.TextField(null=True)  # noqa: DJ001
+    # 이 용법이 한국어로 주로 옮겨지는 표현(#152). 마땅한 대응이 없으면 NULL이다.
+    korean_equivalent = models.CharField(  # noqa: DJ001
+        max_length=KOREAN_EQUIVALENT_LENGTH, null=True, blank=True
+    )
+    # 대응 표현을 채운 적이 있는가. NULL이 '대응 없음'인지 '아직 안 채움'인지 가른다(fill_usages).
+    korean_equivalent_filled = models.BooleanField(default=False)
+    # 대응 표현의 검수 상태(pending·approved). 값이 없으면 NULL이다. 용법을 승인하면 함께
+    # 승인되고, 승인된 용법에 LLM이 나중에 채운 값은 따로 승인할 때까지 미검수다(#152).
+    korean_equivalent_status = models.CharField(  # noqa: DJ001
+        max_length=30, choices=ReviewStatus.choices, null=True
+    )
     status = models.CharField(max_length=30, choices=ReviewStatus.choices)
     origin = models.CharField(max_length=30, choices=Origin.choices)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -323,6 +338,8 @@ class UsageLog(models.Model):
         REMATCH_JUDGE = "rematch_judge"
         WORD_GLOSS = "word_gloss"
         KANJI_GLOSS = "kanji_gloss"
+        # 이미 있는 용법의 빈 칸(대응 표현)을 채움(#152). 사용자 요청이 아니라 user는 NULL이다.
+        USAGE_FILL = "usage_fill"
 
     # 로그인 전에는 NULL이다. 로그인 티켓에서 채운다.
     user = models.ForeignKey(

@@ -464,6 +464,42 @@ def test_define_words_sends_the_sentence_and_words_and_returns_the_answer(llm_cl
     assert request["text"]["format"]["strict"] is True
 
 
+def test_fill_usages_sends_only_the_usages_and_returns_the_answer(
+    llm_client, monkeypatch, recorded
+):
+    answer = '{"usages": [{"usage_id": 3, "korean_equivalent": "~고 있다"}]}'
+    requests = judge_with(
+        llm_client, monkeypatch, response_with(status="completed", output_text=answer)
+    )
+    usages = [
+        {
+            "usage_id": 3,
+            "pattern_name": "ている",
+            "usage_name": "진행",
+            "explanation_ko": "동작이 이어지고 있다",
+            "example_ja": "雨が降っている",
+        }
+    ]
+
+    result = llm_client.fill_usages(usages)
+
+    assert result == json.loads(answer)
+    [request] = requests
+    assert json.loads(request["input"]) == {"usages": usages}
+    assert request["text"]["format"]["strict"] is True
+    assert [call["purpose"] for call in recorded] == ["usage_fill"]
+
+
+def test_every_new_usage_answer_asks_for_its_korean_equivalent():
+    new_pattern = llm.RESPONSE_SCHEMA["properties"]["new_patterns"]["items"]
+    [new_usage, _] = llm.span_answers_schema(True)["items"]["properties"]["new_usage"]["anyOf"]
+    for schema in (new_pattern, new_usage):
+        assert "korean_equivalent" in schema["required"]
+    assert "korean_equivalent" in llm.INSTRUCTIONS
+    assert "korean_equivalent" in llm.JUDGE_INSTRUCTIONS
+    assert llm.KOREAN_EQUIVALENT_RULE in llm.JUDGE_INSTRUCTIONS
+
+
 def completed_event(model="gpt-test-2026", status="completed", type_="response.completed"):
     return SimpleNamespace(
         type=type_, response=SimpleNamespace(status=status, model=model, usage=usage(100, 40, 20))

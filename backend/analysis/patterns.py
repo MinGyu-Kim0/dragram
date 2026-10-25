@@ -176,12 +176,21 @@ def span_of(pattern, start, next_id):
     return Span(pattern, conditions, start, start + len(conditions) - 1, _numbered(usages, next_id))
 
 
-def register(conditions, pattern_name, usage_name, explanation_ko, example_ja, test_example):
+def register(
+    conditions,
+    pattern_name,
+    usage_name,
+    explanation_ko,
+    example_ja,
+    test_example,
+    korean_equivalent=None,
+):
     """새 패턴과 용법을 미검수로 등록한다. 같은 morpheme_key가 이미 있으면 (그 패턴, None).
 
     example_ja는 이 용법이 쓴 예문, test_example은 같은 조건의 제안 중 검사를 통과한 예문이다
     (첫 test_cases 항목). 없으면 None이고, test_example이 있어야 활성화한다. 활성화했으면
-    호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다.
+    호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다. korean_equivalent는
+    검증한 대응 표현이고 없으면 None이다(#152).
     """
     pattern, created = GrammarPattern.objects.get_or_create(
         morpheme_key=morpheme_key(conditions),
@@ -202,10 +211,19 @@ def register(conditions, pattern_name, usage_name, explanation_ko, example_ja, t
         name=usage_name,
         explanation_ko=explanation_ko,
         example_ja=example_ja,
+        # LLM이 용법과 함께 답했으므로 비었어도 채운 것이다.
+        korean_equivalent=korean_equivalent,
+        korean_equivalent_filled=True,
+        korean_equivalent_status=equivalent_status(korean_equivalent),
         status=ReviewStatus.PENDING,
         origin=GrammarUsage.Origin.LLM,
     )
     return pattern, usage
+
+
+def equivalent_status(korean_equivalent):
+    """LLM이 쓴 대응 표현의 검수 상태. 값이 있으면 미검수, 없으면 NULL이다(#152)."""
+    return ReviewStatus.PENDING if korean_equivalent else None
 
 
 def pattern_set_version():
@@ -253,7 +271,7 @@ def matchable_family(pattern):
     return set(family.values_list("pk", flat=True))
 
 
-def add_usage(pattern, name, explanation_ko, example_ja, matched=None):
+def add_usage(pattern, name, explanation_ko, example_ja, matched=None, korean_equivalent=None):
     """기존 패턴 아래 새 용법을 미검수로 더한다. (용법, 매칭 자격을 새로 얻은 패턴이 있는가)를
     돌려준다. 같은 이름의 용법이 이미 있으면 (None, False)다.
 
@@ -262,7 +280,8 @@ def add_usage(pattern, name, explanation_ko, example_ja, matched=None):
     연결되지 않음, 아니면 pattern에 연결됨) 다시 보고, 바뀌었으면 더하지 않고 (None, False)다.
     연결된 회화체에는 자기 용법을 두지 않는다(#63).
 
-    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. 호출하는 쪽이 트랜잭션을 열고,
+    example_ja는 검사를 통과한 새 예문이고, 없으면 None이다. korean_equivalent는 검증한 대응
+    표현이고 없으면 None이다(#152). 호출하는 쪽이 트랜잭션을 열고,
     매칭 자격을 새로 얻었으면 분석 행을 잠그기 전에 패턴 세트 버전을 한 번 올린다(잠금 순서:
     패턴과 그 회화체(lock_families) → 용법 → 버전 → 분석).
     """
@@ -286,6 +305,9 @@ def add_usage(pattern, name, explanation_ko, example_ja, matched=None):
                 name=name,
                 explanation_ko=explanation_ko,
                 example_ja=example_ja,
+                korean_equivalent=korean_equivalent,
+                korean_equivalent_filled=True,
+                korean_equivalent_status=equivalent_status(korean_equivalent),
                 status=ReviewStatus.PENDING,
                 origin=GrammarUsage.Origin.LLM,
             )

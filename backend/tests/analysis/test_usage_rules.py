@@ -76,6 +76,8 @@ def test_span_decided_by_an_approved_rule_is_not_asked_and_shown_first(client, f
             "state": "decided",
             "name": "장소",
             "explanation_ko": "장소을 나타낸다",
+            "korean_equivalent": None,
+            "korean_equivalent_review_status": None,
             "review_status": "approved",
             "register": "standard",
             "variant_of": None,

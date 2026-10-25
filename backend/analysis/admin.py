@@ -95,7 +95,20 @@ class GrammarUsageForm(forms.ModelForm):
 
     class Meta:
         model = GrammarUsage
-        fields = ["explanation_ko", "example_ja"]
+        fields = ["explanation_ko", "example_ja", "korean_equivalent"]
+
+    # 용법 화면과 패턴 화면 인라인이 쓰는 칸. 고칠 수 있는 칸과, 대응 표현을 고치면 함께 바뀌는
+    # 채움 여부·검수 상태(#152)만 쓴다.
+    SAVED_FIELDS = [
+        *Meta.fields,
+        "korean_equivalent_filled",
+        "korean_equivalent_status",
+        "updated_at",
+    ]
+
+    def clean_korean_equivalent(self):
+        # 비우면 '대응 없음'(NULL)이다(#152).
+        return (self.cleaned_data["korean_equivalent"] or "").strip() or None
 
     def clean_example_ja(self):
         example = self.cleaned_data["example_ja"] or None
@@ -120,6 +133,13 @@ class GrammarUsageForm(forms.ModelForm):
         )
         if current != self.instance.pattern_id:
             raise forms.ValidationError(USAGE_MOVED)
+        # 관리자가 고친 대응 표현(비운 것 포함)은 채우기 명령이 다시 채우지 않는다(#152).
+        # 관리자가 쓴 값은 검수한 것이다.
+        if "korean_equivalent" in self.changed_data:
+            self.instance.korean_equivalent_filled = True
+            self.instance.korean_equivalent_status = (
+                ReviewStatus.APPROVED if self.cleaned_data.get("korean_equivalent") else None
+            )
         return super().clean()
 
 
@@ -152,7 +172,7 @@ class GrammarUsageInline(admin.TabularInline):
     model = GrammarUsage
     form = GrammarUsageForm
     formset = GrammarUsageFormSet
-    fields = ["name", "status", "origin", "explanation_ko", "example_ja"]
+    fields = ["name", "status", "origin", "explanation_ko", "example_ja", "korean_equivalent"]
     readonly_fields = ["name", "status", "origin"]
     ordering = ["id"]
     extra = 0
@@ -338,7 +358,7 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         # 용법은 고칠 수 있는 칸만 쓴다(GrammarUsageAdmin.save_model과 같다). commit=False도 admin
         # 변경 기록에 쓰는 changed_objects 등을 채운다.
         for usage in formset.save(commit=False):
-            usage.save(update_fields=[*GrammarUsageForm.Meta.fields, "updated_at"])
+            usage.save(update_fields=GrammarUsageForm.SAVED_FIELDS)
 
     actions = [
         _review_action("approve", review.approve_pattern, "승인"),
@@ -373,18 +393,29 @@ class GrammarUsageAdmin(_ReviewedAdmin):
     list_display = ["id", "name", "pattern", "status", "origin", "updated_at"]
     list_filter = ["status", "origin", ExampleFilter]
     search_fields = ["name", "pattern__name"]
-    fields = ["name", "pattern", "status", "origin", "explanation_ko", "example_ja"]
+    fields = [
+        "name",
+        "pattern",
+        "status",
+        "origin",
+        "explanation_ko",
+        "example_ja",
+        "korean_equivalent",
+    ]
     readonly_fields = ["name", "pattern", "status", "origin"]
 
     def save_model(self, request, obj, form, change):
         # 고칠 수 있는 칸만 쓴다. 폼을 연 뒤 액션이 바꾼 상태를 화면이 읽어 둔 값으로 덮지 않는다.
-        obj.save(update_fields=[*GrammarUsageForm.Meta.fields, "updated_at"])
+        obj.save(update_fields=GrammarUsageForm.SAVED_FIELDS)
 
     actions = [
         _review_action("approve", review.approve_usage, "승인"),
         _review_action("reject", review.reject_usage, "반려"),
         _review_action("unreject", review.unreject_usage, "반려 취소(미검수로)"),
         _review_action("unapprove", review.unapprove_usage, "승인 취소(미검수로)"),
+        _review_action(
+            "approve_korean_equivalent", review.approve_korean_equivalent, "대응 표현 승인"
+        ),
     ]
 
 

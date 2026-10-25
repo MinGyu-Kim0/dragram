@@ -53,6 +53,8 @@ def test_span_of_a_usage_closed_pattern_is_decided_without_asking_the_llm(client
         "state": "decided",
         "name": "진행",
         "explanation_ko": "동작이 이어지고 있음을 나타낸다",
+        "korean_equivalent": None,
+        "korean_equivalent_review_status": None,
         "review_status": "approved",
         "register": "standard",
         "variant_of": None,

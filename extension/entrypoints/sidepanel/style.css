@@ -370,6 +370,13 @@ h1 {
   color: var(--color-text-secondary);
 }
 
+/* 용법의 한국어 대응 표현 한 줄(#152) */
+.korean-equivalent {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
 /* 연결된 회화체의 원형 안내 한 줄 */
 .variant-note {
   margin: 4px 0 0;

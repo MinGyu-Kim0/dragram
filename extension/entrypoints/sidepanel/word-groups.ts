@@ -16,12 +16,23 @@ export function groupWords(
   for (const word of sorted) {
     const key =
       word.sense !== null && !names.has(text.slice(word.start, word.end))
-        ? JSON.stringify([
-            { ...word, start: undefined, end: undefined },
-            nameTypeLabel(word, nameSpans),
-          ])
+        ? JSON.stringify(
+            [word, nameTypeLabel(word, nameSpans)],
+            (name, value) =>
+              name === "start" || name === "end" ? undefined : value,
+          )
         : word;
     groups.set(key, [...(groups.get(key) ?? []), word]);
   }
   return [...groups.values()];
+}
+
+// 화면에 보이는 단어 행 수(합친 행은 한 행)
+export function wordRowCount(
+  text: string,
+  words: WordItem[],
+  names: ReadonlyMap<string, string | null>,
+  nameSpans: NameSpan[] | null | undefined,
+): number {
+  return groupWords(text, words, names, nameSpans).length;
 }

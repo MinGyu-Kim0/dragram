@@ -3381,6 +3381,26 @@ describe("같은 단어·같은 뜻인 단어 행 합치기(#211)", () => {
     expect(screen.getByRole("tab", { name: "단어 2" })).toBeInTheDocument();
   });
 
+  test("분석 중에 먼저 온 단어도 같은 규칙으로 합친다", async () => {
+    const stream = streamed();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+    render(<App />);
+    await send(panelWindowId, TEXT);
+
+    stream.push({
+      type: "grammar",
+      grammar: [],
+      checking: [],
+      words: [wordItem(1, 2, "回", "かい"), wordItem(4, 5, "回", "かい")],
+    });
+
+    expect(
+      await screen.findByRole("tab", { name: "단어 1" }),
+    ).toBeInTheDocument();
+    expect(await wordRows()).toHaveLength(1);
+    stream.end();
+  });
+
   test("뜻이 다르거나 아직 고르지 않은 자리는 따로 둔다", async () => {
     respondWithWords([
       wordItem(1, 2, "回", "かい"),

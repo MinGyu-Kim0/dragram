@@ -11,7 +11,7 @@ import { GrammarCards, HighlightedText } from "./Grammar";
 import { grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
 import { WordList, type NameActions } from "./Words";
-import { groupWords } from "./word-groups";
+import { wordRowCount } from "./word-groups";
 
 // 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 번역보다 먼저 온
 // grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별 대상 구간 checking)만 와서
@@ -160,9 +160,9 @@ export function SentenceView({
           grammarCount: grammarCardCount(grammar) + checking.length,
         }
       : undefined;
-  // 단어 개수도 보이는 행 수다(같은 단어·같은 뜻은 한 행, #211).
-  const wordRowCount = tabbed
-    ? groupWords(text, tabbed.words, names, analysis?.name_spans).length
+  // 단어 개수도 보이는 행 수다(합친 행은 한 행, #211).
+  const wordCount = tabbed
+    ? wordRowCount(text, tabbed.words, names, analysis?.name_spans)
     : 0;
   const ruby = translation?.ruby ?? [];
   const shownRuby = withNameRuby(
@@ -266,7 +266,7 @@ export function SentenceView({
               aria-selected={tab === "words"}
               onClick={() => onTabChange("words")}
             >
-              단어 {wordRowCount}
+              단어 {wordCount}
             </button>
           </div>
           <div role="tabpanel">

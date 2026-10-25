@@ -236,15 +236,15 @@ def _words_response(word_spans, text, token_at, offsets, origins, utf16, before_
 
 
 def _names_response(name_spans, offsets, origins, utf16):
-    """저장된 이름 구간을 이 요청 원문의 UTF-16 위치로 보인다(#140). 판단하지 않은 행이면
-    None이다.
+    """저장된 이름 구간(위치·종류)을 이 요청 원문의 UTF-16 위치로 보인다(#140, #184). 판단하지
+    않은 행이면 None이다.
     """
     if name_spans is None:
         return None
     names = []
     for span in name_spans:
         start, end = to_original(origins, utf16, *to_analysis(offsets, span["start"], span["end"]))
-        names.append({"start": start, "end": end})
+        names.append({"start": start, "end": end, "type": span["type"]})
     return names
 
 

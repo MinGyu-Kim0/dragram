@@ -24,7 +24,7 @@ def test_name_span_is_shown_at_the_original_position(client, fake_llm):
 
     response = analyze(client, "12時に山田太郎が来た")
 
-    assert response.json()["name_spans"] == [{"start": 4, "end": 8}]
+    assert response.json()["name_spans"] == [{"start": 4, "end": 8, "type": "person"}]
 
 
 def test_invalid_name_spans_are_dropped_and_the_rest_is_saved(client, fake_llm):
@@ -44,7 +44,7 @@ def test_invalid_name_spans_are_dropped_and_the_rest_is_saved(client, fake_llm):
     response = analyze(client, "春が来た")
 
     assert response.json()["translation_ko"] == "하루가 왔다"
-    assert response.json()["name_spans"] == [{"start": 0, "end": 1}]
+    assert response.json()["name_spans"] == [{"start": 0, "end": 1, "type": "person"}]
     assert SentenceAnalysis.objects.get().name_spans == [{"start": 0, "end": 1, "type": "person"}]
 
 
@@ -97,3 +97,15 @@ def test_designated_names_are_not_sent_to_the_llm(client, fake_llm):
     analyze(client, "春が来た")
 
     assert "しゅん" not in str(fake_llm.all_requests())
+
+
+def test_cached_analysis_shows_name_type(client, fake_llm):
+    # 토큰: 0 東京 / 1 へ / 2 行っ / 3 た
+    fake_llm.response = {"translation_ko": "도쿄에 갔다", "name_spans": [name([0], "place")]}
+    analyze(client, "東京へ行った")
+    fake_llm.forget_requests()
+
+    response = analyze(client, "東京へ行った")
+
+    assert fake_llm.all_requests() == []
+    assert response.json()["name_spans"] == [{"start": 0, "end": 2, "type": "place"}]

@@ -91,6 +91,14 @@ def test_kanji_word_with_other_reading_is_found_again_by_normalized_form():
     assert lookup("私が行く") == {0: [(10, 1, "わたし")]}
 
 
+def test_conjugated_form_is_not_found_again_by_its_surface():
+    # する가 사전에 없으면 연용형 し를 표층 가나로 찾아 읽기가 같은 氏에 잇지 않는다(#201).
+    add_word(11, ["氏"], ["し"], [(["Mr"], [], None)])
+
+    # 토큰: 0 出向 / 1 し / 2 た
+    assert lookup("出向した") == {}
+
+
 def test_unknown_token_has_no_candidates():
     add_word(1, ["食べる"], ["たべる"], [(["to eat"], [], None)], tags=("verb", "group2"))
 

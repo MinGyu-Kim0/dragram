@@ -25,7 +25,7 @@ pytestmark = pytest.mark.django_db
 
 
 def lock_key():
-    return jobs.rematch_lock(Sentence(KITEIRU).sentence_hash, version())
+    return jobs.rematch_lock_key(Sentence(KITEIRU).sentence_hash, version())
 
 
 def cached():
@@ -170,3 +170,22 @@ def test_user_over_the_limit_waits_on_a_judge_another_request_took(
     assert response.types() == ["grammar", "translation", "analysis"]
     assert fake_llm.all_requests() == []
     assert redis_db.get(lock_key()) == b"other"
+
+
+def test_job_whose_version_was_raised_while_queued_does_not_call_the_llm(
+    client, fake_llm, redis_db, monkeypatch
+):
+    cache_then_register_teiru(client, fake_llm)
+    old_version = version() - 1
+    old_key = jobs.rematch_lock_key(Sentence(KITEIRU).sentence_hash, old_version)
+    redis_db.set(old_key, "mine", ex=jobs.REMATCH_LOCK_SECONDS)
+    usage = UsageLog.objects.filter(kind=UsageLog.Kind.REQUEST).latest("id")
+    published = []
+    monkeypatch.setattr(jobs, "publish", lambda sentence_hash, message: published.append(message))
+
+    rematch.run_rematch(cached().pk, KITEIRU, usage.id, old_version, "mine")
+
+    # 새 버전의 잠금을 잡을 조회가 재판정한다.
+    assert fake_llm.all_requests() == []
+    assert published == [{"type": "failed", "attempt": "mine"}]
+    assert not redis_db.exists(old_key)

@@ -63,7 +63,7 @@ def rematch(presenter, user):
     may_judge = bool(new_spans) and not limits.over_limit(user)
     # 하루 한도를 넘은 사용자도 다른 요청이 이미 잡은 재판정은 기다린다(#28).
     if may_judge or (
-        new_spans and _lock_holder(jobs.rematch_lock(s.sentence_hash, s.matcher_version))
+        new_spans and _lock_holder(jobs.rematch_lock_key(s.sentence_hash, s.matcher_version))
     ):
         return StreamingHttpResponse(
             rematch_stream(presenter, user, new_closed, new_spans, may_judge),
@@ -272,7 +272,7 @@ def start_judge(sentence, usage, may_judge):
     못 잡았으면 잡은 시도를 기다린다. 그사이 풀렸으면 다시 잡는다. 하루 한도를 넘은 요청
     (may_judge가 거짓)은 잡지 않고 기다리기만 한다.
     """
-    key = jobs.rematch_lock(sentence.sentence_hash, sentence.matcher_version)
+    key = jobs.rematch_lock_key(sentence.sentence_hash, sentence.matcher_version)
     try:
         while True:
             token = uuid.uuid4().hex
@@ -339,18 +339,20 @@ def run_rematch(analysis_id, text, usage_id, version, token):
     sentence_hash = SentenceAnalysis.objects.values_list("sentence_hash", flat=True).get(
         pk=analysis_id
     )
-    key = jobs.rematch_lock(sentence_hash, version)
+    key = jobs.rematch_lock_key(sentence_hash, version)
     if jobs.lock_holder(key) != token:
         return
     saved = False
     try:
-        saved = _judge(Sentence(text), analysis_id, usage_id)
+        saved = _judge(Sentence(text), analysis_id, usage_id, version)
     finally:
-        jobs.release_lock(key, token)
+        # 풀지 못해도 만료된다. 기다리는 요청이 대기 상한까지 붙잡히지 않게 소식은 꼭 보낸다.
+        with contextlib.suppress(redis.RedisError):
+            jobs.release_lock(key, token)
         jobs.publish(sentence_hash, {"type": "done" if saved else "failed", "attempt": token})
 
 
-def _judge(sentence, analysis_id, usage_id):
+def _judge(sentence, analysis_id, usage_id, version):
     """작업자가 다시 매칭해 재판정·저장한다. 저장된 결과가 이 버전 이상이면 참이다.
 
     로그에는 원문 없이 목적·분석 ID·오류 코드만 남긴다.
@@ -362,6 +364,9 @@ def _judge(sentence, analysis_id, usage_id):
     if cached.matcher_version >= sentence.matcher_version:
         # 잠금이 만료된 사이 다른 시도가 먼저 저장했다.
         return True
+    if sentence.matcher_version != version:
+        # 큐에서 기다리는 사이 패턴 세트 버전이 올랐다. 새 버전의 잠금을 잡을 조회에 맡긴다.
+        return False
     request = UsageLog.objects.get(pk=usage_id)
     if limits.over_limit(request.user):
         return False

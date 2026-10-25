@@ -91,7 +91,7 @@ REMATCH_LOCK_SECONDS = 150
 _UNLOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end"
 
 
-def rematch_lock(sentence_hash, version):
+def rematch_lock_key(sentence_hash, version):
     """그 문장·패턴 세트 버전의 재판정 잠금 키. 키 텍스트 해시라 원문이 아니다."""
     return f"rematch:{sentence_hash}:{version}"
 

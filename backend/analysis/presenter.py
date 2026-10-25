@@ -302,6 +302,7 @@ class Presenter:
         용법을 고른 구간은 그 용법의 카드가 되고, 해당 없음은 확인 중에서 빠진다. 해석 갈림·미확정·
         미발견은 다시 묻기나 저장을 기다리므로 확인 중으로 남는다. 새 구문은 저장 전에는 패턴이
         없어 analysis에서 보인다. 구간은 (패턴, 토큰 위치)로 이 요청의 후보 구간과 맞춘다.
+        word_spans가 None이면 판정 칸만 먼저 온 소식이라(#204) 단어는 먼저 보낸 사전 단어다.
         """
         s = self.sentence
         judged = {(j["pattern_id"], j["start_token"], j["end_token"]): j for j in spans}
@@ -322,8 +323,12 @@ class Presenter:
             "type": "judged",
             "grammar": sorted(grammar, key=lambda item: (item["start"], item["end"])),
             "checking": self.checking(checking),
-            "words": _words_response(
-                word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16, True
+            "words": (
+                self.sentence_words()
+                if word_spans is None
+                else _words_response(
+                    word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16, True
+                )
             ),
         }
 

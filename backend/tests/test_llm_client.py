@@ -6,7 +6,7 @@ import openai
 import pytest
 
 from analysis import llm
-from analysis.llm import OpenAILLMClient, TranslationFirstParser
+from analysis.llm import OpenAILLMClient, SectionParser
 from errors import AnalysisError, BusinessError
 
 
@@ -61,15 +61,17 @@ def test_stream_gives_translation_first_and_then_the_whole_result(llm_client, mo
         llm_client,
         monkeypatch,
         lambda **kwargs: (
-            stream_of(deltas('{"translation_ko": "번역"', ', "grammar": []}'))
+            stream_of(deltas('{"translation_ko": "번역"', ', "spans": []', ', "words": []}'))
             if kwargs.get("stream")
             else None
         ),
     )
 
+    # 판정 칸은 닫히는 대로 응답 전체보다 먼저 나온다(#204).
     assert list(llm_client.analyze_stream("文", [], [], [], [], [])) == [
         ("translation", "번역"),
-        ("result", {"translation_ko": "번역", "grammar": []}),
+        ("spans", []),
+        ("result", {"translation_ko": "번역", "spans": [], "words": []}),
     ]
 
 
@@ -132,34 +134,62 @@ def test_output_that_is_not_json_becomes_analysis_failure(llm_client, monkeypatc
 
 
 def feed_all(parser, chunks):
-    """조각을 차례로 넣고, 번역이 처음 나온 조각 번호와 번역을 돌려준다."""
-    found = None
-    for i, chunk in enumerate(chunks):
-        translation = parser.feed(chunk)
-        if translation is not None:
-            assert found is None, "번역은 한 번만 나온다"
-            found = (i, translation)
-    return found
+    """조각을 차례로 넣고, 닫힌 맨 위 칸마다 (조각 번호, 칸 이름, 값)을 돌려준다."""
+    return [(i, key, value) for i, chunk in enumerate(chunks) for key, value in parser.feed(chunk)]
 
 
 def test_translation_comes_out_as_soon_as_its_string_closes():
-    parser = TranslationFirstParser()
+    parser = SectionParser()
     chunks = ['{"transla', 'tion_ko": "나는 ', '학생입니다."', ', "grammar": [', "]}"]
 
-    assert feed_all(parser, chunks) == (2, "나는 학생입니다.")
+    assert feed_all(parser, chunks) == [
+        (2, "translation_ko", "나는 학생입니다."),
+        (4, "grammar", []),
+    ]
     assert parser.result() == {"translation_ko": "나는 학생입니다.", "grammar": []}
 
 
 def test_escaped_quote_does_not_end_the_translation_early():
-    parser = TranslationFirstParser()
+    parser = SectionParser()
     # 조각이 이스케이프 가운데(\ 와 ")에서 끊긴다.
     chunks = ['{"translation_ko": "그는 \\', '"간다\\"', ' \\u3042"', ', "words": []}']
 
-    assert feed_all(parser, chunks) == (2, '그는 "간다" あ')
+    assert feed_all(parser, chunks)[0] == (2, "translation_ko", '그는 "간다" あ')
+
+
+def test_section_comes_out_when_it_closes_before_later_sections_arrive():
+    # 판정 칸(#204)은 뒤 칸이 오기 전에 나온다. 글 안의 괄호·따옴표는 칸을 닫지 않는다.
+    parser = SectionParser()
+    chunks = [
+        '{"translation_ko": "번역", "spans": [{"span_id": 0, "new_usage": ',
+        '{"usage_name": "괄호 ] } \\" 안"}}',
+        "]",
+        ', "new_patterns": [], "count": 3',
+        "}",
+    ]
+
+    assert feed_all(parser, chunks) == [
+        (0, "translation_ko", "번역"),
+        (2, "spans", [{"span_id": 0, "new_usage": {"usage_name": '괄호 ] } " 안'}}]),
+        (3, "new_patterns", []),
+        (4, "count", 3),
+    ]
+
+
+def test_scalar_and_object_sections_with_newlines_come_out():
+    parser = SectionParser()
+    chunks = ['{\n  "ok": true,\n  "none": null', ',\n  "n": -1.5,\n  "obj": {"a": [1]}\n', "}"]
+
+    assert feed_all(parser, chunks) == [
+        (0, "ok", True),
+        (1, "none", None),
+        (1, "n", -1.5),
+        (1, "obj", {"a": [1]}),
+    ]
 
 
 def test_result_that_is_not_json_becomes_analysis_failure():
-    parser = TranslationFirstParser()
+    parser = SectionParser()
     parser.feed('{"translation_ko": "번역", "gram')
 
     with pytest.raises(BusinessError) as raised:
@@ -167,8 +197,8 @@ def test_result_that_is_not_json_becomes_analysis_failure():
     assert raised.value.error_code == AnalysisError.FAILED
 
 
-def test_translation_with_invalid_escape_becomes_analysis_failure():
-    parser = TranslationFirstParser()
+def test_section_with_invalid_escape_becomes_analysis_failure():
+    parser = SectionParser()
 
     with pytest.raises(BusinessError) as raised:
         parser.feed('{"translation_ko": "잘못된 \\x 이스케이프"')

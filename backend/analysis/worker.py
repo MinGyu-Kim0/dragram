@@ -12,6 +12,7 @@ from analysis.answers import (
     _validate_definitions,
     _validate_meanings,
     _validate_recheck_answers,
+    _validate_span_answers,
     _validate_translation,
     reject_quotes,
 )
@@ -175,11 +176,12 @@ class Worker:
         self.publish({"type": "done"})
 
     def work(self):
-        """LLM 분석을 하고 저장한다. 번역을 검증하자마자 먼저 알리고, 문법·단어까지 검증해
-        저장한다. 실패하면 BusinessError이고 어느 단계에서 실패해도 저장하지 않는다.
+        """LLM 분석을 하고 저장한다. 번역을 검증하자마자 먼저 알리고, 판정 칸이 닫히면 그 칸만
+        검증해 판정을 알린 뒤(#204), 문법·단어까지 검증해 저장한다. 실패하면 BusinessError이고
+        어느 단계에서 실패해도 저장하지 않는다.
         """
         s = self.sentence
-        translated = False
+        translated = judged = False
         result = None
         for kind, value in self.client.analyze_stream(
             s.key_text, s.tokens, s.llm_spans, s.decided_spans, s.llm_words, s.unknown
@@ -188,6 +190,18 @@ class Worker:
                 _validate_translation(value, s.numbers)
                 translated = True
                 self.share_translation(value)
+            elif kind == "spans":
+                answers = self.early_span_answers(value) if translated and s.spans else None
+                if answers is not None:
+                    judged = True
+                    # 단어는 아직 고르지 않았다(None). 화면은 먼저 보낸 사전 단어를 그대로 둔다.
+                    self.publish(
+                        {
+                            "type": "judged",
+                            "spans": _judged_spans(s.spans, answers),
+                            "word_spans": None,
+                        }
+                    )
             else:
                 result = value
         validated = _validate(
@@ -203,7 +217,7 @@ class Worker:
         # 거부될 응답이면 다시 묻지 않는다.
         reject_quotes(validated, s)
         stored_words = s.word_spans(validated["words"])
-        if s.spans or s.ambiguous:
+        if s.ambiguous or (s.spans and not judged):
             self.publish(
                 {
                     "type": "judged",
@@ -305,6 +319,22 @@ class Worker:
         """이 시도의 작업 소식을 보낸다."""
         s = self.sentence
         jobs.publish(s.sentence_hash, {**message, "attempt": _attempt(self.started)})
+
+    def early_span_answers(self, answers):
+        """응답 도중 닫힌 판정 칸을 응답 전체와 같은 규칙으로 검증한 판정. 틀렸거나 새 용법 글이
+        문장 전체를 인용했으면 None이다(알리지 않고, 응답 전체 검증에서 실패한다).
+        """
+        s = self.sentence
+        checked = _validate_span_answers(answers, s.spans)
+        if checked is None:
+            return None
+        texts = [
+            new_usage[field]
+            for _, _, new_usage in checked
+            if new_usage is not None
+            for field in ("usage_name", "explanation_ko")
+        ]
+        return None if _quotes_whole_sentence(texts, s.key_text, s.content_tokens) else checked
 
     def prepare(self, validated):
         """새 구문마다 형태소 조건을 만든다. 패턴 생성 규칙을 어겼으면 None이다. 같은 자리에서

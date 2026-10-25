@@ -141,14 +141,19 @@ def _grammar_item(
     state=SpanMatch.State.DECIDED,
 ):
     """용법이 정해진 구간 하나를 응답 항목으로 만든다. 반려됐으면 None(ADR 0003)."""
+    fields = _usage_fields(pattern, usage)
+    if fields is None:
+        return None
+    start, end = to_original(origins, utf16, *to_analysis(offsets, start_offset, end_offset))
+    return {"start": start, "end": end, "state": state, **fields}
+
+
+def _usage_fields(pattern, usage):
+    """문법 카드의 용법 칸(이름·설명·대응 표현·태그·검수 상태·회화체). 반려됐으면 None."""
     review_status = _review_status(pattern, usage)
     if review_status is None:
         return None
-    start, end = to_original(origins, utf16, *to_analysis(offsets, start_offset, end_offset))
     return {
-        "start": start,
-        "end": end,
-        "state": state,
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
         "korean_equivalent": usage.korean_equivalent,
@@ -360,7 +365,8 @@ class Presenter:
 
     def checking(self, span_list):
         """판별 대상 구간의 원문 위치와 후보 용법의 이름·검수 상태(원문 순서). 후보 이름도 LLM이
-        만든 지식이라 미검수면 미검수로 보인다(불변식). 반려된 용법은 후보에 없다.
+        만든 지식이라 미검수면 미검수로 보인다(불변식). 반려된 용법은 후보에 없다. 후보가 하나면
+        판정 전에도 카드를 채우도록 그 용법 칸(usage)을 싣고, 여럿이면 None이다(#203).
         """
         s = self.sentence
         items = []
@@ -373,7 +379,12 @@ class Presenter:
                 {"name": usage.name, "review_status": _review_status(span.pattern, usage)}
                 for _, usage in span.candidates
             ]
-            items.append({"start": start, "end": end, "candidates": candidates})
+            usage = (
+                _usage_fields(span.pattern, span.candidates[0][1])
+                if len(span.candidates) == 1
+                else None
+            )
+            items.append({"start": start, "end": end, "candidates": candidates, "usage": usage})
         return items
 
     def sentence_words(self):

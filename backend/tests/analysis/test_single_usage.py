@@ -129,6 +129,19 @@ def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fak
                 "start": 3,
                 "end": 6,
                 "candidates": [{"name": "진행", "review_status": "pending"}],
+                # 후보가 하나라 판정 전에도 그 용법 칸을 싣는다(#203).
+                "usage": {
+                    "name": "진행",
+                    "explanation_ko": "동작이 이어지고 있음을 나타낸다",
+                    "korean_equivalent": None,
+                    "korean_equivalent_review_status": None,
+                    "pos_tags": ["particle", "verb"],
+                    "function_tags": [],
+                    "function_tags_review_status": None,
+                    "review_status": "pending",
+                    "register": "standard",
+                    "variant_of": None,
+                },
             }
         ],
         "words": [],
@@ -163,13 +176,10 @@ def test_decided_and_checking_spans_are_sent_together(client, fake_llm):
     assert response.types() == ["grammar", "translation", "judged", "analysis"]
     first = response.events[0]
     assert [item["name"] for item in first["grammar"]] == ["진행"]
-    assert first["checking"] == [
-        {
-            "start": 2,
-            "end": 5,
-            "candidates": [{"name": "동시 동작", "review_status": "pending"}],
-        }
-    ]
+    [checking] = first["checking"]
+    assert (checking["start"], checking["end"]) == (2, 5)
+    assert checking["candidates"] == [{"name": "동시 동작", "review_status": "pending"}]
+    assert checking["usage"]["name"] == "동시 동작"
 
 
 def test_sentence_without_matched_spans_starts_with_the_translation(client, fake_llm):

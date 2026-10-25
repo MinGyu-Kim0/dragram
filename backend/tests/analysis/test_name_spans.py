@@ -76,3 +76,24 @@ def test_stale_analysis_replaces_name_spans(client, fake_llm):
 
     assert response.json()["name_spans"] == []
     assert SentenceAnalysis.objects.get().name_spans == []
+
+
+def test_answer_without_name_spans_is_saved_as_not_judged(client, fake_llm):
+    fake_llm.response = {"translation_ko": "봄이 왔다", "name_spans": "春"}
+
+    response = analyze(client, "春が来た")
+
+    assert response.json()["name_spans"] is None
+    assert SentenceAnalysis.objects.get().name_spans is None
+
+
+def test_designated_names_are_not_sent_to_the_llm(client, fake_llm):
+    saved = client.put(
+        "/api/names/", {"surface": "春", "reading": "しゅん"}, content_type="application/json"
+    )
+    assert saved.status_code == 200
+    fake_llm.response = {"translation_ko": "봄이 왔다"}
+
+    analyze(client, "春が来た")
+
+    assert "しゅん" not in str(fake_llm.all_requests())

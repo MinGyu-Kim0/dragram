@@ -3022,6 +3022,11 @@ describe("이름 지정(#136)", () => {
 
     expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
     expect(rubies()).toEqual([["春", "しゅん"]]);
+
+    fireEvent.click(screen.getByRole("button", { name: "사전 단어 보기" }));
+
+    expect(screen.getByText("春 뜻")).toBeInTheDocument();
+    expect(rubies()).toEqual([["春", "はる"]]);
   });
 
   test("'읽기 고치기'로 읽기를 바꾼다", async () => {

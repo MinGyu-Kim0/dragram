@@ -207,7 +207,11 @@ class Sentence:
         return (span.pattern.id, *self.key_span(span.start_token, span.end_token))
 
     def name_spans(self, names):
-        """저장할 이름 구간(#140). names는 검증한 [(첫 토큰, 끝 토큰, 종류)]다."""
+        """저장할 이름 구간(#140). names는 검증한 [(첫 토큰, 끝 토큰, 종류)]이고, 판단하지 않았으면
+        None이다.
+        """
+        if names is None:
+            return None
         stored = []
         for first, last, type_ in names:
             start, end = self.key_span(first, last)

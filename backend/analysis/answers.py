@@ -299,11 +299,13 @@ def _validate_new_words(answers, unknown):
 
 def _validate_name_spans(answers, token_count):
     """이름 구간(#140): [(첫 토큰, 끝 토큰, 종류)]. 토큰이 없거나 범위 밖이거나 이어지지 않거나
-    종류가 목록 밖인 항목은 그 항목만 뺀다. 목록이 아니면 이름이 없는 것으로 본다(이름 때문에
-    번역·문법을 버리지 않는다).
+    종류가 목록 밖인 항목은 그 항목만 뺀다. 목록이 아니면 판단하지 않은 것(None)으로 본다.
+    이름 때문에 번역·문법을 버리지 않고, '이름 없음'([])으로 잘못 저장하지도 않는다.
     """
+    if not isinstance(answers, list):
+        return None
     found = []
-    for item in answers if isinstance(answers, list) else []:
+    for item in answers:
         if not isinstance(item, dict) or item.get("type") not in llm.NAME_TYPES:
             continue
         tokens = item.get("token_ids")

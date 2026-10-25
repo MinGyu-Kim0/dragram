@@ -292,6 +292,19 @@ def test_linked_variant_span_uses_the_base_usage_and_shows_colloquial(client, fa
     assert response.json()["grammar"] == [CHAU_ITEM]
 
 
+def test_checking_variant_span_carries_the_base_usage_and_colloquial(client, fake_llm):
+    # 후보가 원형 용법 하나라 판정 전에도 그 칸을 싣는다(#203).
+    linked(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+
+    response = analyze(client, MICHAU)
+
+    [checking] = response.events[0]["checking"]
+    assert checking["usage"] == {
+        k: v for k, v in CHAU_ITEM.items() if k not in ("start", "end", "state")
+    }
+
+
 def test_standard_span_has_no_colloquial_fields_set(client, fake_llm):
     base, _ = linked(fake_llm)
     fake_llm.response = {"translation_ko": "다 먹어 버렸다", "spans": [span_answer(0, "usage", 1)]}

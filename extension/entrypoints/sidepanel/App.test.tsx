@@ -1568,27 +1568,16 @@ test("후보가 하나인 확인 중 카드는 판정 전에도 그 용법의 �
     korean_equivalent_review_status: "pending",
     pos_tags: ["particle", "verb"],
   };
+  const { start, end, state: _state, ...fields } = usage;
   stream.push({
     type: "grammar",
     grammar: [],
     checking: [
       {
-        start: 3,
-        end: 6,
+        start,
+        end,
         candidates: [{ name: "진행", review_status: "pending" }],
-        usage: {
-          name: usage.name,
-          explanation_ko: usage.explanation_ko,
-          korean_equivalent: usage.korean_equivalent,
-          korean_equivalent_review_status:
-            usage.korean_equivalent_review_status,
-          pos_tags: usage.pos_tags,
-          function_tags: usage.function_tags,
-          function_tags_review_status: usage.function_tags_review_status,
-          review_status: usage.review_status,
-          register: usage.register,
-          variant_of: usage.variant_of,
-        },
+        usage: fields,
       },
     ],
   });

@@ -41,6 +41,17 @@ def test_checking_span_with_one_candidate_carries_its_usage(client, fake_llm):
     }
 
 
+def test_span_still_checking_after_judging_keeps_its_usage(client, fake_llm):
+    register_teiru(client, fake_llm)
+    fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "unresolved")]}
+
+    response = analyze(client, KITEIRU)
+
+    [judged] = [event for event in response.events if event["type"] == "judged"]
+    [item] = judged["checking"]
+    assert item["usage"]["name"] == "진행"
+
+
 def test_checking_span_with_several_candidates_carries_no_usage(client, fake_llm):
     pattern = register_teiru(client, fake_llm)
     GrammarUsage.objects.create(

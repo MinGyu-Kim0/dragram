@@ -2,8 +2,8 @@
 
 활용하지 않는 단어는 표기 + 읽기로, 활용하는 단어는 사전형 표기로 찾는다(SudachiPy 읽기는
 활용형 읽기라 食べた의 食べ는 タベ다). 가나로 쓴 단어는 읽기(히라가나로 통일)로도 찾고, 못 찾으면
-정규형·표층형으로 한 번 더 찾는다. 읽기→표기 제한과 뜻→표기·읽기 제한은 후보를 거르고 표기에
-맞는 읽기를 고르는 데만 쓴다.
+정규형·표층형(활용하는 단어는 정규형만)으로 한 번 더 찾는다. 읽기→표기 제한과 뜻→표기·읽기
+제한은 후보를 거르고 표기에 맞는 읽기를 고르는 데만 쓴다.
 """
 
 import re
@@ -45,10 +45,12 @@ def _queries(text, morph):
         first = _Query(form, None)
     else:
         first = _Query(form, to_hiragana(morph.reading))
-    # 정규형(morph.lemma)·표층형으로 다시 찾을 때는 표기만 맞춘다.
+    # 정규형(morph.lemma)·표층형으로 다시 찾을 때는 표기만 맞춘다. 활용형 표층(する의 し)은
+    # 다른 단어(氏)와 같은 가나일 수 있어 찾지 않는다(#201).
+    values = (morph.lemma,) if morph.conjugates else (morph.lemma, surface)
     again = [
         _Query(value, to_hiragana(value) if is_kana(value) else None)
-        for value in dict.fromkeys((morph.lemma, surface))
+        for value in dict.fromkeys(values)
     ]
     return [first, *again]
 

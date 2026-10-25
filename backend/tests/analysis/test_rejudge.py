@@ -14,7 +14,6 @@ from tests.analysis.helpers import analyze, connected_client, new_usage, post, s
 from tests.analysis.test_divergent import alternative, divergent
 from tests.analysis.test_limits import spend
 from tests.analysis.test_rematch import GA, KITEIRU, TEIRU, register, version
-from tests.analysis.test_rematch_worker import holder_calls  # noqa: F401
 from tests.analysis.test_usage_rules import TOKYO_DE, register_de, rule
 from tests.analysis.test_worker import _read_in_thread, _stored_values, _wait_until, _work_burst
 
@@ -251,7 +250,7 @@ def test_same_sentence_at_once_judges_grown_spans_once(
     settings,
     fake_llm,
     redis_db,
-    holder_calls,  # noqa: F811
+    holder_calls,
 ):
     cache_teiru(connected_client(), fake_llm)
     add_teiru_usage("결과 상태")

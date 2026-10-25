@@ -33,20 +33,6 @@ def cached():
     return SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
 
 
-@pytest.fixture
-def holder_calls(monkeypatch):
-    """잠금을 못 잡아 잡은 시도를 읽은 횟수(다른 요청의 재판정을 기다리기 시작함)."""
-    calls = []
-    original = jobs.lock_holder
-
-    def recording(key):
-        calls.append(key)
-        return original(key)
-
-    monkeypatch.setattr(jobs, "lock_holder", recording)
-    return calls
-
-
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
 def test_same_cached_sentence_at_once_judges_once_and_both_get_the_saved_result(
     settings,

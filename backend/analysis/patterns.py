@@ -214,10 +214,16 @@ def register(
         # LLM이 용법과 함께 답했으므로 비었어도 채운 것이다.
         korean_equivalent=korean_equivalent,
         korean_equivalent_filled=True,
+        korean_equivalent_status=equivalent_status(korean_equivalent),
         status=ReviewStatus.PENDING,
         origin=GrammarUsage.Origin.LLM,
     )
     return pattern, usage
+
+
+def equivalent_status(korean_equivalent):
+    """LLM이 쓴 대응 표현의 검수 상태. 값이 있으면 미검수, 없으면 NULL이다(#152)."""
+    return ReviewStatus.PENDING if korean_equivalent else None
 
 
 def pattern_set_version():
@@ -301,6 +307,7 @@ def add_usage(pattern, name, explanation_ko, example_ja, matched=None, korean_eq
                 example_ja=example_ja,
                 korean_equivalent=korean_equivalent,
                 korean_equivalent_filled=True,
+                korean_equivalent_status=equivalent_status(korean_equivalent),
                 status=ReviewStatus.PENDING,
                 origin=GrammarUsage.Origin.LLM,
             )

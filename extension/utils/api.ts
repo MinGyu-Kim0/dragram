@@ -41,6 +41,8 @@ export interface GrammarItem {
   explanation_ko: string | null;
   // 이 용법이 한국어로 주로 옮겨지는 표현(용법 일반, #152). 없거나 미확정이면 null이다.
   korean_equivalent: string | null;
+  // 대응 표현의 검수 상태. 승인된 용법에 나중에 채운 대응 표현은 따로 미검수일 수 있다.
+  korean_equivalent_review_status: "pending" | "approved" | null;
   // pending은 LLM이 썼고 아직 검수되지 않은 문법이다.
   review_status: "pending" | "approved";
   // 매칭된 패턴의 말투. colloquial이면 회화체 패턴(ちゃう 등)이다.
@@ -57,6 +59,7 @@ export interface GrammarItem {
 export interface Alternative {
   name: string;
   korean_equivalent: string | null;
+  korean_equivalent_review_status: "pending" | "approved" | null;
   translation_ko: string;
   review_status: "pending" | "approved";
 }

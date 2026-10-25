@@ -69,6 +69,7 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore):
                         {
                             "name": usage.name,
                             "korean_equivalent": usage.korean_equivalent,
+                            "korean_equivalent_review_status": usage.korean_equivalent_status,
                             "translation_ko": restore(alt["translation_ko"]),
                             "review_status": review_status,
                         }
@@ -144,6 +145,7 @@ def _grammar_item(
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
         "korean_equivalent": usage.korean_equivalent,
+        "korean_equivalent_review_status": usage.korean_equivalent_status,
         "review_status": review_status,
         **_register_fields(pattern),
     }
@@ -172,6 +174,7 @@ def _unresolved_item(span, offsets, origins, utf16):
         "name": span.pattern.name,
         "explanation_ko": None,
         "korean_equivalent": None,
+        "korean_equivalent_review_status": None,
         "review_status": "pending" if ReviewStatus.PENDING in statuses else "approved",
         **_register_fields(span.pattern),
     }

@@ -9,7 +9,7 @@ from itertools import batched
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from analysis import llm
+from analysis import llm, patterns
 from analysis.answers import korean_equivalent
 from analysis.models import GrammarUsage, ReviewStatus, UsageLog
 from errors import BusinessError
@@ -74,9 +74,12 @@ def _save(asked, answer):
         if type(usage_id) is not int or usage_id not in asked:
             continue
         asked.discard(usage_id)
+        equivalent = korean_equivalent(item.get("korean_equivalent"))
+        # 승인된 용법이라도 대응 표현은 따로 승인할 때까지 미검수다.
         saved += GrammarUsage.objects.filter(pk=usage_id, korean_equivalent_filled=False).update(
-            korean_equivalent=korean_equivalent(item.get("korean_equivalent")),
+            korean_equivalent=equivalent,
             korean_equivalent_filled=True,
+            korean_equivalent_status=patterns.equivalent_status(equivalent),
             updated_at=timezone.now(),
         )
     return saved

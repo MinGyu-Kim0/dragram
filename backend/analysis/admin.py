@@ -125,8 +125,12 @@ class GrammarUsageForm(forms.ModelForm):
         if current != self.instance.pattern_id:
             raise forms.ValidationError(USAGE_MOVED)
         # 관리자가 고친 대응 표현(비운 것 포함)은 채우기 명령이 다시 채우지 않는다(#152).
+        # 관리자가 쓴 값은 검수한 것이다.
         if "korean_equivalent" in self.changed_data:
             self.instance.korean_equivalent_filled = True
+            self.instance.korean_equivalent_status = (
+                ReviewStatus.APPROVED if self.cleaned_data.get("korean_equivalent") else None
+            )
         return super().clean()
 
 
@@ -394,7 +398,12 @@ class GrammarUsageAdmin(_ReviewedAdmin):
     def save_model(self, request, obj, form, change):
         # 고칠 수 있는 칸만 쓴다. 폼을 연 뒤 액션이 바꾼 상태를 화면이 읽어 둔 값으로 덮지 않는다.
         obj.save(
-            update_fields=[*GrammarUsageForm.Meta.fields, "korean_equivalent_filled", "updated_at"]
+            update_fields=[
+                *GrammarUsageForm.Meta.fields,
+                "korean_equivalent_filled",
+                "korean_equivalent_status",
+                "updated_at",
+            ]
         )
 
     actions = [
@@ -402,6 +411,9 @@ class GrammarUsageAdmin(_ReviewedAdmin):
         _review_action("reject", review.reject_usage, "반려"),
         _review_action("unreject", review.unreject_usage, "반려 취소(미검수로)"),
         _review_action("unapprove", review.unapprove_usage, "승인 취소(미검수로)"),
+        _review_action(
+            "approve_korean_equivalent", review.approve_korean_equivalent, "대응 표현 승인"
+        ),
     ]
 
 

@@ -260,6 +260,7 @@ function grammarItem(start: number, end: number, name: string) {
     name,
     explanation_ko: `${name} 설명`,
     korean_equivalent: null,
+    korean_equivalent_review_status: null,
     review_status: "pending",
     register: "standard",
     variant_of: null,
@@ -1938,6 +1939,7 @@ function alternativeItem(
   return {
     name,
     korean_equivalent: null,
+    korean_equivalent_review_status: null,
     translation_ko: translation,
     review_status: status,
   };
@@ -2165,8 +2167,13 @@ test("대응 표현이 있으면 제목과 설명 사이에 한 줄로 보이고
         {
           ...grammarItem(1, 6, "동작의 상대"),
           korean_equivalent: "~에게 · ~을/를 (会う·乗る 등)",
+          korean_equivalent_review_status: "pending",
         },
-        { ...grammarItem(4, 6, "정중한 과거"), korean_equivalent: "~었습니다" },
+        {
+          ...grammarItem(4, 6, "정중한 과거"),
+          korean_equivalent: "~었습니다",
+          korean_equivalent_review_status: "pending",
+        },
       ),
     ],
     words: [],
@@ -2194,6 +2201,38 @@ test("대응 표현이 있으면 제목과 설명 사이에 한 줄로 보이고
   expect(within(part!).getByText("~었습니다")).toBeInTheDocument();
   // 대응 표현은 용법의 일부라 따로 배지를 달지 않는다.
   expect(within(part!).getAllByText("AI 생성·미검수")).toHaveLength(1);
+});
+
+test("승인된 용법에 미검수 대응 표현이 있으면 그 줄에만 'AI 생성·미검수' 배지를 단다", async () => {
+  respondWith(200, {
+    translation_ko: "친구를 만났다",
+    grammar: [
+      {
+        ...grammarItem(1, 2, "동작의 상대"),
+        review_status: "approved",
+        korean_equivalent: "~에게",
+        korean_equivalent_review_status: "pending",
+      },
+      {
+        ...grammarItem(4, 6, "정중한 과거"),
+        review_status: "approved",
+        korean_equivalent: "~었습니다",
+        korean_equivalent_review_status: "approved",
+      },
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "友達に会いました");
+
+  const [pending, approved] = await screen.findAllByRole("listitem");
+  const line = pending!.querySelector(".korean-equivalent")!;
+  expect(
+    within(line as HTMLElement).getByText("AI 생성·미검수"),
+  ).toBeInTheDocument();
+  expect(within(pending!).getAllByText("AI 생성·미검수")).toHaveLength(1);
+  expect(within(approved!).queryByText("AI 생성·미검수")).toBeNull();
 });
 
 test("대응 표현이 없는 카드에는 대응 표현 줄이 없다", async () => {

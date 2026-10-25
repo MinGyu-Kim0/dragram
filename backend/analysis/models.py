@@ -148,6 +148,11 @@ class GrammarUsage(models.Model):
     )
     # 대응 표현을 채운 적이 있는가. NULL이 '대응 없음'인지 '아직 안 채움'인지 가른다(fill_usages).
     korean_equivalent_filled = models.BooleanField(default=False)
+    # 대응 표현의 검수 상태(pending·approved). 값이 없으면 NULL이다. 용법을 승인하면 함께
+    # 승인되고, 승인된 용법에 LLM이 나중에 채운 값은 따로 승인할 때까지 미검수다(#152).
+    korean_equivalent_status = models.CharField(  # noqa: DJ001
+        max_length=30, choices=ReviewStatus.choices, null=True
+    )
     status = models.CharField(max_length=30, choices=ReviewStatus.choices)
     origin = models.CharField(max_length=30, choices=Origin.choices)
     created_at = models.DateTimeField(auto_now_add=True)

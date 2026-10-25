@@ -143,7 +143,9 @@ def _checked_span_answers(answers, spans, allowed, numbers):
             new_usage = item.get("new_usage")
             if not isinstance(new_usage, dict) or not _are_new_texts(new_usage, ("usage_name",)):
                 return None
-            judged[span_id] = (SpanMatch.State.UNFOUND, None, _with_korean_equivalent(new_usage))
+            equivalent = korean_equivalent(new_usage.get("korean_equivalent"))
+            new_usage = {**new_usage, "korean_equivalent": equivalent}
+            judged[span_id] = (SpanMatch.State.UNFOUND, None, new_usage)
         else:
             return None
     if len(judged) != len(spans):
@@ -183,10 +185,6 @@ def korean_equivalent(value):
     return value
 
 
-def _with_korean_equivalent(item):
-    return {**item, "korean_equivalent": korean_equivalent(item.get("korean_equivalent"))}
-
-
 def _validate_new_patterns(items, token_count):
     """LLM이 제안한 새 구문의 형식을 검증한다. 하나라도 틀리면 None.
 
@@ -210,13 +208,11 @@ def _validate_new_patterns(items, token_count):
             return None
         fields = (*_NEW_PATTERN_TEXTS, "example_ja")
         proposals.append(
-            _with_korean_equivalent(
-                {
-                    "tokens": [(token["token_id"], token["fix"]) for token in tokens],
-                    **{field: item[field] for field in fields},
-                    "korean_equivalent": item.get("korean_equivalent"),
-                }
-            )
+            {
+                "tokens": [(token["token_id"], token["fix"]) for token in tokens],
+                **{field: item[field] for field in fields},
+                "korean_equivalent": korean_equivalent(item.get("korean_equivalent")),
+            }
         )
     return proposals
 

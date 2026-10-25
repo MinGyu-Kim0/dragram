@@ -104,7 +104,8 @@ def test_judged_message_carries_only_ids_and_positions(client, fake_llm, teiru, 
                 "usage_id": usage.id,
             }
         ],
-        "word_spans": [],
+        # 판정 칸만 먼저 알려 단어는 아직 없다(#204).
+        "word_spans": None,
     }
 
 
@@ -114,3 +115,52 @@ def test_sentence_without_spans_or_words_to_choose_sends_no_judged_event(client,
     response = analyze(client, KITEIRU)
 
     assert "judged" not in response.types()
+
+
+def recording_publish(monkeypatch, fake_llm):
+    """알린 소식마다 (종류, 그때 응답 전체를 넘겼는가)를 남긴다."""
+    published = []
+    original = jobs.publish
+
+    def recording(sentence_hash, message):
+        published.append((message["type"], fake_llm.result_given))
+        original(sentence_hash, message)
+
+    monkeypatch.setattr(jobs, "publish", recording)
+    return published
+
+
+def test_judgments_are_sent_as_soon_as_the_spans_section_closes(
+    client, fake_llm, teiru, monkeypatch
+):
+    # 판정 칸이 닫히면 새 구문·단어 칸을 기다리지 않고 보낸다(#204).
+    fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "usage", 2)]}
+    published = recording_publish(monkeypatch, fake_llm)
+
+    response = analyze(client, KITEIRU)
+
+    assert ("judged", False) in published
+    assert [g["name"] for g in judged(response)["grammar"]] == ["결과 상태"]
+    assert [g["name"] for g in response.json()["grammar"]] == ["결과 상태"]
+
+
+def test_wrong_spans_section_sends_no_judgments_and_fails(client, fake_llm, teiru, monkeypatch):
+    fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, "usage", 9)]}
+    published = recording_publish(monkeypatch, fake_llm)
+
+    response = analyze(client, KITEIRU)
+
+    assert "judged" not in [kind for kind, _ in published]
+    assert response.types()[-1] == "error"
+
+
+def test_wrong_later_section_fails_after_the_judgments(client, fake_llm, teiru):
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "spans": [span_answer(0, "usage", 2)],
+        "new_patterns": "not a list",
+    }
+
+    response = analyze(client, KITEIRU)
+
+    assert response.types() == ["grammar", "translation", "judged", "error"]

@@ -1,0 +1,154 @@
+.site {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+.site-header {
+  padding: 20px 0;
+}
+
+.site .logo {
+  color: var(--color-brand);
+  font-size: 20px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.site a {
+  color: var(--color-brand);
+}
+
+.site .secondary {
+  color: var(--color-text-secondary);
+}
+
+.site .muted {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.site .card {
+  padding: 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.site .primary-button,
+.site .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.site .primary-button {
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+}
+
+.site .secondary-button {
+  border: 1px solid var(--color-border-control);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.hero {
+  padding: 40px 0 32px;
+  display: grid;
+  gap: 16px;
+}
+
+.hero h1 {
+  margin: 0;
+  font-size: 36px;
+  display: grid;
+  gap: 8px;
+}
+
+.hero-lead {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.hero p {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.steps h2 {
+  margin: 8px 0 6px;
+  font-size: 17px;
+}
+
+.steps p {
+  margin: 0;
+  line-height: 1.6;
+}
+
+.step-number {
+  color: var(--color-brand);
+  font-weight: 700;
+}
+
+.faq {
+  padding: 32px 0;
+}
+
+.faq dt {
+  margin-top: 16px;
+  font-weight: 600;
+}
+
+.faq dd {
+  margin: 6px 0 0;
+  line-height: 1.6;
+}
+
+.document {
+  padding: 16px 0 32px;
+  line-height: 1.7;
+}
+
+.document h1 {
+  margin: 0 0 4px;
+}
+
+.document h2 {
+  margin: 28px 0 8px;
+  font-size: 18px;
+}
+
+.site footer {
+  padding: 24px 0 40px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.site footer nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}

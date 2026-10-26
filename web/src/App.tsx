@@ -1,18 +1,15 @@
 import { Route, Routes } from "react-router";
 import ConnectPage from "./connect/ConnectPage";
-
-function Home() {
-  return (
-    <main>
-      <h1>Dragram</h1>
-    </main>
-  );
-}
+import LandingPage from "./site/LandingPage";
+import PrivacyPage from "./site/PrivacyPage";
+import TermsPage from "./site/TermsPage";
 
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Home />} />
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/terms" element={<TermsPage />} />
       <Route path="/connect" element={<ConnectPage />} />
     </Routes>
   );

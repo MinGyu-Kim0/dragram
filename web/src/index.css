@@ -1,0 +1,20 @@
+/* 색 토큰은 DESIGN §2. 다크 값은 아직 웹에서 정하지 않았다(DESIGN §7). */
+:root {
+  --color-bg: #f2f7f3;
+  --color-surface: #ffffff;
+  --color-text: #17302a;
+  --color-text-secondary: #33473f;
+  --color-text-muted: #5a6b63;
+  --color-border: #dce7e0;
+  --color-border-control: #cfddd4;
+  --color-danger-text: #9f1d1d;
+  --color-brand: #157a57;
+  --color-on-brand: #ffffff;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: system-ui, sans-serif;
+}

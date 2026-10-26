@@ -21,8 +21,17 @@ MAX_NAMES = 1000
 
 def _surface(data):
     surface = data.get("surface") if isinstance(data, dict) else None
-    if not isinstance(surface, str) or not surface.strip() or len(surface) > MAX_LENGTH:
+    if (
+        not isinstance(surface, str)
+        or not surface.strip()
+        or len(surface) > MAX_LENGTH
+        or "\x00" in surface
+    ):
         raise BusinessError(DesignatedNameError.INVALID, "표기가 맞지 않음")
+    try:
+        surface.encode("utf-8")
+    except UnicodeEncodeError:
+        raise BusinessError(DesignatedNameError.INVALID, "표기가 맞지 않음") from None
     return surface
 
 

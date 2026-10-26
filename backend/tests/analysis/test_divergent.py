@@ -532,7 +532,7 @@ def test_rejecting_or_unapproving_an_alternative_usage_makes_the_analysis_stale(
 
 def test_basis_is_kept_nowhere(client, fake_llm, caplog):
     secret = "앞 문장에서 이미 도착했다고 했다면"
-    ask_divergent(
+    first, *_ = ask_divergent(
         client,
         fake_llm,
         [
@@ -548,6 +548,8 @@ def test_basis_is_kept_nowhere(client, fake_llm, caplog):
     analysis = saved_analyses().latest("id")
     analysis.is_stale = True
     analysis.save(update_fields=["is_stale"])
+    assert secret not in str(first.events)
+    assert secret not in caplog.text
     caplog.clear()
     fake_llm.rejudge_response = {
         "translation_ko": "그가 와 있다",

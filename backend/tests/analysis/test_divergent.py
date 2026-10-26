@@ -545,15 +545,28 @@ def test_basis_is_kept_nowhere(client, fake_llm, caplog):
     )
     response = analyze(client, KITEIRU)
     # 실패해 로그가 남는 경우도 본다(후보 밖 대안).
+    analysis = saved_analyses().latest("id")
+    analysis.is_stale = True
+    analysis.save(update_fields=["is_stale"])
+    caplog.clear()
     fake_llm.rejudge_response = {
         "translation_ko": "그가 와 있다",
         "spans": [divergent(0, 1, alternative(9, "다른 번역", secret))],
     }
-    analyze(client, "彼が来ている。")
+    failed = analyze(client, "彼が来ている。")
+
+    assert failed.json() == {"error": "ANALYSIS:FAILED"}
+    assert any(
+        record.name == "errors.handler"
+        and record.levelname == "WARNING"
+        and "ANALYSIS:FAILED" in record.getMessage()
+        for record in caplog.records
+    )
 
     rows = [str(row) for model in (SpanMatch, SentenceAnalysis) for row in model.objects.values()]
     assert not any(secret in row for row in rows)
     assert secret not in response.response.content.decode()
+    assert secret not in str(failed.events)
     assert secret not in caplog.text
 
 

@@ -3,7 +3,7 @@
 운영 배포. 서버 한 대(AWS Lightsail)에 compose로 db·redis·backend·작업자·Caddy를 올린다. 로컬 개발용 compose는 루트 `compose.yaml`이다.
 
 - `compose.yaml`: 운영 compose. 서버의 `~/dragram`에서 실행한다.
-- `Caddyfile`: 앞단. HTTPS 인증서를 자동으로 받고 `/api`를 backend로 넘긴다.
+- `Caddyfile`: 앞단. HTTPS 인증서를 자동으로 받고 `/api`를 backend로 넘긴다. 서버에는 `~/dragram/caddy/Caddyfile`로 올리고, 배포할 때마다 Caddy가 다시 읽는다.
 - `deploy.sh`: 개발 PC에서 이미지를 빌드해 서버로 보내고 다시 띄운다.
 - 처음 설정과 배포·되돌리기 절차: `README.md`
 

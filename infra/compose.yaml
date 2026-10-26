@@ -1,6 +1,6 @@
 name: dragram
 
-# 운영용. 서버의 ~/dragram에 이 파일·Caddyfile·.env를 두고 실행한다(README.md).
+# 운영용. 서버의 ~/dragram에 이 파일·caddy/Caddyfile·.env를 두고 실행한다(README.md).
 # 비밀값은 서버의 .env에만 둔다. 이 파일에 쓰지 않는다.
 
 x-logging: &logging
@@ -90,7 +90,9 @@ services:
       - "${HTTPS_PORT:-443}:443"
       - "${HTTPS_PORT:-443}:443/udp"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # 파일이 아니라 폴더를 붙인다. 배포가 Caddyfile을 바꾸면 컨테이너가 새 내용을 보고
+      # 다시 읽는다(deploy.sh). 파일 하나만 붙이면 교체된 파일을 보지 못할 수 있다.
+      - ./caddy:/etc/caddy:ro
       # 인증서. 지우면 다시 발급받다가 Let's Encrypt 발급 횟수 제한에 걸릴 수 있다.
       - caddy_data:/data
       - caddy_config:/config

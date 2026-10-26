@@ -23,7 +23,7 @@
 DEPLOY_HOST=ubuntu@dragram.app infra/deploy.sh
 ```
 
-backend 이미지를 커밋 해시 태그로 빌드해 서버로 보내고, `dragram-backend:current`로 가리킨 뒤 마이그레이션하고 다시 띄운다. 커밋하지 않은 변경이 있으면 멈춘다.
+backend 이미지를 커밋 해시 태그로 빌드해 서버로 보내고, `dragram-backend:current`로 가리킨 뒤 마이그레이션하고 다시 띄운 뒤 Caddy 설정을 다시 읽힌다. 이미지는 커밋된 트리로만 빌드하고, `backend/`·`infra/`에 커밋하지 않은 변경(새 파일 포함)이 있으면 멈춘다.
 
 확인:
 ```bash

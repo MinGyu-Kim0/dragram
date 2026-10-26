@@ -1,4 +1,5 @@
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -262,6 +263,100 @@ test("저장소 읽기와 변경 알림이 같은 요청을 함께 전달해도 
 
   expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("새 요청을 받은 뒤 늦게 끝난 초기 조회는 최신 문장을 바꾸지 않는다", async () => {
+  const fetchMock = respondWith(200, analysis("분석 완료"));
+  await send(panelWindowId, "私は学生です。");
+  const old = await fakeBrowser.storage.session.get();
+  let finishGet!: (stored: Record<string, unknown>) => void;
+  const getSpy = vi
+    .spyOn(fakeBrowser.storage.session, "get")
+    .mockReturnValueOnce(
+      new Promise((resolve) => (finishGet = resolve)) as never,
+    );
+  render(<App />);
+  await waitFor(() => expect(getSpy).toHaveBeenCalled());
+
+  await send(panelWindowId, "猫が好きです。");
+  await screen.findByText("분석 완료");
+  await act(async () => finishGet(old));
+
+  expect(screen.getByText("猫が好きです。")).toBeInTheDocument();
+  expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("로그아웃 시각 조회가 역순으로 끝나도 최신 문장만 분석한다", async () => {
+  const fetchMock = respondWith(200, analysis("분석 완료"));
+  const sessionGet = vi.spyOn(fakeBrowser.storage.session, "get");
+  render(<App />);
+  await screen.findByRole("button", { name: "로그아웃" });
+  await waitFor(() => expect(sessionGet).toHaveBeenCalled());
+  const originalGet = fakeBrowser.storage.local.get.bind(
+    fakeBrowser.storage.local,
+  );
+  const finishChecks: ((stored: Record<string, unknown>) => void)[] = [];
+  vi.spyOn(fakeBrowser.storage.local, "get").mockImplementation((keys) =>
+    keys === "signedOutAt"
+      ? new Promise((resolve) => finishChecks.push(resolve))
+      : originalGet(keys),
+  );
+
+  await send(panelWindowId, "私は学生です。");
+  await send(panelWindowId, "猫が好きです。");
+  expect(finishChecks).toHaveLength(2);
+  await act(async () => finishChecks[1]!({}));
+  await screen.findByText("분석 완료");
+  await act(async () => finishChecks[0]!({}));
+
+  expect(screen.getByText("猫が好きです。")).toBeInTheDocument();
+  expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("닫힌 패널의 늦은 초기 조회는 다음 패널의 요청을 지우지 않는다", async () => {
+  const fetchMock = respondWith(200, analysis("분석 완료"));
+  await send(panelWindowId, "私は学生です。");
+  const old = await fakeBrowser.storage.session.get();
+  let finishGet!: (stored: Record<string, unknown>) => void;
+  const getSpy = vi
+    .spyOn(fakeBrowser.storage.session, "get")
+    .mockReturnValueOnce(
+      new Promise((resolve) => (finishGet = resolve)) as never,
+    );
+  const { unmount } = render(<App />);
+  await waitFor(() => expect(getSpy).toHaveBeenCalled());
+  unmount();
+
+  await send(panelWindowId, "猫が好きです。");
+  await act(async () => finishGet(old));
+  render(<App />);
+
+  expect(await screen.findByText("猫が好きです。")).toBeInTheDocument();
+  await screen.findByText("분석 완료");
+  expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+test("같은 문장과 시작 시각이어도 새 회차는 다시 분석한다", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(json(200, analysis("첫 번역")))
+    .mockResolvedValueOnce(json(200, analysis("새 번역")));
+  vi.stubGlobal("fetch", fetchMock);
+  const startedAt = Date.now();
+  const sentences = [
+    { text: "猫が好きです。", selection: { start: 0, end: 7 } },
+  ];
+  render(<App />);
+
+  await requestAnalysis(panelWindowId, sentences, startedAt);
+  await screen.findByText("첫 번역");
+  await requestAnalysis(panelWindowId, sentences, startedAt);
+
+  expect(await screen.findByText("새 번역")).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
 function grammarItem(start: number, end: number, name: string) {

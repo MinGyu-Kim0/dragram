@@ -36,26 +36,42 @@ export function receiveAnalysisRequests(
   onRequest: (request: AnalysisRequest) => void,
 ): () => void {
   const key = keyFor(windowId);
+  let changed = false;
+  let active = true;
   // 저장소 읽기와 변경 알림이 같은 요청을 함께 전달할 수 있어 회차 ID로 한 번만 받는다.
   let lastId: string | undefined;
   const take = (stored: unknown) => {
     const request = stored as AnalysisRequest | undefined;
-    if (!request || request.id === lastId) return;
+    if (!active || !request || request.id === lastId) return;
     lastId = request.id;
     browser.storage.session.remove(key);
     // 로그아웃(또는 다른 계정의 연결) 전에 시작한 요청은 다음 사람에게 분석하지 않는다.
     loadSignedOutAt().then((signedOutAt) => {
-      if ((request.startedAt ?? 0) > signedOutAt) onRequest(request);
+      if (
+        active &&
+        request.id === lastId &&
+        (request.startedAt ?? 0) > signedOutAt
+      )
+        onRequest(request);
     });
   };
   const listener = (
     changes: Record<string, { newValue?: unknown }>,
     area: string,
   ) => {
-    if (area === "session") take(changes[key]?.newValue);
+    if (area === "session" && changes[key]?.newValue) {
+      changed = true;
+      take(changes[key].newValue);
+    }
   };
   // 리스너를 먼저 달아야, 저장소를 읽는 사이에 들어온 요청을 놓치지 않는다.
   browser.storage.onChanged.addListener(listener);
-  browser.storage.session.get(key).then((stored) => take(stored[key]));
-  return () => browser.storage.onChanged.removeListener(listener);
+  browser.storage.session.get(key).then((stored) => {
+    // 변경 알림 뒤에 끝난 초기 조회는 이전 요청을 담고 있을 수 있다.
+    if (!changed) take(stored[key]);
+  });
+  return () => {
+    active = false;
+    browser.storage.onChanged.removeListener(listener);
+  };
 }

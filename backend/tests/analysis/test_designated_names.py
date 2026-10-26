@@ -57,7 +57,14 @@ def test_saving_the_same_surface_again_only_changes_the_reading(client):
 
 @pytest.mark.parametrize(
     ("reading", "stored"),
-    [("ハル", "はる"), ("", None), (None, None), ("はーる", "はーる")],
+    [
+        ("ハル", "はる"),
+        ("", None),
+        (None, None),
+        ("はーる", "はーる"),
+        ("コーヒー", "こーひー"),
+        ("さゝき", "さゝき"),
+    ],
 )
 def test_reading_is_stored_in_hiragana_or_null(client, reading, stored):
     put(client, "春", reading)
@@ -83,6 +90,36 @@ def test_invalid_surface_or_reading_is_refused(client, surface, reading):
     assert response.status_code == 400
     assert response.json()["error"] == "NAME:INVALID"
     assert not DesignatedName.objects.exists()
+
+
+@pytest.mark.parametrize("method", ["put", "delete"])
+@pytest.mark.parametrize("surface", ["\ud800", "A\x00B"])
+def test_unstorable_surface_is_refused_without_changing_names(client, caplog, method, surface):
+    put(client, "春", "はる")
+
+    response = getattr(client, method)(
+        "/api/names/",
+        {"surface": surface, "reading": "ヒミツ"},
+        content_type="application/json",
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"error": "NAME:INVALID"}
+    assert names(client) == [{"surface": "春", "reading": "はる"}]
+    assert DesignatedName.objects.count() == 1
+    assert surface not in caplog.text
+    assert "ヒミツ" not in caplog.text
+
+
+@pytest.mark.parametrize("reading", ["ー", "ゝ", "ヽ"])
+def test_reading_without_kana_does_not_replace_a_designated_name(client, reading):
+    put(client, "春", "はる")
+
+    response = put(client, "春", reading)
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "NAME:INVALID"
+    assert names(client) == [{"surface": "春", "reading": "はる"}]
 
 
 def test_refusal_does_not_echo_the_surface(client, caplog):

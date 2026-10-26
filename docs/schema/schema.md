@@ -81,14 +81,14 @@
 | user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null. 하루 토큰 한도의 집계 기준(#28, design-decisions 52절) |
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | (구현이 정함, 확인 필요, design-decisions 51절) 선점한 분석 행에 처음부터 잇는다. 새 문장도 LLM을 부르기 전에 처리 중 행을 먼저 만들어, 실패한 시도의 기록도 그 행에 이어진다. 재매칭은 기존 분석 행에 잇는다 |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
-| path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정) |
+| path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정). 처리 중 작업에 붙은 요청도 현재 llm이며, 이 분류는 FR-M01 전에 확인할 구현 동작(design-decisions 51절) |
 | purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(JMdict 뜻의 한국어 뜻 생성, 문장 없음(#97). 사전에 없는 단어의 2단계(뜻 고르기·새 뜻 생성, 문장 있음)도 이 목적이다(#134)) / kanji_gloss(한자 한국어 뜻) / usage_fill(채우기 명령 `fill_usages`가 용법을 묶어 대응 표현을 묻는 호출, 문장 없음, user_id·analysis_id NULL(#152)) |
 | model | 모델명 | varchar(255) | Y |  |  |
 | input_tokens | 입력 토큰 수 | integer | Y |  |  |
 | cached_input_tokens | 캐시된 입력 토큰 수 | integer | Y |  | 프롬프트 캐싱 효과 확인용(cached_tokens) |
 | output_tokens | 출력 토큰 수 | integer | Y |  |  |
-| success | 성공 여부 | boolean |  |  | request: 그 경로의 결과를 오류 없이 냈는가(재매칭 대체 응답은 false, 영향 범위가 바뀌어 저장하지 않고 보낸 결과는 true). llm: 쓸 수 있는 응답을 받았는가(SDK 오류·잘린 응답·JSON 아님·사이드 패널이 끊은 스트림은 false, 받은 뒤 서버 검증 거부는 true. 구현이 정함, 확인 필요). design-decisions 46절 |
-| attempt | 시도 차수 | smallint | Y |  | 재시도 횟수·일일 상한 집계용. 지금은 재시도가 없어 1(구현이 정함, 확인 필요) |
+| success | 성공 여부 | boolean |  |  | request: 그 경로의 결과를 오류 없이 냈는가(재매칭 대체 응답과 분석 중 영향 범위가 바뀌어 저장을 되돌린 요청은 false). llm: 쓸 수 있는 응답을 받았는가(SDK 오류·잘린 응답·JSON 아님·LLM 스트림 중단은 false, 받은 뒤 서버 검증 거부는 true. 구현이 정함, 확인 필요). 패널 연결이 끊겨도 작업자는 계속 실행한다. design-decisions 46·51절 |
+| attempt | 시도 차수 | smallint | Y |  | llm 행의 첫 호출은 1, 아무것도 받기 전 일시 오류로 요청 마감 안에서 한 번 다시 보낸 호출은 2. 타임아웃·응답 검증 실패·조각을 받은 스트림은 다시 보내지 않음(#99, design-decisions 51절 5, requirements FR-A18) |
 | created_at | 기록일시 | timestamptz |  |  |  |
 
 ## admin_action_log — 관리자 작업 이력
@@ -210,8 +210,8 @@
 | pipeline_version | 파이프라인 버전 | varchar(30) |  |  | SudachiPy·사전·판별 로직 버전 |
 | matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전(pattern_set_version.version). 첫 분석·stale 교체·재매칭이 매칭 직전에 읽은 값을 기록하고, 값은 낮추지 않음. 기존 행은 0. 현재 값보다 낮으면 조회 시 그 요청의 원문으로 로컬 매칭을 다시 돌려 저장된 구간에 없는 새 구간만 더함(일괄 재처리 없음, stale로 만들지 않음). DB만으로 정할 수 없는 새 구간은 같은 요청 안에서 LLM 재판정(rematch_judge)으로 정함. 재판정이 실패하면 이 값도 그대로 둬 다음 조회가 다시 시도(design-decisions 41절) |
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
-| status | 분석 상태 | varchar(30) |  |  | processing / complete / partial / failed. '대상 문법 없음'(LLM이 확인한 결과 분석할 문법이 없음)도 complete. 지금 구현은 processing·complete·failed만 씀(partial은 아직 없음, design-decisions 51절) |
-| processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 선점 만료 판단과 미완료 작업 재투입 기준 |
+| status | 분석 상태 | varchar(30) |  |  | processing / complete / failed. '대상 문법 없음'이나 미확정 구간이 남은 분석도 분석 자체가 성공하면 complete. partial은 두지 않음(#99, design-decisions 51절 5) |
+| processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 150초가 지나면 다음 요청이 다시 선점하며, 미완료 작업을 주기적으로 재투입하지 않음(#99, design-decisions 51절 5) |
 | generation | 세대 번호 | integer |  |  | 선점할 때마다 증가. 영향 범위의 패턴·용법이 반려·반려 취소·승인 취소되거나 용법 완결이 바뀌거나 회화체가 원형에 연결·해제되거나 판별 규칙이 승인·폐기될 때도 증가. 결과 쓰기 시 비교해 늦게 끝난 이전 작업의 덮어쓰기 방지(지금 구현은 작업이 시작할 때 읽은 값과 저장할 때 잠근 행의 값이 다르면 저장을 되돌리고 행을 failed로 두며 실패 소식을 보냄. stale이면 stale 유지. 한 사건에서 여러 번 오를 수 있어 같은지만 비교, design-decisions 51절). 기본값 0 |
 | is_stale | stale 여부 | boolean |  |  | 판 번호로 잡히지 않는 사건용만. 옛 결과는 '재분석 중'과 함께 표시. 판 번호가 생기기 전까지(지금 구현, #38) 반려·반려 취소·승인 취소·용법 완결 변경과 판별 규칙 승인·폐기도 이 칸으로만 기록하고, stale 분석은 다음 요청에서 다시 분석해 통째로 바꾼 뒤 false로 |
 | translation_ko | 한국어 번역 | text | Y |  | 자리표시자(⟨N1⟩) 포함 형태. 자리표시자가 모두 보존된 경우에만 저장 |

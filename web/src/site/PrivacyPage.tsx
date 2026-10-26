@@ -3,6 +3,10 @@ import SiteLayout, { ContactEmail, Section } from "./SiteLayout";
 // 개인정보처리방침(DESIGN WebPolicy): 수집 정보 → 공용·개인 데이터 → 처리 위탁(OpenAI) → 보관 기간
 // → 삭제 요청. 내용은 지금 구현이 실제로 저장·전송하는 것과 맞춘다.
 
+// 바뀔 수 있는 OpenAI 보관 정책은 문서에 단정하지 않고 링크한다.
+const OPENAI_DATA_POLICY_URL =
+  "https://platform.openai.com/docs/guides/your-data";
+
 function PrivacyPage() {
   const officer = import.meta.env.VITE_PRIVACY_OFFICER;
   return (
@@ -35,7 +39,9 @@ function PrivacyPage() {
         <Section title="공용 데이터와 개인 데이터">
           <p>
             분석한 문장의 원문, 지정한 이름은 개인 데이터로 저장되고 본인만 볼
-            수 있어요. 관리자 화면에도 원문은 보이지 않아요.
+            수 있어요. 관리자 화면에도 원문은 보이지 않아요. 다만 서버 운영자는
+            데이터베이스에 직접 접근할 수 있어서, 장애 대응처럼 꼭 필요할 때만
+            열람해요.
           </p>
           <p>
             같은 문장을 다시 분석하지 않도록 분석 결과는 모든 사용자가 함께
@@ -48,13 +54,29 @@ function PrivacyPage() {
         <Section title="처리 위탁">
           <p>
             번역과 문법·단어 판정을 위해 분석할 문장(숫자는 자리표시자로 바꿈)과
-            형태소 정보를 OpenAI(미국)에 보내요. OpenAI는 API로 받은 내용을 모델
-            학습에 쓰지 않으며, 악용 감시를 위해 최대 30일 보관한 뒤 지워요.
+            형태소 정보를 OpenAI(미국)에 보내요. 받은 내용은{" "}
+            <a href={OPENAI_DATA_POLICY_URL}>OpenAI의 API 데이터 정책</a>에 따라
+            처리돼요.
           </p>
           <ul>
             <li>OpenAI, L.L.C.(미국): 번역과 문법·단어 판정</li>
             <li>Amazon Web Services(서울 리전): 서버와 데이터베이스 운영</li>
             <li>Google LLC: 로그인 인증</li>
+          </ul>
+        </Section>
+
+        <Section title="국외 이전">
+          <ul>
+            <li>받는 자: OpenAI, L.L.C.(미국)</li>
+            <li>
+              이전하는 항목: 분석할 문장(숫자는 자리표시자로 바꿈)과 형태소 정보
+            </li>
+            <li>
+              이전 시기와 방법: 분석을 요청할 때마다 암호화된 연결(HTTPS)로
+              보내요.
+            </li>
+            <li>목적: 번역과 문법·단어 판정</li>
+            <li>보유 기간: OpenAI의 API 데이터 정책을 따라요.</li>
           </ul>
         </Section>
 
@@ -69,6 +91,7 @@ function PrivacyPage() {
               누구의 기록인지 알 수 없게 해요.
             </li>
             <li>공용 분석 결과: 원문 없이 계속 보관해요.</li>
+            <li>접속 기록: 정해진 용량을 넘으면 오래된 것부터 지워요.</li>
           </ul>
         </Section>
 

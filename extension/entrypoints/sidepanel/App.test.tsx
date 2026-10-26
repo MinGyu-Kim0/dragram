@@ -2761,7 +2761,9 @@ describe("로그인과 확장 연결(#109)", () => {
   });
 
   test("로그아웃하면 서버에서 이 토큰을 폐기하고 로그인 안내를 보인다", async () => {
-    const fetchMock = respondWith(204, {});
+    const response = new Response(null, { status: 204 });
+    const fetchMock = vi.fn().mockResolvedValue(response);
+    vi.stubGlobal("fetch", fetchMock);
     render(<App />);
 
     fireEvent.click(await screen.findByRole("button", { name: "로그아웃" }));
@@ -2772,6 +2774,11 @@ describe("로그인과 확장 연결(#109)", () => {
     expect(fetchMock.mock.calls[0]![0]).toMatch(
       /\/api\/auth\/extension-tokens\/revoke\/$/,
     );
+    expect(fetchMock).toHaveReturnedTimes(1);
+    await expect(fetchMock.mock.results[0]!.value).resolves.toMatchObject({
+      status: 204,
+      body: null,
+    });
     expect(await loadToken()).toBeUndefined();
   });
 

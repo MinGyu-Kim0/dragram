@@ -228,6 +228,25 @@ def test_invalid_first_step_answer_drops_only_that_word(client, fake_llm, answer
     assert saved_words() == []
 
 
+@pytest.mark.parametrize("reading", ["ー", "ゝ", "ヽ"])
+def test_reading_without_kana_drops_only_that_word(client, fake_llm, reading):
+    kare = add_word(4, ["彼"], ["かれ"], [(["he"], [], None)], tags=("pronoun",))
+    fake_llm.response = {
+        "translation_ko": "그가 달리고 있다",
+        "new_patterns": [new_pattern((3, "lemma"), (4, "lemma"))],
+        "new_words": [new_word(2, "走る", reading)],
+    }
+
+    response = analyze(client, "彼が走っている").json()
+
+    assert response["translation_ko"] == "그가 달리고 있다"
+    assert len(response["grammar"]) == 1
+    assert response["grammar"][0]["review_status"] == "pending"
+    assert [word["dictionary_form"] for word in response["words"]] == ["彼"]
+    assert not Word.objects.exclude(pk=kare.pk).exists()
+    assert saved_words() == [{"start": 0, "end": 1, "sense_id": kare.senses.get().pk}]
+
+
 def test_same_token_answered_twice_in_first_step_is_dropped(client, fake_llm):
     fake_llm.response = {
         "translation_ko": "달리고 있다",

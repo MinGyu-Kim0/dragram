@@ -32,7 +32,8 @@ class _Query(NamedTuple):
 
 
 def is_kana(text):
-    return bool(_KANA.fullmatch(text))
+    # 장음·반복 부호만으로는 읽기가 될 수 없다.
+    return bool(_KANA.fullmatch(text) and text.strip("ーゝゞヽヾ"))
 
 
 def _queries(text, morph):

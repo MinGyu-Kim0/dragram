@@ -1,0 +1,14 @@
+# 인증서 발급·갱신과 http → https 이동은 Caddy가 알아서 한다.
+{$SITE_ADDRESS} {
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			# 분석 API는 줄 단위 JSON 스트림이다. 모아 두지 않고 바로 넘긴다(ADR 0005).
+			# 응답을 기다리는 시간 제한은 기본으로 없어서 요청 연결 대기 130초를 넘겨도 끊지 않는다.
+			flush_interval -1
+		}
+	}
+
+	handle {
+		respond 404
+	}
+}

@@ -3,6 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from django.test import override_settings
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -29,6 +30,49 @@ def test_production_settings_pass_deploy_checks():
     )
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [(None, "low"), ("", "low"), ("  ", "low"), ("low", "low"), ("medium", "medium")],
+)
+def test_reasoning_effort_defaults_to_low(configured, expected):
+    env = {**os.environ, **PRODUCTION_ENV}
+    env.pop("OPENAI_REASONING_EFFORT", None)
+    if configured is not None:
+        env["OPENAI_REASONING_EFFORT"] = configured
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import django; django.setup(); "
+            "from django.conf import settings; print(settings.OPENAI_REASONING_EFFORT)",
+        ],
+        cwd=BACKEND_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
+
+
+def test_invalid_reasoning_effort_prevents_startup_without_printing_the_value():
+    configured = "do-not-print-invalid-config-value"
+    result = subprocess.run(
+        [sys.executable, "manage.py", "check"],
+        cwd=BACKEND_DIR,
+        env={**os.environ, **PRODUCTION_ENV, "OPENAI_REASONING_EFFORT": configured},
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "ImproperlyConfigured" in result.stderr
+    assert "OPENAI_REASONING_EFFORT" in result.stderr
+    assert configured not in result.stdout + result.stderr
 
 
 @override_settings(SECURE_SSL_REDIRECT=True)

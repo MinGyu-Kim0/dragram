@@ -30,6 +30,16 @@ backend 이미지를 커밋 해시 태그로 빌드해 서버로 보내고, `dra
 curl -sS https://dragram.app/api/health/
 ```
 
+## 추론 강도 변경 (서버)
+
+모든 LLM 호출은 기본 `low`를 쓴다. 서버의 `~/dragram/.env`에서 `OPENAI_REASONING_EFFORT`를 지우거나 비워도 `low`다. 다른 강도를 쓰려면 현재 모델이 지원하는 값(예: `medium`)을 명시한 뒤 서버와 작업자를 모두 다시 만든다.
+
+```bash
+cd ~/dragram && docker compose up -d --force-recreate backend worker
+```
+
+`docker compose restart`만으로는 바뀐 환경변수를 읽지 않는다. SDK 허용 목록 밖의 값은 시작할 때 설정 오류로 거부한다. 이미 진행 중인 분석을 피해서 적용하고, 추론 강도만 변경해도 기존 분석 캐시는 재사용된다. 실제 속도·분석 품질 차이는 아직 측정하지 않았다(#217).
+
 ## 되돌리기 (서버)
 
 서버에 남아 있는 이전 이미지로 가리키고 다시 띄운다. 마이그레이션은 되돌리지 않으니, 스키마가 바뀐 배포는 DB 백업부터 확인한다.

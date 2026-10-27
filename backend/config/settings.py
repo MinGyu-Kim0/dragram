@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.environ["DJANGO_SECRET_KEY"]
@@ -104,6 +106,12 @@ DEV_LOGIN_ENABLED = os.environ.get("DEV_LOGIN_ENABLED", "false") == "true"
 # LLM. 실제 호출할 때만 필요하므로 테스트·CI에서는 비어 있어도 된다.
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "")
+# 모든 LLM 호출의 기본 추론 강도는 low다(사용자 결정, #217).
+OPENAI_REASONING_EFFORT = os.environ.get("OPENAI_REASONING_EFFORT", "low").strip() or "low"
+if OPENAI_REASONING_EFFORT not in {"none", "minimal", "low", "medium", "high", "xhigh", "max"}:
+    raise ImproperlyConfigured(
+        "OPENAI_REASONING_EFFORT must be one of: none, minimal, low, medium, high, xhigh, max."
+    )
 
 # 분석 작업 큐(RQ)와 작업자 소식(pub/sub)을 함께 쓰는 Redis(ADR 0005).
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")

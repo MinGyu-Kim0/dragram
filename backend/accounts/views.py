@@ -129,7 +129,7 @@ def logout(request):
 @authentication_classes([SessionUser])
 @permission_classes([])
 def withdraw(request):
-    """회원 탈퇴. 계정과 개인 기록(원문 기록, 지정한 이름, 확장 토큰, 사용량 기록)을 지운다.
+    """회원 탈퇴. 지우는 범위는 withdrawal.withdraw가 정한다.
 
     본문의 account는 확인 화면에 보인 계정이다. 화면을 연 뒤 다른 탭에서 다른 계정으로 로그인했으면
     지금 세션의 계정을 지우지 않고 거부한다.

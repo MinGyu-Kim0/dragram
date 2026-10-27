@@ -17,6 +17,7 @@ from rest_framework.response import Response
 
 from accounts import google, tokens
 from accounts.models import User
+from analysis.models import UsageLog
 from errors.auth import AuthError
 from errors.base import BusinessError
 
@@ -118,6 +119,27 @@ def logout(request):
             _lock_user(request.user)
             tokens.revoke_session(request.user, request._request.session.session_key)
         # 세션 행도 같은 트랜잭션에서 지워, 기다리던 토큰 발급이 끝난 세션을 보게 한다.
+        auth.logout(request._request)
+    return Response(_user_body(request._request.user))
+
+
+@api_view(["POST"])
+@authentication_classes([SessionUser])
+@permission_classes([])
+def withdraw(request):
+    """회원 탈퇴. 계정과 개인 기록(원문 기록, 지정한 이름, 확장 토큰, 사용량 기록)을 지운다.
+
+    공용 분석은 남긴다. 사용량 기록은 사용자를 지우면 연결만 비워지므로 먼저 직접 지운다.
+    """
+    require_csrf(request)
+    if not request.user.is_authenticated:
+        raise BusinessError(AuthError.LOGIN_REQUIRED, "로그인하지 않은 세션")
+    user = request.user
+    with transaction.atomic():
+        # 사용자 행을 잠가, 진행 중인 분석이 지운 사용자의 기록을 새로 남기지 못하게 한다.
+        _lock_user(user)
+        UsageLog.objects.filter(user=user).delete()
+        user.delete()
         auth.logout(request._request)
     return Response(_user_body(request._request.user))
 

@@ -153,13 +153,18 @@ class Worker:
         ).exists():
             # 다시 선점된 뒤 큐에서 늦게 꺼낸 옛 작업이다. 새 시도의 행과 소식을 건드리지 않는다.
             return
-        request = UsageLog.objects.get(pk=usage_id)
-        if limits.over_limit(request.user):
+        request = UsageLog.objects.filter(pk=usage_id).first()
+        if request is None:
+            # 요청한 사용자가 그사이 탈퇴해 기록이 지워졌다(#239). 같은 문장을 기다리는 다른
+            # 요청이 있을 수 있어 분석은 계속하고, 사용자 없는 기록에 잇는다.
+            self.usage = RequestUsage.start(UsageLog.Path.LLM, None, analysis_id)
+        elif limits.over_limit(request.user):
             # 연결을 끊고 다시 보내기를 되풀이해 쌓인 작업이 하루 한도를 크게 넘기지 않게,
             # 시작할 때 다시 본다(#28, PR #155 리뷰).
             _fail(analysis_id, self.started, AnalysisError.USAGE_LIMIT.code)
             return
-        self.usage = RequestUsage(request)
+        else:
+            self.usage = RequestUsage(request)
         self.client = llm.get_client(self.usage.record_llm)
         try:
             self.work()

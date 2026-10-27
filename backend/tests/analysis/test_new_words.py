@@ -322,7 +322,7 @@ def test_tags_outside_the_allowed_list_are_not_stored(client, fake_llm):
         client,
         fake_llm,
         meaning_ko="달리다",
-        sense_tags=["intransitive", "verb", "slang"],
+        sense_tags=["intransitive", "verb", "made-up"],
         word_tags=["verb", "transitive", "made-up"],
     )
 

@@ -286,7 +286,7 @@
 | word_id | 단어 ID | bigint |  | → word | UNIQUE(word_id, jmdict_sense_index) |
 | jmdict_sense_index | JMdict 뜻 번호 | smallint | Y |  | JMdict 항목 안의 sense 순번(참고용, 식별자로 쓰지 않음). LLM 뜻(sense_origin=llm, 사전에 없는 단어의 뜻과 JMdict 단어 아래 더한 뜻 모두)이면 null(#134) |
 | gloss_en | 영어 뜻 | jsonb | Y |  | JMdict 영어 뜻(CC BY-SA 4.0, 출처 표기). 한국어 뜻 생성 근거. LLM 뜻(sense_origin=llm)은 NULL이고 한국어 뜻을 함께 만든다(#134 구현이 정함, 확인 필요) |
-| tags | 뜻 태그 | text[] |  |  | sense 단위 태그(transitive/intransitive, honorific/humble/polite, uk, onomatopoeia, loanword). JMdict pos/misc 변환, loanword는 lsource가 있는 뜻(구현이 정함, 확인 필요) |
+| tags | 뜻 태그 | text[] |  |  | sense 단위 태그(transitive/intransitive, honorific/humble/polite, uk, onomatopoeia, loanword, 문체 태그 colloquial·formal·archaic 등(design-decisions 67절)). JMdict pos/misc 변환, loanword는 lsource가 있는 뜻(구현이 정함, 확인 필요) |
 | pair_form | 자타 대응 동사 | varchar(255) | Y |  | 이 뜻의 자타 대응 동사 표기. 화면 "타동사: 開ける"/"자동사: 開く"(라벨은 이 뜻의 자/타 태그). NULL = 짝 없음 또는 미확인. 웹페이지 단어 화면만 |
 | applies_to | 적용 제한 | jsonb | Y |  | `{"forms": stagk, "readings": stagr}` 중 있는 것만(구현이 정함, 확인 필요): 이 뜻이 적용되는 표기·읽기. 뜻 후보 거르기용. 대부분 NULL |
 | sense_origin | 뜻 출처 | varchar(10) |  |  | jmdict / llm. LLM 뜻은 JMdict 단어 아래에 붙어도 이 칸으로 구분 |

@@ -178,3 +178,38 @@ def test_word_needs_a_display_form_and_reading(field):
 
     with pytest.raises(IntegrityError), transaction.atomic():
         Word.objects.create(forms=[], readings=[], is_common=False, pos="", tags=[], **fields)
+
+
+def test_update_tags_recomputes_only_tags_of_loaded_words():
+    # 변환표가 바뀌기 전에 적재한 DB(#235): tags만 새 변환표대로 고치고 다른 칸은 그대로 둔다.
+    load()
+    Word.objects.update(tags=[])
+    WordSense.objects.update(tags=[])
+    WordSense.objects.filter(jmdict_sense_index=1).update(meaning_ko="오다")
+    llm_word = Word.objects.create(
+        dictionary_form="ヤバい",
+        reading="やばい",
+        forms=[],
+        readings=[],
+        is_common=False,
+        pos="",
+        tags=["i_adjective"],
+    )
+    before = snapshot()
+
+    out = StringIO()
+    call_command("load_jmdict", str(SAMPLE), "--update-tags", stdout=out)
+
+    assert "단어 5개" in out.getvalue()
+    word = Word.objects.get(jmdict_seq=1009760)
+    assert word.tags == ["archaic", "group1", "honorific", "intransitive", "uk", "verb"]
+    assert word.senses.get(jmdict_sense_index=2).tags == ["archaic"]
+    assert Word.objects.get(pk=llm_word.pk).tags == ["i_adjective"]
+    strip = lambda rows: [{k: v for k, v in row.items() if k != "tags"} for row in rows]  # noqa: E731
+    after = snapshot()
+    assert [strip(rows) for rows in after] == [strip(rows) for rows in before]
+
+
+def test_update_tags_needs_a_loaded_table():
+    with pytest.raises(CommandError):
+        call_command("load_jmdict", str(SAMPLE), "--update-tags", stdout=StringIO())

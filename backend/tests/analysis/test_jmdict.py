@@ -80,9 +80,9 @@ def test_misc_codes_become_sense_tags_and_unknown_codes_are_left_out():
     assert entry.pos == "v5aru,vi"
     assert entry.senses[0].tags == ["honorific", "intransitive", "uk"]
     assert entry.senses[0].gloss_en == ["to come & to go (honorific)"]
-    # exp·arch는 변환표에 없다.
-    assert entry.senses[1].tags == []
-    assert entry.tags == ["group1", "honorific", "intransitive", "uk", "verb"]
+    # exp는 변환표에 없다.
+    assert entry.senses[1].tags == ["archaic"]
+    assert entry.tags == ["archaic", "group1", "honorific", "intransitive", "uk", "verb"]
 
 
 def verb(seq, keb, reb, pos):
@@ -137,3 +137,19 @@ def test_suffix_pos_is_kept_separate_from_noun_and_honorific_tags():
     )
 
     assert tags == {"さん": ["honorific", "suffix"], "氏": ["suffix"]}
+
+
+def test_register_misc_codes_become_sense_tags():
+    entry = next(
+        parse(
+            [
+                "<JMdict>",
+                """<entry><ent_seq>1</ent_seq><r_ele><reb>マジ</reb></r_ele>
+<sense><pos>&adj-na;</pos><misc>&col;</misc><gloss>serious</gloss></sense>
+<sense><pos>&n;</pos><misc>&form;</misc><misc>&male;</misc><gloss>g</gloss></sense></entry>""",
+                "</JMdict>",
+            ]
+        )
+    )
+
+    assert [sense.tags for sense in entry.senses] == [["colloquial"], ["formal", "male"]]

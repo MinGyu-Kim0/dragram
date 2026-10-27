@@ -63,8 +63,21 @@
   cursor: pointer;
 }
 
+.connect .danger-button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .connect .primary-button:disabled,
-.connect .secondary-button:disabled {
+.connect .secondary-button:disabled,
+.connect .danger-button:disabled {
   opacity: 0.6;
   cursor: default;
 }

@@ -4,6 +4,7 @@ import {
   issueExtensionToken,
   loginWithGoogle,
   logout,
+  withdraw,
   type User,
 } from "./auth";
 import { sendToExtension } from "./extension";
@@ -95,10 +96,12 @@ function ConnectPage() {
   );
 }
 
-type Problem = "logoutFailed" | "extensionMissing" | "connectFailed";
+type Problem =
+  "logoutFailed" | "withdrawFailed" | "extensionMissing" | "connectFailed";
 
 const PROBLEMS: Record<Problem, string> = {
   logoutFailed: "로그아웃하지 못했어요. 다시 시도해 주세요.",
+  withdrawFailed: "탈퇴하지 못했어요. 다시 시도해 주세요.",
   extensionMissing:
     "확장 프로그램을 찾지 못했어요. 설치하고 켜 둔 뒤 다시 눌러 주세요.",
   connectFailed: "연결하지 못했어요. 다시 시도해 주세요.",
@@ -122,6 +125,7 @@ function SignedIn({
   const [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<Problem>();
+  const [confirmingWithdrawal, setConfirmingWithdrawal] = useState(false);
 
   const connect = () =>
     oneAtATime(async () => {
@@ -155,6 +159,60 @@ function SignedIn({
       await sendToExtension({ type: "disconnect" });
       onLoggedOut();
     });
+
+  const leave = () =>
+    oneAtATime(async () => {
+      setBusy(true);
+      setProblem(undefined);
+      try {
+        await withdraw();
+      } catch {
+        // 실패하면 계정이 남아 있으므로 로그인한 상태를 그대로 보인다.
+        setProblem("withdrawFailed");
+        setBusy(false);
+        return;
+      }
+      // 서버가 확장 토큰도 지웠다. 확장이 바로 로그인 안내로 바뀌게 알린다(없어도 된다).
+      await sendToExtension({ type: "disconnect" });
+      onLoggedOut();
+    });
+
+  if (confirmingWithdrawal)
+    return (
+      <>
+        <h1>탈퇴할까요?</h1>
+        <p className="secondary">
+          <strong>{user.email}</strong> 계정과 분석한 문장 기록, 지정한 이름,
+          확장 프로그램 연결, 사용량 기록을 모두 지워요. 지운 기록은 되돌릴 수
+          없어요. 원문 없이 여러 사용자가 함께 쓰는 문장 분석(번역·문법)은
+          남아요.
+        </p>
+        {problem && (
+          <p role="alert" className="danger">
+            {PROBLEMS[problem]}
+          </p>
+        )}
+        <button
+          type="button"
+          className="danger-button"
+          disabled={busy}
+          onClick={leave}
+        >
+          탈퇴하기
+        </button>
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => {
+            setProblem(undefined);
+            setConfirmingWithdrawal(false);
+          }}
+        >
+          취소
+        </button>
+      </>
+    );
 
   return (
     <>
@@ -197,6 +255,17 @@ function SignedIn({
         onClick={signOut}
       >
         로그아웃
+      </button>
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={busy}
+        onClick={() => {
+          setProblem(undefined);
+          setConfirmingWithdrawal(true);
+        }}
+      >
+        회원 탈퇴
       </button>
     </>
   );

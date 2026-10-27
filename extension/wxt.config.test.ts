@@ -33,6 +33,8 @@ test("스토어 빌드인데 운영 주소가 아니면 빌드를 멈춘다", as
 
 test("개발 빌드는 로컬 주소와 개발용 key를 쓴다", async () => {
   vi.stubEnv("DRAGRAM_STORE", "");
+  vi.stubEnv("WXT_API_BASE_URL", undefined);
+  vi.stubEnv("WXT_WEB_ORIGIN", undefined);
   const m = await manifest();
 
   expect(m).toHaveProperty("key");

@@ -22,6 +22,8 @@ const DEV_PUBLIC_KEY =
 // See https://wxt.dev/api/reference/wxt/interfaces/inlineconfig.html
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
+  // 개발 빌드(.output/chrome-mv3)를 압축해제로 불러 쓰는 중이어도 덮어쓰지 않는다.
+  ...(store ? { outDir: ".output/store" } : {}),
   manifest: {
     name: "Dragram",
     // scripting·activeTab: 우클릭한 탭에만, 메뉴를 누른 그때 문장 추출 스크립트를 주입한다.

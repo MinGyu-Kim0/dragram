@@ -4,8 +4,8 @@
 
 import pytest
 
-from analysis.models import SentenceAnalysis
-from tests.analysis.helpers import analyze
+from analysis.models import SentenceAnalysis, Word
+from tests.analysis.helpers import add_word, analyze
 
 pytestmark = pytest.mark.django_db
 
@@ -25,6 +25,10 @@ def test_name_span_is_shown_at_the_original_position(client, fake_llm):
     response = analyze(client, "12時に山田太郎が来た")
 
     assert response.json()["name_spans"] == [{"start": 4, "end": 8, "type": "person"}]
+    assert [(w["dictionary_form"], w["start"], w["end"]) for w in response.json()["words"]] == [
+        ("山田", 4, 6),
+        ("太郎", 6, 8),
+    ]
 
 
 def test_invalid_name_spans_are_dropped_and_the_rest_is_saved(client, fake_llm):
@@ -51,7 +55,10 @@ def test_invalid_name_spans_are_dropped_and_the_rest_is_saved(client, fake_llm):
 def test_sentence_without_names_has_an_empty_list(client, fake_llm):
     fake_llm.response = {"translation_ko": "봄이 왔다", "name_spans": []}
 
-    assert analyze(client, "春が来た").json()["name_spans"] == []
+    response = analyze(client, "春が来た").json()
+
+    assert response["name_spans"] == []
+    assert response["words"] == []
 
 
 def test_row_saved_before_name_spans_is_not_analyzed_again(client, fake_llm):
@@ -63,6 +70,7 @@ def test_row_saved_before_name_spans_is_not_analyzed_again(client, fake_llm):
     response = analyze(client, "春が来た")
 
     assert response.json()["name_spans"] is None
+    assert response.json()["words"] == []
     assert fake_llm.all_requests() == []
 
 
@@ -109,3 +117,50 @@ def test_cached_analysis_shows_name_type(client, fake_llm):
 
     assert fake_llm.all_requests() == []
     assert response.json()["name_spans"] == [{"start": 0, "end": 2, "type": "place"}]
+
+
+def test_name_and_suffix_are_separate_words_in_fresh_and_cached_analysis(client, fake_llm):
+    # 예전에 명사로 저장한 경칭도 이 문장의 접미사로 보인다. LLM이 경칭까지 이름 구간에 넣은 경우다.
+    san = add_word(1, [], ["さん"], [(["Mr.; Ms."], ["honorific"], None)])
+    fake_llm.response = {
+        "translation_ko": "니시야마 씨",
+        "name_spans": [name([0, 1])],
+    }
+
+    response = analyze(client, "西山さん")
+    first = response.json()
+
+    assert [(w["dictionary_form"], w["tags"]) for w in first["words"]] == [
+        ("西山", ["proper_noun"]),
+        ("さん", ["suffix"]),
+    ]
+    person, suffix = first["words"]
+    assert (person["start"], person["end"], person["reading"]) == (0, 2, "にしやま")
+    assert person["is_name"] is True
+    assert person["sense"] is None
+    assert suffix["sense"]["tags"] == ["honorific"]
+    early = next(event for event in response.events if event["type"] == "grammar")
+    assert early["words"][0]["tags"] == ["suffix"]
+    # 이름 표기는 응답할 때만 구성하고, 공용 단어·뜻에는 저장하지 않는다.
+    assert list(Word.objects.values_list("dictionary_form", flat=True)) == ["さん"]
+    assert SentenceAnalysis.objects.get().sense_ids == [san.senses.get().id]
+
+    fake_llm.forget_requests()
+    cached = analyze(client, "  西山さん。").json()
+
+    assert fake_llm.all_requests() == []
+    assert cached["words"] == [
+        {**word, "start": word["start"] + 2, "end": word["end"] + 2} for word in first["words"]
+    ]
+
+
+def test_existing_word_in_a_name_span_is_not_duplicated(client, fake_llm):
+    add_word(1, ["春"], ["はる"], [(["spring"], [], None)])
+    fake_llm.response = {"translation_ko": "하루가 왔다", "name_spans": [name([0])]}
+
+    response = analyze(client, "春が来た").json()
+
+    [word] = response["words"]
+    assert word["dictionary_form"] == "春"
+    assert word["sense"]["gloss_en"] == ["spring"]
+    assert not word.get("is_name")

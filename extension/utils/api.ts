@@ -96,10 +96,12 @@ export interface WordItem {
   reading: string;
   // 단어 전체 태그(품사, 동사 그룹 등) 코드
   tags: string[];
-  // 사전(JMdict) 단어인가. 아니면 LLM이 만든 단어다(#134).
+  // 사전(JMdict) 단어인가. 아니면 LLM이 만든 단어 또는 뜻 없이 보충한 이름이다.
   in_dictionary: boolean;
+  // 단어가 없는 이름 구간에서 보충한 항목. 뜻을 생성하거나 기다리지 않는다.
+  is_name?: boolean;
   // 이 문장에서 고른 뜻. null이면 뜻이 여럿이라 LLM이 아직 고르지 않았다(화면은 '뜻을 준비하는
-  // 중').
+  // 중'). is_name인 항목은 뜻이 없어 null이다.
   sense: WordSense | null;
 }
 

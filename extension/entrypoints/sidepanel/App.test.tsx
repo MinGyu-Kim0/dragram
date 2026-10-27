@@ -3397,6 +3397,53 @@ describe("이름 종류 배지(#184)", () => {
     }
   });
 
+  test("이름과 경칭은 별도 카드이고 접미사에는 사람 이름 배지를 달지 않는다", async () => {
+    respondWith(200, {
+      translation_ko: "니시야마 씨",
+      grammar: [],
+      name_spans: [{ start: 0, end: 4, type: "person" }],
+      words: [
+        {
+          ...wordItem(0, 2, "西山", "にしやま", null, ["proper_noun"]),
+          is_name: true,
+          in_dictionary: false,
+        },
+        wordItem(
+          2,
+          4,
+          "さん",
+          "さん",
+          { tags: ["honorific"], meaning_ko: "씨" },
+          ["suffix"],
+        ),
+      ],
+    });
+    render(<App />);
+    await send(panelWindowId, "西山さん");
+
+    const rows = await wordRows();
+
+    expect(rows).toHaveLength(2);
+    expect(screen.getByRole("tab", { name: "단어 2" })).toBeInTheDocument();
+    const [person, suffix] = rows;
+    expect(
+      within(person!).getByRole("heading", { name: "西山" }),
+    ).toBeInTheDocument();
+    expect(within(person!).getByText("고유명사")).toBeInTheDocument();
+    expect(within(person!).getByText("사람 이름")).toBeInTheDocument();
+    expect(
+      within(person!).queryByText("AI 생성·미검수"),
+    ).not.toBeInTheDocument();
+    expect(within(person!).queryByRole("status")).not.toBeInTheDocument();
+    expect(
+      within(suffix!).getByRole("heading", { name: "さん" }),
+    ).toBeInTheDocument();
+    expect(within(suffix!).getByText("접미사")).toBeInTheDocument();
+    expect(within(suffix!).getByText("존경어")).toBeInTheDocument();
+    expect(within(suffix!).queryByText("명사")).not.toBeInTheDocument();
+    expect(within(suffix!).queryByText("사람 이름")).not.toBeInTheDocument();
+  });
+
   test("겹친 이름 구간에 든 단어는 원문 순서상 앞선 구간의 종류 하나만 단다", async () => {
     // 行く(3-5)는 두 구간에 모두 든다. 응답 순서와 관계없이 먼저 시작하는 구간을 쓴다.
     respondWithTokyo([

@@ -200,12 +200,16 @@ def reading_for(sense, text, morph):
     return word.reading
 
 
-def word_tags(word):
+def word_tags(word, morph=None):
     """단어 전체 태그(word.tags에 함께 모은 검색용 뜻 태그는 뺀다)."""
-    return sorted(set(word.tags) & WHOLE_WORD_TAGS)
+    tags = set(word.tags) & WHOLE_WORD_TAGS
+    # 공용 단어의 명사 태그가 이 문장에서 접미사로 쓰인 자리까지 명사로 보이게 하지 않는다.
+    if morph is not None and morph.pos == "接尾辞":
+        tags = (tags - {"noun", "proper_noun"}) | {"suffix"}
+    return sorted(tags)
 
 
-def response_item(start, end, word, reading, sense, before_save=False):
+def response_item(start, end, word, reading, sense, before_save=False, *, morph=None):
     """응답의 단어 항목. sense가 None이면 뜻을 아직 고르지 않은 것이다(LLM 응답 전).
 
     before_save는 분석을 저장하기 전에 보내는 항목이다. 한국어 뜻이 없는 뜻은 이 작업이 만들므로
@@ -219,7 +223,7 @@ def response_item(start, end, word, reading, sense, before_save=False):
         "end": end,
         "dictionary_form": word.dictionary_form,
         "reading": reading,
-        "tags": word_tags(word),
+        "tags": word_tags(word, morph),
         # 사전(JMdict) 단어인가. 화면은 사전 단어가 있을 때만 JMdict 출처 각주를 단다(#134).
         "in_dictionary": word.jmdict_seq is not None,
         "sense": None

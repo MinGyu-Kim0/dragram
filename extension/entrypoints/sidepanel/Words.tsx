@@ -316,7 +316,11 @@ export function WordList({
                   ))}
                 </ul>
               )}
-              {word.sense ? <Meaning sense={word.sense} /> : <Preparing />}
+              {word.sense ? (
+                <Meaning sense={word.sense} />
+              ) : !word.is_name ? (
+                <Preparing />
+              ) : null}
               <div className="name-actions">
                 {designated ? (
                   <button

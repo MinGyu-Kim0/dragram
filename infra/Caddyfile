@@ -8,7 +8,26 @@
 		}
 	}
 
+	redir /admin /admin/
+	handle /admin/* {
+		reverse_proxy backend:8000
+	}
+
+	# admin 정적 파일. 배포가 backend 이미지에서 꺼내 둔다(deploy.sh).
+	handle /static/* {
+		root * /srv
+		encode
+		file_server
+	}
+
+	# 웹(빌드 결과). 웹 경로(/connect 등)는 파일이 없으므로 index.html을 준다.
 	handle {
-		respond 404
+		root * /srv/web
+		encode
+		# 이름에 해시가 붙은 /assets 말고는 매번 새 배포인지 확인하게 한다.
+		@page not path /assets/*
+		header @page Cache-Control no-cache
+		try_files {path} /index.html
+		file_server
 	}
 }

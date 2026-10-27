@@ -92,6 +92,8 @@ USE_I18N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
+# 운영 이미지가 빌드할 때 admin 정적 파일을 모으는 곳. 배포가 꺼내 Caddy가 제공한다(infra/).
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 

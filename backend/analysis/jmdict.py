@@ -46,6 +46,20 @@ SENSE_TAGS = {
     "pol": "polite",
     "uk": "uk",
     "on-mim": "onomatopoeia",
+    # 문체(#235)
+    "col": "colloquial",
+    "form": "formal",
+    "arch": "archaic",
+    "dated": "dated",
+    "poet": "poetic",
+    "sl": "slang",
+    "net-sl": "internet_slang",
+    "male": "male",
+    "fem": "female",
+    "chn": "children",
+    "vulg": "vulgar",
+    "joc": "jocular",
+    "derog": "derogatory",
 }
 LOANWORD = "loanword"
 

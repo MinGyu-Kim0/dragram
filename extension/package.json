@@ -1,8 +1,8 @@
 {
   "name": "dragram-extension",
-  "description": "Dragram 크롬 확장",
+  "description": "읽고 있는 일본어 문장을 드래그하면 번역과 그 문장에 쓰인 문법·단어를 사이드 패널에 보여줘요.",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -10,6 +10,7 @@
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
     "zip": "wxt zip",
+    "zip:store": "DRAGRAM_STORE=true WXT_API_BASE_URL=https://dragram.app WXT_WEB_ORIGIN=https://dragram.app wxt zip",
     "zip:firefox": "wxt zip -b firefox",
     "postinstall": "wxt prepare",
     "lint": "oxlint",

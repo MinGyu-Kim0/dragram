@@ -3665,3 +3665,39 @@ describe("같은 단어·같은 뜻인 단어 행 합치기(#211)", () => {
     expect(await wordRows()).toHaveLength(2);
   });
 });
+
+test("먼저 온 단어가 탭에 보이는 동안 탭 안에서 분석을 기다리는 중임을 보인다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "学生が開いた");
+
+  stream.push({
+    type: "grammar",
+    grammar: [],
+    checking: [],
+    words: [wordItem(0, 2, "学生", "がくせい")],
+  });
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 1" }));
+  const loading = () =>
+    within(screen.getByRole("tabpanel")).queryAllByRole("status", {
+      name: "문법·단어를 불러오는 중",
+    });
+  expect(loading()).toHaveLength(1);
+
+  stream.push({ type: "translation", translation_ko: "학생이", ruby: [] });
+  await screen.findByText("학생이");
+  // 탭 위가 아니라 탭 안 한 곳에만 보인다.
+  expect(
+    screen.getAllByRole("status", { name: "문법·단어를 불러오는 중" }),
+  ).toEqual(loading());
+
+  stream.push({
+    type: "analysis",
+    translation_ko: "학생이",
+    grammar: [],
+    words: [wordItem(0, 2, "学生", "がくせい")],
+  });
+  stream.end();
+  await waitFor(() => expect(loading()).toHaveLength(0));
+});

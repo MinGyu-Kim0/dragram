@@ -234,7 +234,7 @@ export function SentenceView({
           />
         </div>
       )}
-      {result?.status === "translated" && (
+      {result?.status === "translated" && !tabbed && (
         <div
           role="status"
           aria-label="문법·단어를 불러오는 중"
@@ -319,6 +319,20 @@ export function SentenceView({
                 }}
               />
             )}
+            {/* 먼저 온 문법·단어만 보이는 중이다. 분석이 오면 더 채워지거나 바뀐다. 문법 탭이 비어
+                위 스켈레톤을 보이면 겹쳐 보이지 않는다. */}
+            {!analysis &&
+              (tab === "words" ||
+                tabbed.grammar.length + tabbed.checking.length > 0) && (
+                <div
+                  role="status"
+                  aria-label="문법·단어를 불러오는 중"
+                  className="skeleton below-card"
+                >
+                  <span />
+                  <span />
+                </div>
+              )}
           </div>
         </>
       )}

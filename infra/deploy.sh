@@ -35,16 +35,18 @@ ssh "$host" 'mkdir -p ~/dragram/caddy ~/dragram/www && rm -rf ~/dragram/www/web.
 tar -C "$src/web/dist" -cz . | ssh "$host" 'tar -xz -C ~/dragram/www/web.new'
 scp infra/compose.yaml "$host:dragram/"
 scp infra/Caddyfile "$host:dragram/caddy/"
+# 원격 스크립트는 표준입력으로 보낸다. 그 안의 docker 명령이 표준입력을 읽으면 남은 스크립트를
+# 먹어 버려 뒤 단계가 조용히 건너뛰어지므로, 각 명령의 입력을 /dev/null로 막는다.
 ssh "$host" bash -s -- "$image" <<'REMOTE'
 set -euo pipefail
 image=$1
 cd ~/dragram
 docker tag "$image" dragram-backend:current
-docker compose run --rm backend python manage.py migrate
-docker compose up -d --remove-orphans
+docker compose run --rm -T backend python manage.py migrate </dev/null
+docker compose up -d --remove-orphans </dev/null
 # admin 정적 파일은 이미지가 빌드할 때 모아 둔 것을 꺼낸다.
 rm -rf www/static.new && mkdir www/static.new
-docker run --rm --entrypoint tar "$image" -C /app/staticfiles -c . | tar -x -C www/static.new
+docker run --rm --entrypoint tar "$image" -C /app/staticfiles -c . </dev/null | tar -x -C www/static.new
 # backend가 새로 뜬 뒤 폴더째 바꾼다. Caddy가 반쯤 바뀐 파일을 내주지 않는다.
 for d in web static; do
   rm -rf "www/$d.old"
@@ -52,6 +54,7 @@ for d in web static; do
   mv "www/$d.new" "www/$d"
   rm -rf "www/$d.old"
 done
-docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile
+docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile </dev/null
+echo "원격 단계 끝"
 REMOTE
 echo "배포함: $image"

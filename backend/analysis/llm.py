@@ -447,6 +447,8 @@ class OpenAILLMClient:
                 timeout=min(TIMEOUT_SECONDS, self._deadline - now),
                 model=settings.OPENAI_MODEL,
                 reasoning={"effort": settings.OPENAI_REASONING_EFFORT},
+                # 이어 쓰기를 하지 않으므로 OpenAI에 응답 상태를 남기지 않는다.
+                store=False,
                 instructions=INSTRUCTIONS + NUMBER_RULES,
                 input=json.dumps(
                     {
@@ -641,6 +643,8 @@ class OpenAILLMClient:
                 timeout=min(TIMEOUT_SECONDS, remaining),
                 model=settings.OPENAI_MODEL,
                 reasoning={"effort": settings.OPENAI_REASONING_EFFORT},
+                # 이어 쓰기를 하지 않으므로 OpenAI에 응답 상태를 남기지 않는다.
+                store=False,
                 instructions=instructions,
                 input=json.dumps(payload, ensure_ascii=False),
                 text={

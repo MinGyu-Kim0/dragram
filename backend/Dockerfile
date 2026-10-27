@@ -20,6 +20,8 @@ FROM base AS prod
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 COPY . .
+# admin 정적 파일. 비밀 키는 설정을 읽는 데만 필요해 빌드용 값을 쓴다.
+RUN DJANGO_SECRET_KEY=collectstatic python manage.py collectstatic --noinput
 RUN useradd --system app
 USER app
 EXPOSE 8000

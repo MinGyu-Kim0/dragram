@@ -93,6 +93,8 @@ services:
       # 파일이 아니라 폴더를 붙인다. 배포가 Caddyfile을 바꾸면 컨테이너가 새 내용을 보고
       # 다시 읽는다(deploy.sh). 파일 하나만 붙이면 교체된 파일을 보지 못할 수 있다.
       - ./caddy:/etc/caddy:ro
+      # 웹 빌드 결과(www/web)와 admin 정적 파일(www/static). 배포가 폴더째 바꿔 넣는다.
+      - ./www:/srv:ro
       # 인증서. 지우면 다시 발급받다가 Let's Encrypt 발급 횟수 제한에 걸릴 수 있다.
       - caddy_data:/data
       - caddy_config:/config

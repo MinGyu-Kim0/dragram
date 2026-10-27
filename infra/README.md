@@ -19,11 +19,13 @@
 
 ## 배포 (개발 PC, 저장소 루트)
 
+운영 웹에 들어가는 공개 값(Google OAuth 클라이언트 ID, 확장 ID, 연락 메일 등)은 루트 `.env.production`에 커밋한다. `VITE_GOOGLE_CLIENT_ID`가 비어 있으면 배포가 멈춘다. 서버 `~/dragram/.env`의 `GOOGLE_CLIENT_ID`도 같은 값으로 둔다. 웹은 개발 PC의 Docker에서 Node 22 컨테이너로 빌드한다.
+
 ```bash
 DEPLOY_HOST=ubuntu@dragram.app infra/deploy.sh
 ```
 
-backend 이미지를 커밋 해시 태그로 빌드해 서버로 보내고, `dragram-backend:current`로 가리킨 뒤 마이그레이션하고 다시 띄운 뒤 Caddy 설정을 다시 읽힌다. 이미지는 커밋된 트리로만 빌드하고, `backend/`·`infra/`에 커밋하지 않은 변경(새 파일 포함)이 있으면 멈춘다.
+backend 이미지를 커밋 해시 태그로 빌드해 서버로 보내고, 웹 빌드 결과와 이미지 속 admin 정적 파일을 서버의 `~/dragram/www`에 폴더째 바꿔 넣고, `dragram-backend:current`로 가리킨 뒤 마이그레이션하고 다시 띄운 뒤 Caddy 설정을 다시 읽힌다. 이미지는 커밋된 트리로만 빌드하고, `backend/`·`infra/`·`web/`·`.env.production`에 커밋하지 않은 변경(새 파일 포함)이 있으면 멈춘다.
 
 확인:
 ```bash
@@ -49,6 +51,7 @@ docker images dragram-backend
 ```bash
 cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:current && docker compose up -d
 ```
+웹과 admin 정적 파일은 서버에 이전 버전을 남기지 않는다. 웹도 되돌려야 하면 개발 PC에서 이전 커밋을 체크아웃해 `infra/deploy.sh`로 다시 올린다.
 
 ## 상태 보기 (서버)
 

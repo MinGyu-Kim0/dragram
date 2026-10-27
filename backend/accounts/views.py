@@ -17,7 +17,7 @@ from rest_framework.response import Response
 
 from accounts import google, tokens
 from accounts.models import User
-from analysis.models import UsageLog
+from analysis import usage
 from errors.auth import AuthError
 from errors.base import BusinessError
 
@@ -145,7 +145,7 @@ def withdraw(request):
     with transaction.atomic():
         # 사용자 행을 잠가, 진행 중인 분석이 지운 사용자의 기록을 새로 남기지 못하게 한다.
         _lock_user(user)
-        UsageLog.objects.filter(user=user).delete()
+        usage.forget(user)
         user.delete()
         auth.logout(request._request)
     return Response(_user_body(request._request.user))

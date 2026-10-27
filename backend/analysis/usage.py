@@ -2,8 +2,43 @@
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 from analysis.models import UsageLog
+
+
+def today_start():
+    """오늘(Asia/Seoul) 자정. 하루 한도와 탈퇴한 계정의 그날 행이 이때부터 센다."""
+    return timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def withdrawn_key(user):
+    """탈퇴한 Google 계정을 그날 다시 알아보는 값(PR #244). Google 계정 식별자는 남기지 않는다."""
+    sub = getattr(user, "google_sub", None)
+    if not sub:
+        return None
+    return salted_hmac("analysis.usage.withdrawn", sub, algorithm="sha256").hexdigest()
+
+
+def forget(user):
+    """탈퇴하는 사용자의 사용량 기록을 지운다. 탈퇴 트랜잭션에서 사용자 행을 잠근 뒤 부른다.
+
+    오늘 행만 계정 연결 대신 withdrawn_key를 남겨, 같은 Google 계정이 그날 다시 가입해도 하루
+    한도를 새로 받지 못하게 한다. 이 행은 자정이 지나면 purge_withdrawn이 지운다.
+    """
+    key = withdrawn_key(user)
+    if key:
+        UsageLog.objects.filter(user=user, created_at__gte=today_start()).update(
+            user=None, withdrawn_key=key
+        )
+    UsageLog.objects.filter(user=user).delete()
+    purge_withdrawn()
+
+
+def purge_withdrawn():
+    """자정이 지난 탈퇴 계정의 행을 지운다. 예약 작업이 없어 분석 요청과 탈퇴 때 부른다."""
+    UsageLog.objects.filter(withdrawn_key__isnull=False, created_at__lt=today_start()).delete()
 
 
 def _lock_requester(user):
@@ -28,6 +63,7 @@ class RequestUsage:
     def __init__(self, request):
         self._request = request
         self._user = request.user
+        self._withdrawn_key = request.withdrawn_key
         self._analysis_id = request.analysis_id
         self._ids = [request.pk]
 
@@ -56,12 +92,15 @@ class RequestUsage:
     @classmethod
     def start(cls, path, user, analysis_id=None, success=False):
         """처리 경로를 정한 요청의 request 행을 남긴다. user는 요청한 사용자다."""
+        purge_withdrawn()
         with transaction.atomic():
+            requester = _lock_requester(user)
             return cls(
                 UsageLog.objects.create(
                     kind=UsageLog.Kind.REQUEST,
                     path=path,
-                    user=_lock_requester(user),
+                    user=requester,
+                    withdrawn_key=None if requester else withdrawn_key(user),
                     analysis_id=analysis_id,
                     success=success,
                 )
@@ -82,9 +121,14 @@ class RequestUsage:
         호출은 2, #99).
         """
         with transaction.atomic():
+            requester = _lock_requester(self._user)
             row = UsageLog.objects.create(
                 kind=UsageLog.Kind.LLM,
-                user=_lock_requester(self._user),
+                user=requester,
+                # 요청한 사용자가 그사이 탈퇴했으면 그 Google 계정의 그날 사용량으로 남긴다.
+                withdrawn_key=(
+                    None if requester else self._withdrawn_key or withdrawn_key(self._user)
+                ),
                 analysis_id=self._analysis_id,
                 purpose=purpose,
                 model=model,

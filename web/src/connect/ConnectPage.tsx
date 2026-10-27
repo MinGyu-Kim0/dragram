@@ -194,9 +194,10 @@ function SignedIn({
         <h1>탈퇴할까요?</h1>
         <p className="secondary">
           <strong>{user.email}</strong> 계정과 분석한 문장 기록, 지정한 이름,
-          확장 프로그램 연결, 사용량 기록을 모두 지워요. 지운 기록은 되돌릴 수
+          확장 프로그램 연결, 사용량 기록을 지워요. 지운 기록은 되돌릴 수
           없어요. 원문 없이 여러 사용자가 함께 쓰는 문장 분석(번역·문법)은
-          남아요.
+          남아요. 같은 Google 계정으로 오늘 다시 가입하면 오늘 쓴 사용량 한도는
+          이어져요.
         </p>
         {problem && (
           <p role="alert" className="danger">

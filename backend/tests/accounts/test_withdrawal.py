@@ -1,12 +1,15 @@
 """회원 탈퇴: 웹 세션으로 본인 계정과 개인 기록을 지운다(#239)."""
 
+from datetime import timedelta
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
+from django.utils import timezone
 
 from accounts import google
 from accounts.models import ExtensionToken
-from analysis import jobs
+from analysis import jobs, limits
 from analysis.models import DesignatedName, SentenceAnalysis, UsageLog, UserSentence
 from tests.analysis.helpers import analyze, connected_client
 
@@ -27,6 +30,21 @@ def web_session(user):
 def withdraw(web, headers, user):
     """화면에 보인 계정(user)으로 탈퇴를 확인해 보낸다."""
     return web.post(WITHDRAW, {"account": str(user.pk)}, content_type="application/json", **headers)
+
+
+def google_login(web, monkeypatch, settings, sub):
+    """Google 계정(sub)으로 웹에 로그인하고 그 계정을 돌려준다."""
+    settings.GOOGLE_CLIENT_ID = "test-client-id"
+    claims = {"sub": sub, "email": "me@example.com", "email_verified": True}
+    monkeypatch.setattr(google.id_token, "verify_oauth2_token", lambda *args, **kwargs: claims)
+    web.get("/api/auth/me/")
+    web.post(
+        "/api/auth/google/",
+        {"credential": "google-id-token"},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=web.cookies["csrftoken"].value,
+    )
+    return User.objects.get(google_sub=sub)
 
 
 def user_with_records(username, fake_llm):
@@ -131,9 +149,9 @@ def test_logging_in_again_with_the_same_google_account_starts_an_empty_account(
 
 
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
-def test_withdrawal_during_an_analysis_leaves_no_record_behind(fake_llm):
+def test_withdrawal_during_an_analysis_leaves_no_record_behind(fake_llm, monkeypatch, settings):
     # 실제 커밋이 일어나야 외래키 검사가 돌므로 트랜잭션 테스트로 둔다.
-    me = User.objects.create(username="me", email="me@example.com")
+    me = User.objects.create(username="me", email="me@example.com", google_sub="google-sub-1")
     extension = connected_client("me")
     web, headers = web_session(me)
     fake_llm.response = {"translation_ko": "학생입니다"}
@@ -144,12 +162,17 @@ def test_withdrawal_during_an_analysis_leaves_no_record_behind(fake_llm):
     assert not User.objects.filter(pk=me.pk).exists()
     assert not UserSentence.objects.exists()
     assert not UsageLog.objects.filter(user_id=me.pk).exists()
+    # 탈퇴한 뒤 끝난 LLM 호출도 같은 Google 계정의 그날 사용량에 든다.
+    again = google_login(web, monkeypatch, settings, "google-sub-1")
+    assert limits.today_tokens(again) == 110
 
 
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
-def test_withdrawal_before_the_worker_starts_still_saves_the_shared_analysis(fake_llm, monkeypatch):
+def test_withdrawal_before_the_worker_starts_still_saves_the_shared_analysis(
+    fake_llm, monkeypatch, settings
+):
     # 같은 문장을 기다리는 다른 요청이 있을 수 있어 공용 분석은 끝까지 저장한다.
-    me = User.objects.create(username="me", email="me@example.com")
+    me = User.objects.create(username="me", email="me@example.com", google_sub="google-sub-1")
     extension = connected_client("me")
     web, headers = web_session(me)
     fake_llm.response = {"translation_ko": "학생입니다"}
@@ -166,6 +189,8 @@ def test_withdrawal_before_the_worker_starts_still_saves_the_shared_analysis(fak
     assert SentenceAnalysis.objects.get().status == SentenceAnalysis.Status.COMPLETE
     assert not UserSentence.objects.exists()
     assert not UsageLog.objects.exclude(user=None).exists()
+    again = google_login(web, monkeypatch, settings, "google-sub-1")
+    assert limits.today_tokens(again) == 110
 
 
 @pytest.mark.parametrize("account", [None, "other"])
@@ -180,3 +205,48 @@ def test_withdrawal_for_another_account_than_the_session_is_refused(account):
 
     assert (response.status_code, response.json()) == (409, {"error": "AUTH:ACCOUNT_MISMATCH"})
     assert User.objects.filter(pk=me.pk).exists()
+
+
+def test_signing_up_again_the_same_day_keeps_the_days_usage(fake_llm, monkeypatch, settings):
+    # 탈퇴·재가입으로 하루 한도를 새로 받지 못하게 한다(PR #244 보안 리뷰).
+    me, _ = user_with_records("me", fake_llm)
+    User.objects.filter(pk=me.pk).update(google_sub="google-sub-1")
+    used = limits.today_tokens(me)
+    assert used > 0
+    web, headers = web_session(me)
+    withdraw(web, headers, me)
+
+    again = google_login(web, monkeypatch, settings, "google-sub-1")
+
+    assert limits.today_tokens(again) == used
+    # 남은 행은 계정과 이어지지 않고, Google 계정 식별자도 그대로 남지 않는다.
+    assert not UsageLog.objects.filter(user_id=me.pk).exists()
+    assert not UsageLog.objects.filter(withdrawn_key="google-sub-1").exists()
+
+
+def test_another_google_account_does_not_get_the_withdrawn_usage(fake_llm, monkeypatch, settings):
+    me, _ = user_with_records("me", fake_llm)
+    User.objects.filter(pk=me.pk).update(google_sub="google-sub-1")
+    web, headers = web_session(me)
+    withdraw(web, headers, me)
+
+    other = google_login(web, monkeypatch, settings, "google-sub-2")
+
+    assert limits.today_tokens(other) == 0
+
+
+def test_withdrawn_usage_from_before_midnight_is_deleted_on_the_next_request(fake_llm):
+    midnight = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    kept, old = (
+        UsageLog.objects.create(
+            kind=UsageLog.Kind.REQUEST, path="llm", success=True, withdrawn_key=k
+        )
+        for k in ("a" * 64, "b" * 64)
+    )
+    UsageLog.objects.filter(pk=old.pk).update(created_at=midnight - timedelta(minutes=1))
+    fake_llm.response = {"translation_ko": "학생입니다"}
+
+    analyze(connected_client("someone"), "私は学生です。")
+
+    assert UsageLog.objects.filter(pk=kept.pk).exists()
+    assert not UsageLog.objects.filter(pk=old.pk).exists()

@@ -876,22 +876,23 @@ def test_stream_that_failed_after_something_arrived_is_not_sent_again(llm_client
     assert len(calls) == 1
 
 
+# 스트리밍 분석과 일반 구조화 응답, 두 SDK 호출 경로
+CALL_PATHS = [
+    (
+        lambda c: list(c.analyze_stream("文", [], [], [], [], [])),
+        lambda: stream_of(deltas('{"translation_ko": "번역"}')),
+        [("translation", "번역"), ("result", {"translation_ko": "번역"})],
+    ),
+    (
+        lambda c: c.gloss_words(SENSES),
+        lambda: response_with(output_text='{"glosses": []}'),
+        {"glosses": []},
+    ),
+]
+
+
 @pytest.mark.parametrize("effort", ["low", "medium"])
-@pytest.mark.parametrize(
-    "call, create_result, expected",
-    [
-        (
-            lambda c: list(c.analyze_stream("文", [], [], [], [], [])),
-            lambda: stream_of(deltas('{"translation_ko": "번역"}')),
-            [("translation", "번역"), ("result", {"translation_ko": "번역"})],
-        ),
-        (
-            lambda c: c.gloss_words(SENSES),
-            lambda: response_with(output_text='{"glosses": []}'),
-            {"glosses": []},
-        ),
-    ],
-)
+@pytest.mark.parametrize("call, create_result, expected", CALL_PATHS)
 def test_calls_send_the_configured_reasoning_effort(
     llm_client, monkeypatch, settings, recorded, effort, call, create_result, expected
 ):
@@ -907,3 +908,19 @@ def test_calls_send_the_configured_reasoning_effort(
     assert call(llm_client) == expected
     assert sent == [{"effort": effort}]
     assert recorded[-1]["success"] is True
+
+
+@pytest.mark.parametrize("call, create_result, expected", CALL_PATHS)
+def test_calls_ask_openai_not_to_store_the_response(
+    llm_client, monkeypatch, call, create_result, expected
+):
+    sent = []
+
+    def create(**kwargs):
+        sent.append(kwargs.get("store"))
+        return create_result()
+
+    stream_with(llm_client, monkeypatch, create)
+
+    assert call(llm_client) == expected
+    assert sent == [False]

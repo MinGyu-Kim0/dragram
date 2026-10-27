@@ -66,14 +66,24 @@ def test_first_google_login_creates_user_and_starts_session(web, google_says):
     response = login(web)
 
     assert response.status_code == 200
-    assert response.json() == {"user": {"email": "me@example.com"}}
+    assert response.json() == {
+        "user": {
+            "email": "me@example.com",
+            "account": str(User.objects.get(email="me@example.com").pk),
+        }
+    }
     # 검증에 받은 토큰과 우리 클라이언트 ID를 넘긴다.
     assert calls == [{"token": "google-id-token", "audience": CLIENT_ID}]
     user = User.objects.get()
     assert (user.google_sub, user.email) == ("1234567890", "me@example.com")
     assert not user.has_usable_password()
     assert not user.is_staff
-    assert web.get("/api/auth/me/").json() == {"user": {"email": "me@example.com"}}
+    assert web.get("/api/auth/me/").json() == {
+        "user": {
+            "email": "me@example.com",
+            "account": str(User.objects.get(email="me@example.com").pk),
+        }
+    }
 
 
 def test_same_google_account_logs_in_as_existing_user_and_updates_email(web, google_says):
@@ -84,7 +94,12 @@ def test_same_google_account_logs_in_as_existing_user_and_updates_email(web, goo
 
     response = login(web)
 
-    assert response.json() == {"user": {"email": "new@example.com"}}
+    assert response.json() == {
+        "user": {
+            "email": "new@example.com",
+            "account": str(User.objects.get(email="new@example.com").pk),
+        }
+    }
     assert User.objects.get().email == "new@example.com"
 
 
@@ -150,7 +165,12 @@ def test_login_and_logout_without_csrf_are_refused(web, google_says):
     response = web.post("/api/auth/logout/")
 
     assert (response.status_code, response.json()) == (403, {"error": "AUTH:CSRF_FAILED"})
-    assert web.get("/api/auth/me/").json() == {"user": {"email": "me@example.com"}}
+    assert web.get("/api/auth/me/").json() == {
+        "user": {
+            "email": "me@example.com",
+            "account": str(User.objects.get(email="me@example.com").pk),
+        }
+    }
 
 
 @pytest.mark.parametrize("body", ['["google-id-token"]', '"google-id-token"', "null"])
@@ -169,5 +189,10 @@ def test_google_sub_longer_than_username_limit_still_logs_in(web, google_says):
 
     response = login(web)
 
-    assert response.json() == {"user": {"email": "me@example.com"}}
+    assert response.json() == {
+        "user": {
+            "email": "me@example.com",
+            "account": str(User.objects.get(email="me@example.com").pk),
+        }
+    }
     assert User.objects.get().google_sub == "9" * 255

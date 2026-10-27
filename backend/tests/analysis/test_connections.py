@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 import redis
+from django.db import connection as db
 from django.test import Client
 from django.utils import timezone
 
@@ -308,3 +309,23 @@ def test_job_still_fills_the_connection_when_the_requester_withdrew_while_queued
 
     assert GrammarPattern.objects.get(pk=pattern.pk).connection_form == FORM
     assert UsageLog.objects.get(purpose="pattern_connection").user is None
+
+
+def test_job_still_fills_the_connection_when_the_requester_is_deleted_after_the_record(
+    client, fake_llm, monkeypatch, analyst
+):
+    pattern = missing(client, fake_llm)
+    queued = []
+    monkeypatch.setattr(jobs, "enqueue_connection", lambda *args: queued.append(args))
+    client.post(f"/api/grammar-patterns/{pattern.pk}/connection/")
+    # 작업자가 요청 기록을 읽은 직후 탈퇴가 커밋된 순간. 외래키 검사는 커밋 때라 기록은 남는다.
+    with db.cursor() as cursor:
+        cursor.execute("DELETE FROM accounts_user WHERE id = %s", [analyst.pk])
+
+    try:
+        run_connection(*queued[0])
+    finally:
+        # 테스트가 끝날 때 외래키를 검사하므로 같은 ID로 되돌려 둔다.
+        analyst.save(force_insert=True)
+
+    assert GrammarPattern.objects.get(pk=pattern.pk).connection_form == FORM

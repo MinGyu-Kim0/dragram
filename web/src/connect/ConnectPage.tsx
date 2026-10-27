@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AuthError,
   currentUser,
   issueExtensionToken,
   loginWithGoogle,
@@ -97,11 +98,17 @@ function ConnectPage() {
 }
 
 type Problem =
-  "logoutFailed" | "withdrawFailed" | "extensionMissing" | "connectFailed";
+  | "logoutFailed"
+  | "withdrawFailed"
+  | "accountChanged"
+  | "extensionMissing"
+  | "connectFailed";
 
 const PROBLEMS: Record<Problem, string> = {
   logoutFailed: "로그아웃하지 못했어요. 다시 시도해 주세요.",
   withdrawFailed: "탈퇴하지 못했어요. 다시 시도해 주세요.",
+  accountChanged:
+    "다른 계정으로 로그인되어 있어요. 페이지를 새로 고친 뒤 다시 확인해 주세요.",
   extensionMissing:
     "확장 프로그램을 찾지 못했어요. 설치하고 켜 둔 뒤 다시 눌러 주세요.",
   connectFailed: "연결하지 못했어요. 다시 시도해 주세요.",
@@ -165,10 +172,14 @@ function SignedIn({
       setBusy(true);
       setProblem(undefined);
       try {
-        await withdraw();
-      } catch {
+        await withdraw(user.account);
+      } catch (e) {
         // 실패하면 계정이 남아 있으므로 로그인한 상태를 그대로 보인다.
-        setProblem("withdrawFailed");
+        setProblem(
+          e instanceof AuthError && e.status === 409
+            ? "accountChanged"
+            : "withdrawFailed",
+        );
         setBusy(false);
         return;
       }

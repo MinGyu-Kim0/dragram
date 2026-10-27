@@ -194,7 +194,12 @@ def test_extension_logout_revokes_only_that_token(fake_llm):
     assert response.status_code == 204
     assert analyze(first).status_code == 401
     assert analyze(second).status_code == 200
-    assert web.get("/api/auth/me/").json() == {"user": {"email": "me@example.com"}}
+    assert web.get("/api/auth/me/").json() == {
+        "user": {
+            "email": "me@example.com",
+            "account": str(User.objects.get(email="me@example.com").pk),
+        }
+    }
 
 
 def test_extension_logout_needs_a_usable_token():

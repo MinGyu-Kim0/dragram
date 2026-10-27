@@ -110,7 +110,7 @@ test("로그인한 상태면 이메일과 로그아웃을 보이고, 로그아�
 describe("회원 탈퇴(#239)", () => {
   beforeEach(() => {
     responses["GET /api/auth/me/"] = () =>
-      json({ user: { email: "me@example.com" } });
+      json({ user: { email: "me@example.com", account: "42" } });
     responses["POST /api/auth/withdraw/"] = () => json({ user: null });
   });
 
@@ -131,6 +131,8 @@ describe("회원 탈퇴(#239)", () => {
     const withdraw = calls.find((c) => c.url === "/api/auth/withdraw/")!;
     expect(withdraw.method).toBe("POST");
     expect(withdraw.headers["X-CSRFToken"]).toBe("csrf-value");
+    // 확인 화면에 보인 계정을 보내, 그사이 다른 계정으로 로그인했으면 서버가 거부하게 한다.
+    expect(JSON.parse(withdraw.body!)).toEqual({ account: "42" });
   });
 
   test("취소하면 탈퇴 요청 없이 로그인한 화면으로 돌아간다", async () => {
@@ -145,6 +147,21 @@ describe("회원 탈퇴(#239)", () => {
       screen.getByRole("heading", { name: "로그인했어요" }),
     ).toBeInTheDocument();
     expect(calls.some((c) => c.url === "/api/auth/withdraw/")).toBe(false);
+  });
+
+  test("그사이 다른 계정으로 로그인했으면 새로 고치라고 안내한다", async () => {
+    responses["POST /api/auth/withdraw/"] = () =>
+      json({ error: "AUTH:ACCOUNT_MISMATCH" }, 409);
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "회원 탈퇴" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "다른 계정으로 로그인되어 있어요",
+    );
   });
 
   test("탈퇴가 실패하면 확인 화면에 남아 안내한다", async () => {

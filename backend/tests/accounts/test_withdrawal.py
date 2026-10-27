@@ -24,6 +24,11 @@ def web_session(user):
     return web, {"HTTP_X_CSRFTOKEN": web.cookies["csrftoken"].value}
 
 
+def withdraw(web, headers, user):
+    """화면에 보인 계정(user)으로 탈퇴를 확인해 보낸다."""
+    return web.post(WITHDRAW, {"account": str(user.pk)}, content_type="application/json", **headers)
+
+
 def user_with_records(username, fake_llm):
     """분석 기록·지정한 이름·확장 토큰·사용량 기록이 있는 사용자와 그 확장 클라이언트"""
     client = connected_client(username)
@@ -52,7 +57,7 @@ def test_withdrawal_deletes_the_account_and_its_personal_records(fake_llm):
     assert all(mine.values()) and all(others.values())
     web, headers = web_session(me)
 
-    response = web.post(WITHDRAW, **headers)
+    response = withdraw(web, headers, me)
 
     assert (response.status_code, response.json()) == (200, {"user": None})
     assert not User.objects.filter(pk=me.pk).exists()
@@ -68,7 +73,7 @@ def test_extension_cannot_analyze_after_withdrawal(fake_llm):
     me, extension = user_with_records("me", fake_llm)
     web, headers = web_session(me)
 
-    web.post(WITHDRAW, **headers)
+    withdraw(web, headers, me)
 
     response = extension.post(
         "/api/analyses/", {"text": "私は学生です。"}, content_type="application/json"
@@ -104,7 +109,7 @@ def test_logging_in_again_with_the_same_google_account_starts_an_empty_account(
     me, _ = user_with_records("me", fake_llm)
     User.objects.filter(pk=me.pk).update(google_sub="google-sub-1")
     web, headers = web_session(me)
-    web.post(WITHDRAW, **headers)
+    withdraw(web, headers, me)
 
     web.get("/api/auth/me/")
     response = web.post(
@@ -114,7 +119,12 @@ def test_logging_in_again_with_the_same_google_account_starts_an_empty_account(
         HTTP_X_CSRFTOKEN=web.cookies["csrftoken"].value,
     )
 
-    assert response.json() == {"user": {"email": "me@example.com"}}
+    assert response.json() == {
+        "user": {
+            "email": "me@example.com",
+            "account": str(User.objects.get(email="me@example.com").pk),
+        }
+    }
     again = User.objects.get(google_sub="google-sub-1")
     assert again.pk != me.pk
     assert not any(records_of(again).values())
@@ -127,7 +137,7 @@ def test_withdrawal_during_an_analysis_leaves_no_record_behind(fake_llm):
     extension = connected_client("me")
     web, headers = web_session(me)
     fake_llm.response = {"translation_ko": "학생입니다"}
-    fake_llm.before_respond = lambda: web.post(WITHDRAW, **headers)
+    fake_llm.before_respond = lambda: withdraw(web, headers, me)
 
     analyze(extension, "私は学生です。")
 
@@ -146,7 +156,7 @@ def test_withdrawal_before_the_worker_starts_still_saves_the_shared_analysis(fak
     enqueue = jobs.enqueue_analysis
 
     def withdraw_then_enqueue(*args):
-        web.post(WITHDRAW, **headers)
+        withdraw(web, headers, me)
         enqueue(*args)
 
     monkeypatch.setattr(jobs, "enqueue_analysis", withdraw_then_enqueue)
@@ -156,3 +166,17 @@ def test_withdrawal_before_the_worker_starts_still_saves_the_shared_analysis(fak
     assert SentenceAnalysis.objects.get().status == SentenceAnalysis.Status.COMPLETE
     assert not UserSentence.objects.exists()
     assert not UsageLog.objects.exclude(user=None).exists()
+
+
+@pytest.mark.parametrize("account", [None, "other"])
+def test_withdrawal_for_another_account_than_the_session_is_refused(account):
+    # 화면을 연 뒤 다른 탭에서 다른 계정으로 로그인했으면, 화면에 보인 계정과 세션 계정이 다르다.
+    me = User.objects.create(username="me", email="me@example.com")
+    other = User.objects.create(username="other", email="other@example.com")
+    web, headers = web_session(me)
+    body = {} if account is None else {"account": str(other.pk)}
+
+    response = web.post(WITHDRAW, body, content_type="application/json", **headers)
+
+    assert (response.status_code, response.json()) == (409, {"error": "AUTH:ACCOUNT_MISMATCH"})
+    assert User.objects.filter(pk=me.pk).exists()

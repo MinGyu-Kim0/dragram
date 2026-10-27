@@ -47,7 +47,8 @@ class RequestUsage:
         지워졌으면(#239) 사용자 없는 request 행으로 새로 잇는다. 같은 작업을 기다리는 다른 요청이
         있을 수 있어 작업은 계속한다.
         """
-        request = UsageLog.objects.filter(pk=usage_id).first()
+        # 사용자도 같은 쿼리로 읽는다. 따로 읽으면 그 사이 탈퇴가 커밋됐을 때 사용자를 찾지 못한다.
+        request = UsageLog.objects.select_related("user").filter(pk=usage_id).first()
         if request is None:
             return cls.start(UsageLog.Path.LLM, None, analysis_id)
         return cls(request)

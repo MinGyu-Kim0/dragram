@@ -292,3 +292,19 @@ def test_expired_job_can_be_replaced(client, fake_llm):
 
     assert connection(client, pattern).json()["text"] == FORM
     assert len(fake_llm.connection_requests) == 1
+
+
+def test_job_still_fills_the_connection_when_the_requester_withdrew_while_queued(
+    client, fake_llm, monkeypatch
+):
+    pattern = missing(client, fake_llm)
+    queued = []
+    monkeypatch.setattr(jobs, "enqueue_connection", lambda *args: queued.append(args))
+    client.post(f"/api/grammar-patterns/{pattern.pk}/connection/")
+    # 탈퇴는 그 사용자의 사용량 기록을 지운다(#239).
+    UsageLog.objects.filter(pk=queued[0][2]).delete()
+
+    run_connection(*queued[0])
+
+    assert GrammarPattern.objects.get(pk=pattern.pk).connection_form == FORM
+    assert UsageLog.objects.get(purpose="pattern_connection").user is None

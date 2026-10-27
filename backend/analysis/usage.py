@@ -6,12 +6,12 @@ from django.db import transaction
 from analysis.models import UsageLog
 
 
-def _requester(user):
-    """기록에 남길 사용자. 그사이 탈퇴했으면 None이다(#239).
+def _lock_requester(user):
+    """사용자 행을 잠그고, 아직 있으면 그 사용자를 돌려준다. 그사이 탈퇴했으면 None이다(#239).
 
-    사용자 행을 잠가 탈퇴(같은 행을 잠그고 그 사용자의 기록을 지움)와 차례를 맞춘다. 탈퇴가 먼저면
-    지워진 사용자를 가리키는 행을 남기지 않고, 이쪽이 먼저면 탈퇴가 이 행까지 지운다.
-    트랜잭션 안에서 부른다.
+    탈퇴(같은 행을 잠그고 그 사용자의 기록을 지움)와 차례를 맞춘다. 탈퇴가 먼저면 지워진 사용자를
+    가리키는 행을 남기지 않고, 이쪽이 먼저면 탈퇴가 이 행까지 지운다. 트랜잭션 안에서 부른다.
+    같은 트랜잭션에서 이 사용자를 가리키는 행을 먼저 쓴 뒤에 부르지 않는다(잠금을 올리다 교착).
     """
     if user is None:
         return None
@@ -32,9 +32,25 @@ class RequestUsage:
         self._ids = [request.pk]
 
     @property
+    def user(self):
+        """요청한 사용자. 로그인 전 요청이나 탈퇴한 사용자의 요청이면 None이다."""
+        return self._user
+
+    @property
     def id(self):
         """request 행 ID. 작업자가 이 기록으로 LLM 호출을 남긴다(#98)."""
         return self._request.pk
+
+    @classmethod
+    def resume(cls, usage_id, analysis_id=None):
+        """작업자가 요청의 request 행(usage_id)을 불러온다. 요청한 사용자가 그사이 탈퇴해 행이
+        지워졌으면(#239) 사용자 없는 request 행으로 새로 잇는다. 같은 작업을 기다리는 다른 요청이
+        있을 수 있어 작업은 계속한다.
+        """
+        request = UsageLog.objects.filter(pk=usage_id).first()
+        if request is None:
+            return cls.start(UsageLog.Path.LLM, None, analysis_id)
+        return cls(request)
 
     @classmethod
     def start(cls, path, user, analysis_id=None, success=False):
@@ -44,7 +60,7 @@ class RequestUsage:
                 UsageLog.objects.create(
                     kind=UsageLog.Kind.REQUEST,
                     path=path,
-                    user=_requester(user),
+                    user=_lock_requester(user),
                     analysis_id=analysis_id,
                     success=success,
                 )
@@ -67,7 +83,7 @@ class RequestUsage:
         with transaction.atomic():
             row = UsageLog.objects.create(
                 kind=UsageLog.Kind.LLM,
-                user=_requester(self._user),
+                user=_lock_requester(self._user),
                 analysis_id=self._analysis_id,
                 purpose=purpose,
                 model=model,

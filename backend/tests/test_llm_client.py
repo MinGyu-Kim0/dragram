@@ -857,3 +857,36 @@ def test_stream_that_failed_after_something_arrived_is_not_sent_again(llm_client
         list(llm_client.analyze_stream("文", [], [], [], [], []))
 
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("effort", ["low", "medium"])
+@pytest.mark.parametrize(
+    "call, create_result, expected",
+    [
+        (
+            lambda c: list(c.analyze_stream("文", [], [], [], [], [])),
+            lambda: stream_of(deltas('{"translation_ko": "번역"}')),
+            [("translation", "번역"), ("result", {"translation_ko": "번역"})],
+        ),
+        (
+            lambda c: c.gloss_words(SENSES),
+            lambda: response_with(output_text='{"glosses": []}'),
+            {"glosses": []},
+        ),
+    ],
+)
+def test_calls_send_the_configured_reasoning_effort(
+    llm_client, monkeypatch, settings, recorded, effort, call, create_result, expected
+):
+    settings.OPENAI_REASONING_EFFORT = effort
+    sent = []
+
+    def create(**kwargs):
+        sent.append(kwargs["reasoning"])
+        return create_result()
+
+    stream_with(llm_client, monkeypatch, create)
+
+    assert call(llm_client) == expected
+    assert sent == [{"effort": effort}]
+    assert recorded[-1]["success"] is True

@@ -439,6 +439,7 @@ class OpenAILLMClient:
             stream = self._client.responses.create(
                 timeout=min(TIMEOUT_SECONDS, self._deadline - now),
                 model=settings.OPENAI_MODEL,
+                reasoning={"effort": settings.OPENAI_REASONING_EFFORT},
                 instructions=INSTRUCTIONS + NUMBER_RULES,
                 input=json.dumps(
                     {
@@ -621,6 +622,7 @@ class OpenAILLMClient:
             response = self._client.responses.create(
                 timeout=min(TIMEOUT_SECONDS, remaining),
                 model=settings.OPENAI_MODEL,
+                reasoning={"effort": settings.OPENAI_REASONING_EFFORT},
                 instructions=instructions,
                 input=json.dumps(payload, ensure_ascii=False),
                 text={

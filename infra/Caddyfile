@@ -20,13 +20,23 @@
 		file_server
 	}
 
-	# 웹(빌드 결과). 웹 경로(/connect 등)는 파일이 없으므로 index.html을 준다.
+	# 웹 빌드의 이름에 해시가 붙은 파일. 옛 배포의 파일은 HTML 대신 404로 답한다.
+	handle /assets/* {
+		root * /srv/web
+		encode
+		file_server
+	}
+
+	# 웹 페이지. 웹 경로(/connect 등)는 파일이 없으므로 index.html을 주고, 매번 새 배포인지
+	# 확인하게 한다. 로그인·확장 연결 화면이 다른 사이트의 iframe에 실리지 않게 한다.
 	handle {
 		root * /srv/web
 		encode
-		# 이름에 해시가 붙은 /assets 말고는 매번 새 배포인지 확인하게 한다.
-		@page not path /assets/*
-		header @page Cache-Control no-cache
+		header {
+			Cache-Control no-cache
+			X-Frame-Options DENY
+			Content-Security-Policy "frame-ancestors 'none'"
+		}
 		try_files {path} /index.html
 		file_server
 	}

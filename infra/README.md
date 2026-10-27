@@ -19,7 +19,7 @@
 
 ## 배포 (개발 PC, 저장소 루트)
 
-운영 웹에 들어가는 공개 값(Google OAuth 클라이언트 ID, 확장 ID, 연락 메일 등)은 루트 `.env.production`에 커밋한다. `VITE_GOOGLE_CLIENT_ID`가 비어 있으면 배포가 멈춘다. 서버 `~/dragram/.env`의 `GOOGLE_CLIENT_ID`도 같은 값으로 둔다. 개발 PC에는 Docker와 Node가 필요하다.
+운영 웹에 들어가는 공개 값(Google OAuth 클라이언트 ID, 확장 ID, 연락 메일 등)은 루트 `.env.production`에 커밋한다. `VITE_GOOGLE_CLIENT_ID`가 비어 있으면 배포가 멈춘다. 서버 `~/dragram/.env`의 `GOOGLE_CLIENT_ID`도 같은 값으로 둔다. 웹은 개발 PC의 Docker에서 Node 22 컨테이너로 빌드한다.
 
 ```bash
 DEPLOY_HOST=ubuntu@dragram.app infra/deploy.sh
@@ -51,6 +51,7 @@ docker images dragram-backend
 ```bash
 cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:current && docker compose up -d
 ```
+웹과 admin 정적 파일은 서버에 이전 버전을 남기지 않는다. 웹도 되돌려야 하면 개발 PC에서 이전 커밋을 체크아웃해 `infra/deploy.sh`로 다시 올린다.
 
 ## 상태 보기 (서버)
 

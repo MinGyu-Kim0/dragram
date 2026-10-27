@@ -1,6 +1,7 @@
 import { Fragment, type ReactNode } from "react";
 import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
 import { BadgeRow } from "./BadgeRow";
+import { ConnectionNote } from "./ConnectionNote";
 import { draggedFirst, type DragRange } from "./drag-range";
 import { groupGrammar, sortGrammar } from "./grammar-groups";
 import { TAG_NAMES } from "./tag-names";
@@ -339,6 +340,7 @@ function GrammarBody({
 }) {
   const alternatives = item.alternatives ?? [];
   const tags = grammarTags(item);
+  const surface = text.slice(item.start, item.end);
   return (
     <>
       <BadgeRow
@@ -351,11 +353,20 @@ function GrammarBody({
           lang="ja"
           className={`grammar-chip ${checking ? "checking-chip" : highlightClass(index)}`}
         >
-          {text.slice(item.start, item.end)}
+          {item.pattern_name}
         </span>
         <Heading>{item.name}</Heading>
         {checking && <span className="card-meta">확인 중</span>}
       </div>
+      {surface !== item.pattern_name && (
+        <p className="grammar-form">
+          문장 속 형태: <span lang="ja">{surface}</span>
+        </p>
+      )}
+      <ConnectionNote
+        connection={item.connection}
+        pending={item.review_status === "pending"}
+      />
       {tags.length > 0 && (
         <div className="grammar-tags">
           <ul className="word-tags" aria-label="태그">
@@ -423,6 +434,7 @@ function CheckingCard({
   const className = dragged
     ? "grammar-card checking dragged"
     : "grammar-card checking";
+  const surface = text.slice(item.start, item.end);
   if (item.usage) {
     return (
       <li className={className}>
@@ -452,13 +464,24 @@ function CheckingCard({
       />
       <div className="grammar-card-head">
         <span lang="ja" className="grammar-chip checking-chip">
-          {text.slice(item.start, item.end)}
+          {item.pattern_name}
         </span>
         <h3>
           {item.candidates.map((candidate) => candidate.name).join(" · ")}
         </h3>
         <span className="card-meta">확인 중</span>
       </div>
+      {surface !== item.pattern_name && (
+        <p className="grammar-form">
+          문장 속 형태: <span lang="ja">{surface}</span>
+        </p>
+      )}
+      <ConnectionNote
+        connection={item.connection}
+        pending={item.candidates.some(
+          (candidate) => candidate.review_status === "pending",
+        )}
+      />
       {/* 설명 자리 표시. 상태는 위 '확인 중' 글자로 읽힌다. */}
       <div aria-hidden="true" className="skeleton checking-skeleton">
         <span />

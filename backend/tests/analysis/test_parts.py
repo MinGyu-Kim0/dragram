@@ -1,5 +1,7 @@
 """긴 패턴 안의 구성 문법 표시(#65)."""
 
+from unittest.mock import ANY
+
 import pytest
 
 from analysis import patterns
@@ -68,6 +70,8 @@ def test_grammar_inside_a_longer_grammar_is_shown_in_its_parts(client, fake_llm)
             "start": 2,
             "end": 6,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "てしまう",
             "name": "완료",
             "explanation_ko": "동작을 끝까지 해 버린다",
             "korean_equivalent": None,
@@ -83,6 +87,8 @@ def test_grammar_inside_a_longer_grammar_is_shown_in_its_parts(client, fake_llm)
                     "start": 2,
                     "end": 3,
                     "state": "decided",
+                    "connection": ANY,
+                    "pattern_name": "て",
                     "name": "연결",
                     "explanation_ko": "앞뒤 동작을 잇는다",
                     "korean_equivalent": None,

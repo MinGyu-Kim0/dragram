@@ -1,5 +1,7 @@
 """후보가 하나인 판별 대상 구간은 그 용법 내용을 확인 중 항목에 함께 싣는다(#203)."""
 
+from unittest.mock import ANY
+
 import pytest
 
 from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus
@@ -28,6 +30,8 @@ def test_checking_span_with_one_candidate_carries_its_usage(client, fake_llm):
 
     [item] = response.events[0]["checking"]
     assert item["usage"] == {
+        "connection": ANY,
+        "pattern_name": "ている",
         "name": "진행",
         "explanation_ko": "동작이 이어지고 있음을 나타낸다",
         "korean_equivalent": "~고 있다",

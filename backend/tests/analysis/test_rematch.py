@@ -1,6 +1,7 @@
 """패턴 세트 버전이 오른 뒤 캐시 문장을 다시 매칭하기(#41)."""
 
 import threading
+from unittest.mock import ANY
 
 import pytest
 from django.db import IntegrityError, connection, transaction
@@ -355,6 +356,8 @@ def test_new_span_of_a_usage_closed_pattern_is_saved_without_llm(client, fake_ll
             "start": 3,
             "end": 6,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "ている",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "korean_equivalent": None,
@@ -419,6 +422,8 @@ def test_new_span_after_a_pattern_is_activated_is_judged_once_and_saved(client, 
             "start": 3,
             "end": 6,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "ている",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "korean_equivalent": None,

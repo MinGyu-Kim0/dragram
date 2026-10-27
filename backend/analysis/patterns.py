@@ -185,6 +185,7 @@ def register(
     test_example,
     korean_equivalent=None,
     function_tags=(),
+    connection_form=None,
 ):
     """새 패턴과 용법을 미검수로 등록한다. 같은 morpheme_key가 이미 있으면 (그 패턴, None).
 
@@ -197,6 +198,9 @@ def register(
         morpheme_key=morpheme_key(conditions),
         defaults={
             "name": pattern_name,
+            "connection_form": connection_form,
+            "connection_filled": True,
+            "connection_status": filled_status(connection_form),
             "test_cases": [{"text": test_example, "should_match": True}] if test_example else [],
             "is_active": test_example is not None,
             "status": ReviewStatus.PENDING,

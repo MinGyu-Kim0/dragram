@@ -1,6 +1,7 @@
 """해석 갈림·미확정 구간(#40)."""
 
 import threading
+from unittest.mock import ANY
 
 import pytest
 from django.db import connection, transaction
@@ -91,6 +92,8 @@ def test_divergent_span_is_asked_again_once_and_saved_with_its_alternatives(clie
             "start": 3,
             "end": 6,
             "state": "divergent",
+            "connection": ANY,
+            "pattern_name": "ている",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "korean_equivalent": None,
@@ -185,6 +188,8 @@ def test_divergent_span_whose_alternatives_have_no_basis_is_saved_as_unresolved(
             "start": 3,
             "end": 6,
             "state": "unresolved",
+            "connection": ANY,
+            "pattern_name": "ている",
             "name": "ている",
             "explanation_ko": None,
             "korean_equivalent": None,
@@ -420,7 +425,7 @@ def test_second_call_after_pattern_taken_does_not_recheck_again(fake_llm, monkey
     teiru_with_two_usages(connected_client(), fake_llm)
     register = patterns.register
 
-    def other_request_registers_first(*args):
+    def other_request_registers_first(*args, **kwargs):
         monkeypatch.setattr(patterns, "register", register)
         saved_response = fake_llm.response
 
@@ -434,7 +439,7 @@ def test_second_call_after_pattern_taken_does_not_recheck_again(fake_llm, monkey
         thread.start()
         thread.join()
         fake_llm.response = saved_response
-        return register(*args)
+        return register(*args, **kwargs)
 
     monkeypatch.setattr(patterns, "register", other_request_registers_first)
     judge = fake_llm.judge_spans

@@ -87,6 +87,27 @@ def enqueue_rematch(analysis_id, text, usage_id, version, token, basis=""):
         raise BusinessError(AnalysisError.FAILED, "재판정 작업을 큐에 넣지 못함") from e
 
 
+def enqueue_connection(pattern_id, started, usage_id):
+    from analysis.connections import run_connection
+
+    if settings.ANALYSIS_INLINE:
+        run_connection(pattern_id, started, usage_id)
+        return
+    try:
+        Queue(QUEUE_NAME, connection=_connection()).enqueue(
+            run_connection,
+            pattern_id,
+            started,
+            usage_id,
+            description=f"pattern connection {pattern_id}",
+            job_timeout=JOB_TIMEOUT_SECONDS,
+            result_ttl=0,
+            failure_ttl=0,
+        )
+    except redis.RedisError as e:
+        raise BusinessError(AnalysisError.FAILED, "접속 형태 작업을 큐에 넣지 못함") from e
+
+
 # 재판정 잠금의 만료. 작업 시간 제한(120초)과 요청 대기(130초)보다 길다(#114, 선점 만료와 같음).
 REMATCH_LOCK_SECONDS = 150
 # 그 값일 때만 지운다. 만료 뒤 다른 요청이 잡은 잠금을 풀지 않게 한다.

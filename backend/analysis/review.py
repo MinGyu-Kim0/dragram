@@ -65,7 +65,20 @@ def approve_pattern(pattern):
     if failure:
         raise Refused(failure)
     pattern.status = ReviewStatus.APPROVED
-    pattern.save(update_fields=["status"])
+    if pattern.connection_status == ReviewStatus.PENDING:
+        pattern.connection_status = ReviewStatus.APPROVED
+    pattern.save(update_fields=["status", "connection_status"])
+
+
+@transaction.atomic
+def approve_connection(pattern):
+    """승인된 패턴에 나중에 채운 접속 형태도 따로 검수한다(#229)."""
+    pattern = _locked(pattern)
+    _require(pattern, ReviewStatus.PENDING, ReviewStatus.APPROVED)
+    if pattern.connection_status != ReviewStatus.PENDING:
+        raise Refused("미검수 접속 형태가 없습니다")
+    pattern.connection_status = ReviewStatus.APPROVED
+    pattern.save(update_fields=["connection_status"])
 
 
 def _set_active(pattern, active):

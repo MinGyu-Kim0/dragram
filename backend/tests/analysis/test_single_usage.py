@@ -1,5 +1,7 @@
 """승인된 용법 완결 패턴의 단일 후보 구간을 LLM 없이 확정(#39)."""
 
+from unittest.mock import ANY
+
 import pytest
 
 from analysis import review
@@ -51,6 +53,8 @@ def test_span_of_a_usage_closed_pattern_is_decided_without_asking_the_llm(client
         "start": 3,
         "end": 6,
         "state": "decided",
+        "connection": ANY,
+        "pattern_name": "ている",
         "name": "진행",
         "explanation_ko": "동작이 이어지고 있음을 나타낸다",
         "korean_equivalent": None,
@@ -128,9 +132,13 @@ def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fak
             {
                 "start": 3,
                 "end": 6,
+                "connection": ANY,
+                "pattern_name": "ている",
                 "candidates": [{"name": "진행", "review_status": "pending"}],
                 # 후보가 하나라 판정 전에도 그 용법 칸을 싣는다(#203).
                 "usage": {
+                    "connection": ANY,
+                    "pattern_name": "ている",
                     "name": "진행",
                     "explanation_ko": "동작이 이어지고 있음을 나타낸다",
                     "korean_equivalent": None,

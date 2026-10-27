@@ -1,5 +1,7 @@
 """분석 API: 문법 구간·원문 위치·원문 인용 차단."""
 
+from unittest.mock import ANY
+
 import pytest
 
 from tests.analysis.helpers import analyze, new_pattern, saved_analyses
@@ -18,8 +20,12 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
     fake_llm.response = {
         "translation_ko": "나는 학생입니다.",
         "new_patterns": [
-            proposal(3, 3, "猫です", usage_name="정중 です", explanation_ko="정중"),
-            proposal(1, 1, "猫は好きだ", usage_name="주제 は", explanation_ko="주제"),
+            proposal(
+                3, 3, "猫です", pattern_name="です", usage_name="정중 です", explanation_ko="정중"
+            ),
+            proposal(
+                1, 1, "猫は好きだ", pattern_name="は", usage_name="주제 は", explanation_ko="주제"
+            ),
         ],
     }
 
@@ -31,6 +37,8 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
             "start": 1,
             "end": 2,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "は",
             "name": "주제 は",
             "explanation_ko": "주제",
             "korean_equivalent": None,
@@ -46,6 +54,8 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
             "start": 4,
             "end": 6,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "です",
             "name": "정중 です",
             "explanation_ko": "정중",
             "korean_equivalent": None,

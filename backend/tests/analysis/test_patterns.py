@@ -1,6 +1,7 @@
 """분석 API: 문법 패턴 등록과 매칭 재사용(#35)."""
 
 import threading
+from unittest.mock import ANY
 
 import pytest
 from django.db import connection
@@ -41,6 +42,8 @@ def test_new_grammar_is_registered_as_unreviewed_and_shown(client, fake_llm):
             "start": 2,
             "end": 5,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "ている",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "korean_equivalent": None,
@@ -90,6 +93,8 @@ def test_same_grammar_in_another_sentence_is_offered_as_candidate_and_reused(cli
             "start": 3,
             "end": 6,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "ている",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "korean_equivalent": None,
@@ -504,7 +509,7 @@ def test_pattern_created_concurrently_is_asked_again_with_its_usages(fake_llm, m
     # 같은 조건의 패턴이 없다고 확인한 뒤, 등록하기 직전에 다른 요청이 먼저 등록하고 커밋한다.
     register = patterns.register
 
-    def other_request_registers_first(*args):
+    def other_request_registers_first(*args, **kwargs):
         monkeypatch.setattr(patterns, "register", register)
         saved_response = fake_llm.response
 
@@ -518,7 +523,7 @@ def test_pattern_created_concurrently_is_asked_again_with_its_usages(fake_llm, m
         thread.start()
         thread.join()
         fake_llm.response = saved_response
-        return register(*args)
+        return register(*args, **kwargs)
 
     monkeypatch.setattr(patterns, "register", other_request_registers_first)
     # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる
@@ -771,6 +776,8 @@ def test_unfound_span_adds_new_usage_under_the_same_pattern(client, fake_llm):
             "start": 4,
             "end": 7,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "ながら",
             "name": "역접",
             "explanation_ko": "앞 내용과 반대되는 뒤 내용을 잇는다",
             "korean_equivalent": None,

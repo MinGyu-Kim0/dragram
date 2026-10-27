@@ -83,7 +83,7 @@
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | (구현이 정함, 확인 필요, design-decisions 51절) 선점한 분석 행에 처음부터 잇는다. 새 문장도 LLM을 부르기 전에 처리 중 행을 먼저 만들어, 실패한 시도의 기록도 그 행에 이어진다. 재매칭은 기존 분석 행에 잇는다 |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정). 처리 중 작업에 붙은 요청도 현재 llm이며, 이 분류는 FR-M01 전에 확인할 구현 동작(design-decisions 51절) |
-| purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(JMdict 뜻의 한국어 뜻 생성, 문장 없음(#97). 사전에 없는 단어의 2단계(뜻 고르기·새 뜻 생성, 문장 있음)도 이 목적이다(#134)) / kanji_gloss(한자 한국어 뜻) / usage_fill(채우기 명령 `fill_usages`가 용법을 묶어 대응 표현을 묻는 호출, 문장 없음, user_id·analysis_id NULL(#152)) |
+| purpose | 호출 목적 | varchar(30) | Y |  | llm일 때: first_response(번역+판별+새 문법 찾기 1회 호출) / reask(용법 재질문·해석 갈림 근거 재질문) / example_rewrite(원문을 베낀 새 예문 다시 쓰기) / rematch_judge(패턴 세트 버전이 올라 다시 매칭한 캐시 문장의 새 판별 대상 구간 판정) / word_gloss(JMdict 뜻의 한국어 뜻 생성, 문장 없음(#97). 사전에 없는 단어의 2단계(뜻 고르기·새 뜻 생성, 문장 있음)도 이 목적이다(#134)) / kanji_gloss(한자 한국어 뜻) / pattern_connection(공용 패턴의 접속 형태 생성, 원문 없음, #229) / usage_fill(채우기 명령 `fill_usages`가 용법을 묶어 대응 표현을 묻는 호출, 문장 없음, user_id·analysis_id NULL(#152)) |
 | model | 모델명 | varchar(255) | Y |  |  |
 | input_tokens | 입력 토큰 수 | integer | Y |  |  |
 | cached_input_tokens | 캐시된 입력 토큰 수 | integer | Y |  | 프롬프트 캐싱 효과 확인용(cached_tokens) |
@@ -127,6 +127,10 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | name | 패턴명 | varchar(255) |  |  | 예: 명사+で |
+| connection_form | 접속 형태 | varchar(255) | Y |  | 예: 동사 て형 + いる. 문장별 설명이 아닌 공용 문법 지식. 사용자 원문·자리표시자는 저장하지 않음(#229) |
+| connection_filled | 접속 형태 채움 여부 | boolean |  |  | 기본 false(기존 패턴). 새 패턴은 첫 LLM 응답에서 함께 채움. true + NULL은 신뢰할 수 있는 공식 없음이며 다시 호출하지 않음 |
+| connection_status | 접속 형태 검수 상태 | varchar(30) | Y |  | LLM 값은 pending, 관리자 수정·승인은 approved, 값이 없으면 NULL. 패턴·용법 검수 상태와 별도 |
+| connection_started_at | 접속 형태 생성 시작 | timestamptz | Y |  | 별도 생성 작업의 선점 시각. 같은 패턴은 작업을 공유하고 150초 뒤 재시도 가능. 해당 시도만 저장·해제 가능 |
 | morpheme_key | 형태소 열 키 | char(64) |  |  | 형태소 행(lemma\|pos1\|pos2\|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256. UNIQUE(morpheme_key). lemma 규칙: 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리), どく→とく, じまう→ちまう, でく→てく, じゃ(接続助詞)→ちゃ. 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1, 42절 14). 동시 생성은 get_or_create |
 | register | 말투 | varchar(20) |  |  | standard / colloquial, 기본 standard. 관리자가 원형에 연결할 때만 colloquial이 되고 해제해도 남음(admin 폼에서 따로 고치지 않음). colloquial이면 '회화체' 배지. colloquial인 패턴은 원형으로 고를 수 없음. variant_of가 있을 때(연결된 회화체)만 원형의 설명·용법을 쓰고, 해제된 회화체는 자기 용법을 씀 / variant_of가 있으면 colloquial(CHECK) |
 | usage_closed | 용법 완결 여부 | boolean |  |  | 관리자가 용법이 하나뿐이라고 확인한 패턴. 활용형 조건 검토 필수. 패턴 승인 + test_cases 통과 + 반려되지 않은 용법이 정확히 하나이고 승인 상태일 때만 true. 새 용법 추가(회화체 연결 때의 옮김 포함)·용법 반려 취소·용법이나 패턴의 승인 취소·반려 때 같은 트랜잭션에서 false로 바꾸고 그 패턴의 분석을 stale로. 원형에 연결된 회화체는 원형 승인 + 원형의 반려되지 않은 용법이 승인된 하나뿐이어야 하고, 원형 쪽 위 사건과 연결·해제 때도 false로 바꿈(design-decisions 42절) |

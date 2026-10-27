@@ -538,6 +538,23 @@ def test_every_new_usage_answer_asks_for_its_korean_equivalent():
     assert llm.KOREAN_EQUIVALENT_RULE in llm.JUDGE_INSTRUCTIONS
 
 
+def test_connection_uses_shared_pattern_knowledge_and_records_its_purpose(
+    llm_client, monkeypatch, recorded
+):
+    answer = '{"connection_form": "동사 て형 + いる"}'
+    requests = judge_with(llm_client, monkeypatch, response_with(output_text=answer))
+    pattern = {"pattern_name": "ている", "morphemes": [], "usages": []}
+
+    assert llm_client.fill_connection(pattern) == json.loads(answer)
+
+    [request] = requests
+    assert json.loads(request["input"]) == pattern
+    assert request["text"]["format"]["strict"] is True
+    assert [call["purpose"] for call in recorded] == ["pattern_connection"]
+    new_pattern = llm.RESPONSE_SCHEMA["properties"]["new_patterns"]["items"]
+    assert "connection_form" in new_pattern["required"]
+
+
 def completed_event(model="gpt-test-2026", status="completed", type_="response.completed"):
     return SimpleNamespace(
         type=type_, response=SimpleNamespace(status=status, model=model, usage=usage(100, 40, 20))

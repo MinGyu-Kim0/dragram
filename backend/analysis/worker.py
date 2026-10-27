@@ -358,13 +358,18 @@ class Worker:
     def prepare(self, validated):
         """새 구문마다 형태소 조건을 만든다. 패턴 생성 규칙을 어겼으면 None이다. 같은 자리에서
         이미 판정한 후보 구간이나 앞서 낸 새 구문과 패턴이 같은 제안은 같은 구간이므로 뺀다.
-        판정할 후보 구간도 함께 둔다.
+        후보 구간과 토큰 범위가 같은 제안은 조건이 달라도 뺀다(#233). 판정할 후보 구간도 함께 둔다.
         """
         s = self.sentence
         # morpheme_key가 같으면 토큰 수도 같으므로 (key, 시작 토큰)이 같으면 같은 구간이다.
         placed = {(span.pattern.morpheme_key, span.start_token) for span in s.matched}
+        # 활용형만 더 고정한 제안은 key가 달라 위에서 걸리지 않고 중복 패턴이 된다. 기존 용법이
+        # 안 맞으면 그 후보 구간의 미발견이 같은 패턴 아래 새 용법으로 처리한다.
+        ranges = {(span.start_token, span.end_token) for span in s.matched}
         new_patterns = []
         for proposal in validated["new_patterns"]:
+            if (proposal["tokens"][0][0], proposal["tokens"][-1][0]) in ranges:
+                continue
             conditions = _new_pattern_conditions(proposal["tokens"], s.morphs, s.overlaps_number)
             if conditions is not None:
                 place = (patterns.morpheme_key(conditions), proposal["tokens"][0][0])

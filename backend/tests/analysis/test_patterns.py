@@ -428,6 +428,23 @@ def test_same_new_grammar_proposed_twice_at_same_place_is_one_span(client, fake_
     assert GrammarUsage.objects.count() == 1
 
 
+def test_new_grammar_on_the_range_of_a_candidate_span_is_dropped(client, fake_llm):
+    register_teiru(client, fake_llm)
+    # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる. 활용형만 더 고정해 morpheme_key가 다르다(#233).
+    narrower = new_pattern((3, "lemma"), (4, "form"), usage_name="결과 상태")
+    fake_llm.response = {
+        "translation_ko": "그가 와 있다",
+        "spans": [span_answer(0, "usage", 1)],
+        "new_patterns": [narrower],
+    }
+
+    response = analyze(client, "彼が来ている")
+
+    assert GrammarPattern.objects.count() == 1
+    assert fake_llm.rejudge_requests == []
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
+
+
 def test_existing_grammar_proposed_twice_at_same_place_is_asked_once(client, fake_llm):
     register_teiru(client, fake_llm, example_ja="走っている")
     # 토큰: 0 彼 / 1 が / 2 来 / 3 て / 4 いる

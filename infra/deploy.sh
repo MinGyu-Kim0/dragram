@@ -7,18 +7,21 @@ set -euo pipefail
 host=${DEPLOY_HOST:?ssh 대상을 DEPLOY_HOST로 준다(예: ubuntu@dragram.app)}
 
 # 이미지 태그(커밋)로 되돌릴 수 있게, 커밋하지 않은 변경(추적하지 않는 새 파일 포함)은 올리지 않는다.
-if [ -n "$(git status --porcelain -- backend infra web .env.production)" ]; then
-  echo "backend/, infra/, web/ 또는 .env.production에 커밋하지 않은 변경이 있다." >&2
+if [ -n "$(git status --porcelain -- backend infra web)" ]; then
+  echo "backend/, infra/ 또는 web/에 커밋하지 않은 변경이 있다." >&2
   exit 1
 fi
 image="dragram-backend:$(git rev-parse --short HEAD)"
 
-# 웹은 커밋된 web/과 운영 공개 값(.env.production)만으로 빌드한다. 개발용 .env는 섞지 않는다.
+# 웹은 커밋된 web/과 서버 ~/dragram/.env의 공개 값만으로 빌드한다. 개발 PC의 .env는 섞지 않는다.
+# VITE_ 값은 빌드할 때 JS에 들어간다. 클라이언트 ID는 backend와 같은 GOOGLE_CLIENT_ID를 쓴다.
 src=$(mktemp -d)
 trap 'rm -rf "$src"' EXIT
-git archive HEAD web .env.production | tar -x -C "$src"
+git archive HEAD web | tar -x -C "$src"
+ssh "$host" "grep -E '^VITE_' ~/dragram/.env | grep -v '^VITE_GOOGLE_CLIENT_ID='; \
+  sed -n 's/^GOOGLE_CLIENT_ID=/VITE_GOOGLE_CLIENT_ID=/p' ~/dragram/.env" >"$src/.env.production"
 if ! grep -q '^VITE_GOOGLE_CLIENT_ID=.' "$src/.env.production"; then
-  echo ".env.production의 VITE_GOOGLE_CLIENT_ID가 비어 있다. 운영 웹에서 로그인할 수 없다." >&2
+  echo "서버 ~/dragram/.env의 GOOGLE_CLIENT_ID가 비어 있다. 운영 웹에서 로그인할 수 없다." >&2
   exit 1
 fi
 # CI·web/Dockerfile과 같은 Node 22로 빌드한다.

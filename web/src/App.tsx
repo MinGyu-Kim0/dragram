@@ -9,6 +9,7 @@ function App() {
     <Routes>
       <Route path="/" element={<LandingPage />} />
       <Route path="/privacy" element={<PrivacyPage />} />
+      <Route path="/privacy/:version" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/connect" element={<ConnectPage />} />
     </Routes>

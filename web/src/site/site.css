@@ -140,6 +140,30 @@
   font-size: 18px;
 }
 
+.document table {
+  border-collapse: collapse;
+}
+
+.document th,
+.document td {
+  padding: 6px 12px 6px 0;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.document th {
+  white-space: nowrap;
+}
+
+/* 운영자가 확인하기 전인 값(게시 전에 채운다) */
+.unconfirmed {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+
 .site footer {
   padding: 24px 0 40px;
   border-top: 1px solid var(--color-border);

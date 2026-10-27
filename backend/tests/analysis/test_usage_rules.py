@@ -1,6 +1,7 @@
 """승인된 판별 규칙으로 구간을 LLM 없이 확정(#55, 구간 판정 절차 3단계)."""
 
 import json
+from unittest.mock import ANY
 
 import pytest
 from django.db import IntegrityError, transaction
@@ -74,6 +75,8 @@ def test_span_decided_by_an_approved_rule_is_not_asked_and_shown_first(client, f
             "start": 2,
             "end": 3,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "で",
             "name": "장소",
             "explanation_ko": "장소을 나타낸다",
             "korean_equivalent": None,

@@ -5,6 +5,7 @@ AnalysisError = error_domain(
     {
         # 분석할 문장이 없다(빈 문자열, 정규화 후 빈 문장, UTF-8로 못 바꾸는 문자열).
         "TEXT_REQUIRED": 400,
+        "PATTERN_UNAVAILABLE": 404,
         # 외부 의존(형태소 분석, LLM)이 실패했거나 LLM 응답이 검증을 통과하지 못했다.
         "FAILED": 502,
         # 오늘 쓸 수 있는 LLM 토큰을 다 써서 LLM을 새로 부를 수 없다(#28).

@@ -251,6 +251,8 @@ def span_matches(sentence, saved, validated, final):
                 test_examples.get(order(proposal)),
                 proposal["korean_equivalent"],
                 proposal["function_tags"],
+                connection_form=proposal["connection_form"],
+                connection_filled=proposal["connection_filled"],
             )
             if usage is None and not final:
                 raise _PatternTaken

@@ -51,6 +51,10 @@ class FakeLLMClient:
         self.fill_requests = []
         self.fill_response = None
         self.fill_errors = []
+        self.connection_requests = []
+        self.connection_response = {"connection_form": "동사 て형 + いる"}
+        self.connection_error = None
+        self.before_connection = None
 
     def connect(self, record):
         """get_client 대신 쓴다. 이 요청의 사용 기록 함수를 받아 둔다."""
@@ -81,6 +85,7 @@ class FakeLLMClient:
             + self.gloss_requests
             + self.define_requests
             + self.fill_requests
+            + self.connection_requests
         )
 
     def forget_requests(self):
@@ -93,6 +98,7 @@ class FakeLLMClient:
             self.gloss_requests,
             self.define_requests,
             self.fill_requests,
+            self.connection_requests,
         ):
             requests.clear()
 
@@ -216,6 +222,14 @@ class FakeLLMClient:
                 for u in usages
             ]
         }
+
+    def fill_connection(self, pattern):
+        self.connection_requests.append(pattern)
+        if self.before_connection:
+            before_connection, self.before_connection = self.before_connection, None
+            before_connection()
+        self._recorded("pattern_connection", self.error or self.connection_error)
+        return self.connection_response
 
 
 @pytest.fixture(autouse=True)

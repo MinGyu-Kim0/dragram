@@ -1,6 +1,7 @@
 """stale 분석의 옛 결과를 먼저 보내기(재분석 중, #60)."""
 
 import json
+from unittest.mock import ANY
 
 import pytest
 
@@ -47,6 +48,8 @@ def test_stale_analysis_sends_its_previous_result_before_calling_the_llm(client,
             "start": 2,
             "end": 5,
             "state": "decided",
+            "connection": ANY,
+            "pattern_name": "ている",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
             "korean_equivalent": None,

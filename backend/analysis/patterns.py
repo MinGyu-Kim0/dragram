@@ -185,6 +185,8 @@ def register(
     test_example,
     korean_equivalent=None,
     function_tags=(),
+    connection_form=None,
+    connection_filled=True,
 ):
     """새 패턴과 용법을 미검수로 등록한다. 같은 morpheme_key가 이미 있으면 (그 패턴, None).
 
@@ -192,11 +194,15 @@ def register(
     (첫 test_cases 항목). 없으면 None이고, test_example이 있어야 활성화한다. 활성화했으면
     호출하는 쪽이 같은 트랜잭션에서 raise_pattern_set_version을 부른다. korean_equivalent는
     검증한 대응 표현이고 없으면 None이다(#152). function_tags는 검증한 기능 태그다(#151).
+    connection_filled가 False면 접속 형태를 검증에서 버려 나중에 다시 만든다(#229).
     """
     pattern, created = GrammarPattern.objects.get_or_create(
         morpheme_key=morpheme_key(conditions),
         defaults={
             "name": pattern_name,
+            "connection_form": connection_form,
+            "connection_filled": connection_filled,
+            "connection_status": filled_status(connection_form),
             "test_cases": [{"text": test_example, "should_match": True}] if test_example else [],
             "is_active": test_example is not None,
             "status": ReviewStatus.PENDING,

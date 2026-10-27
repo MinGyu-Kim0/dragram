@@ -359,10 +359,16 @@ test("같은 문장과 시작 시각이어도 새 회차는 다시 분석한다"
   expect(fetchMock).toHaveBeenCalledTimes(2);
 });
 
-function grammarItem(start: number, end: number, name: string) {
+function grammarItem(
+  start: number,
+  end: number,
+  name: string,
+  pattern_name = "ている",
+) {
   return {
     start,
     end,
+    pattern_name,
     state: "decided",
     name,
     explanation_ko: `${name} 설명`,
@@ -398,10 +404,13 @@ test("문법 카드를 원문 순서대로 보이고, 카드마다 'AI 생성·�
   }
 });
 
-test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 같은 구간 글자를 보인다", async () => {
+test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 패턴 이름을 보인다", async () => {
   respondWith(200, {
     translation_ko: "나는 학생입니다.",
-    grammar: [grammarItem(1, 2, "주제 は"), grammarItem(4, 6, "정중 です")],
+    grammar: [
+      grammarItem(1, 2, "주제 は", "は"),
+      grammarItem(4, 6, "정중 です", "です"),
+    ],
     words: [],
   });
   render(<App />);
@@ -546,7 +555,7 @@ test("드래그 범위와 겹친 문법 카드를 먼저 보이고 '드래그한
     grammar: [
       grammarItem(0, 1, "1인칭 私"),
       grammarItem(1, 2, "주제 は"),
-      grammarItem(4, 6, "정중 です"),
+      grammarItem(4, 6, "정중 です", "です"),
     ],
     words: [],
   });
@@ -1379,6 +1388,7 @@ function checkingItem(start: number, end: number, ...names: string[]) {
   return {
     start,
     end,
+    pattern_name: "ている",
     candidates: names.map((name) => ({ name, review_status: "approved" })),
   };
 }
@@ -2297,8 +2307,11 @@ test("구성 문법은 바깥 카드 안의 하위 박스로 보이고, 글자�
   respondWith(200, {
     translation_ko: "먹어 버렸다",
     grammar: [
-      withParts(grammarItem(2, 6, "완료"), grammarItem(2, 3, "연결")),
-      grammarItem(6, 7, "과거"),
+      withParts(
+        grammarItem(2, 6, "완료", "てしまう"),
+        grammarItem(2, 3, "연결", "て"),
+      ),
+      grammarItem(6, 7, "과거", "た"),
     ],
     words: [],
   });
@@ -2602,8 +2615,8 @@ test("같은 용법이 두 자리에 걸리면 문법 카드는 한 장이고, �
   respondWith(200, {
     translation_ko: "고양이가 개를 좋아한다",
     grammar: [
-      grammarItem(1, 2, "주어 が"),
-      grammarItem(3, 4, "주어 が"),
+      grammarItem(1, 2, "주어 が", "が"),
+      grammarItem(3, 4, "주어 が", "が"),
       grammarItem(4, 6, "형용동사"),
     ],
     words: [],

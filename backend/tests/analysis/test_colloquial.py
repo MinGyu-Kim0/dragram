@@ -2,6 +2,7 @@
 
 import html
 import threading
+from unittest.mock import ANY
 
 import pytest
 from django.contrib.auth.models import Permission
@@ -265,6 +266,8 @@ CHAU_ITEM = {
     "start": 3,
     "end": 6,
     "state": "decided",
+    "connection": ANY,
+    "pattern_name": "ちゃう",
     "name": "완료",
     "explanation_ko": "동작이 끝나 버렸음을 나타낸다",
     "korean_equivalent": None,

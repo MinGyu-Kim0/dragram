@@ -155,6 +155,7 @@ def _usage_fields(pattern, usage):
     if review_status is None:
         return None
     return {
+        "pattern_name": pattern.name,
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
         "korean_equivalent": usage.korean_equivalent,
@@ -177,9 +178,18 @@ def _tag_fields(pattern, usage):
 
 
 def _register_fields(pattern):
-    """회화체 표시 칸: 매칭된 패턴의 register와, 연결된 원형 패턴 이름(없으면 null, #63)."""
+    """매칭된 패턴의 회화체 표시(#63)와 접속 형태(#229)."""
     base = pattern.variant_of
-    return {"register": pattern.register, "variant_of": base.name if base else None}
+    return {
+        "register": pattern.register,
+        "variant_of": base.name if base else None,
+        "connection": {
+            "pattern_id": pattern.pk,
+            "text": pattern.connection_form,
+            "review_status": pattern.connection_status,
+            "filled": pattern.connection_filled,
+        },
+    }
 
 
 def _unresolved_item(span, offsets, origins, utf16):
@@ -196,6 +206,7 @@ def _unresolved_item(span, offsets, origins, utf16):
         "start": start,
         "end": end,
         "state": SpanMatch.State.UNRESOLVED,
+        "pattern_name": span.pattern.name,
         "name": span.pattern.name,
         "explanation_ko": None,
         "korean_equivalent": None,
@@ -427,7 +438,16 @@ class Presenter:
                 if len(span.candidates) == 1
                 else None
             )
-            items.append({"start": start, "end": end, "candidates": candidates, "usage": usage})
+            items.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "pattern_name": span.pattern.name,
+                    "connection": _register_fields(span.pattern)["connection"],
+                    "candidates": candidates,
+                    "usage": usage,
+                }
+            )
         return items
 
     def sentence_words(self):

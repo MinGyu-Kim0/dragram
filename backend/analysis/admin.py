@@ -70,7 +70,13 @@ class GrammarPatternForm(forms.ModelForm):
 
     class Meta:
         model = GrammarPattern
-        fields = ["name", "test_cases", "show_parts"]
+        fields = ["name", "connection_form", "test_cases", "show_parts"]
+
+    def clean_connection_form(self):
+        value = (self.cleaned_data["connection_form"] or "").strip()
+        if value and answers.connection_form(value) is None:
+            raise forms.ValidationError("접속 형태에 자리표시자나 제어 문자를 쓸 수 없습니다")
+        return value or None
 
     def clean_test_cases(self):
         cases = self.cleaned_data["test_cases"]
@@ -356,6 +362,8 @@ class GrammarPatternAdmin(_ReviewedAdmin):
     search_fields = ["name", "usages__name"]
     fields = [
         "name",
+        "connection_form",
+        "connection_status",
         "test_cases",
         "show_parts",
         "status",
@@ -366,6 +374,7 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         "morpheme_key",
     ]
     readonly_fields = [
+        "connection_status",
         "status",
         "is_active",
         "usage_closed",
@@ -378,7 +387,15 @@ class GrammarPatternAdmin(_ReviewedAdmin):
     def save_model(self, request, obj, form, change):
         # show_parts는 조회할 때만 읽는 표시 칸이라 그대로 쓴다(#65). test_cases는 활성 상태·
         # 패턴 세트 버전과 함께 바꾼다.
-        GrammarPattern.objects.filter(pk=obj.pk).update(name=obj.name, show_parts=obj.show_parts)
+        updates = {"name": obj.name, "show_parts": obj.show_parts}
+        if "connection_form" in form.changed_data:
+            updates.update(
+                connection_form=obj.connection_form,
+                connection_filled=True,
+                connection_status=ReviewStatus.APPROVED if obj.connection_form else None,
+                connection_started_at=None,
+            )
+        GrammarPattern.objects.filter(pk=obj.pk).update(**updates)
         review.update_test_cases(obj, form.cleaned_data["test_cases"])
 
     def save_formset(self, request, form, formset, change):
@@ -391,6 +408,7 @@ class GrammarPatternAdmin(_ReviewedAdmin):
 
     actions = [
         _review_action("approve", review.approve_pattern, "승인"),
+        _review_action("approve_connection", review.approve_connection, "접속 형태 승인"),
         _review_action("reject", review.reject_pattern, "반려"),
         _review_action("unreject", review.unreject_pattern, "반려 취소(미검수로)"),
         _review_action("unapprove", review.unapprove_pattern, "승인 취소(미검수로)"),

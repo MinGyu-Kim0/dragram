@@ -65,6 +65,9 @@ class ReviewStatus(models.TextChoices):
     REJECTED = "rejected"
 
 
+CONNECTION_FORM_LENGTH = 255
+
+
 class GrammarPattern(models.Model):
     """문법 패턴. 승인·용법 완결·회화체 칼럼은 그것을 쓰는 티켓에서 더한다(#35)."""
 
@@ -73,6 +76,15 @@ class GrammarPattern(models.Model):
         COLLOQUIAL = "colloquial"
 
     name = models.CharField(max_length=255)
+    # 문장별 설명이 아닌 패턴의 접속 형태. LLM이 채운 값은 따로 검수한다(#229).
+    connection_form = models.CharField(  # noqa: DJ001
+        "접속 형태", max_length=CONNECTION_FORM_LENGTH, null=True, blank=True
+    )
+    connection_filled = models.BooleanField(default=False)
+    connection_status = models.CharField(  # noqa: DJ001
+        max_length=30, choices=ReviewStatus.choices, null=True
+    )
+    connection_started_at = models.DateTimeField(null=True)
     # 형태소 조건(lemma|pos1|pos2|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256
     morpheme_key = models.CharField(max_length=64, unique=True)
     # [{text, should_match}]. LLM·관리자가 새로 쓴 예문만 둔다. 사용자 원문은 넣지 않는다.
@@ -396,6 +408,7 @@ class UsageLog(models.Model):
         KANJI_GLOSS = "kanji_gloss"
         # 이미 있는 용법의 빈 칸(대응 표현)을 채움(#152). 사용자 요청이 아니라 user는 NULL이다.
         USAGE_FILL = "usage_fill"
+        PATTERN_CONNECTION = "pattern_connection"
 
     # 로그인 전에는 NULL이다. 로그인 티켓에서 채운다.
     user = models.ForeignKey(

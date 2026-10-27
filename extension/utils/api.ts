@@ -30,10 +30,21 @@ export async function logoutExtension(): Promise<void> {
   }
 }
 
+export interface PatternConnection {
+  pattern_id: number;
+  text: string | null;
+  review_status: "pending" | "approved" | null;
+  // null이어도 채운 결과면 다시 생성하지 않는다.
+  filled: boolean;
+}
+
 export interface GrammarItem {
   // 원문(보낸 문장) 기준 UTF-16 위치 [start, end). 자바스크립트 문자열 위치와 같다.
   start: number;
   end: number;
+  // 실제로 매칭된 패턴의 이름. 문장 속 활용 형태와 별도로 칩에 보인다(#228).
+  pattern_name: string;
+  connection?: PatternConnection;
   // decided는 용법이 정해진 구간, divergent는 해석 갈림(name·explanation_ko는 주 용법),
   // unresolved는 미확정(name은 패턴 이름, 설명 없음)이다.
   state: "decided" | "divergent" | "unresolved";
@@ -76,6 +87,8 @@ export interface Alternative {
 export interface CheckingItem {
   start: number;
   end: number;
+  pattern_name: string;
+  connection?: PatternConnection;
   // 후보 이름도 LLM이 만든 지식이라 검수 상태를 함께 받는다(pending이면 미검수).
   candidates: { name: string; review_status: "pending" | "approved" }[];
   // 후보가 하나면 판정 전에도 카드를 채우는 그 용법 칸, 여럿이면 null이다(#203).

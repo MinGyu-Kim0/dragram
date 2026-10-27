@@ -5,6 +5,7 @@ import unicodedata
 from analysis import llm, words
 from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS, to_hiragana
 from analysis.models import (
+    CONNECTION_FORM_LENGTH,
     KOREAN_EQUIVALENT_LENGTH,
     FunctionTag,
     SpanMatch,
@@ -221,15 +222,33 @@ def _validate_new_patterns(items, token_count):
         if not _are_new_texts(item, ("pattern_name", "usage_name")):
             return None
         fields = (*_NEW_PATTERN_TEXTS, "example_ja")
+        connection = connection_form(item.get("connection_form"))
         proposals.append(
             {
                 "tokens": [(token["token_id"], token["fix"]) for token in tokens],
                 **{field: item[field] for field in fields},
                 "korean_equivalent": korean_equivalent(item.get("korean_equivalent")),
                 "function_tags": function_tags(item.get("function_tags")),
+                "connection_form": connection,
+                # null 답만 채운 것이다. 검증에서 버린 값은 다음 조회가 다시 만든다.
+                "connection_filled": connection is not None or item.get("connection_form") is None,
             }
         )
     return proposals
+
+
+def connection_form(value):
+    """공용 접속 형태 한 줄. 잘못된 값은 기존 문법·설명에 영향을 주지 않는다(#229)."""
+    if not _is_text(value):
+        return None
+    value = value.strip()
+    if (
+        len(value) > CONNECTION_FORM_LENGTH
+        or not has_only_known_placeholders(value, ())
+        or any(unicodedata.category(ch).startswith("C") for ch in value)
+    ):
+        return None
+    return value
 
 
 def _validate_word_answers(answers, ambiguous):
@@ -459,6 +478,11 @@ def _letters(text):
 
 def reject_quotes(validated, sentence):
     """LLM이 쓴 글이 문장 전체를 인용했으면 ANALYSIS:FAILED다."""
+    for item in validated["new_patterns"]:
+        form = item.get("connection_form")
+        if form and _quotes_whole_sentence([form], sentence.key_text, sentence.content_tokens):
+            item["connection_form"] = None
+            item["connection_filled"] = False
     llm_texts = [item[field] for item in validated["new_patterns"] for field in _NEW_PATTERN_TEXTS]
     llm_texts += [
         new_usage[field]

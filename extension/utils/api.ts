@@ -100,6 +100,8 @@ export interface WordItem {
   in_dictionary: boolean;
   // 단어가 없는 이름 구간에서 보충한 항목. 뜻을 생성하거나 기다리지 않는다.
   is_name?: boolean;
+  // 보충한 이름의 한글 읽기. 가나에서 음차할 수 없으면 null이다.
+  reading_ko?: string | null;
   // 이 문장에서 고른 뜻. null이면 뜻이 여럿이라 LLM이 아직 고르지 않았다(화면은 '뜻을 준비하는
   // 중'). is_name인 항목은 뜻이 없어 null이다.
   sense: WordSense | null;

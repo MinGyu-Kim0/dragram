@@ -136,7 +136,7 @@ def rematch(presenter, user, grown):
         {"type": "translation", "translation_ko": event["translation_ko"], "ruby": presenter.ruby},
         event,
     ]
-    user_sentences.record(user, presenter.original, s.cached.pk)
+    user_sentences.record(user, presenter.original, s.cached.pk, event["words"])
     return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
 
 
@@ -381,7 +381,7 @@ def start_judge(sentence, usage, may_judge, grown=()):
 
 def rematch_result(presenter, user, new_closed):
     event = rematch_fallback(presenter, new_closed)
-    user_sentences.record(user, presenter.original, presenter.sentence.cached.pk)
+    user_sentences.record(user, presenter.original, presenter.sentence.cached.pk, event["words"])
     return event
 
 

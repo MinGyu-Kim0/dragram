@@ -318,6 +318,10 @@ export function WordList({
               )}
               {word.sense ? (
                 <Meaning sense={word.sense} />
+              ) : word.is_name && word.reading_ko ? (
+                <p className="word-meaning" lang="ko" aria-label="한글 읽기">
+                  {word.reading_ko}
+                </p>
               ) : !word.is_name ? (
                 <Preparing />
               ) : null}

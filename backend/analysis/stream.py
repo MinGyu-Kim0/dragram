@@ -105,7 +105,7 @@ def saved_events(presenter, user, row, translated):
     """작업이 저장한 행의 이벤트. 번역을 아직 보내지 않았으면 함께 보낸다. 분석 기록도 남긴다."""
     events = [] if translated else [presenter.translation_event(row.translation_ko)]
     events.append(presenter.analysis_event(row))
-    user_sentences.record(user, presenter.original, row.pk)
+    user_sentences.record(user, presenter.original, row.pk, events[-1]["words"])
     return events
 
 

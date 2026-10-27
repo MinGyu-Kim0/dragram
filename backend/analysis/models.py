@@ -541,6 +541,8 @@ class UserSentence(models.Model):
     # 정규화 전 원문의 SHA-256. 숫자만 다른 원문도 따로 둔다.
     original_hash = models.CharField(max_length=64)
     original_text = models.TextField()
+    # 이름 카드의 위치(원문 UTF-16)와 가나·한글 읽기. 개인 데이터라 공용 분석에 넣지 않는다.
+    name_readings = models.JSONField(default=list)
     analysis = models.ForeignKey(
         SentenceAnalysis, on_delete=models.PROTECT, related_name="user_sentences"
     )

@@ -222,13 +222,16 @@ def _validate_new_patterns(items, token_count):
         if not _are_new_texts(item, ("pattern_name", "usage_name")):
             return None
         fields = (*_NEW_PATTERN_TEXTS, "example_ja")
+        connection = connection_form(item.get("connection_form"))
         proposals.append(
             {
                 "tokens": [(token["token_id"], token["fix"]) for token in tokens],
                 **{field: item[field] for field in fields},
                 "korean_equivalent": korean_equivalent(item.get("korean_equivalent")),
                 "function_tags": function_tags(item.get("function_tags")),
-                "connection_form": connection_form(item.get("connection_form")),
+                "connection_form": connection,
+                # null 답만 채운 것이다. 검증에서 버린 값은 다음 조회가 다시 만든다.
+                "connection_filled": connection is not None or item.get("connection_form") is None,
             }
         )
     return proposals
@@ -479,6 +482,7 @@ def reject_quotes(validated, sentence):
         form = item.get("connection_form")
         if form and _quotes_whole_sentence([form], sentence.key_text, sentence.content_tokens):
             item["connection_form"] = None
+            item["connection_filled"] = False
     llm_texts = [item[field] for item in validated["new_patterns"] for field in _NEW_PATTERN_TEXTS]
     llm_texts += [
         new_usage[field]

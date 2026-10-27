@@ -148,6 +148,17 @@ def test_first_response_does_not_store_a_quote_or_invalid_connection(client, fak
 
     assert pattern.connection_form is None
     assert response.json()["grammar"][0]["connection"]["text"] is None
+    # 검증에서 버린 값은 다음 조회에서 다시 만들 수 있게 미채움으로 둔다.
+    assert not pattern.connection_filled
+    assert pattern.connection_status is None
+
+
+def test_first_response_without_a_known_connection_is_filled(client, fake_llm):
+    pattern, response = registered(client, fake_llm, None)
+
+    assert pattern.connection_form is None
+    assert pattern.connection_filled
+    assert response.json()["grammar"][0]["connection"]["filled"]
 
 
 def test_missing_connection_obeys_auth_and_quota_but_cached_information_is_available(

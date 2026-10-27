@@ -52,6 +52,27 @@ def test_unknown_tokens_are_sent_but_proper_nouns_are_not(client, fake_llm):
     assert fake_llm.define_requests == []
 
 
+def test_new_honorific_suffix_keeps_its_pos_and_unreviewed_meaning(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "니시야마 씨",
+        "name_spans": [{"token_ids": [0, 1], "type": "person"}],
+        "new_words": [new_word(1, "さん", "さん")],
+    }
+    fake_llm.define_response = {
+        "words": [defined(0, meaning_ko="씨", sense_tags=["honorific"], word_tags=["suffix"])]
+    }
+
+    response = analyze(client, "西山さん")
+
+    assert fake_llm.requests[0]["unknown_words"] == [1]
+    person, suffix = response.json()["words"]
+    assert person["dictionary_form"] == "西山"
+    assert suffix["tags"] == ["suffix"]
+    assert suffix["sense"]["tags"] == ["honorific"]
+    assert suffix["sense"]["status"] == "pending"
+    assert Word.objects.get().tags == ["suffix"]
+
+
 def test_new_word_is_made_in_two_steps_and_shown_as_unreviewed(client, fake_llm):
     response = analyze_hashiru(
         client, fake_llm, meaning_ko="달리다", sense_tags=["intransitive"], word_tags=["verb"]

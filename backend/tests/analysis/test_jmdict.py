@@ -126,3 +126,14 @@ def test_group1_exception_checks_katakana_and_every_reading_and_inherited_pos():
 
     assert tags["蹴る"] == ["group1_exception", "verb"]
     assert tags["切る"] == ["group1_exception", "noun", "verb"]
+
+
+def test_suffix_pos_is_kept_separate_from_noun_and_honorific_tags():
+    tags = tags_of(
+        """<entry><ent_seq>1</ent_seq><r_ele><reb>さん</reb></r_ele>
+<sense><pos>&suf;</pos><misc>&hon;</misc><gloss>Mr.; Ms.</gloss></sense></entry>""",
+        """<entry><ent_seq>2</ent_seq><k_ele><keb>氏</keb></k_ele>
+<r_ele><reb>し</reb></r_ele><sense><pos>&n-suf;</pos><gloss>Mr.</gloss></sense></entry>""",
+    )
+
+    assert tags == {"さん": ["honorific", "suffix"], "氏": ["suffix"]}

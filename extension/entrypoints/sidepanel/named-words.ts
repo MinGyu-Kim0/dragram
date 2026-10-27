@@ -44,6 +44,8 @@ export function nameTypeLabel(
   const span = [...(nameSpans ?? [])]
     .sort((a, b) => a.start - b.start)
     .find((span) => contains(span, word));
+  // LLM이 경칭까지 이름 구간에 넣어도 접미사 자체는 사람 이름이 아니다.
+  if (span?.type === "person" && word.tags.includes("suffix")) return undefined;
   return span && NAME_TYPE_NAMES[span.type];
 }
 

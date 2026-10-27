@@ -21,7 +21,8 @@ _LOOKS_GROUP2 = re.compile(r"[いきしちにひみりぎじぢびぴぃゐえ�
 # 단어 전체 태그(requirements '태그 분리'): JMdict pos 코드 → 태그. 여기에 없는 코드는
 # 태그로 옮기지 않는다(word.pos에는 남는다).
 WORD_TAGS = {
-    **{code: ("noun",) for code in ("n", "n-adv", "n-t", "n-pref", "n-suf")},
+    **{code: ("noun",) for code in ("n", "n-adv", "n-t", "n-pref")},
+    **{code: ("suffix",) for code in ("suf", "n-suf")},
     "n-pr": ("noun", "proper_noun"),
     "pn": ("pronoun",),
     **{code: ("verb", "group1") for code in _GROUP1},

@@ -234,9 +234,12 @@ def _words_response(word_spans, text, token_at, offsets, origins, utf16, before_
         sense = senses.get(span["sense_id"])
         if sense is None or sense.sense_status == ReviewStatus.REJECTED:
             continue
-        reading = words.reading_for(sense, text, token_at.get((span["start"], span["end"])))
+        morph = token_at.get((span["start"], span["end"]))
+        reading = words.reading_for(sense, text, morph)
         start, end = to_original(origins, utf16, *to_analysis(offsets, span["start"], span["end"]))
-        items.append(words.response_item(start, end, sense.word, reading, sense, before_save))
+        items.append(
+            words.response_item(start, end, sense.word, reading, sense, before_save, morph=morph)
+        )
     return items
 
 
@@ -286,15 +289,48 @@ class Presenter:
     def analysis_event(self, saved):
         # 동시에 저장된 다른 요청의 결과를 쓸 수 있어, 문법·단어와 짝인 번역을 함께 싣는다.
         s = self.sentence
+        name_spans = _names_response(saved.name_spans, s.offsets, self.origins, self.utf16)
+        items = _words_response(
+            saved.word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16
+        )
         return {
             "type": "analysis",
             "translation_ko": s.restore(saved.translation_ko),
             "grammar": _grammar_response(saved, s.offsets, self.origins, self.utf16, s.restore),
-            "words": _words_response(
-                saved.word_spans, s.text, s.token_at, s.offsets, self.origins, self.utf16
-            ),
-            "name_spans": _names_response(saved.name_spans, s.offsets, self.origins, self.utf16),
+            "words": self.with_name_words(items, name_spans),
+            "name_spans": name_spans,
         }
+
+    def with_name_words(self, items, name_spans):
+        """단어가 없는 이름 토큰도 보인다.
+
+        원문 표기는 응답에서만 쓰고 공용 사전에 저장하지 않는다.
+        """
+        s = self.sentence
+        for token, morph in enumerate(s.morphs):
+            if not s.is_vocabulary(token) or morph.pos == "接尾辞":
+                continue
+            start, end = to_original(self.origins, self.utf16, morph.begin, morph.end)
+            if not any(n["start"] <= start and end <= n["end"] for n in name_spans or ()):
+                continue
+            if any(w["start"] < end and start < w["end"] for w in items):
+                continue
+            reading = words.to_hiragana(morph.reading)
+            items.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "dictionary_form": self.original[
+                        self.origins[morph.begin][0] : self.origins[morph.end - 1][1]
+                    ],
+                    "reading": reading if words.is_kana(reading) else "",
+                    "tags": ["proper_noun"],
+                    "in_dictionary": False,
+                    "is_name": True,
+                    "sense": None,
+                }
+            )
+        return sorted(items, key=lambda item: (item["start"], item["end"]))
 
     def judged_event(self, spans, word_spans):
         """첫 LLM 응답이 판정한 문법과 고른 뜻(저장 전, #97). spans·word_spans는 작업자 소식이다.
@@ -407,14 +443,24 @@ class Presenter:
                 [only] = cands
                 items.append(
                     words.response_item(
-                        start, end, only.sense.word, only.reading, only.sense, before_save=True
+                        start,
+                        end,
+                        only.sense.word,
+                        only.reading,
+                        only.sense,
+                        before_save=True,
+                        morph=morphs[token],
                     )
                 )
                 continue
-            item = words.response_item(start, end, cands[0].sense.word, cands[0].reading, None)
+            item = words.response_item(
+                start, end, cands[0].sense.word, cands[0].reading, None, morph=morphs[token]
+            )
             item["reading"] = "・".join(dict.fromkeys(c.reading for c in cands))
             item["tags"] = sorted(
-                set.intersection(*(set(words.word_tags(c.sense.word)) for c in cands))
+                set.intersection(
+                    *(set(words.word_tags(c.sense.word, morphs[token])) for c in cands)
+                )
             )
             items.append(item)
         return items

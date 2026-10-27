@@ -15,9 +15,8 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 
-from accounts import google, tokens
+from accounts import google, tokens, withdrawal
 from accounts.models import User
-from analysis import usage
 from errors.auth import AuthError
 from errors.base import BusinessError
 
@@ -133,8 +132,7 @@ def withdraw(request):
     """회원 탈퇴. 계정과 개인 기록(원문 기록, 지정한 이름, 확장 토큰, 사용량 기록)을 지운다.
 
     본문의 account는 확인 화면에 보인 계정이다. 화면을 연 뒤 다른 탭에서 다른 계정으로 로그인했으면
-    지금 세션의 계정을 지우지 않고 거부한다. 공용 분석은 남긴다. 사용량 기록은 사용자를 지우면
-    연결만 비워지므로 먼저 직접 지운다.
+    지금 세션의 계정을 지우지 않고 거부한다.
     """
     require_csrf(request)
     if not request.user.is_authenticated:
@@ -143,10 +141,7 @@ def withdraw(request):
     if _field(request, "account", AuthError.ACCOUNT_MISMATCH) != str(user.pk):
         raise BusinessError(AuthError.ACCOUNT_MISMATCH, "확인한 계정과 세션 계정이 다름")
     with transaction.atomic():
-        # 사용자 행을 잠가, 진행 중인 분석이 지운 사용자의 기록을 새로 남기지 못하게 한다.
-        _lock_user(user)
-        usage.forget(user)
-        user.delete()
+        withdrawal.withdraw(user)
         auth.logout(request._request)
     return Response(_user_body(request._request.user))
 

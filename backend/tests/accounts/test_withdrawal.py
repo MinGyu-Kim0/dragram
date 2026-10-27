@@ -250,3 +250,39 @@ def test_withdrawn_usage_from_before_midnight_is_deleted_on_the_next_request(fak
 
     assert UsageLog.objects.filter(pk=kept.pk).exists()
     assert not UsageLog.objects.filter(pk=old.pk).exists()
+
+
+def admin_delete_one(admin_client, user):
+    return admin_client.post(f"/admin/accounts/user/{user.pk}/delete/", {"post": "yes"})
+
+
+def admin_delete_selected(admin_client, user):
+    return admin_client.post(
+        "/admin/accounts/user/",
+        {"action": "delete_selected", "_selected_action": [user.pk], "post": "yes"},
+    )
+
+
+@pytest.mark.parametrize("delete", [admin_delete_one, admin_delete_selected])
+def test_admin_deletion_withdraws_like_the_web(
+    admin_client, delete, fake_llm, monkeypatch, settings
+):
+    # 정지된 계정은 이메일로 탈퇴를 요청하고 관리자가 지운다(#249). 화면 탈퇴와 결과가 같아야 한다.
+    me, _ = user_with_records("me", fake_llm)
+    User.objects.filter(pk=me.pk).update(google_sub="google-sub-1")
+    me.refresh_from_db()
+    other, _ = user_with_records("other", fake_llm)
+    others = records_of(other)
+    used = limits.today_tokens(me)
+
+    response = delete(admin_client, me)
+
+    assert response.status_code == 302
+    assert not User.objects.filter(pk=me.pk).exists()
+    assert not UserSentence.objects.filter(original_text__startswith="me").exists()
+    assert not DesignatedName.objects.exclude(user=other).exists()
+    assert not ExtensionToken.objects.exclude(user=other).exists()
+    assert not UsageLog.objects.filter(user__isnull=True, withdrawn_key__isnull=True).exists()
+    assert records_of(other) == others
+    web = Client()
+    assert limits.today_tokens(google_login(web, monkeypatch, settings, "google-sub-1")) == used

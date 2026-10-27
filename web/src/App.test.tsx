@@ -77,43 +77,123 @@ test("푸터 링크로 홈, 개인정보처리방침, 이용약관을 오간다"
   );
 });
 
-test("개인정보처리방침에 처리 위탁, 원문 보관, 삭제 요청 방법과 보호책임자가 있다", () => {
-  vi.stubEnv("VITE_CONTACT_EMAIL", "privacy@example.com");
-  vi.stubEnv("VITE_PRIVACY_OFFICER", "홍길동");
-  open("/privacy");
+const POLICY_SECTIONS = [
+  "운영주체와 시행일",
+  "처리하는 정보와 목적",
+  "공용 분석과 내 기록",
+  "처리위탁과 국외이전",
+  "보유기간",
+  "삭제와 탈퇴",
+  "권리행사",
+  "운영자가 원문을 보는 경우",
+  "어린이 이용자",
+  "민감한 내용은 분석하지 마세요",
+  "개인정보 보호책임자와 도움받을 곳",
+  "변경 안내와 이전 버전",
+];
 
-  for (const name of [
-    "수집하는 정보",
-    "공용 데이터와 개인 데이터",
-    "처리 위탁",
-    "국외 이전",
-    "보관 기간",
-    "삭제 요청",
-    "개인정보 보호책임자",
-  ]) {
-    expect(screen.getByRole("heading", { name })).toBeInTheDocument();
-  }
-  expect(screen.getByRole("region", { name: "처리 위탁" })).toHaveTextContent(
-    "OpenAI",
+// #237 "쓰지 않을 문구"
+const FORBIDDEN_PHRASES = [
+  "개인정보를 수집하지 않습니다",
+  "선택한 글자만 전송합니다",
+  "분석 후 원문을 즉시 삭제합니다",
+  "제3자에게 전달하지 않습니다",
+  "AI 학습에 쓰이지 않으므로 저장되지 않습니다",
+  "운영자는 데이터를 볼 수 없습니다",
+  "확장을 삭제하면 서버 데이터도 삭제됩니다",
+];
+
+test.each(["/privacy", "/privacy/2026-10-28"])(
+  "%s는 로그인 없이 처리방침의 모든 절을 보여준다",
+  (path) => {
+    open(path);
+
+    expect(
+      screen.getByRole("heading", { level: 1, name: "개인정보처리방침" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveTextContent(
+      "시행일: 2026년 10월 28일",
+    );
+    for (const name of POLICY_SECTIONS) {
+      expect(screen.getByRole("heading", { name })).toBeInTheDocument();
+    }
+  },
+);
+
+test("처리방침은 보내는 범위, 위탁, 보관, 탈퇴를 실제 동작대로 적고 쓰지 않을 문구가 없다", () => {
+  open("/privacy");
+  const section = (name: string) => screen.getByRole("region", { name });
+
+  expect(section("처리하는 정보와 목적")).toHaveTextContent(
+    "드래그한 부분을 포함한 문장 전체",
   );
-  expect(
-    screen.getByRole("region", { name: "공용 데이터와 개인 데이터" }),
-  ).toHaveTextContent("본인만");
-  expect(
-    screen.getAllByRole("link", { name: "privacy@example.com" })[0],
-  ).toHaveAttribute("href", "mailto:privacy@example.com");
-  expect(
-    screen.getByRole("region", { name: "개인정보 보호책임자" }),
-  ).toHaveTextContent("홍길동");
+  expect(section("처리위탁과 국외이전")).toHaveTextContent("OpenAI");
+  expect(section("처리위탁과 국외이전")).toHaveTextContent(
+    "이메일은 보내지 않아요",
+  );
+  expect(section("공용 분석과 내 기록")).toHaveTextContent("본인만");
+  expect(section("삭제와 탈퇴")).toHaveTextContent("회원 탈퇴");
+  expect(section("삭제와 탈퇴")).toHaveTextContent(
+    "확장 프로그램을 지워도 서버의 기록은 지워지지 않아요",
+  );
+  for (const phrase of FORBIDDEN_PHRASES) {
+    expect(screen.getByRole("main")).not.toHaveTextContent(phrase);
+  }
 });
 
-test("연락처가 정해지지 않았으면 빈 메일 링크 대신 준비 중 문구를 보인다", () => {
+test("운영자가 확인하기 전인 값은 그럴듯한 값 대신 확인 필요 자리로 보인다", () => {
   vi.stubEnv("VITE_CONTACT_EMAIL", "");
   vi.stubEnv("VITE_PRIVACY_OFFICER", "");
   open("/privacy");
 
+  for (const value of [
+    "OpenAI 데이터 공유 설정",
+    "OpenAI 계약 법인",
+    "OpenAI 처리 국가",
+    "서버 접속 기록 보관 기간",
+    "서버 스냅샷·DB 백업 보관 기간",
+    "운영자 이름",
+  ]) {
+    expect(screen.getAllByText(`확인 필요: ${value}`).length).toBeGreaterThan(
+      0,
+    );
+  }
   expect(screen.queryByRole("link", { name: /@/ })).not.toBeInTheDocument();
   expect(screen.getAllByText("연락처 준비 중").length).toBeGreaterThan(0);
+});
+
+test("연락처와 보호책임자가 정해지면 메일 링크와 이름을 보인다", () => {
+  vi.stubEnv("VITE_CONTACT_EMAIL", "privacy@example.com");
+  vi.stubEnv("VITE_PRIVACY_OFFICER", "홍길동");
+  open("/privacy");
+
+  expect(
+    screen.getAllByRole("link", { name: "privacy@example.com" })[0],
+  ).toHaveAttribute("href", "mailto:privacy@example.com");
+  expect(
+    screen.getByRole("region", { name: "개인정보 보호책임자와 도움받을 곳" }),
+  ).toHaveTextContent("홍길동");
+});
+
+test("이전 버전 목록은 버전별 주소로 연결된다", () => {
+  open("/privacy");
+
+  expect(
+    within(
+      screen.getByRole("region", { name: "변경 안내와 이전 버전" }),
+    ).getByRole("link", { name: "2026년 10월 28일 시행" }),
+  ).toHaveAttribute("href", "/privacy/2026-10-28");
+});
+
+test("없는 버전 주소는 최신 처리방침으로 안내한다", () => {
+  open("/privacy/2020-01-01");
+
+  expect(
+    screen.getByText("2020-01-01에 시행한 처리방침은 없어요."),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("link", { name: "최신 개인정보처리방침 보기" }),
+  ).toHaveAttribute("href", "/privacy");
 });
 
 test("이용약관과 푸터에 JMdict CC BY-SA 4.0 출처가 있다", () => {

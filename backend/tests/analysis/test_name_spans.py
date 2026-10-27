@@ -4,7 +4,7 @@
 
 import pytest
 
-from analysis.models import SentenceAnalysis, Word
+from analysis.models import SentenceAnalysis, UserSentence, Word
 from tests.analysis.helpers import add_word, analyze
 
 pytestmark = pytest.mark.django_db
@@ -136,6 +136,7 @@ def test_name_and_suffix_are_separate_words_in_fresh_and_cached_analysis(client,
     ]
     person, suffix = first["words"]
     assert (person["start"], person["end"], person["reading"]) == (0, 2, "にしやま")
+    assert person["reading_ko"] == "니시야마"
     assert person["is_name"] is True
     assert person["sense"] is None
     assert suffix["sense"]["tags"] == ["honorific"]
@@ -144,6 +145,9 @@ def test_name_and_suffix_are_separate_words_in_fresh_and_cached_analysis(client,
     # 이름 표기는 응답할 때만 구성하고, 공용 단어·뜻에는 저장하지 않는다.
     assert list(Word.objects.values_list("dictionary_form", flat=True)) == ["さん"]
     assert SentenceAnalysis.objects.get().sense_ids == [san.senses.get().id]
+    assert UserSentence.objects.get().name_readings == [
+        {"start": 0, "end": 2, "reading": "にしやま", "reading_ko": "니시야마"}
+    ]
 
     fake_llm.forget_requests()
     cached = analyze(client, "  西山さん。").json()
@@ -151,6 +155,9 @@ def test_name_and_suffix_are_separate_words_in_fresh_and_cached_analysis(client,
     assert fake_llm.all_requests() == []
     assert cached["words"] == [
         {**word, "start": word["start"] + 2, "end": word["end"] + 2} for word in first["words"]
+    ]
+    assert UserSentence.objects.get(original_text="  西山さん。").name_readings == [
+        {"start": 2, "end": 4, "reading": "にしやま", "reading_ko": "니시야마"}
     ]
 
 

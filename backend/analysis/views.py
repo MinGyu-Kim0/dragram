@@ -65,7 +65,7 @@ def _analyze(request):
             presenter.translation_event(cached.translation_ko),
             presenter.analysis_event(cached),
         ]
-        user_sentences.record(user, presenter.original, cached.pk)
+        user_sentences.record(user, presenter.original, cached.pk, events[-1]["words"])
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
     if cached:
         return rematch(presenter, user, grown)

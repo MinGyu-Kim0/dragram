@@ -11,7 +11,7 @@ from analysis.models import UserSentence
 logger = logging.getLogger(__name__)
 
 
-def record(user, original, analysis_id):
+def record(user, original, analysis_id, words):
     """결과가 저장된 공용 분석(analysis_id)을 응답에 보낸 뒤 그 사용자의 기록을 남긴다.
 
     같은 원문이면 행을 새로 만들지 않고 가리키는 분석과 마지막 분석일시를 바꾼다(동시 요청도
@@ -26,13 +26,18 @@ def record(user, original, analysis_id):
                         user=user,
                         original_hash=hashlib.sha256(original.encode()).hexdigest(),
                         original_text=original,
+                        name_readings=[
+                            {key: word[key] for key in ("start", "end", "reading", "reading_ko")}
+                            for word in words
+                            if word.get("is_name") and word.get("reading_ko")
+                        ],
                         analysis_id=analysis_id,
                         last_analyzed_at=now,
                     )
                 ],
                 update_conflicts=True,
                 unique_fields=["user", "original_hash"],
-                update_fields=["analysis", "last_analyzed_at"],
+                update_fields=["analysis", "name_readings", "last_analyzed_at"],
             )
     except DatabaseError as e:
         logger.warning(

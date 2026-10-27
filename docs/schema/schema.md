@@ -43,6 +43,7 @@
 | original_hash | 원문 해시 | varchar(64) |  |  | 요청으로 받은 원문(정규화 전) 그대로의 SHA-256. UNIQUE(user_id, original_hash). 같은 사용자·같은 원문은 한 문장 upsert로 갱신해 동시 요청도 유일성 위반 없이 끝난다. 숫자만 다른 원문(1人/2人)도 따로 보관 |
 | analysis_id | 공용 분석 ID | bigint |  | → sentence_analysis | sentence_analysis.id 참조(FK). 공용 분석 행을 지우지 못하게 막는다(PROTECT). 지금 공용 분석을 지우는 코드는 없고, 지우게 되면 개인 기록을 어떻게 할지 그때 정한다(#93 구현, 확인 필요). 여러 사용자·숫자만 다른 원문이 같은 공용 분석을 가리킴. 해시는 조인해서 조회. 인덱스 있음(내 일본어 조회용). 정규화 규칙 변경 시 원문별로 새 키를 계산해 해당 분석이 준비되면 analysis_id를 재연결 |
 | original_text | 원문 | text |  |  | 정규화 전 원문. 개인 테이블에만 저장, 카드 예문 표시용 / 개인 원문, 본인만 조회, Django admin 미노출 |
+| name_readings | 이름 읽기 | jsonb |  |  | 기본값 `[]`. 보충한 이름 카드의 `{start, end, reading, reading_ko}` 목록. 위치는 original_text의 UTF-16 반열린 구간, reading은 가나, reading_ko는 한글 읽기다. 변환할 수 없는 이름은 제외한다. 개인 기록에만 저장하며 캐시 재조회·재분석·재매칭 때 해당 결과로 교체한다. 기존 기록은 다음 조회 때 채운다(0024 마이그레이션, design-decisions 63절). erd.json에는 미반영 |
 | selected_start | 드래그 시작 위치 | integer |  |  | original_text 코드포인트 기준. 실제로 드래그한 범위(문장 끝까지 자동 확장과 별도로 강조 표시). 읽는 곳이 없어 #93에서는 넣지 않는다. FR-M12처럼 필요해지면 별도 이슈로 더한다(2026-10-25 #93 트리아지) |
 | selected_end | 드래그 끝 위치 | integer |  |  | 반열린 구간 [start, end). selected_start와 같이 #93에서는 넣지 않는다 |
 | created_at | 처음 분석일시 | timestamptz |  |  |  |

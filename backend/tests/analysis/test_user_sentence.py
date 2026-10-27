@@ -155,6 +155,76 @@ def test_record_is_not_in_django_admin():
     assert not admin.site.is_registered(UserSentence)
 
 
+def test_name_readings_are_private_and_cache_hits_fill_older_records(client, analyst, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "왔다",
+        "name_spans": [{"token_ids": [0], "type": "person"}],
+    }
+    analyze(client, "西山さんが来た")
+    mine = UserSentence.objects.get(user=analyst)
+    expected = [{"start": 0, "end": 2, "reading": "にしやま", "reading_ko": "니시야마"}]
+    assert mine.name_readings == expected
+    assert "니시야마" not in serializers.serialize("json", SentenceAnalysis.objects.all())
+
+    UserSentence.objects.filter(pk=mine.pk).update(name_readings=[])
+    fake_llm.forget_requests()
+    analyze(client, "西山さんが来た")
+    mine.refresh_from_db()
+    assert mine.name_readings == expected
+    saved_at = mine.last_analyzed_at
+
+    other = connected_client("other")
+    analyze(other, "  西山さんが来た")
+    assert fake_llm.all_requests() == []
+    other_row = UserSentence.objects.exclude(user=analyst).get()
+    assert other_row.name_readings == [{**expected[0], "start": 2, "end": 4}]
+    mine.refresh_from_db()
+    assert mine.name_readings == expected
+    assert mine.last_analyzed_at == saved_at
+
+
+@pytest.mark.parametrize("judging", [False, True])
+def test_rematch_preserves_name_readings(client, fake_llm, judging):
+    fake_llm.response = {
+        "translation_ko": "니시야마 씨가 와 있다",
+        "name_spans": [{"token_ids": [0], "type": "person"}],
+    }
+    analyze(client, "西山さんが来ている")
+    row = UserSentence.objects.get()
+    expected = row.name_readings
+    assert expected
+    if judging:
+        fake_llm.response = {"translation_ko": "달리고 있다", "new_patterns": [TEIRU]}
+        analyze(client, "走っている")
+        fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
+    else:
+        patterns.raise_pattern_set_version()
+    UserSentence.objects.filter(pk=row.pk).update(name_readings=[])
+
+    analyze(client, "西山さんが来ている")
+
+    row.refresh_from_db()
+    assert row.name_readings == expected
+    assert len(fake_llm.rematch_requests) == int(judging)
+
+
+def test_reanalysis_clears_readings_when_a_name_is_no_longer_detected(client, fake_llm):
+    fake_llm.response = {
+        "translation_ko": "하루가 왔다",
+        "name_spans": [{"token_ids": [0], "type": "person"}],
+    }
+    analyze(client, "春が来た")
+    assert UserSentence.objects.get().name_readings
+    SentenceAnalysis.objects.update(is_stale=True)
+    fake_llm.response = {"translation_ko": "봄이 왔다", "name_spans": []}
+
+    response = analyze(client, "春が来た")
+
+    previous = next(event for event in response.events if event["type"] == "previous")
+    assert previous["words"][0]["reading_ko"] == "하루"
+    assert UserSentence.objects.get().name_readings == []
+
+
 def test_original_is_stored_only_in_user_sentence(client, fake_llm):
     # 원문 그대로가 키 텍스트가 되지 않게 감싼다. 예문은 LLM이 새로 쓴 문장이다.
     original = "「彼は走っている」"

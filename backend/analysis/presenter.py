@@ -1,6 +1,7 @@
 """원문 기준 응답 이벤트."""
 
 from analysis import patterns, words
+from analysis.korean_reading import korean_reading
 from analysis.models import (
     GrammarUsage,
     ReviewStatus,
@@ -324,6 +325,7 @@ class Presenter:
                         self.origins[morph.begin][0] : self.origins[morph.end - 1][1]
                     ],
                     "reading": reading if words.is_kana(reading) else "",
+                    "reading_ko": korean_reading(reading),
                     "tags": ["proper_noun"],
                     "in_dictionary": False,
                     "is_name": True,

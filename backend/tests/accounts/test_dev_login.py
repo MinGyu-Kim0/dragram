@@ -20,8 +20,18 @@ def test_dev_login_works_only_with_flag_in_debug(client, settings):
 
     response = dev_login(client)
 
-    assert response.json() == {"user": {"email": "dev@example.com"}}
-    assert client.get("/api/auth/me/").json() == {"user": {"email": "dev@example.com"}}
+    assert response.json() == {
+        "user": {
+            "email": "dev@example.com",
+            "account": str(User.objects.get(email="dev@example.com").pk),
+        }
+    }
+    assert client.get("/api/auth/me/").json() == {
+        "user": {
+            "email": "dev@example.com",
+            "account": str(User.objects.get(email="dev@example.com").pk),
+        }
+    }
     user = User.objects.get()
     assert user.google_sub is None
     assert not user.has_usable_password()

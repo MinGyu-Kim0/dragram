@@ -107,6 +107,80 @@ test("로그인한 상태면 이메일과 로그아웃을 보이고, 로그아�
   expect(logout.headers["X-CSRFToken"]).toBe("csrf-value");
 });
 
+describe("회원 탈퇴(#239)", () => {
+  beforeEach(() => {
+    responses["GET /api/auth/me/"] = () =>
+      json({ user: { email: "me@example.com", account: "42" } });
+    responses["POST /api/auth/withdraw/"] = () => json({ user: null });
+  });
+
+  test("지워지는 것을 보이고, 확인하면 탈퇴한 뒤 로그인 버튼으로 돌아간다", async () => {
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "회원 탈퇴" }),
+    );
+    expect(screen.getByText(/분석한 문장 기록/)).toBeInTheDocument();
+    expect(calls.some((c) => c.url === "/api/auth/withdraw/")).toBe(false);
+
+    await userEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Dragram에 로그인" }),
+    ).toBeInTheDocument();
+    const withdraw = calls.find((c) => c.url === "/api/auth/withdraw/")!;
+    expect(withdraw.method).toBe("POST");
+    expect(withdraw.headers["X-CSRFToken"]).toBe("csrf-value");
+    // 확인 화면에 보인 계정을 보내, 그사이 다른 계정으로 로그인했으면 서버가 거부하게 한다.
+    expect(JSON.parse(withdraw.body!)).toEqual({ account: "42" });
+  });
+
+  test("취소하면 탈퇴 요청 없이 로그인한 화면으로 돌아간다", async () => {
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "회원 탈퇴" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "취소" }));
+
+    expect(
+      screen.getByRole("heading", { name: "로그인했어요" }),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.url === "/api/auth/withdraw/")).toBe(false);
+  });
+
+  test("그사이 다른 계정으로 로그인했으면 새로 고치라고 안내한다", async () => {
+    responses["POST /api/auth/withdraw/"] = () =>
+      json({ error: "AUTH:ACCOUNT_MISMATCH" }, 409);
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "회원 탈퇴" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "다른 계정으로 로그인되어 있어요",
+    );
+  });
+
+  test("탈퇴가 실패하면 확인 화면에 남아 안내한다", async () => {
+    responses["POST /api/auth/withdraw/"] = () =>
+      json({ error: "AUTH:CSRF_FAILED" }, 403);
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "회원 탈퇴" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "탈퇴하지 못했어요",
+    );
+    expect(screen.getByRole("button", { name: "탈퇴하기" })).toBeEnabled();
+  });
+});
+
 test("로그인이 거부되면 다시 시도하라고 안내한다", async () => {
   responses["POST /api/auth/google/"] = () =>
     json({ error: "AUTH:EMAIL_NOT_VERIFIED" }, 403);
@@ -240,6 +314,21 @@ describe("확장 연결(#109)", () => {
     await userEvent.click(
       await screen.findByRole("button", { name: "로그아웃" }),
     );
+
+    await screen.findByRole("heading", { name: "Dragram에 로그인" });
+    expect(sent).toEqual([
+      { extensionId: "dragram-extension-id", message: { type: "disconnect" } },
+    ]);
+  });
+
+  test("탈퇴하면 확장에도 연결을 끊으라고 알린다", async () => {
+    responses["POST /api/auth/withdraw/"] = () => json({ user: null });
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "회원 탈퇴" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "탈퇴하기" }));
 
     await screen.findByRole("heading", { name: "Dragram에 로그인" });
     expect(sent).toEqual([

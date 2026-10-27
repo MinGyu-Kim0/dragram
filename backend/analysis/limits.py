@@ -8,12 +8,12 @@ import uuid
 
 import redis
 from django.conf import settings
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
-from django.utils import timezone
 
 from analysis import jobs
 from analysis.models import UsageLog
+from analysis.usage import today_start, withdrawn_key
 from errors import AnalysisError, BusinessError
 
 logger = logging.getLogger(__name__)
@@ -23,10 +23,14 @@ ACTIVE_SECONDS = 150
 
 
 def today_tokens(user):
-    """오늘(Asia/Seoul 자정부터) 그 사용자의 llm 행 입력+출력 토큰 합. NULL은 0이다."""
-    midnight = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    """오늘(Asia/Seoul 자정부터) 그 사용자의 llm 행 입력+출력 토큰 합. NULL은 0이다.
+
+    같은 Google 계정이 오늘 탈퇴하기 전에 쓴 행도 더한다(PR #244).
+    """
     tokens = Coalesce("input_tokens", 0) + Coalesce("output_tokens", 0)
-    rows = UsageLog.objects.filter(kind=UsageLog.Kind.LLM, user=user, created_at__gte=midnight)
+    key = withdrawn_key(user)
+    owner = Q(user=user) | Q(withdrawn_key=key) if key else Q(user=user)
+    rows = UsageLog.objects.filter(owner, kind=UsageLog.Kind.LLM, created_at__gte=today_start())
     return rows.aggregate(total=Coalesce(Sum(tokens), 0))["total"]
 
 

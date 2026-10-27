@@ -18,7 +18,7 @@ from analysis.answers import (
     reject_quotes,
 )
 from analysis.examples import _check_examples
-from analysis.models import ReviewStatus, SentenceAnalysis, SpanMatch, UsageLog
+from analysis.models import ReviewStatus, SentenceAnalysis, SpanMatch
 from analysis.normalize import has_all_placeholders
 from analysis.sentence import Sentence, _llm_spans, _pattern_statuses
 from analysis.span_rows import _basis_changed, _is_place_conflict, _PatternTaken, span_matches
@@ -153,13 +153,12 @@ class Worker:
         ).exists():
             # 다시 선점된 뒤 큐에서 늦게 꺼낸 옛 작업이다. 새 시도의 행과 소식을 건드리지 않는다.
             return
-        request = UsageLog.objects.get(pk=usage_id)
-        if limits.over_limit(request.user):
+        self.usage = RequestUsage.resume(usage_id, analysis_id)
+        if limits.over_limit(self.usage.user):
             # 연결을 끊고 다시 보내기를 되풀이해 쌓인 작업이 하루 한도를 크게 넘기지 않게,
             # 시작할 때 다시 본다(#28, PR #155 리뷰).
             _fail(analysis_id, self.started, AnalysisError.USAGE_LIMIT.code)
             return
-        self.usage = RequestUsage(request)
         self.client = llm.get_client(self.usage.record_llm)
         try:
             self.work()

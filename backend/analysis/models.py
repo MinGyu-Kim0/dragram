@@ -427,6 +427,9 @@ class UsageLog(models.Model):
     output_tokens = models.IntegerField(null=True)
     success = models.BooleanField()
     attempt = models.SmallIntegerField(null=True)
+    # 탈퇴한 Google 계정의 그날 행이다(PR #244). 같은 계정이 그날 다시 가입하면 하루 한도에 더한다.
+    # Google 계정 식별자를 서버 비밀값으로 HMAC한 값이고, 자정이 지나면 행째 지운다.
+    withdrawn_key = models.CharField(max_length=64, null=True)  # noqa: DJ001
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -440,7 +443,14 @@ class UsageLog(models.Model):
             )
         ]
         # 하루 토큰 사용량을 사용자별로 센다(#28).
-        indexes = [models.Index(fields=["user", "created_at"], name="usage_log_user_created")]
+        indexes = [
+            models.Index(fields=["user", "created_at"], name="usage_log_user_created"),
+            models.Index(
+                fields=["withdrawn_key", "created_at"],
+                condition=models.Q(withdrawn_key__isnull=False),
+                name="usage_log_withdrawn_created",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.kind} {self.path or self.purpose} #{self.pk}"

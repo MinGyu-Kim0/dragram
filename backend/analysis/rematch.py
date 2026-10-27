@@ -457,13 +457,12 @@ def _judge(sentence, analysis_id, usage_id, version, basis):
     if sentence.matcher_version != version or _basis(grown) != basis:
         # 큐에서 기다리는 사이 패턴 세트 버전이나 후보가 바뀌었다. 새 잠금을 잡을 조회에 맡긴다.
         return False
-    request = UsageLog.objects.get(pk=usage_id)
-    if limits.over_limit(request.user):
+    usage = RequestUsage.resume(usage_id, analysis_id)
+    if limits.over_limit(usage.user):
         return False
     new_closed, new_spans = _new_spans(sentence)
     try:
         if new_spans or grown:
-            usage = RequestUsage(request)
             saved = judge_rematched(sentence, lambda row: row, new_closed, new_spans, usage, grown)
         else:
             saved = save_rematch(sentence, lambda row: row, new_closed)

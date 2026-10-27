@@ -116,7 +116,7 @@ def run_connection(pattern_id, started, usage_id):
         ):
             return
         basis = (pattern.name, pattern.morpheme_key, pattern.variant_of_id, pattern.status)
-        usage = RequestUsage(UsageLog.objects.get(pk=usage_id))
+        usage = RequestUsage.resume(usage_id)
         result = llm.get_client(usage.record_llm).fill_connection(
             {
                 "pattern_name": pattern.name,

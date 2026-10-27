@@ -192,3 +192,22 @@ def test_lost_redis_subscription_still_sends_the_saved_analysis(client, fake_llm
     assert response.events[1]["ruby"]
     assert response.json()["translation_ko"] == "그가 와 있다"
     assert fake_llm.all_requests() == []
+
+
+def test_job_still_judges_when_the_requester_withdrew_while_queued(
+    client, fake_llm, redis_db, monkeypatch
+):
+    cache_then_register_teiru(client, fake_llm)
+    fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
+    redis_db.set(lock_key(), "mine", ex=jobs.REMATCH_LOCK_SECONDS)
+    usage = UsageLog.objects.filter(kind=UsageLog.Kind.REQUEST).latest("id")
+    published = []
+    monkeypatch.setattr(jobs, "publish", lambda sentence_hash, message: published.append(message))
+    # 탈퇴는 그 사용자의 사용량 기록을 지운다(#239).
+    usage.delete()
+
+    rematch.run_rematch(cached().pk, KITEIRU, usage.id, version(), "mine")
+
+    assert len(fake_llm.rematch_requests) == 1
+    assert published == [{"type": "done", "attempt": "mine"}]
+    assert UsageLog.objects.get(purpose="rematch_judge").user is None

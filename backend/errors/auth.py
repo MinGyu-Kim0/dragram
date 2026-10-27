@@ -12,6 +12,8 @@ AuthError = error_domain(
         "EMAIL_NOT_VERIFIED": 403,
         # 관리자가 막은 계정이다(is_active 거짓).
         "ACCOUNT_DISABLED": 403,
+        # 탈퇴를 확인한 계정과 지금 세션의 계정이 다르다(다른 탭에서 다른 계정으로 로그인함 등).
+        "ACCOUNT_MISMATCH": 409,
         # 상태를 바꾸는 요청에 CSRF 값이 없거나 맞지 않는다.
         "CSRF_FAILED": 403,
         # Google 공개 키를 받아 오지 못했다.

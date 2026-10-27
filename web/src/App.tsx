@@ -11,6 +11,7 @@ function App() {
       <Route path="/privacy" element={<PrivacyPage />} />
       <Route path="/privacy/:version" element={<PrivacyPage />} />
       <Route path="/terms" element={<TermsPage />} />
+      <Route path="/terms/:version" element={<TermsPage />} />
       <Route path="/connect" element={<ConnectPage />} />
     </Routes>
   );

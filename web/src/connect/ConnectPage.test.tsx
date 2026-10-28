@@ -100,6 +100,8 @@ describe("가입 화면(#257)", () => {
   async function reachSignup() {
     render(<ConnectPage />);
     await screen.findByRole("heading", { name: "Dragram에 로그인" });
+    // 이 화면의 Google 버튼을 그린 뒤에야 콜백이 이 화면 것이다(앞 테스트의 콜백이 남아 있다).
+    await waitFor(() => expect(renderButton).toHaveBeenCalledTimes(1));
     await act(async () => googleCallback!({ credential: "google-id-token" }));
     await screen.findByRole("heading", { name: "Dragram에 가입" });
   }

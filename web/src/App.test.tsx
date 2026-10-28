@@ -221,7 +221,7 @@ const TERMS_SECTIONS = [
   "사용량 한도",
   "AI가 만든 내용의 한계",
   "입력한 글과 공용 분석",
-  "권리 침해 신고",
+  "권리 침해와 개인정보 신고",
   "단어 정보의 출처",
   "이용자가 하지 않을 일",
   "이용 제한과 이의 제기",
@@ -257,7 +257,10 @@ test("약관은 결정한 제한·재사용·책임·변경 절차를 적는다"
   expect(section("입력한 글과 공용 분석")).toHaveTextContent(
     "원문은 공용으로 저장하지 않아요",
   );
-  expect(section("권리 침해 신고")).toHaveTextContent("공용 분석");
+  expect(section("계정")).toHaveTextContent("만 14세 이상");
+  expect(section("계정")).toHaveTextContent("14세 미만");
+  expect(section("권리 침해와 개인정보 신고")).toHaveTextContent("공용 분석");
+  expect(section("권리 침해와 개인정보 신고")).toHaveTextContent("누구나");
   expect(section("이용 제한과 이의 제기")).toHaveTextContent(
     "경고 없이 바로 정지",
   );

@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.core.management import call_command
 from django.test import Client
 from django.utils import timezone
 
@@ -17,6 +18,18 @@ pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 WITHDRAW = "/api/auth/withdraw/"
+
+
+def carried_rows():
+    """탈퇴한 Google 계정의 그날 행. 한도 계산에 필요한 토큰 수·시각만 남아야 한다(#252)."""
+    return UsageLog.objects.exclude(withdrawn_key=None)
+
+
+def assert_only_tokens_and_time_are_kept():
+    rows = carried_rows()
+    assert rows.exists()
+    assert not rows.exclude(analysis=None).exists()
+    assert not rows.exclude(model=None).exists()
 
 
 def web_session(user):
@@ -165,6 +178,7 @@ def test_withdrawal_during_an_analysis_leaves_no_record_behind(fake_llm, monkeyp
     # 탈퇴한 뒤 끝난 LLM 호출도 같은 Google 계정의 그날 사용량에 든다.
     again = google_login(web, monkeypatch, settings, "google-sub-1")
     assert limits.today_tokens(again) == 110
+    assert_only_tokens_and_time_are_kept()
 
 
 @pytest.mark.django_db(transaction=True, serialized_rollback=True)
@@ -191,6 +205,7 @@ def test_withdrawal_before_the_worker_starts_still_saves_the_shared_analysis(
     assert not UsageLog.objects.exclude(user=None).exists()
     again = google_login(web, monkeypatch, settings, "google-sub-1")
     assert limits.today_tokens(again) == 110
+    assert_only_tokens_and_time_are_kept()
 
 
 @pytest.mark.parametrize("account", [None, "other"])
@@ -222,6 +237,7 @@ def test_signing_up_again_the_same_day_keeps_the_days_usage(fake_llm, monkeypatc
     # 남은 행은 계정과 이어지지 않고, Google 계정 식별자도 그대로 남지 않는다.
     assert not UsageLog.objects.filter(user_id=me.pk).exists()
     assert not UsageLog.objects.filter(withdrawn_key="google-sub-1").exists()
+    assert_only_tokens_and_time_are_kept()
 
 
 def test_another_google_account_does_not_get_the_withdrawn_usage(fake_llm, monkeypatch, settings):
@@ -286,3 +302,21 @@ def test_admin_deletion_withdraws_like_the_web(
     assert records_of(other) == others
     web = Client()
     assert limits.today_tokens(google_login(web, monkeypatch, settings, "google-sub-1")) == used
+
+
+def test_purge_command_deletes_only_withdrawn_usage_from_before_midnight():
+    # 분석 요청이 없는 날에도 늦어도 다음 날 지우도록 매일 예약 실행한다(#252).
+    midnight = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    kept, old, ordinary = (
+        UsageLog.objects.create(
+            kind=UsageLog.Kind.REQUEST, path="llm", success=True, withdrawn_key=k
+        )
+        for k in ("a" * 64, "b" * 64, None)
+    )
+    UsageLog.objects.filter(pk__in=[old.pk, ordinary.pk]).update(
+        created_at=midnight - timedelta(minutes=1)
+    )
+
+    call_command("purge_withdrawn_usage")
+
+    assert set(UsageLog.objects.values_list("pk", flat=True)) == {kept.pk, ordinary.pk}

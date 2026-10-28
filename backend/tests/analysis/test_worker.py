@@ -279,3 +279,36 @@ def test_worker_does_not_normalize_the_analysis_text_again(client, fake_llm):
 
     assert response.types()[-1] == "analysis"
     assert SentenceAnalysis.objects.get().status == "complete"
+
+
+@pytest.mark.parametrize(
+    "enqueue",
+    [
+        lambda: jobs.enqueue_analysis(1, "文", 1, None),
+        lambda: jobs.enqueue_rematch(1, "文", 1, 1, "token"),
+        lambda: jobs.enqueue_connection(1, None, 1),
+    ],
+)
+def test_queued_job_is_dropped_if_not_started_before_the_claim_expires(
+    enqueue, monkeypatch, settings
+):
+    # 큐 입력에는 원문이 있다. 작업자가 밀려 시작하지 못한 작업은 선점이 만료되면 쓸모가 없으므로
+    # 그때 큐에서 버린다(#252, NFR-12).
+    queued = []
+
+    class RecordingQueue:
+        def __init__(self, *_, **__):
+            pass
+
+        def enqueue(self, *_, **options):
+            queued.append(options)
+
+    settings.ANALYSIS_INLINE = False
+    monkeypatch.setattr(jobs, "Queue", RecordingQueue)
+
+    enqueue()
+
+    [options] = queued
+    assert options["ttl"] == jobs.QUEUE_TTL_SECONDS
+    assert jobs.QUEUE_TTL_SECONDS <= stream.CLAIM_EXPIRY_SECONDS
+    assert jobs.QUEUE_TTL_SECONDS <= jobs.REMATCH_LOCK_SECONDS

@@ -21,6 +21,10 @@ QUEUE_NAME = "analysis"
 # 작업 하나의 시간 제한. LLM 요청 전체 마감(llm.REQUEST_DEADLINE_SECONDS, 110초)에 저장할 시간을
 # 더한 값이다. 넘으면 RQ가 작업을 멈추고, 작업은 실패로 끝난다.
 JOB_TIMEOUT_SECONDS = 120
+# 큐에서 시작하지 못하고 기다릴 수 있는 상한. 큐 입력에는 원문이 있어(NFR-12) 쓸모없어진 작업을
+# 오래 두지 않는다. 이만큼 지나면 선점·재판정 잠금이 만료되어 다음 요청이 다시 넣으므로 버려도
+# 된다(stream.CLAIM_EXPIRY_SECONDS, REMATCH_LOCK_SECONDS와 같음, #252).
+QUEUE_TTL_SECONDS = 150
 
 
 def _connection():
@@ -52,6 +56,7 @@ def enqueue_analysis(analysis_id, text, usage_id, started):
             started,
             description=f"analysis {analysis_id}",
             job_timeout=JOB_TIMEOUT_SECONDS,
+            ttl=QUEUE_TTL_SECONDS,
             result_ttl=0,
             failure_ttl=0,
         )
@@ -80,6 +85,7 @@ def enqueue_rematch(analysis_id, text, usage_id, version, token, basis=""):
             basis,
             description=f"rematch {analysis_id}",
             job_timeout=JOB_TIMEOUT_SECONDS,
+            ttl=QUEUE_TTL_SECONDS,
             result_ttl=0,
             failure_ttl=0,
         )
@@ -101,6 +107,7 @@ def enqueue_connection(pattern_id, started, usage_id):
             usage_id,
             description=f"pattern connection {pattern_id}",
             job_timeout=JOB_TIMEOUT_SECONDS,
+            ttl=QUEUE_TTL_SECONDS,
             result_ttl=0,
             failure_ttl=0,
         )

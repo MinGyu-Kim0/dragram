@@ -1,5 +1,6 @@
-import { render, screen, within } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
+import { act, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import type { GrammarItem, SentenceDetail, WordItem } from "./analysis";
 import SentenceDetailPage from "./SentenceDetailPage";
@@ -218,4 +219,41 @@ test("사람 이름 구간 안의 경칭 접미사에는 이름 배지를 달지
     .filter((li) => li.classList.contains("word-row"));
   expect(within(name).getByText("사람 이름")).toBeInTheDocument();
   expect(within(suffix).queryByText("사람 이름")).toBeNull();
+});
+
+function GoTo({ to }: { to: string }) {
+  const navigate = useNavigate();
+  return <button onClick={() => navigate(to)}>다른 문장</button>;
+}
+
+test("문장이 바뀐 뒤 늦게 온 이전 문장의 분석은 보이지 않는다", async () => {
+  let finishFirst!: () => void;
+  const first = new Promise<void>((resolve) => (finishFirst = resolve));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string) => {
+      if (url === "/api/my-sentences/7/") {
+        await first;
+        return json(DETAIL);
+      }
+      if (url === "/api/my-sentences/8/")
+        return json({ ...DETAIL, id: 8, translation_ko: "두 번째 문장" });
+      return responses[url]();
+    }),
+  );
+  render(
+    <MemoryRouter initialEntries={["/sentences/7"]}>
+      <GoTo to="/sentences/8" />
+      <Routes>
+        <Route path="/sentences/:id" element={<SentenceDetailPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  await userEvent.click(screen.getByRole("button", { name: "다른 문장" }));
+  expect(await screen.findByText("두 번째 문장")).toBeInTheDocument();
+  await act(async () => finishFirst());
+
+  expect(screen.getByText("두 번째 문장")).toBeInTheDocument();
+  expect(screen.queryByText("나는 3명이서 달리고 있다.")).toBeNull();
 });

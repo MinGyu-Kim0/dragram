@@ -39,16 +39,23 @@ function SentenceDetailPage() {
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
+    // 방문 기록으로 다른 문장에 바로 가면 늦게 온 이전 문장의 결과는 버린다.
+    let current = true;
+    const show = (next: State) => current && setState(next);
+    setState({ kind: "loading" });
     currentUser()
       .then(async (user) => {
-        if (!user) return setState({ kind: "signedOut" });
+        if (!user) return show({ kind: "signedOut" });
         const detail = await request<SentenceDetail>(
           "GET",
           `/api/my-sentences/${id}/`,
         );
-        setState({ kind: "ready", detail });
+        show({ kind: "ready", detail });
       })
-      .catch((e) => setState({ kind: "problem", message: problemOf(e) }));
+      .catch((e) => show({ kind: "problem", message: problemOf(e) }));
+    return () => {
+      current = false;
+    };
   }, [id]);
 
   if (state.kind === "signedOut") return <Navigate to="/connect" replace />;

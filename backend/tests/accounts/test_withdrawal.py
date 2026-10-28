@@ -30,6 +30,7 @@ def assert_only_tokens_and_time_are_kept():
     assert rows.exists()
     assert not rows.exclude(analysis=None).exists()
     assert not rows.exclude(model=None).exists()
+    assert not rows.exclude(attempt=None).exists()
 
 
 def web_session(user):

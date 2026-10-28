@@ -791,9 +791,7 @@ test("LLM보다 먼저 온 단어는 탭에 바로 보이고, 뜻을 준비하�
   ).toBeInTheDocument();
   // 문법은 아직 오지 않아 '문법 요소 없음'이라고 단정하지 않는다.
   fireEvent.click(screen.getByRole("tab", { name: "문법 0" }));
-  expect(
-    screen.getByRole("status", { name: "문법을 불러오는 중" }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole("status", { name: "분석 중" })).toBeInTheDocument();
   expect(screen.queryByText("문법 요소 없음")).not.toBeInTheDocument();
 
   stream.push({
@@ -1254,9 +1252,7 @@ test("번역이 오면 먼저 보이고, 문법·단어 탭은 이어서 채운�
 
   expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
   expect(rubies()).toEqual([["私", "わたし"]]);
-  expect(
-    screen.getByRole("status", { name: "문법·단어를 불러오는 중" }),
-  ).toBeInTheDocument();
+  expect(screen.getByRole("status", { name: "분석 중" })).toBeInTheDocument();
   expect(screen.queryByRole("tab")).not.toBeInTheDocument();
 
   stream.push({
@@ -1271,7 +1267,7 @@ test("번역이 오면 먼저 보이고, 문법·단어 탭은 이어서 채운�
     await screen.findByRole("tab", { name: "문법 1" }),
   ).toBeInTheDocument();
   expect(
-    screen.queryByRole("status", { name: "문법·단어를 불러오는 중" }),
+    screen.queryByRole("status", { name: "분석 중" }),
   ).not.toBeInTheDocument();
   expect(rubies()).toEqual([["私", "わたし"]]);
 });
@@ -1755,7 +1751,7 @@ test("stale 분석은 옛 결과를 '재분석 중'으로 먼저 보이고, 중�
   expect(screen.queryByText("확인 중")).not.toBeInTheDocument();
   expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
   expect(
-    screen.queryByRole("status", { name: "문법·단어를 불러오는 중" }),
+    screen.queryByRole("status", { name: "분석 중" }),
   ).not.toBeInTheDocument();
 
   stream.push({
@@ -3666,7 +3662,7 @@ describe("같은 단어·같은 뜻인 단어 행 합치기(#211)", () => {
   });
 });
 
-test("먼저 온 단어가 탭에 보이는 동안 탭 안에서 분석을 기다리는 중임을 보인다", async () => {
+test("먼저 온 단어가 탭에 보이는 동안 탭 바로 밑 한 곳에 분석 중을 보인다", async () => {
   const stream = streamed();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
   render(<App />);
@@ -3679,18 +3675,20 @@ test("먼저 온 단어가 탭에 보이는 동안 탭 안에서 분석을 기�
     words: [wordItem(0, 2, "学生", "がくせい")],
   });
   fireEvent.click(await screen.findByRole("tab", { name: "단어 1" }));
-  const loading = () =>
-    within(screen.getByRole("tabpanel")).queryAllByRole("status", {
-      name: "문법·단어를 불러오는 중",
-    });
+  const loading = () => screen.queryAllByRole("status", { name: "분석 중" });
   expect(loading()).toHaveLength(1);
+  // 탭 목록 바로 다음에 두어 내용이 길어도 가려지지 않는다.
+  expect(screen.getByRole("tablist").nextElementSibling).toBe(loading()[0]);
+  expect(loading()[0]).toHaveTextContent("분석 중…");
+  expect(
+    within(screen.getByRole("tabpanel")).queryByRole("status", {
+      name: "분석 중",
+    }),
+  ).not.toBeInTheDocument();
 
   stream.push({ type: "translation", translation_ko: "학생이", ruby: [] });
   await screen.findByText("학생이");
-  // 탭 위가 아니라 탭 안 한 곳에만 보인다.
-  expect(
-    screen.getAllByRole("status", { name: "문법·단어를 불러오는 중" }),
-  ).toEqual(loading());
+  expect(loading()).toHaveLength(1);
 
   stream.push({
     type: "analysis",

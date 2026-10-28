@@ -182,3 +182,40 @@ test("로그인하지 않았으면 로그인 화면으로 간다", async () => {
 
   expect(await screen.findByText("로그인 화면")).toBeInTheDocument();
 });
+
+test("사람 이름 구간 안의 경칭 접미사에는 이름 배지를 달지 않는다", async () => {
+  responses["/api/my-sentences/7/"] = () =>
+    json({
+      ...DETAIL,
+      text: "西山さんが来た。",
+      ruby: [],
+      grammar: [],
+      words: [
+        word({
+          start: 0,
+          end: 2,
+          dictionary_form: "西山",
+          tags: ["proper_noun"],
+          in_dictionary: false,
+          is_name: true,
+          reading_ko: "니시야마",
+        }),
+        word({
+          start: 2,
+          end: 4,
+          dictionary_form: "さん",
+          tags: ["suffix"],
+        }),
+      ],
+      name_spans: [{ start: 0, end: 4, type: "person" }],
+    });
+  open();
+
+  const [name, suffix] = within(
+    await screen.findByRole("list", { name: "단어" }),
+  )
+    .getAllByRole("listitem", { name: undefined })
+    .filter((li) => li.classList.contains("word-row"));
+  expect(within(name).getByText("사람 이름")).toBeInTheDocument();
+  expect(within(suffix).queryByText("사람 이름")).toBeNull();
+});

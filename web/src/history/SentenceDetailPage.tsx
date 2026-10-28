@@ -280,10 +280,14 @@ function senseBadges(sense: WordSense | null) {
   };
 }
 
+// 단어 자리가 든 이름 구간의 종류 이름(사이드 패널 named-words.ts와 같은 규칙). 구간이 겹치면
+// 원문 순서상 앞선 구간이다.
 function nameLabel(word: WordItem, nameSpans: NameSpan[] | null | undefined) {
-  const span = nameSpans?.find(
-    (s) => s.start <= word.start && word.end <= s.end,
-  );
+  const span = [...(nameSpans ?? [])]
+    .sort((a, b) => a.start - b.start)
+    .find((s) => s.start <= word.start && word.end <= s.end);
+  // LLM이 경칭까지 이름 구간에 넣어도 접미사 자체는 사람 이름이 아니다.
+  if (span?.type === "person" && word.tags.includes("suffix")) return undefined;
   return span && NAME_TYPE_NAMES[span.type];
 }
 

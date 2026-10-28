@@ -312,3 +312,13 @@ def test_queued_job_is_dropped_if_not_started_before_the_claim_expires(
     assert options["ttl"] == jobs.QUEUE_TTL_SECONDS
     # 더 짧으면 선점이 살아 있는 동안 작업만 버려져 요청이 대기 상한까지 붙잡힌다.
     assert jobs.QUEUE_TTL_SECONDS == stream.CLAIM_EXPIRY_SECONDS == jobs.REMATCH_LOCK_SECONDS
+
+
+def test_worker_waits_on_redis_only_briefly(monkeypatch):
+    # 유휴 연결이 끊겨 BLPOP이 소켓 타임아웃으로 끝나면 RQ 작업자가 꺼진다. 대기를 짧게 둔다.
+    seen = {}
+    monkeypatch.setattr(
+        jobs.AnalysisWorker, "work", lambda self: seen.update(timeout=self.dequeue_timeout)
+    )
+    jobs.work()
+    assert seen["timeout"] <= 60

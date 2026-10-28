@@ -189,7 +189,7 @@ test("없는 버전 주소는 최신 처리방침으로 안내한다", () => {
   open("/privacy/2020-01-01");
 
   expect(
-    screen.getByText("2020-01-01에 시행한 처리방침은 없어요."),
+    screen.getByText("2020-01-01에 시행한 개인정보처리방침은 없어요."),
   ).toBeInTheDocument();
   expect(
     screen.getByRole("link", { name: "최신 개인정보처리방침 보기" }),
@@ -212,4 +212,87 @@ test("이용약관과 푸터에 JMdict CC BY-SA 4.0 출처가 있다", () => {
     "href",
     "https://creativecommons.org/licenses/by-sa/4.0/",
   );
+});
+
+const TERMS_SECTIONS = [
+  "운영자와 적용 범위",
+  "서비스 범위",
+  "계정",
+  "사용량 한도",
+  "AI가 만든 내용의 한계",
+  "입력한 글과 공용 분석",
+  "권리 침해 신고",
+  "단어 정보의 출처",
+  "이용자가 하지 않을 일",
+  "이용 제한과 이의 제기",
+  "서비스 변경과 중단",
+  "책임 범위",
+  "약관 변경",
+  "준거법",
+  "개인정보와 문의",
+];
+
+test.each(["/terms", "/terms/2026-10-28"])(
+  "%s는 로그인 없이 약관의 모든 절을 처리방침과 같은 시행일로 보여준다",
+  (path) => {
+    open(path);
+
+    expect(screen.getByRole("main")).toHaveTextContent(
+      "시행일: 2026년 10월 28일",
+    );
+    for (const name of TERMS_SECTIONS) {
+      expect(
+        screen.getByRole("heading", { level: 2, name }),
+      ).toBeInTheDocument();
+    }
+  },
+);
+
+test("약관은 결정한 제한·재사용·책임·변경 절차를 적는다", () => {
+  open("/terms");
+  const section = (name: string) => screen.getByRole("region", { name });
+
+  expect(section("서비스 범위")).toHaveTextContent("무료");
+  expect(section("사용량 한도")).toHaveTextContent("그날 한도는 이어져요");
+  expect(section("입력한 글과 공용 분석")).toHaveTextContent(
+    "원문은 공용으로 저장하지 않아요",
+  );
+  expect(section("권리 침해 신고")).toHaveTextContent("공용 분석");
+  expect(section("이용 제한과 이의 제기")).toHaveTextContent(
+    "경고 없이 바로 정지",
+  );
+  expect(section("이용 제한과 이의 제기")).toHaveTextContent(
+    "정지된 상태에서도",
+  );
+  expect(section("책임 범위")).toHaveTextContent("고의나 중대한 과실");
+  expect(section("약관 변경")).toHaveTextContent("7일 전");
+  expect(section("약관 변경")).toHaveTextContent("30일 전");
+  expect(section("준거법")).toHaveTextContent("대한민국 법");
+  expect(
+    within(section("개인정보와 문의")).getByRole("link", {
+      name: "개인정보처리방침",
+    }),
+  ).toHaveAttribute("href", "/privacy");
+  expect(
+    within(section("이전 버전")).getByRole("link", {
+      name: "2026년 10월 28일 시행",
+    }),
+  ).toHaveAttribute("href", "/terms/2026-10-28");
+});
+
+test("약관의 운영자 이름은 처리방침과 같은 설정값을 쓴다", () => {
+  vi.stubEnv("VITE_PRIVACY_OFFICER", "");
+  open("/terms");
+  expect(screen.getByText("확인 필요: 운영자 이름")).toBeInTheDocument();
+});
+
+test("없는 약관 버전 주소는 최신 약관으로 안내한다", () => {
+  open("/terms/2020-01-01");
+
+  expect(
+    screen.getByText("2020-01-01에 시행한 이용약관은 없어요."),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("link", { name: "최신 이용약관 보기" }),
+  ).toHaveAttribute("href", "/terms");
 });

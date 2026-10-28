@@ -42,6 +42,26 @@ cd ~/dragram && docker compose up -d --force-recreate backend worker
 
 `docker compose restart`만으로는 바뀐 환경변수를 읽지 않는다. SDK 허용 목록 밖의 값은 시작할 때 설정 오류로 거부한다. 이미 진행 중인 분석을 피해서 적용하고, 추론 강도만 변경해도 기존 분석 캐시는 재사용된다. 실제 속도·분석 품질 차이는 아직 측정하지 않았다(#217).
 
+## 매일 정리 (서버)
+
+탈퇴한 Google 계정의 그날 사용량 행(`usage_log.withdrawn_key`)은 한국 시간 자정이 지나면 지운다. 분석 요청·탈퇴 때도 지우지만, 요청이 없는 날에도 늦어도 다음 날 지우도록 매일 예약 실행한다(#252). 서버 시계는 UTC이므로 한국 시간 0시 5분은 UTC 15시 5분이다(`timedatectl`로 확인).
+
+```bash
+crontab -e
+```
+```
+5 15 * * * cd ~/dragram && docker compose exec -T backend python manage.py purge_withdrawn_usage || logger -t dragram "purge_withdrawn_usage 실패"
+```
+
+실패하면 syslog에 남는다(`journalctl -t dragram`).
+
+등록됐는지 확인:
+```bash
+crontab -l
+```
+
+DB 덤프 같은 다른 매일 작업(#198)도 여기에 함께 둔다.
+
 ## 되돌리기 (서버)
 
 서버에 남아 있는 이전 이미지로 가리키고 다시 띄운다. 마이그레이션은 되돌리지 않으니, 스키마가 바뀐 배포는 DB 백업부터 확인한다.

@@ -28,7 +28,7 @@ function Policy20261028() {
         <br />
         <strong>개인정보 문의:</strong> <ContactEmail />
         <br />
-        <strong>시행일:</strong> 위 날짜는 임시예요.{" "}
+        <strong>시행일:</strong> 위 날짜는 임시입니다.{" "}
         <Unconfirmed what="실제 게시·시행일" />
       </p>
       <p>

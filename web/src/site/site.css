@@ -157,8 +157,14 @@
   vertical-align: top;
 }
 
-.document th {
+.document thead th {
   white-space: nowrap;
+}
+
+/* 행 제목(첫 열)은 길 수 있어 줄바꿈한다. 너무 좁아지지 않게 최소 폭을 둔다. */
+.document tbody th {
+  font-weight: 600;
+  min-width: 8em;
 }
 
 /* 운영자가 확인하기 전인 값(게시 전에 채운다) */

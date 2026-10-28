@@ -1,8 +1,7 @@
-import type { ReactNode } from "react";
-import { ContactEmail, Section } from "../SiteLayout";
+import { ContactEmail, Section, Table } from "../SiteLayout";
 import { Unconfirmed } from "./Unconfirmed";
 
-// 운영자 검토 초안(~/privacy-policy-draft.ko.md)의 머리말과 1~14절(#253). 15절(변경 안내)은
+// #253의 운영자 검토 초안에서 옮긴 머리말과 1~14절. 15절(변경 안내)은
 // PrivacyPage가 버전 목록과 함께 그린다. 시행한 뒤에는 고치지 않고 새 시행일 파일을 만든다.
 
 const OPENAI_DATA_URL =
@@ -18,32 +17,6 @@ const CHROME_LIMITED_USE_URL =
   "https://developer.chrome.com/docs/webstore/program-policies/limited-use";
 const GOOGLE_USER_DATA_POLICY_URL =
   "https://developers.google.com/terms/api-services-user-data-policy";
-
-/** 열이 많은 표는 좁은 화면에서 가로로 스크롤한다. */
-function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
-  return (
-    <div className="table-scroll">
-      <table>
-        <thead>
-          <tr>
-            {head.map((h) => (
-              <th key={h}>{h}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i}>
-              {row.map((cell, j) => (
-                <td key={j}>{cell}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 function Policy20261028() {
   const officer = import.meta.env.VITE_PRIVACY_OFFICER;
@@ -118,6 +91,7 @@ function Policy20261028() {
           보호조치를 확인한 뒤 확정합니다.
         </p>
         <Table
+          label="처리하는 정보와 법적 근거 표"
           head={["이용 상황·수집 방법", "처리하는 정보", "목적", "법적 근거"]}
           rows={[
             [
@@ -238,6 +212,7 @@ function Policy20261028() {
         </p>
         <h3>확장 프로그램 권한은 어디에 쓰나요?</h3>
         <Table
+          label="확장 프로그램 권한 표"
           head={["권한의 용도", "사용하는 시점과 정보"]}
           rows={[
             [
@@ -334,6 +309,7 @@ function Policy20261028() {
           말합니다.
         </p>
         <Table
+          label="처리위탁 업체 표"
           head={["수탁자", "맡기는 업무", "처리 장소·추가 안내"]}
           rows={[
             [
@@ -400,6 +376,7 @@ function Policy20261028() {
           관하여 다음과 같이 안내합니다.
         </p>
         <Table
+          label="국외이전 안내 표"
           head={["항목", "내용"]}
           rows={[
             ["이전 유형", "문장 분석을 위한 처리위탁·보관"],
@@ -467,6 +444,7 @@ function Policy20261028() {
 
       <Section title="7. 얼마나 보관하나요?">
         <Table
+          label="보유기간 표"
           head={["정보", "보유기간·삭제 기준"]}
           rows={[
             ["계정 정보", "회원 탈퇴 시까지"],
@@ -594,6 +572,7 @@ function Policy20261028() {
           사유와 이의 제기 방법을 알려드립니다.
         </p>
         <Table
+          label="권리 요청 방법 표"
           head={["원하는 조치", "방법과 효과"]}
           rows={[
             [
@@ -649,6 +628,7 @@ function Policy20261028() {
         </p>
         <p>확장 프로그램은 브라우저 저장소에 다음 정보를 둡니다.</p>
         <Table
+          label="확장 프로그램 저장 정보 표"
           head={["정보", "용도·보관 방식"]}
           rows={[
             [
@@ -767,6 +747,7 @@ function Policy20261028() {
 
       <Section title="14. 개인정보 보호책임자와 외부 상담 창구">
         <Table
+          label="보호책임자 연락처 표"
           head={["구분", "연락처"]}
           rows={[
             ["개인정보처리자·보호책임자", name],

@@ -77,7 +77,7 @@ test("푸터 링크로 홈, 개인정보처리방침, 이용약관을 오간다"
   );
 });
 
-// 운영자 검토 초안(~/privacy-policy-draft.ko.md)의 절(#253)
+// #253의 운영자 검토 초안에서 옮긴 절
 const POLICY_SECTIONS = [
   "먼저 알아두세요",
   "1. 어떤 정보를 왜 처리하나요?",
@@ -154,6 +154,20 @@ test("처리방침은 보내는 범위, 위탁, 보관, 탈퇴, 연령을 실제
   for (const phrase of FORBIDDEN_PHRASES) {
     expect(screen.getByRole("main")).not.toHaveTextContent(phrase);
   }
+});
+
+test("처리방침 표는 첫 열을 행 제목으로 읽고, 넓은 표는 키보드로 스크롤할 수 있다", () => {
+  open("/privacy");
+
+  expect(
+    screen.getByRole("rowheader", { name: "Google 로그인" }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("columnheader", { name: "법적 근거" }),
+  ).toBeInTheDocument();
+  const scroller = screen.getByRole("region", { name: "국외이전 안내 표" });
+  expect(scroller).toHaveAttribute("tabindex", "0");
+  expect(within(scroller).getByRole("table")).toBeInTheDocument();
 });
 
 test("운영자가 확인하기 전인 값은 그럴듯한 값 대신 확인 필요 자리로 보인다", () => {

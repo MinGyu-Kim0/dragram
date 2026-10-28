@@ -92,7 +92,7 @@ test("Google이 준 ID 토큰을 CSRF 값과 함께 보내고 로그인한 계�
 describe("가입 화면(#257)", () => {
   beforeEach(() => {
     responses["POST /api/auth/google/"] = () =>
-      json({ user: null, signup: { email: "me@example.com" } });
+      json({ user: null, signup: { email: "me@example.com", id: "signup-1" } });
     responses["POST /api/auth/signup/"] = () =>
       json({ user: { email: "me@example.com", account: "42" } });
   });
@@ -124,7 +124,11 @@ describe("가입 화면(#257)", () => {
     const signup = calls.find((c) => c.url === "/api/auth/signup/")!;
     expect(signup.method).toBe("POST");
     expect(signup.headers["X-CSRFToken"]).toBe("csrf-value");
-    expect(JSON.parse(signup.body!)).toEqual({ agree_terms: true });
+    // 화면에 보인 가입을 함께 보내, 그사이 다른 탭에서 바뀐 계정으로 가입하지 않게 한다.
+    expect(JSON.parse(signup.body!)).toEqual({
+      agree_terms: true,
+      signup: "signup-1",
+    });
   });
 
   test("동의 체크는 이용약관 하나이고, 처리방침은 링크로만 안내한다", async () => {
@@ -171,6 +175,24 @@ describe("가입 화면(#257)", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "가입 시간이 지났어요. 다시 로그인해 주세요.",
+    );
+  });
+
+  test("다른 탭에서 다른 계정으로 로그인해 가입이 바뀌었으면 다시 로그인하라고 안내한다", async () => {
+    responses["POST /api/auth/signup/"] = () =>
+      json({ error: "AUTH:ACCOUNT_MISMATCH" }, 409);
+    await reachSignup();
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "이용약관에 동의해요" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Dragram에 로그인" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "다른 탭에서 다른 계정으로 로그인했어요. 가입할 계정으로 다시 로그인해 주세요.",
     );
   });
 

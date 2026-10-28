@@ -44,17 +44,17 @@ def google_login(web, monkeypatch, settings, sub):
 def sign_up_with_google(web):
     """Google 로그인 뒤 가입 화면에서 이용약관에 동의해 가입한다. 가입 응답을 돌려준다."""
     web.get("/api/auth/me/")
-    for path, body in [
-        ("/api/auth/google/", {"credential": "google-id-token"}),
-        ("/api/auth/signup/", {"agree_terms": True}),
-    ]:
-        response = web.post(
+
+    def post(path, body):
+        return web.post(
             path,
             body,
             content_type="application/json",
             HTTP_X_CSRFTOKEN=web.cookies["csrftoken"].value,
         )
-    return response
+
+    shown = post("/api/auth/google/", {"credential": "google-id-token"}).json()["signup"]
+    return post("/api/auth/signup/", {"agree_terms": True, "signup": shown["id"]})
 
 
 def user_with_records(username, fake_llm):

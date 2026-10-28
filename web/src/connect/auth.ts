@@ -59,19 +59,22 @@ const userOf = (body: { user: User | null }) => body.user;
 export const currentUser = () =>
   request<{ user: User | null }>("GET", "/api/auth/me/").then(userOf);
 
+// 기다리는 가입. id는 이 가입 화면의 식별자로, 가입하기에 그대로 돌려보낸다.
+export type Signup = { email: string; id: string };
+
 /** Google 로그인. 이용약관에 동의하지 않은 계정이면 user 없이 signup을 받는다(#257). */
 export const loginWithGoogle = (credential: string) =>
-  request<{ user: User | null; signup?: { email: string } }>(
-    "POST",
-    "/api/auth/google/",
-    { credential },
-  );
+  request<{ user: User | null; signup?: Signup }>("POST", "/api/auth/google/", {
+    credential,
+  });
 
 /** 가입하기: 이용약관에 동의했다고 보낸다. 서버는 세션에 둔 검증한 Google 계정으로 계정을 만든다.
- * 그 정보가 없거나 10분이 지났으면 AUTH:SIGNUP_EXPIRED로 거부한다. */
-export const signUp = () =>
+ * 그 정보가 없거나 10분이 지났으면 AUTH:SIGNUP_EXPIRED로, 그사이 다른 탭에서 다른 계정으로
+ * 로그인해 가입이 바뀌었으면 AUTH:ACCOUNT_MISMATCH로 거부한다. */
+export const signUp = (signup: string) =>
   request<{ user: User | null }>("POST", "/api/auth/signup/", {
     agree_terms: true,
+    signup,
   }).then(userOf);
 
 /** 로그아웃. 서버는 이 세션이 발급한 확장 토큰도 폐기한다. */

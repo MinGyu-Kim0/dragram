@@ -7,6 +7,7 @@ import {
   logout,
   signUp,
   withdraw,
+  type Signup,
   type User,
 } from "./auth";
 import { sendToExtension } from "./extension";
@@ -17,8 +18,11 @@ import "./connect.css";
 
 type State =
   | { kind: "loading" }
-  | { kind: "signedOut"; problem?: "loginFailed" | "signupExpired" }
-  | { kind: "signingUp"; email: string }
+  | {
+      kind: "signedOut";
+      problem?: "loginFailed" | "signupExpired" | "signupChanged";
+    }
+  | { kind: "signingUp"; signup: Signup }
   | { kind: "signedIn"; user: User };
 
 function GoogleButton({
@@ -55,9 +59,7 @@ function ConnectPage() {
     (credential: string) =>
       loginWithGoogle(credential).then(
         ({ user, signup }) =>
-          signup
-            ? setState({ kind: "signingUp", email: signup.email })
-            : show(user),
+          signup ? setState({ kind: "signingUp", signup }) : show(user),
         fail,
       ),
     [show, fail],
@@ -88,6 +90,12 @@ function ConnectPage() {
                 가입 시간이 지났어요. 다시 로그인해 주세요.
               </p>
             )}
+            {state.problem === "signupChanged" && (
+              <p role="alert" className="danger">
+                다른 탭에서 다른 계정으로 로그인했어요. 가입할 계정으로 다시
+                로그인해 주세요.
+              </p>
+            )}
             {buttonUnavailable && (
               <p role="alert" className="danger">
                 로그인 버튼을 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.
@@ -101,11 +109,9 @@ function ConnectPage() {
         )}
         {state.kind === "signingUp" && (
           <SignUp
-            email={state.email}
+            signup={state.signup}
             onSignedUp={show}
-            onExpired={() =>
-              setState({ kind: "signedOut", problem: "signupExpired" })
-            }
+            onRestart={(problem) => setState({ kind: "signedOut", problem })}
             onCancel={() => show(null)}
           />
         )}
@@ -120,14 +126,15 @@ function ConnectPage() {
 // 가입 화면(#257). 이용약관 동의 체크 하나만 받고, 처리방침은 동의 없이 링크로 알린다.
 // 문서 링크는 새 탭으로 열어 이 화면의 상태를 잃지 않게 한다.
 function SignUp({
-  email,
+  signup,
   onSignedUp,
-  onExpired,
+  onRestart,
   onCancel,
 }: {
-  email: string;
+  signup: Signup;
   onSignedUp: (user: User | null) => void;
-  onExpired: () => void;
+  // 이 화면으로는 가입할 수 없어 Google 로그인부터 다시 해야 할 때
+  onRestart: (problem: "signupExpired" | "signupChanged") => void;
   onCancel: () => void;
 }) {
   const [agreed, setAgreed] = useState(false);
@@ -138,10 +145,11 @@ function SignUp({
     setBusy(true);
     setFailed(false);
     try {
-      onSignedUp(await signUp());
+      onSignedUp(await signUp(signup.id));
     } catch (e) {
-      if (e instanceof AuthError && e.code === "AUTH:SIGNUP_EXPIRED")
-        onExpired();
+      const code = e instanceof AuthError ? e.code : undefined;
+      if (code === "AUTH:SIGNUP_EXPIRED") onRestart("signupExpired");
+      else if (code === "AUTH:ACCOUNT_MISMATCH") onRestart("signupChanged");
       else {
         setFailed(true);
         setBusy(false);
@@ -153,7 +161,7 @@ function SignUp({
     <>
       <h1>Dragram에 가입</h1>
       <p className="secondary">
-        <strong>{email}</strong> 계정으로 가입해요.
+        <strong>{signup.email}</strong> 계정으로 가입해요.
       </p>
       {failed && (
         <p role="alert" className="danger">

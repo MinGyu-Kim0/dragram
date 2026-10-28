@@ -17,6 +17,7 @@ AuthError = error_domain(
         # 관리자가 막은 계정이다(is_active 거짓).
         "ACCOUNT_DISABLED": 403,
         # 탈퇴를 확인한 계정과 지금 세션의 계정이 다르다(다른 탭에서 다른 계정으로 로그인함 등).
+        # 가입하기도 가입 화면에 보인 계정과 기다리는 가입의 계정이 다르면 이 코드로 거부한다.
         "ACCOUNT_MISMATCH": 409,
         # 상태를 바꾸는 요청에 CSRF 값이 없거나 맞지 않는다.
         "CSRF_FAILED": 403,

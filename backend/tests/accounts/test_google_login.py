@@ -1,6 +1,7 @@
 """Google ID 토큰 로그인과 웹 세션(#92). Google 검증은 라이브러리 호출만 모킹한다."""
 
 from datetime import date
+from unittest.mock import ANY
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -55,19 +56,23 @@ def csrf(web):
 
 
 def google_login(web, credential="google-id-token"):
-    return web.post(
+    """가입 화면이 나오면 그 화면의 가입 식별자를 web.signup_id에 둔다."""
+    response = web.post(
         "/api/auth/google/",
         {"credential": credential},
         content_type="application/json",
         **csrf(web),
     )
+    if response.status_code == 200 and response.json().get("signup"):
+        web.signup_id = response.json()["signup"]["id"]
+    return response
 
 
 def signup(web, body=None):
-    """가입 화면의 '가입하기'. 기본은 이용약관에 동의한 요청이다."""
+    """가입 화면의 '가입하기'. 기본은 마지막 가입 화면에서 이용약관에 동의한 요청이다."""
     return web.post(
         "/api/auth/signup/",
-        {"agree_terms": True} if body is None else body,
+        {"agree_terms": True, "signup": getattr(web, "signup_id", None)} if body is None else body,
         content_type="application/json",
         **csrf(web),
     )
@@ -87,7 +92,7 @@ def test_first_google_login_creates_no_user_and_asks_to_sign_up(web, google_says
     response = google_login(web)
 
     assert response.status_code == 200
-    assert response.json() == {"user": None, "signup": {"email": "me@example.com"}}
+    assert response.json() == {"user": None, "signup": {"email": "me@example.com", "id": ANY}}
     # 검증에 받은 토큰과 우리 클라이언트 ID를 넘긴다.
     assert calls == [{"token": "google-id-token", "audience": CLIENT_ID}]
     # 약관에 동의하기 전에는 계정도 이메일도 남기지 않고, 로그인 상태도 아니다.
@@ -163,9 +168,30 @@ def test_signup_uses_only_the_verified_google_account(web, google_says):
     google_says(claims(sub="real-sub", email="real@example.com"))
     google_login(web)
 
-    signup(web, {"agree_terms": True, "email": "evil@example.com", "sub": "other"})
+    signup(
+        web,
+        {"agree_terms": True, "signup": web.signup_id, "email": "evil@example.com", "sub": "o"},
+    )
 
     assert User.objects.values_list("google_sub", "email").get() == ("real-sub", "real@example.com")
+
+
+@pytest.mark.parametrize("shown", [None, "other"])
+def test_signup_for_another_account_than_the_one_shown_is_refused(web, google_says, shown):
+    # 탭 A에 A의 가입 화면이 떠 있는 사이 탭 B에서 B로 Google 로그인하면 쿠키가 B로 바뀐다.
+    # A 화면의 '가입하기'가 B 계정을 만들지 않게, 화면이 받은 가입 식별자와 대조한다.
+    google_says(claims(sub="a", email="a@example.com"))
+    google_login(web)
+    shown_id = web.signup_id if shown is None else shown
+    google_says(claims(sub="b", email="b@example.com"))
+    google_login(web)
+
+    response = signup(web, {"agree_terms": True, "signup": shown_id})
+
+    assert (response.status_code, response.json()) == (409, {"error": "AUTH:ACCOUNT_MISMATCH"})
+    assert not User.objects.exists()
+    # 지금 화면(B)으로는 가입할 수 있다.
+    assert signup(web).json()["user"]["email"] == "b@example.com"
 
 
 def test_signup_without_csrf_is_refused(web, google_says):
@@ -196,7 +222,7 @@ def test_existing_account_without_agreement_goes_through_signup(web, google_says
 
     response = google_login(web)
 
-    assert response.json() == {"user": None, "signup": {"email": "new@example.com"}}
+    assert response.json() == {"user": None, "signup": {"email": "new@example.com", "id": ANY}}
     assert web.get("/api/auth/me/").json() == {"user": None}
 
     response = signup(web)
@@ -215,7 +241,7 @@ def test_new_google_account_ends_the_session_of_the_previous_user(web, google_sa
 
     response = google_login(web)
 
-    assert response.json() == {"user": None, "signup": {"email": "second@example.com"}}
+    assert response.json() == {"user": None, "signup": {"email": "second@example.com", "id": ANY}}
     assert web.get("/api/auth/me/").json() == {"user": None}
 
 

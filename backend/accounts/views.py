@@ -130,10 +130,12 @@ def google_login(request):
         return response
     # 계정이 없으면 로그인 상태가 아니다. 이전 사용자의 세션은 로그아웃처럼 끝낸다.
     _end_session(request)
-    response = Response({"user": None, "signup": {"email": account.email}})
+    # id: 이 가입 화면의 식별자. 쿠키는 탭끼리 공유하므로, 가입하기가 화면에 보인 계정인지 대조한다.
+    pending = {"sub": account.sub, "email": account.email, "id": uuid.uuid4().hex}
+    response = Response({"user": None, "signup": {"email": account.email, "id": pending["id"]}})
     response.set_cookie(
         SIGNUP_COOKIE,
-        signing.dumps({"sub": account.sub, "email": account.email}, salt=SIGNUP_SALT),
+        signing.dumps(pending, salt=SIGNUP_SALT),
         max_age=SIGNUP_WAIT_SECONDS,
         secure=settings.SESSION_COOKIE_SECURE,
         httponly=True,
@@ -149,6 +151,8 @@ def signup(request):
     """가입하기: 이용약관에 동의하면 쿠키에 둔 검증한 Google 계정으로 계정을 만들고 로그인한다.
 
     본문의 이메일·sub는 보지 않는다. 동의 기록이 없던 기존 계정은 그 행에 기록을 채운다.
+    본문의 signup은 가입 화면이 받은 식별자다. 그사이 다른 탭에서 다른 계정으로 Google 로그인해
+    쿠키가 바뀌었으면, 화면에 보이지 않은 계정을 만들지 않고 거부한다.
     """
     require_csrf(request)
     try:
@@ -162,6 +166,8 @@ def signup(request):
         raise BusinessError(AuthError.SIGNUP_EXPIRED, "검증한 Google 로그인이 없거나 만료") from e
     if _field(request, "agree_terms", AuthError.TERMS_NOT_AGREED) is not True:
         raise BusinessError(AuthError.TERMS_NOT_AGREED, "이용약관 동의 없음")
+    if request.data.get("signup") != pending["id"]:
+        raise BusinessError(AuthError.ACCOUNT_MISMATCH, "가입 화면의 계정과 쿠키의 계정이 다름")
     agreement = {
         "email": pending["email"],
         "terms_version": TERMS_VERSION,

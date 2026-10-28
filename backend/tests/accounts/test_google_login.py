@@ -214,11 +214,13 @@ def test_first_login_without_age_confirmation_creates_no_account(web, google_say
 
 
 def test_existing_account_logs_in_without_age_confirmation(web, google_says):
-    google_says(claims())
+    google_says(claims(email="old@example.com"))
     login(web)
     web.post("/api/auth/logout/", **csrf(web))
+    google_says(claims(email="new@example.com"))
 
     response = login(web, age_confirmed=None)
 
     assert response.status_code == 200
-    assert User.objects.count() == 1
+    assert response.json()["user"]["email"] == "new@example.com"
+    assert User.objects.get().email == "new@example.com"

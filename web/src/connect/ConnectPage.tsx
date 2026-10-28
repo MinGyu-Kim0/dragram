@@ -55,13 +55,15 @@ function ConnectPage() {
       }),
     [],
   );
-  // '만 14세 이상' 확인. Google 버튼의 콜백은 한 번만 만들어 두므로 최신 값을 ref로 읽는다.
-  const [ageConfirmed, setAgeConfirmed] = useState(false);
-  const ageConfirmedRef = useRef(false);
+  // '만 14세 이상' 확인 체크. Google 버튼의 콜백은 한 번만 만들어 두므로 요소에서 바로 읽는다.
+  const ageCheck = useRef<HTMLInputElement>(null);
   // Google 버튼은 이 함수가 바뀔 때마다 다시 그리므로 한 번만 만든다.
   const login = useCallback(
     (credential: string) =>
-      loginWithGoogle(credential, ageConfirmedRef.current).then(show, fail),
+      loginWithGoogle(credential, ageCheck.current?.checked ?? false).then(
+        show,
+        fail,
+      ),
     [show, fail],
   );
 
@@ -97,15 +99,7 @@ function ConnectPage() {
               </p>
             )}
             <label className="age-check">
-              <input
-                type="checkbox"
-                checked={ageConfirmed}
-                onChange={(e) => {
-                  ageConfirmedRef.current = e.target.checked;
-                  setAgeConfirmed(e.target.checked);
-                }}
-              />
-              만 14세 이상이에요
+              <input ref={ageCheck} type="checkbox" />만 14세 이상이에요
             </label>
             <GoogleButton onCredential={login} onError={buttonFailed} />
             <p className="muted">

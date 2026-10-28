@@ -76,7 +76,8 @@ list them in new_patterns. For each one:
   for 勝ちました list only ます and た. If the grammar point
   cannot be written without fixing such a token as its first or last token, do not list it.
   Do not list structures made only of content words, such as a verb or noun modifying a noun.
-- pattern_name: a short name of the pattern, such as ている or 名詞+で.
+- pattern_name: a short name of the pattern, such as ている or 명사+で. Write word classes and
+  conjugated forms in Korean (명사, 동사 보통형, 형용동사 어간), and grammar words in Japanese.
 - connection_form: a concise, general attachment formula in Korean, such as 동사 て형 + いる.
   State the exact word class and conjugation without duplicating an ending
   (not 동사 て형 + ている).

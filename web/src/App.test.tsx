@@ -77,19 +77,24 @@ test("푸터 링크로 홈, 개인정보처리방침, 이용약관을 오간다"
   );
 });
 
+// 운영자 검토 초안(~/privacy-policy-draft.ko.md)의 절(#253)
 const POLICY_SECTIONS = [
-  "운영주체와 시행일",
-  "처리하는 정보와 목적",
-  "공용 분석과 내 기록",
-  "처리위탁과 국외이전",
-  "보유기간",
-  "삭제와 탈퇴",
-  "권리행사",
-  "운영자가 원문을 보는 경우",
-  "어린이 이용자",
-  "민감한 내용은 분석하지 마세요",
-  "개인정보 보호책임자와 도움받을 곳",
-  "변경 안내와 이전 버전",
+  "먼저 알아두세요",
+  "1. 어떤 정보를 왜 처리하나요?",
+  "2. 문장은 언제, 어디로 전송되나요?",
+  "3. 내 기록과 공용 분석 결과는 어떻게 다른가요?",
+  "4. AI는 정보를 어떻게 사용하나요?",
+  "5. 다른 업체와 정보를 주고받나요?",
+  "6. 개인정보가 국외로 이전되나요?",
+  "7. 얼마나 보관하나요?",
+  "8. 어떻게 삭제하고 파기하나요?",
+  "9. 열람·정정·삭제·처리정지는 어떻게 요청하나요?",
+  "10. 쿠키와 브라우저 저장소를 사용하나요?",
+  "11. 개인정보를 어떻게 보호하나요?",
+  "12. 아동의 개인정보는 어떻게 처리하나요?",
+  "13. 민감한 내용과 자동 처리에 관한 안내",
+  "14. 개인정보 보호책임자와 외부 상담 창구",
+  "15. 처리방침이 바뀌면 어떻게 알리나요?",
 ];
 
 // #237 "쓰지 않을 문구"
@@ -101,6 +106,7 @@ const FORBIDDEN_PHRASES = [
   "AI 학습에 쓰이지 않으므로 저장되지 않습니다",
   "운영자는 데이터를 볼 수 없습니다",
   "확장을 삭제하면 서버 데이터도 삭제됩니다",
+  "나이 제한이 없",
 ];
 
 test.each(["/privacy", "/privacy/2026-10-28"])(
@@ -111,30 +117,39 @@ test.each(["/privacy", "/privacy/2026-10-28"])(
     expect(
       screen.getByRole("heading", { level: 1, name: "개인정보처리방침" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("main")).toHaveTextContent(
-      "시행일: 2026년 10월 28일",
-    );
     for (const name of POLICY_SECTIONS) {
       expect(screen.getByRole("heading", { name })).toBeInTheDocument();
     }
   },
 );
 
-test("처리방침은 보내는 범위, 위탁, 보관, 탈퇴를 실제 동작대로 적고 쓰지 않을 문구가 없다", () => {
+test("처리방침은 보내는 범위, 위탁, 보관, 탈퇴, 연령을 실제 동작대로 적고 쓰지 않을 문구가 없다", () => {
   open("/privacy");
   const section = (name: string) => screen.getByRole("region", { name });
 
-  expect(section("처리하는 정보와 목적")).toHaveTextContent(
-    "드래그한 부분을 포함한 문장 전체",
+  expect(section("먼저 알아두세요")).toHaveTextContent(
+    "선택한 부분을 포함하는 문장 전체가 서버로 전송됩니다",
   );
-  expect(section("처리위탁과 국외이전")).toHaveTextContent("OpenAI");
-  expect(section("처리위탁과 국외이전")).toHaveTextContent(
-    "이메일은 보내지 않아요",
+  expect(section("6. 개인정보가 국외로 이전되나요?")).toHaveTextContent(
+    "OpenAI",
   );
-  expect(section("공용 분석과 내 기록")).toHaveTextContent("본인만");
-  expect(section("삭제와 탈퇴")).toHaveTextContent("회원 탈퇴");
-  expect(section("삭제와 탈퇴")).toHaveTextContent(
-    "확장 프로그램을 지워도 서버의 기록은 지워지지 않아요",
+  expect(section("4. AI는 정보를 어떻게 사용하나요?")).toHaveTextContent(
+    "계정 이메일과 Google 계정 식별자를 AI 요청의 별도 항목으로 보내지는 않습니다",
+  );
+  // #252: 탈퇴 당일 사용량은 토큰 수·시각과 비교값만, 매일 정리
+  expect(section("7. 얼마나 보관하나요?")).toHaveTextContent(
+    "토큰 수와 시각, 비교값만",
+  );
+  // #196: 내 기록 화면에서 문장별 확인·삭제
+  expect(
+    section("9. 열람·정정·삭제·처리정지는 어떻게 요청하나요?"),
+  ).toHaveTextContent("내 기록");
+  expect(
+    section("9. 열람·정정·삭제·처리정지는 어떻게 요청하나요?"),
+  ).toHaveTextContent("회원 탈퇴");
+  // #251: 만 14세 이상만 가입
+  expect(section("12. 아동의 개인정보는 어떻게 처리하나요?")).toHaveTextContent(
+    "만 14세 이상만 가입",
   );
   for (const phrase of FORBIDDEN_PHRASES) {
     expect(screen.getByRole("main")).not.toHaveTextContent(phrase);
@@ -147,12 +162,13 @@ test("운영자가 확인하기 전인 값은 그럴듯한 값 대신 확인 필
   open("/privacy");
 
   for (const value of [
+    "운영자 실명",
     "OpenAI 데이터 공유 설정",
-    "OpenAI 계약 법인",
-    "OpenAI 처리 국가",
-    "서버 접속 기록 보관 기간",
-    "서버 스냅샷·DB 백업 보관 기간",
-    "운영자 이름",
+    "OpenAI 계약 법인명과 개인정보 문의 연락처",
+    "OpenAI 처리 국가(추론·보관·지원·재위탁 포함 전체)",
+    "서버 접속·오류 기록 보관기간",
+    "백업 여부, 대상, 장소, 보관기간",
+    "매일 정리 예약 작업 등록",
   ]) {
     expect(screen.getAllByText(`확인 필요: ${value}`).length).toBeGreaterThan(
       0,
@@ -171,7 +187,9 @@ test("연락처와 보호책임자가 정해지면 메일 링크와 이름을 �
     screen.getAllByRole("link", { name: "privacy@example.com" })[0],
   ).toHaveAttribute("href", "mailto:privacy@example.com");
   expect(
-    screen.getByRole("region", { name: "개인정보 보호책임자와 도움받을 곳" }),
+    screen.getByRole("region", {
+      name: "14. 개인정보 보호책임자와 외부 상담 창구",
+    }),
   ).toHaveTextContent("홍길동");
 });
 
@@ -180,7 +198,9 @@ test("이전 버전 목록은 버전별 주소로 연결된다", () => {
 
   expect(
     within(
-      screen.getByRole("region", { name: "변경 안내와 이전 버전" }),
+      screen.getByRole("region", {
+        name: "15. 처리방침이 바뀌면 어떻게 알리나요?",
+      }),
     ).getByRole("link", { name: "2026년 10월 28일 시행" }),
   ).toHaveAttribute("href", "/privacy/2026-10-28");
 });

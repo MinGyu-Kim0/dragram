@@ -144,6 +144,11 @@
   border-collapse: collapse;
 }
 
+/* 열이 많은 표는 좁은 화면에서 페이지 대신 표만 가로로 스크롤한다. */
+.document .table-scroll {
+  overflow-x: auto;
+}
+
 .document th,
 .document td {
   padding: 6px 12px 6px 0;

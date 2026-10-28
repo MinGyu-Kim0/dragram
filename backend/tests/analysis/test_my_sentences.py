@@ -1,4 +1,6 @@
-"""내 기록: 분석한 문장 목록과 문장별 삭제(#196). 웹 세션으로 본인 기록만 다룬다."""
+"""내 기록: 분석한 문장 목록, 저장된 분석 보기(#195), 문장별 삭제(#196). 웹 세션으로 본인 기록만
+다룬다.
+"""
 
 from datetime import timedelta
 
@@ -9,7 +11,7 @@ from django.utils import timezone
 
 from analysis.models import SentenceAnalysis, UserSentence
 from tests.accounts.test_withdrawal import web_session
-from tests.analysis.helpers import analyze, connected_client
+from tests.analysis.helpers import analyze, connected_client, new_pattern
 
 pytestmark = pytest.mark.django_db
 
@@ -108,3 +110,90 @@ def test_delete_without_csrf_or_login_is_refused(fake_llm):
     assert (no_csrf.status_code, no_csrf.json()) == (403, {"error": "AUTH:CSRF_FAILED"})
     assert (no_login.status_code, no_login.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})
     assert UserSentence.objects.filter(pk=target.pk).exists()
+
+
+# 토큰: 0 私 / 1 は / 2 3 / 3 人 / 4 で / 5 走っ / 6 て / 7 いる
+GRAMMAR_SENTENCE = "私は3人で走っている。"
+GRAMMAR_RESPONSE = {
+    "translation_ko": "나는 ⟨N1⟩명이서 달리고 있다.",
+    "new_patterns": [
+        new_pattern(
+            (3, "lemma"),
+            (4, "lemma"),
+            pattern_name="人で",
+            usage_name="인원",
+            explanation_ko="함께하는 사람 수를 나타낸다",
+            example_ja="5人で来た",
+        ),
+        new_pattern((6, "lemma"), (7, "lemma")),
+    ],
+}
+
+
+def test_detail_shows_the_saved_analysis_without_llm(fake_llm):
+    extension = connected_client("me")
+    fake_llm.response = GRAMMAR_RESPONSE
+    analyze(extension, GRAMMAR_SENTENCE)
+    me = User.objects.get(username="me")
+    target = row(me, GRAMMAR_SENTENCE)
+    # 확장이 같은 문장을 다시 받을 때(캐시)의 결과와 같아야 한다.
+    cached = analyze(extension, GRAMMAR_SENTENCE).json()
+    fake_llm.forget_requests()
+    web, _ = web_session(me)
+
+    response = web.get(f"{LIST}{target.pk}/")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert fake_llm.all_requests() == []
+    assert body == {
+        "id": target.pk,
+        "text": GRAMMAR_SENTENCE,
+        "analyzed_at": body["analyzed_at"],
+        "translation_ko": "나는 3명이서 달리고 있다.",
+        "ruby": cached["ruby"],
+        "grammar": cached["grammar"],
+        "words": cached["words"],
+        "name_spans": cached["name_spans"],
+    }
+    # LLM이 만든 패턴이라 미검수다.
+    assert [(g["pattern_name"], g["review_status"]) for g in body["grammar"]] == [
+        ("人で", "pending"),
+        ("ている", "pending"),
+    ]
+
+
+def test_cannot_see_another_users_sentence(fake_llm):
+    me = analyzed("me", fake_llm, "私は学生です。")
+    other = analyzed("other", fake_llm, "他人の文です。")
+    theirs = row(other, "他人の文です。")
+    web, _ = web_session(me)
+
+    response = web.get(f"{LIST}{theirs.pk}/")
+
+    # 없는 기록과 같은 응답이라 남의 기록이 있는지 알 수 없다.
+    assert (response.status_code, response.json()) == (404, {"error": "SENTENCE:NOT_FOUND"})
+    assert web.get(f"{LIST}{theirs.pk + 1000}/").json() == {"error": "SENTENCE:NOT_FOUND"}
+
+
+def test_detail_needs_a_logged_in_web_session(fake_llm):
+    me = analyzed("me", fake_llm, "私は学生です。")
+    target = row(me, "私は学生です。")
+    extension = connected_client("me")
+
+    for client in (Client(), extension):
+        response = client.get(f"{LIST}{target.pk}/")
+        assert (response.status_code, response.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})
+
+
+def test_detail_of_a_record_pointing_to_another_key_is_outdated(fake_llm):
+    me = analyzed("me", fake_llm, "私は学生です。", "猫が好きです。")
+    target = row(me, "私は学生です。")
+    # 정규화 규칙이 바뀌어 재연결하기 전이면 기록이 다른 키의 분석을 가리킬 수 있다.
+    target.analysis = row(me, "猫が好きです。").analysis
+    target.save()
+    web, _ = web_session(me)
+
+    response = web.get(f"{LIST}{target.pk}/")
+
+    assert (response.status_code, response.json()) == (409, {"error": "SENTENCE:OUTDATED"})

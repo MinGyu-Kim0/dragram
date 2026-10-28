@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type MouseEvent,
+} from "react";
 import {
   AuthError,
   currentUser,
@@ -10,6 +17,9 @@ import {
   type Signup,
   type User,
 } from "./auth";
+import { koreanDate } from "../site/koreanDate";
+import { POLICIES, TERMS } from "../site/documents";
+import type { Version } from "../site/VersionedDocument";
 import { sendToExtension } from "./extension";
 import { renderGoogleButton } from "./google";
 import "./connect.css";
@@ -71,7 +81,8 @@ function ConnectPage() {
 
   return (
     <main className="connect">
-      <section className="card">
+      {/* 가입 화면은 문서를 읽으므로 카드를 넓힌다. */}
+      <section className={state.kind === "signingUp" ? "card wide" : "card"}>
         {state.kind === "loading" && <p className="muted">확인하는 중…</p>}
         {state.kind === "signedOut" && (
           <>
@@ -123,6 +134,35 @@ function ConnectPage() {
   );
 }
 
+// 칸 안의 앱 링크(/privacy 등)를 따라가면 가입 화면을 떠나 가입 진행을 잃으므로 새 탭으로 연다.
+function openLinksInNewTab(e: MouseEvent<HTMLElement>) {
+  const link = (e.target as HTMLElement).closest("a");
+  if (!link || link.href.startsWith("mailto:")) return;
+  e.preventDefault();
+  window.open(link.getAttribute("href")!, "_blank", "noopener");
+}
+
+/** 가입 화면에서 바로 읽는 문서 칸. 본문은 /privacy, /terms 최신본과 같은 컴포넌트다. */
+function DocumentBox({ title, version }: { title: string; version: Version }) {
+  const id = useId();
+  return (
+    <section className="doc-box" aria-labelledby={id}>
+      <div className="doc-head">
+        <h2 id={id}>{title}</h2>
+        <span className="muted">{koreanDate(version.effective)} 시행</span>
+      </div>
+      {/* 키보드로도 스크롤할 수 있게 포커스를 받는다. */}
+      <div
+        className="doc-scroll document"
+        tabIndex={0}
+        onClickCapture={openLinksInNewTab}
+      >
+        <version.Body />
+      </div>
+    </section>
+  );
+}
+
 // 가입 화면(#257). 이용약관 동의 체크 하나만 받고, 처리방침은 동의 없이 링크로 알린다.
 // 문서 링크는 새 탭으로 열어 이 화면의 상태를 잃지 않게 한다.
 function SignUp({
@@ -163,7 +203,7 @@ function SignUp({
       <div className="title">
         <h1>거의 다 됐어요</h1>
         <p className="secondary">
-          약관을 확인하고 가입하면 확장 프로그램을 연결할 수 있어요.
+          아래 내용을 확인하고 가입하면 확장 프로그램을 연결할 수 있어요.
         </p>
       </div>
       <div className="account">
@@ -180,6 +220,9 @@ function SignUp({
           가입하지 못했어요. 다시 시도해 주세요.
         </p>
       )}
+      {/* 처리방침은 동의받지 않고 보여 주기만 한다(#257). 동의 체크는 아래 이용약관 하나다. */}
+      <DocumentBox title="개인정보처리방침" version={POLICIES[0]} />
+      <DocumentBox title="이용약관" version={TERMS[0]} />
       {/* 박스 전체가 체크 상태를 따라 바뀐다. 14세 안내는 체크박스 이름에 넣지 않으려고 label 밖에 둔다. */}
       <div className="terms-box">
         <label className="terms-check">
@@ -188,12 +231,7 @@ function SignUp({
             checked={agreed}
             onChange={(e) => setAgreed(e.target.checked)}
           />
-          <span>
-            <a href="/terms" target="_blank" rel="noreferrer">
-              이용약관
-            </a>
-            에 동의해요
-          </span>
+          <span>이용약관에 동의해요</span>
         </label>
         <p className="hint">Dragram은 만 14세 이상만 쓸 수 있어요.</p>
       </div>
@@ -213,13 +251,6 @@ function SignUp({
       >
         취소
       </button>
-      <p className="muted footnote">
-        Dragram이 어떤 정보를 어떻게 처리하는지는{" "}
-        <a href="/privacy" target="_blank" rel="noreferrer">
-          개인정보처리방침
-        </a>
-        에서 볼 수 있어요.
-      </p>
     </>
   );
 }

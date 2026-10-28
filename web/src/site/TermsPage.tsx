@@ -1,8 +1,5 @@
-import Terms20261028 from "./terms/Terms20261028";
+import { TERMS } from "./documents";
 import VersionedDocument from "./VersionedDocument";
-
-// 시행일은 처리방침과 같은 날로 맞춘다(#249).
-const TERMS = [{ effective: "2026-10-28", Body: Terms20261028 }];
 
 function TermsPage() {
   return (

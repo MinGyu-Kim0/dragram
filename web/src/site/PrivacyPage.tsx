@@ -1,7 +1,5 @@
-import Policy20261028 from "./privacy/Policy20261028";
+import { POLICIES } from "./documents";
 import VersionedDocument from "./VersionedDocument";
-
-const POLICIES = [{ effective: "2026-10-28", Body: Policy20261028 }];
 
 function PrivacyPage() {
   return (

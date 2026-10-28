@@ -2,6 +2,8 @@
 
 import pytest
 
+from analysis import review
+from analysis.patterns import Condition
 from tests.analysis.helpers import add_word, analyze
 
 pytestmark = pytest.mark.django_db
@@ -52,3 +54,10 @@ def test_word_made_by_the_llm_does_not_change_the_reading(client, fake_llm, ken)
     body = analyze(client, "十件").json()
 
     assert body["ruby"][0] == {"start": 0, "end": 1, "reading": "じゅう"}
+
+
+def test_pattern_check_sees_the_same_numeral_word(ken):
+    # 예문·검수의 패턴 확인도 분석과 같은 합친 토큰을 본다.
+    add_word(32, ["一件"], ["いっけん"], [(["one matter"], [], None)])
+
+    assert review.matches([Condition("一件", "名詞", "普通名詞", None)], "この一件で")

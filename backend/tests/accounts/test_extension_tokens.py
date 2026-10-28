@@ -12,7 +12,7 @@ from django.utils import timezone
 from accounts import tokens
 from accounts import views as account_views
 from accounts.models import ExtensionToken
-from analysis import sentence
+from analysis import words
 from analysis.models import UsageLog
 from tests.analysis.helpers import read_body
 
@@ -132,7 +132,7 @@ def no_analysis(monkeypatch, fake_llm):
     def fail(*args, **kwargs):
         raise AssertionError("형태소 분석을 불렀다")
 
-    monkeypatch.setattr(sentence, "morphemes", fail)
+    monkeypatch.setattr(words, "fixed_morphemes", fail)
     yield
     assert fake_llm.all_requests() == []
     assert not UsageLog.objects.exists()

@@ -10,9 +10,9 @@ from django.utils import timezone
 
 from analysis import patterns
 from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus, UsageRule
-from analysis.morphology import morphemes
 from analysis.normalize import analysis_text
 from analysis.rules import condition_matches
+from analysis.words import fixed_morphemes
 
 
 class Refused(Exception):  # noqa: N818
@@ -22,7 +22,7 @@ class Refused(Exception):  # noqa: N818
 def matches(conditions, text):
     """매칭기로 예문에 패턴이 걸리는지 본다."""
     analysis, _ = analysis_text(text)
-    return bool(analysis) and bool(patterns.match_starts(conditions, morphemes(analysis)))
+    return bool(analysis) and bool(patterns.match_starts(conditions, fixed_morphemes(analysis)))
 
 
 def test_cases_failure(pattern, cases=None):
@@ -430,7 +430,7 @@ def rule_test_cases_failure(rule, cases=None):
     conditions = patterns.conditions_of(rule.pattern)
     for case in cases:
         analysis, _ = analysis_text(case["text"])
-        morphs = morphemes(analysis) if analysis else []
+        morphs = fixed_morphemes(analysis) if analysis else []
         starts = patterns.match_starts(conditions, morphs)
         if not starts:
             return f"패턴이 걸리지 않는 예문입니다: {case['text']}"

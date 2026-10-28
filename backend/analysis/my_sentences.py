@@ -29,7 +29,7 @@ def _login_required(request):
 def my_sentences(request):
     """내가 분석한 문장 목록(최근 분석 순)."""
     _login_required(request)
-    # shortcut: 페이지 없이 전부 보낸다. 기록이 많아지면 #195에서 페이지를 나눈다.
+    # shortcut: 페이지 없이 전부 보낸다. 기록이 많아져 목록이 느려지면 페이지를 나눈다.
     rows = UserSentence.objects.filter(user=request.user).order_by("-last_analyzed_at", "-id")
     return Response(
         {

@@ -28,3 +28,154 @@
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* 문장 상세(#195). 형광펜·배지 색은 DESIGN §2(사이드 패널과 같은 값). */
+.history {
+  --color-surface-inset: #e6f0e9;
+  --color-warn-border: #b26a00;
+  --color-highlight-0: #ddf27a;
+  --color-highlight-0-text: #3d4a00;
+  --color-highlight-1: #bde3ff;
+  --color-highlight-1-text: #0f4a78;
+  --color-highlight-2: #ffd6a8;
+  --color-highlight-2-text: #7a3e00;
+  --color-highlight-3: #f7c8e0;
+  --color-highlight-3-text: #7a1f4f;
+}
+
+.history h2 {
+  margin: 8px 0 0;
+  font-size: 16px;
+}
+
+.history h3,
+.history h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.history .back-link {
+  color: var(--color-text-secondary);
+  font-size: 14px;
+}
+
+.history .sentence-title {
+  font-size: 22px;
+  line-height: 1.9;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.history .sentence-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.history .sentence-link:hover {
+  text-decoration: underline;
+}
+
+.history .translation {
+  color: var(--color-text-secondary);
+}
+
+.history .grammar-card,
+.history .word-row {
+  background: var(--color-surface);
+  border-radius: 20px;
+}
+
+.history .grammar-card.divergent {
+  border: 1.5px dashed var(--color-warn-border);
+}
+
+.history .grammar-parts li {
+  padding: 12px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--color-surface-inset);
+}
+
+.history .grammar-card-head,
+.history .word-head,
+.history .tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.history .grammar-chip {
+  padding: 3px 12px;
+  border-radius: 999px;
+  background: var(--highlight);
+  color: var(--highlight-text);
+}
+
+.highlight-0 {
+  --highlight: var(--color-highlight-0);
+  --highlight-text: var(--color-highlight-0-text);
+}
+
+.highlight-1 {
+  --highlight: var(--color-highlight-1);
+  --highlight-text: var(--color-highlight-1-text);
+}
+
+.highlight-2 {
+  --highlight: var(--color-highlight-2);
+  --highlight-text: var(--color-highlight-2-text);
+}
+
+.highlight-3 {
+  --highlight: var(--color-highlight-3);
+  --highlight-text: var(--color-highlight-3-text);
+}
+
+.history .card-badges {
+  display: flex;
+  gap: 6px;
+}
+
+.history .badge-warn,
+.history .badge-neutral {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.history .card-badges .badge-warn,
+.history .card-badges .badge-neutral {
+  margin-left: 0;
+}
+
+.history .badge-warn {
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+
+.history .badge-neutral {
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+}
+
+.history ul.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.history ul.tags li {
+  padding: 2px 10px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.history ul.alternatives li {
+  padding: 0;
+  border: 0;
+}

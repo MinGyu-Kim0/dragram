@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { Navigate } from "react-router";
+import { Link, Navigate } from "react-router";
 import { AuthError, currentUser, request } from "../connect/auth";
 import "../connect/connect.css";
 import "./history.css";
 
-// 내 기록(#196): 내가 분석한 문장 목록과 문장별 삭제. 저장된 분석 다시 보기는 #195에서 만든다.
+// 내 기록: 내가 분석한 문장 목록(#195)과 문장별 삭제(#196). 문장을 누르면 저장된 분석을 본다.
 
 type Sentence = { id: number; text: string; analyzed_at: string };
 
@@ -108,7 +108,9 @@ function SentenceRow({
   return (
     <li>
       <p lang="ja" className="sentence">
-        {sentence.text}
+        <Link to={`/sentences/${sentence.id}`} className="sentence-link">
+          {sentence.text}
+        </Link>
       </p>
       <p className="muted">
         <time dateTime={sentence.analyzed_at}>

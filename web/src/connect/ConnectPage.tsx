@@ -5,6 +5,7 @@ import {
   issueExtensionToken,
   loginWithGoogle,
   logout,
+  signUp,
   withdraw,
   type User,
 } from "./auth";
@@ -16,7 +17,8 @@ import "./connect.css";
 
 type State =
   | { kind: "loading" }
-  | { kind: "signedOut"; problem?: "loginFailed" | "ageNotConfirmed" }
+  | { kind: "signedOut"; problem?: "loginFailed" | "signupExpired" }
+  | { kind: "signingUp"; email: string }
   | { kind: "signedIn"; user: User };
 
 function GoogleButton({
@@ -45,23 +47,17 @@ function ConnectPage() {
     [],
   );
   const fail = useCallback(
-    (e?: unknown) =>
-      setState({
-        kind: "signedOut",
-        problem:
-          e instanceof AuthError && e.code === "AUTH:AGE_NOT_CONFIRMED"
-            ? "ageNotConfirmed"
-            : "loginFailed",
-      }),
+    () => setState({ kind: "signedOut", problem: "loginFailed" }),
     [],
   );
-  // '만 14세 이상' 확인 체크. Google 버튼의 콜백은 한 번만 만들어 두므로 요소에서 바로 읽는다.
-  const ageCheck = useRef<HTMLInputElement>(null);
   // Google 버튼은 이 함수가 바뀔 때마다 다시 그리므로 한 번만 만든다.
   const login = useCallback(
     (credential: string) =>
-      loginWithGoogle(credential, ageCheck.current?.checked ?? false).then(
-        show,
+      loginWithGoogle(credential).then(
+        ({ user, signup }) =>
+          signup
+            ? setState({ kind: "signingUp", email: signup.email })
+            : show(user),
         fail,
       ),
     [show, fail],
@@ -87,10 +83,9 @@ function ConnectPage() {
                 로그인하지 못했어요. 다시 시도해 주세요.
               </p>
             )}
-            {state.problem === "ageNotConfirmed" && (
+            {state.problem === "signupExpired" && (
               <p role="alert" className="danger">
-                만 14세 이상만 가입할 수 있어요. 아래에서 확인한 뒤 다시
-                로그인해 주세요.
+                가입 시간이 지났어요. 다시 로그인해 주세요.
               </p>
             )}
             {buttonUnavailable && (
@@ -98,20 +93,111 @@ function ConnectPage() {
                 로그인 버튼을 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.
               </p>
             )}
-            <label className="age-check">
-              <input ref={ageCheck} type="checkbox" />만 14세 이상이에요
-            </label>
             <GoogleButton onCredential={login} onError={buttonFailed} />
             <p className="muted">
-              로그인하면 Google 계정의 이메일과 계정 식별자만 저장해요.
+              가입하면 Google 계정의 이메일과 계정 식별자만 저장해요.
             </p>
           </>
+        )}
+        {state.kind === "signingUp" && (
+          <SignUp
+            email={state.email}
+            onSignedUp={show}
+            onExpired={() =>
+              setState({ kind: "signedOut", problem: "signupExpired" })
+            }
+            onCancel={() => show(null)}
+          />
         )}
         {state.kind === "signedIn" && (
           <SignedIn user={state.user} onLoggedOut={() => show(null)} />
         )}
       </section>
     </main>
+  );
+}
+
+// 가입 화면(#257). 이용약관 동의 체크 하나만 받고, 처리방침은 동의 없이 링크로 알린다.
+// 문서 링크는 새 탭으로 열어 이 화면의 상태를 잃지 않게 한다.
+function SignUp({
+  email,
+  onSignedUp,
+  onExpired,
+  onCancel,
+}: {
+  email: string;
+  onSignedUp: (user: User | null) => void;
+  onExpired: () => void;
+  onCancel: () => void;
+}) {
+  const [agreed, setAgreed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const join = async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      onSignedUp(await signUp());
+    } catch (e) {
+      if (e instanceof AuthError && e.code === "AUTH:SIGNUP_EXPIRED")
+        onExpired();
+      else {
+        setFailed(true);
+        setBusy(false);
+      }
+    }
+  };
+
+  return (
+    <>
+      <h1>Dragram에 가입</h1>
+      <p className="secondary">
+        <strong>{email}</strong> 계정으로 가입해요.
+      </p>
+      {failed && (
+        <p role="alert" className="danger">
+          가입하지 못했어요. 다시 시도해 주세요.
+        </p>
+      )}
+      <label className="terms-check">
+        <input
+          type="checkbox"
+          checked={agreed}
+          onChange={(e) => setAgreed(e.target.checked)}
+        />
+        <span>
+          <a href="/terms" target="_blank" rel="noreferrer">
+            이용약관
+          </a>
+          에 동의해요
+        </span>
+      </label>
+      <p className="secondary">Dragram은 만 14세 이상만 쓸 수 있어요.</p>
+      <p className="muted">
+        Dragram이 어떤 정보를 어떻게 처리하는지는{" "}
+        <a href="/privacy" target="_blank" rel="noreferrer">
+          개인정보처리방침
+        </a>
+        에서 볼 수 있어요.
+      </p>
+      <button
+        type="button"
+        className="primary-button"
+        disabled={!agreed || busy}
+        onClick={join}
+      >
+        가입하기
+      </button>
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={busy}
+        onClick={onCancel}
+      >
+        취소
+      </button>
+    </>
   );
 }
 

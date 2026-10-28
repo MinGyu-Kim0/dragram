@@ -54,7 +54,7 @@ function VersionedDocument({
         ) : (
           <>
             <p>
-              {version}에 시행한 {title}은 없어요.
+              {version}에 시행한 {title}은 없습니다.
             </p>
             <Link to={`/${path}`}>최신 {title} 보기</Link>
           </>

@@ -224,7 +224,7 @@ test("없는 버전 주소는 최신 처리방침으로 안내한다", () => {
   open("/privacy/2020-01-01");
 
   expect(
-    screen.getByText("2020-01-01에 시행한 개인정보처리방침은 없어요."),
+    screen.getByText("2020-01-01에 시행한 개인정보처리방침은 없습니다."),
   ).toBeInTheDocument();
   expect(
     screen.getByRole("link", { name: "최신 개인정보처리방침 보기" }),
@@ -288,9 +288,9 @@ test("약관은 결정한 제한·재사용·책임·변경 절차를 적는다"
   const section = (name: string) => screen.getByRole("region", { name });
 
   expect(section("서비스 범위")).toHaveTextContent("무료");
-  expect(section("사용량 한도")).toHaveTextContent("그날 한도는 이어져요");
+  expect(section("사용량 한도")).toHaveTextContent("그날 한도는 이어집니다");
   expect(section("입력한 글과 공용 분석")).toHaveTextContent(
-    "원문은 공용으로 저장하지 않아요",
+    "원문은 공용으로 저장하지 않습니다",
   );
   expect(section("계정")).toHaveTextContent("만 14세 이상");
   expect(section("계정")).toHaveTextContent("14세 미만");
@@ -324,11 +324,25 @@ test("약관의 운영자 이름은 처리방침과 같은 설정값을 쓴다",
   expect(screen.getByText("확인 필요: 운영자 이름")).toBeInTheDocument();
 });
 
+// 처리방침과 약관은 합니다체로 쓴다. '~해 주세요' 같은 요청 표현과 '~나요?' 같은 질문형 절
+// 제목(처리방침 초안)만 해요체를 허용한다.
+test.each(["/privacy", "/terms", "/privacy/2020-01-01", "/terms/2020-01-01"])(
+  "%s는 합니다체로 쓴다",
+  (path) => {
+    open(path);
+
+    const endings = screen
+      .getByRole("main")
+      .textContent!.match(/[^세]요[.!)]/g);
+    expect(endings).toBeNull();
+  },
+);
+
 test("없는 약관 버전 주소는 최신 약관으로 안내한다", () => {
   open("/terms/2020-01-01");
 
   expect(
-    screen.getByText("2020-01-01에 시행한 이용약관은 없어요."),
+    screen.getByText("2020-01-01에 시행한 이용약관은 없습니다."),
   ).toBeInTheDocument();
   expect(
     screen.getByRole("link", { name: "최신 이용약관 보기" }),

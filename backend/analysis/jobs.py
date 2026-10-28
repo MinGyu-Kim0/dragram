@@ -188,4 +188,6 @@ class AnalysisWorker(SimpleWorker):
 
 
 def work():
-    AnalysisWorker([QUEUE_NAME], connection=_connection()).work()
+    # 기본(420초)이면 BLPOP이 405초 동안 아무것도 주고받지 않는다. 그사이 유휴 연결이 끊기면
+    # RQ가 Redis 타임아웃으로 보고 작업자를 끈다. 짧게 기다리고 자주 다시 묻는다.
+    AnalysisWorker([QUEUE_NAME], connection=_connection(), worker_ttl=60).work()

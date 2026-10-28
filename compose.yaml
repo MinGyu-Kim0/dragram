@@ -69,6 +69,8 @@ services:
       POSTGRES_HOST: db
       REDIS_URL: redis://redis:6379/0
     command: python manage.py analysis_worker
+    # 운영처럼 꺼지면 다시 띄운다.
+    restart: unless-stopped
     volumes:
       - ./backend:/app
     depends_on:

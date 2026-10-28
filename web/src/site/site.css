@@ -144,6 +144,11 @@
   border-collapse: collapse;
 }
 
+/* 열이 많은 표는 좁은 화면에서 페이지 대신 표만 가로로 스크롤한다. */
+.document .table-scroll {
+  overflow-x: auto;
+}
+
 .document th,
 .document td {
   padding: 6px 12px 6px 0;
@@ -152,8 +157,14 @@
   vertical-align: top;
 }
 
-.document th {
+.document thead th {
   white-space: nowrap;
+}
+
+/* 행 제목(첫 열)은 길 수 있어 줄바꿈한다. 너무 좁아지지 않게 최소 폭을 둔다. */
+.document tbody th {
+  font-weight: 600;
+  min-width: 8em;
 }
 
 /* 운영자가 확인하기 전인 값(게시 전에 채운다) */

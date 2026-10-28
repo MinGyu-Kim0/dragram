@@ -1,5 +1,6 @@
 import { Route, Routes } from "react-router";
 import ConnectPage from "./connect/ConnectPage";
+import MySentencesPage from "./history/MySentencesPage";
 import LandingPage from "./site/LandingPage";
 import PrivacyPage from "./site/PrivacyPage";
 import TermsPage from "./site/TermsPage";
@@ -13,6 +14,7 @@ function App() {
       <Route path="/terms" element={<TermsPage />} />
       <Route path="/terms/:version" element={<TermsPage />} />
       <Route path="/connect" element={<ConnectPage />} />
+      <Route path="/sentences" element={<MySentencesPage />} />
     </Routes>
   );
 }

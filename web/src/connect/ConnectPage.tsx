@@ -276,6 +276,9 @@ function SignedIn({
           확장 프로그램 연결
         </button>
       )}
+      <a className="secondary-button" href="/sentences">
+        내 기록
+      </a>
       {/* 연결과 로그아웃은 한 번에 하나만 한다. 로그아웃이 폐기한 토큰을 늦게 온 연결이 확장에
           넘기지 않게 한다. */}
       <button

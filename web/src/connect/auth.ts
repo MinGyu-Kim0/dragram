@@ -22,13 +22,13 @@ function csrfToken() {
     ?.slice("csrftoken=".length);
 }
 
-async function request<T>(
-  method: "GET" | "POST",
+export async function request<T>(
+  method: "GET" | "POST" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<T> {
   const headers: Record<string, string> = {};
-  if (method === "POST") {
+  if (method !== "GET") {
     headers["Content-Type"] = "application/json";
     // 로그인하면 Django가 CSRF 값을 바꾸므로 요청마다 쿠키에서 다시 읽는다.
     headers["X-CSRFToken"] = csrfToken() ?? "";
@@ -50,6 +50,8 @@ async function request<T>(
       code,
     );
   }
+  // 204(지운 뒤)는 본문이 없다.
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
 }
 

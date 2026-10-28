@@ -5,6 +5,7 @@ from accounts import views
 urlpatterns = [
     path("me/", views.me),
     path("google/", views.google_login),
+    path("signup/", views.signup),
     path("logout/", views.logout),
     path("withdraw/", views.withdraw),
     path("dev-login/", views.dev_login),

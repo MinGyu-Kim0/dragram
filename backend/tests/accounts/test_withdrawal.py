@@ -37,14 +37,24 @@ def google_login(web, monkeypatch, settings, sub):
     settings.GOOGLE_CLIENT_ID = "test-client-id"
     claims = {"sub": sub, "email": "me@example.com", "email_verified": True}
     monkeypatch.setattr(google.id_token, "verify_oauth2_token", lambda *args, **kwargs: claims)
-    web.get("/api/auth/me/")
-    web.post(
-        "/api/auth/google/",
-        {"credential": "google-id-token", "age_confirmed": True},
-        content_type="application/json",
-        HTTP_X_CSRFTOKEN=web.cookies["csrftoken"].value,
-    )
+    sign_up_with_google(web)
     return User.objects.get(google_sub=sub)
+
+
+def sign_up_with_google(web):
+    """Google 로그인 뒤 가입 화면에서 이용약관에 동의해 가입한다. 가입 응답을 돌려준다."""
+    web.get("/api/auth/me/")
+    for path, body in [
+        ("/api/auth/google/", {"credential": "google-id-token"}),
+        ("/api/auth/signup/", {"agree_terms": True}),
+    ]:
+        response = web.post(
+            path,
+            body,
+            content_type="application/json",
+            HTTP_X_CSRFTOKEN=web.cookies["csrftoken"].value,
+        )
+    return response
 
 
 def user_with_records(username, fake_llm):
@@ -129,13 +139,7 @@ def test_logging_in_again_with_the_same_google_account_starts_an_empty_account(
     web, headers = web_session(me)
     withdraw(web, headers, me)
 
-    web.get("/api/auth/me/")
-    response = web.post(
-        "/api/auth/google/",
-        {"credential": "google-id-token", "age_confirmed": True},
-        content_type="application/json",
-        HTTP_X_CSRFTOKEN=web.cookies["csrftoken"].value,
-    )
+    response = sign_up_with_google(web)
 
     assert response.json() == {
         "user": {

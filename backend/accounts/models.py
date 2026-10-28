@@ -10,6 +10,11 @@ class User(AbstractUser):
     """
 
     google_sub = models.CharField(max_length=255, null=True, unique=True)  # noqa: DJ001
+    # 가입 화면에서 동의한 이용약관의 시행일(#257). 동의 전 계정은 셋 다 NULL이다.
+    terms_version = models.DateField(null=True)
+    # 가입할 때 보여 준 개인정보처리방침의 시행일. 동의가 아니라 고지한 판의 기록이다.
+    privacy_version = models.DateField(null=True)
+    terms_agreed_at = models.DateTimeField(null=True)
 
 
 class ExtensionToken(models.Model):

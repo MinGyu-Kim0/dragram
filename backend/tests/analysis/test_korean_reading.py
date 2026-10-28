@@ -1,6 +1,6 @@
 import pytest
 
-from analysis.korean_reading import korean_reading
+from analysis.korean_reading import korean_reading, place_reading
 
 
 @pytest.mark.parametrize(
@@ -39,3 +39,30 @@ from analysis.korean_reading import korean_reading
 )
 def test_kana_name_reading(reading, expected):
     assert korean_reading(reading) == expected
+
+
+@pytest.mark.parametrize(
+    ("surface", "reading", "expected"),
+    [
+        # 행정 단위 県·府·区는 한국어 한자음으로 적는다(#267).
+        ("愛知県", "アイチケン", "아이치현"),
+        ("大阪府", "オオサカフ", "오사카부"),
+        ("京都府", "キョウトフ", "교토부"),
+        ("新宿区", "シンジュクク", "신주쿠구"),
+        ("北区", "キタク", "기타구"),
+        ("東京都", "トウキョウト", "도쿄도"),
+        # 京都의 都는 행정 단위가 아니다.
+        ("京都", "キョウト", "교토"),
+        # 음차가 관용 표기와 같거나(道·市) 읽기가 갈리는(村) 지명은 그대로다.
+        ("北海道", "ホッカイドウ", "홋카이도"),
+        ("名古屋市", "ナゴヤシ", "나고야시"),
+        ("白川村", "シラカワムラ", "시라카와무라"),
+        # 행정 단위만 있거나, 표기와 읽기가 맞지 않으면 접미사를 따로 보지 않는다.
+        ("県", "ケン", "겐"),
+        ("愛知県", "アイチ", "아이치"),
+        # 앞부분을 음차할 수 없으면 부분 음차를 만들지 않는다.
+        ("X県", "Xケン", None),
+    ],
+)
+def test_place_name_reading(surface, reading, expected):
+    assert place_reading(surface, reading) == expected

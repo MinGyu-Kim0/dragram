@@ -91,3 +91,26 @@ def korean_reading(reading):
         previous_vowel = _VOWELS[kana[-1]]
         at += len(kana)
     return "".join(result) or None
+
+
+# 지명 끝의 행정 단위: 표기 → (가나 읽기, 한국어 한자음, 최소 표기 길이). 都는 京都(교토)처럼
+# 지명 자체의 글자인 두 글자 이름을 빼려고 세 글자부터 본다. 道·市·郡은 음차가 관용 표기와
+# 같고(홋카이도, 나고야시), 町·村은 읽기와 관용 표기가 갈려 넣지 않는다(#267).
+_PLACE_UNITS = {
+    "県": ("けん", "현", 2),
+    "府": ("ふ", "부", 2),
+    "区": ("く", "구", 2),
+    "都": ("と", "도", 3),
+}
+
+
+def place_reading(surface, reading):
+    """지명의 한글 읽기. 행정 단위까지 한 단어인 지명(愛知県)은 앞부분만 음차하고 단위는
+    한자음으로 적는다(아이치현). 단위가 없거나 표기와 읽기가 맞지 않으면 korean_reading과 같다.
+    """
+    kana = to_hiragana(unicodedata.normalize("NFKC", reading))
+    unit = _PLACE_UNITS.get(surface[-1:])
+    if unit and len(surface) >= unit[2] and kana.endswith(unit[0]) and len(kana) > len(unit[0]):
+        stem = korean_reading(kana[: -len(unit[0])])
+        return stem and stem + unit[1]
+    return korean_reading(reading)

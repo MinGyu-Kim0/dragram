@@ -1,5 +1,6 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import ConnectPage from "./ConnectPage";
 
@@ -98,17 +99,20 @@ describe("가입 화면(#257)", () => {
   });
 
   async function reachSignup() {
-    render(<ConnectPage />);
+    // 가입 화면은 처리방침·약관 본문(앱 안 링크 포함)을 그리므로 라우터 안에서 띄운다.
+    render(<ConnectPage />, { wrapper: MemoryRouter });
     await screen.findByRole("heading", { name: "Dragram에 로그인" });
     // 이 화면의 Google 버튼을 그린 뒤에야 콜백이 이 화면 것이다(앞 테스트의 콜백이 남아 있다).
     await waitFor(() => expect(renderButton).toHaveBeenCalledTimes(1));
     await act(async () => googleCallback!({ credential: "google-id-token" }));
-    await screen.findByRole("heading", { name: "Dragram에 가입" });
+    await screen.findByRole("heading", { name: "거의 다 됐어요" });
   }
 
   test("처음 로그인하면 가입 화면을 보이고, 약관에 체크해야 가입할 수 있다", async () => {
     await reachSignup();
 
+    // 가입할 Google 계정을 따로 묶어 보인다(#269).
+    expect(screen.getByText("Google 계정")).toBeInTheDocument();
     expect(screen.getByText("me@example.com")).toBeInTheDocument();
     const join = screen.getByRole("button", { name: "가입하기" });
     expect(join).toBeDisabled();
@@ -131,22 +135,56 @@ describe("가입 화면(#257)", () => {
     });
   });
 
-  test("동의 체크는 이용약관 하나이고, 처리방침은 링크로만 안내한다", async () => {
+  test("약관 체크는 키보드로도 켜고 끌 수 있다", async () => {
+    await reachSignup();
+    const agree = screen.getByRole("checkbox", { name: "이용약관에 동의해요" });
+
+    agree.focus();
+    await userEvent.keyboard(" ");
+
+    expect(agree).toBeChecked();
+    expect(screen.getByRole("button", { name: "가입하기" })).toBeEnabled();
+  });
+
+  test("처리방침(위)과 이용약관(아래) 본문을 가입 화면에서 바로 보이고, 동의 체크는 이용약관 하나다", async () => {
     await reachSignup();
 
-    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "이용약관" })).toHaveAttribute(
-      "href",
-      "/terms",
-    );
+    const privacy = screen.getByRole("region", { name: "개인정보처리방침" });
+    const terms = screen.getByRole("region", { name: "이용약관" });
     expect(
-      screen.getByRole("link", { name: "개인정보처리방침" }),
-    ).toHaveAttribute("href", "/privacy");
+      within(privacy).getByRole("heading", { name: "Google 로그인" }),
+    ).toBeInTheDocument();
+    expect(
+      within(terms).getByRole("heading", { name: "사용량 한도" }),
+    ).toBeInTheDocument();
+    expect(
+      privacy.compareDocumentPosition(terms) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // 서버가 기록하는 판(2026-10-28)과 같은 시행일을 보인다.
+    expect(within(privacy).getByText("2026년 10월 28일 시행")).toBeVisible();
+    expect(within(terms).getByText("2026년 10월 28일 시행")).toBeVisible();
+    // 처리방침은 동의받지 않는다. 체크는 이용약관 하나다.
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.queryByText(/처리방침에 동의/)).not.toBeInTheDocument();
     expect(
       screen.getByText("Dragram은 만 14세 이상만 쓸 수 있어요."),
     ).toBeInTheDocument();
-    // 처리방침은 동의받지 않는다. '동의' 문구는 약관 체크에만 있다.
-    expect(screen.getAllByText(/동의/)).toHaveLength(1);
+  });
+
+  test("문서 칸 안의 링크는 새 탭으로 열어 가입 화면을 그대로 둔다", async () => {
+    const open = vi.fn();
+    vi.stubGlobal("open", open);
+    await reachSignup();
+    const terms = screen.getByRole("region", { name: "이용약관" });
+
+    await userEvent.click(
+      within(terms).getAllByRole("link", { name: "개인정보처리방침" })[0],
+    );
+
+    expect(open).toHaveBeenCalledWith("/privacy", "_blank", "noopener");
+    expect(
+      screen.getByRole("heading", { name: "거의 다 됐어요" }),
+    ).toBeInTheDocument();
   });
 
   test("취소하면 아무것도 보내지 않고 로그인 카드로 돌아간다", async () => {

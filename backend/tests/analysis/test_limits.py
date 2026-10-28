@@ -9,7 +9,7 @@ from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
-from analysis import jobs, limits, sentence, stream
+from analysis import jobs, limits, stream, words
 from analysis.models import SentenceAnalysis, UsageLog
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, connected_client, post, span_answer
@@ -156,7 +156,7 @@ def test_requests_over_the_concurrent_limit_are_refused_before_morphology(
     def no_morphology(text):
         raise AssertionError("형태소 분석을 부름")
 
-    monkeypatch.setattr(sentence, "morphemes", no_morphology)
+    monkeypatch.setattr(words, "fixed_morphemes", no_morphology)
     response = analyze(client, "雪が降る")
 
     assert response.status_code == 429

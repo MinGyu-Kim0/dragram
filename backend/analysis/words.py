@@ -13,9 +13,12 @@ from django.db.models import Prefetch, Q
 
 from analysis.jmdict import WHOLE_WORD_TAGS, to_hiragana
 from analysis.models import ReviewStatus, Word, WordSense
+from analysis.morphology import morphemes
 
 # 가나(장음 ー, 반복 부호 포함)로만 쓴 말. 가타카나 블록의 문장부호(・ ゠)는 가나가 아니다.
 _KANA = re.compile(r"[ぁ-ゖゝゞァ-ヺー-ヾㇰ-ㇿ]+")
+# 한자 수사 글자
+_KANJI_NUMERAL = re.compile(r"[〇一二三四五六七八九十百千万億兆]")
 
 
 class Candidate(NamedTuple):
@@ -115,6 +118,63 @@ def _candidates(words, query):
             if readings:
                 found.append(Candidate(sense, _display_reading(word, query, readings)))
     return found
+
+
+def _jmdict_reading(form, reading):
+    """JMdict에서 그 표기로 쓰는 읽기 가운데 보일 것. reading(히라가나)이 그 하나면 그대로,
+    아니면 흔한 단어·JMdict 순서의 첫 읽기다. 그 표기가 JMdict에 없으면 None이다. LLM이 만든
+    단어(jmdict_seq 없음)는 근거로 쓰지 않는다.
+    """
+    query = _Query(form, None)
+    found = Word.objects.filter(jmdict_seq__isnull=False, forms__contains=[form]).order_by(
+        "-is_common", "jmdict_seq"
+    )
+    readings = [r for word in found for r in word.readings if r in _allowed_readings(word, query)]
+    if not readings:
+        return None
+    return reading if reading in readings else readings[0]
+
+
+def fixed_morphemes(text):
+    """SudachiPy 형태소에서 수사로 시작하는 말의 경계와 읽기를 JMdict로 바로잡은 것(#271).
+    분석과 패턴 확인(예문·검수)이 같은 토큰을 보도록 형태소는 모두 여기서 받는다.
+
+    SudachiPy는 一件을 一 + 件으로 나누고, 한 단어로 묶은 一回도 イチカイ처럼 소리 변화 없이
+    읽는다. 수사 + 바로 뒤 명사·접미사(조수사)를 이은 표기가 JMdict에 있으면 한 명사로 합치고,
+    활용하지 않는 토큰이 수사 글자로 시작하면(一緒처럼 수사가 아닌 말도) JMdict 읽기로 맞춘다.
+    고친 읽기는 히라가나다.
+    아라비아 숫자는 자리표시자로 바뀌어 학습 단어가 아니므로 건드리지 않는다.
+    """
+    morphs = morphemes(text)
+    fixed = []
+    i = 0
+    while i < len(morphs):
+        m = morphs[i]
+        i += 1
+        surface = text[m.begin : m.end]
+        if m.conjugates or not _KANJI_NUMERAL.match(surface):
+            fixed.append(m)
+            continue
+        after = morphs[i] if i < len(morphs) else None
+        if m.pos2 == "数詞" and after is not None and after.pos in {"名詞", "接尾辞"}:
+            joined = text[m.begin : after.end]
+            reading = _jmdict_reading(joined, to_hiragana(m.reading + after.reading))
+            if reading is not None:
+                fixed.append(
+                    m._replace(
+                        end=after.end,
+                        pos2="普通名詞",
+                        pos3=None,
+                        reading=reading,
+                        lemma=joined,
+                        dictionary_form=joined,
+                    )
+                )
+                i += 1
+                continue
+        reading = _jmdict_reading(surface, to_hiragana(m.reading))
+        fixed.append(m if reading is None else m._replace(reading=reading))
+    return fixed
 
 
 def lookup(text, morphs, tokens):

@@ -29,7 +29,8 @@ class Morpheme(NamedTuple):
     end: int
     # 품사 대분류(名詞, 助詞 등)
     pos: str
-    # SudachiPy 추정 읽기(가타카나). 사전에 없는 말은 표기 그대로일 수 있다.
+    # SudachiPy 추정 읽기(가타카나). 사전에 없는 말은 표기 그대로일 수 있다. 수사로 시작하는
+    # 말은 words.fixed_morphemes가 JMdict 읽기(히라가나)로 바꿔 둘 수 있다(#271).
     reading: str
     # 패턴 조건에 쓰는 표제어. 조사·조동사는 원형(축약형 보존), 내용어는 정규형(표기 통일)
     lemma: str

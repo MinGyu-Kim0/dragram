@@ -7,7 +7,6 @@ from analysis.answers import _letters, _quotes_whole_sentence, _validate_rewrite
 from analysis.models import (
     GrammarUsage,
 )
-from analysis.morphology import morphemes
 from analysis.normalize import (
     analysis_text,
     has_only_known_placeholders,
@@ -15,6 +14,7 @@ from analysis.normalize import (
 )
 from analysis.positions import key_offsets, to_key
 from analysis.span_rows import _usage_owner
+from analysis.words import fixed_morphemes
 from errors import AnalysisError, BusinessError
 from errors.handler import log_business_error
 
@@ -100,7 +100,7 @@ def _example_verdict(example, conditions, key_text, content_tokens, fixed_spans,
     # 원문 키 텍스트와 같거나 전체를 포함하면 베낀 것이다(문장 인용과 같은 비교). 형태소가
     # 하나뿐인 원문은 포함만 허용하고, 원문 그대로인 예문은 형태소 수와 상관없이 거부한다.
     # 다시 써도 원문을 베끼지 않는 것만 고쳐지므로, 쓸 수 없는 예문은 베낀 것보다 먼저 가린다.
-    morphs = morphemes(text)
+    morphs = fixed_morphemes(text)
     starts = patterns.match_starts(conditions, morphs)
     if not starts:
         return _EXAMPLE_UNUSABLE

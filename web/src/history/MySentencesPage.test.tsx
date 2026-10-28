@@ -142,3 +142,12 @@ test("지우지 못하면 문장을 남기고 알린다", async () => {
   );
   expect(screen.getByText("猫が好きです。")).toBeInTheDocument();
 });
+
+test("문장을 누르면 저장된 분석 화면으로 간다", async () => {
+  open();
+  const [first] = await items();
+
+  expect(
+    within(first).getByRole("link", { name: "猫が好きです。" }),
+  ).toHaveAttribute("href", "/sentences/2");
+});

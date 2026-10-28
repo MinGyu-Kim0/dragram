@@ -118,7 +118,7 @@ class Sentence:
 
         # 형태소 분석은 숫자가 그대로인 분석 텍스트로 한다. 숫자 뒤 조사 교정에 쓰므로 캐시를
         # 재사용할 때도 한다. 원문은 로그에 남기지 않는다.
-        self.morphs = morphemes(text)
+        self.morphs = words.numeral_words(text, morphemes(text))
         self.particle_numbers = _numbers_before_particle(text, self.morphs)
         self.offsets = key_offsets(self.pieces)
         # 저장된 단어 위치(키 텍스트 구간) → 이 문장의 형태소

@@ -10,6 +10,8 @@ AuthError = error_domain(
         "GOOGLE_TOKEN_INVALID": 401,
         # Google 계정의 이메일이 인증되지 않았다.
         "EMAIL_NOT_VERIFIED": 403,
+        # 처음 가입하는데 '만 14세 이상' 확인이 없다(#251). 이미 있는 계정의 로그인은 묻지 않는다.
+        "AGE_NOT_CONFIRMED": 403,
         # 관리자가 막은 계정이다(is_active 거짓).
         "ACCOUNT_DISABLED": 403,
         # 탈퇴를 확인한 계정과 지금 세션의 계정이 다르다(다른 탭에서 다른 계정으로 로그인함 등).

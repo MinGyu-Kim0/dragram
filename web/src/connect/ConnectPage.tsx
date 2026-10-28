@@ -16,7 +16,7 @@ import "./connect.css";
 
 type State =
   | { kind: "loading" }
-  | { kind: "signedOut"; failed: boolean }
+  | { kind: "signedOut"; problem?: "loginFailed" | "ageNotConfirmed" }
   | { kind: "signedIn"; user: User };
 
 function GoogleButton({
@@ -41,20 +41,27 @@ function ConnectPage() {
 
   const show = useCallback(
     (user: User | null) =>
-      setState(
-        user
-          ? { kind: "signedIn", user }
-          : { kind: "signedOut", failed: false },
-      ),
+      setState(user ? { kind: "signedIn", user } : { kind: "signedOut" }),
     [],
   );
   const fail = useCallback(
-    () => setState({ kind: "signedOut", failed: true }),
+    (e?: unknown) =>
+      setState({
+        kind: "signedOut",
+        problem:
+          e instanceof AuthError && e.code === "AUTH:AGE_NOT_CONFIRMED"
+            ? "ageNotConfirmed"
+            : "loginFailed",
+      }),
     [],
   );
+  // '만 14세 이상' 확인. Google 버튼의 콜백은 한 번만 만들어 두므로 최신 값을 ref로 읽는다.
+  const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const ageConfirmedRef = useRef(false);
   // Google 버튼은 이 함수가 바뀔 때마다 다시 그리므로 한 번만 만든다.
   const login = useCallback(
-    (credential: string) => loginWithGoogle(credential).then(show, fail),
+    (credential: string) =>
+      loginWithGoogle(credential, ageConfirmedRef.current).then(show, fail),
     [show, fail],
   );
 
@@ -73,9 +80,15 @@ function ConnectPage() {
               Google 계정으로 로그인하면 확장 프로그램에 계정을 연결할 수
               있어요.
             </p>
-            {state.failed && (
+            {state.problem === "loginFailed" && (
               <p role="alert" className="danger">
                 로그인하지 못했어요. 다시 시도해 주세요.
+              </p>
+            )}
+            {state.problem === "ageNotConfirmed" && (
+              <p role="alert" className="danger">
+                만 14세 이상만 가입할 수 있어요. 아래에서 확인한 뒤 다시
+                로그인해 주세요.
               </p>
             )}
             {buttonUnavailable && (
@@ -83,6 +96,17 @@ function ConnectPage() {
                 로그인 버튼을 불러오지 못했어요. 잠시 뒤 다시 열어 주세요.
               </p>
             )}
+            <label className="age-check">
+              <input
+                type="checkbox"
+                checked={ageConfirmed}
+                onChange={(e) => {
+                  ageConfirmedRef.current = e.target.checked;
+                  setAgeConfirmed(e.target.checked);
+                }}
+              />
+              만 14세 이상이에요
+            </label>
             <GoogleButton onCredential={login} onError={buttonFailed} />
             <p className="muted">
               로그인하면 Google 계정의 이메일과 계정 식별자만 저장해요.

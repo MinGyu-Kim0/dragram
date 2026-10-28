@@ -94,9 +94,16 @@ def me(request):
 @authentication_classes([SessionUser])
 @permission_classes([])
 def google_login(request):
-    """Google ID 토큰으로 로그인한다. 처음이면 사용자를 만들고, 이메일은 매번 갱신한다."""
+    """Google ID 토큰으로 로그인한다. 처음이면 사용자를 만들고, 이메일은 매번 갱신한다.
+
+    처음 가입은 로그인 카드의 '만 14세 이상' 확인(age_confirmed가 참)이 있어야 한다(#251).
+    """
     require_csrf(request)
     account = google.verify(_field(request, "credential", AuthError.GOOGLE_TOKEN_INVALID))
+    if request.data.get("age_confirmed") is not True and not (
+        User.objects.filter(google_sub=account.sub).exists()
+    ):
+        raise BusinessError(AuthError.AGE_NOT_CONFIRMED, "만 14세 이상 확인 없이 처음 가입")
     user, _ = User.objects.update_or_create(
         google_sub=account.sub,
         defaults={"email": account.email},

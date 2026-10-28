@@ -51,10 +51,14 @@ def csrf(web):
     return {"HTTP_X_CSRFTOKEN": web.cookies["csrftoken"].value}
 
 
-def login(web, credential="google-id-token"):
+def login(web, credential="google-id-token", age_confirmed=True):
+    """age_confirmed: 로그인 카드의 '만 14세 이상' 확인(#251). 처음 가입할 때만 본다."""
+    body = {"credential": credential}
+    if age_confirmed is not None:
+        body["age_confirmed"] = age_confirmed
     return web.post(
         "/api/auth/google/",
-        {"credential": credential},
+        body,
         content_type="application/json",
         **csrf(web),
     )
@@ -196,3 +200,25 @@ def test_google_sub_longer_than_username_limit_still_logs_in(web, google_says):
         }
     }
     assert User.objects.get().google_sub == "9" * 255
+
+
+@pytest.mark.parametrize("age_confirmed", [None, False, "true"])
+def test_first_login_without_age_confirmation_creates_no_account(web, google_says, age_confirmed):
+    google_says(claims())
+
+    response = login(web, age_confirmed=age_confirmed)
+
+    assert (response.status_code, response.json()) == (403, {"error": "AUTH:AGE_NOT_CONFIRMED"})
+    assert not User.objects.exists()
+    assert web.get("/api/auth/me/").json() == {"user": None}
+
+
+def test_existing_account_logs_in_without_age_confirmation(web, google_says):
+    google_says(claims())
+    login(web)
+    web.post("/api/auth/logout/", **csrf(web))
+
+    response = login(web, age_confirmed=None)
+
+    assert response.status_code == 200
+    assert User.objects.count() == 1

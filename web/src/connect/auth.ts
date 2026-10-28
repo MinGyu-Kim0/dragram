@@ -5,10 +5,13 @@ export type User = { email: string; account: string };
 
 export class AuthError extends Error {
   readonly status: number;
+  // 서버 오류 코드(예: AUTH:AGE_NOT_CONFIRMED). 본문이 없거나 JSON이 아니면 undefined다.
+  readonly code: string | undefined;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: string) {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -36,11 +39,17 @@ async function request<T>(
     credentials: "same-origin",
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (!response.ok)
+  if (!response.ok) {
+    const code = await response.json().then(
+      (b: { error?: string }) => b?.error,
+      () => undefined,
+    );
     throw new AuthError(
       `${method} ${path}: ${response.status}`,
       response.status,
+      code,
     );
+  }
   return (await response.json()) as T;
 }
 
@@ -50,9 +59,11 @@ const userOf = (body: { user: User | null }) => body.user;
 export const currentUser = () =>
   request<{ user: User | null }>("GET", "/api/auth/me/").then(userOf);
 
-export const loginWithGoogle = (credential: string) =>
+/** ageConfirmed: 로그인 카드의 '만 14세 이상' 확인. 서버는 처음 가입할 때만 본다(#251). */
+export const loginWithGoogle = (credential: string, ageConfirmed: boolean) =>
   request<{ user: User | null }>("POST", "/api/auth/google/", {
     credential,
+    age_confirmed: ageConfirmed,
   }).then(userOf);
 
 /** 로그아웃. 서버는 이 세션이 발급한 확장 토큰도 폐기한다. */

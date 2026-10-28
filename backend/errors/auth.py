@@ -10,11 +10,14 @@ AuthError = error_domain(
         "GOOGLE_TOKEN_INVALID": 401,
         # Google 계정의 이메일이 인증되지 않았다.
         "EMAIL_NOT_VERIFIED": 403,
-        # 처음 가입하는데 '만 14세 이상' 확인이 없다(#251). 이미 있는 계정의 로그인은 묻지 않는다.
-        "AGE_NOT_CONFIRMED": 403,
+        # 가입하기에 이용약관 동의(agree_terms가 참)가 없다(#257).
+        "TERMS_NOT_AGREED": 400,
+        # 가입하기 전에 이 세션에서 검증한 Google 로그인이 없거나 10분이 지났다(#257).
+        "SIGNUP_EXPIRED": 401,
         # 관리자가 막은 계정이다(is_active 거짓).
         "ACCOUNT_DISABLED": 403,
         # 탈퇴를 확인한 계정과 지금 세션의 계정이 다르다(다른 탭에서 다른 계정으로 로그인함 등).
+        # 가입하기도 가입 화면에 보인 계정과 기다리는 가입의 계정이 다르면 이 코드로 거부한다.
         "ACCOUNT_MISMATCH": 409,
         # 상태를 바꾸는 요청에 CSRF 값이 없거나 맞지 않는다.
         "CSRF_FAILED": 403,

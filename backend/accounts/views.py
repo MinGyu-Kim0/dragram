@@ -1,15 +1,18 @@
 """웹 로그인 세션 API. 웹과 API는 같은 출처에서 Django 세션·CSRF를 쓴다(#92)."""
 
 import uuid
+from datetime import date
 
 from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth.hashers import make_password
+from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
 from django.http import Http404
 from django.middleware.csrf import CsrfViewMiddleware
+from django.utils import timezone
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -90,35 +93,112 @@ def me(request):
     return Response(_user_body(request.user))
 
 
+# 가입을 기다리는 동안 검증한 Google 계정을 담는 서명한 쿠키. 이 시간 안에 '가입하기'를 눌러야 한다.
+# 세션(DB 행)에 두지 않아, 동의하지 않고 나간 사람의 이메일·sub가 서버에 남지 않는다.
+SIGNUP_COOKIE = "dragram_signup"
+SIGNUP_SALT = "accounts.signup"
+SIGNUP_WAIT_SECONDS = 10 * 60
+# 가입할 때 기록하는 판. 웹 TermsPage·PrivacyPage의 최신 시행일과 맞춘다.
+TERMS_VERSION = date(2026, 10, 28)
+PRIVACY_VERSION = date(2026, 10, 28)
+
+
 @api_view(["POST"])
 @authentication_classes([SessionUser])
 @permission_classes([])
 def google_login(request):
-    """Google ID 토큰으로 로그인한다. 처음이면 사용자를 만들고, 이메일은 매번 갱신한다.
+    """Google ID 토큰으로 로그인한다. 이메일은 매번 갱신한다.
 
-    처음 가입은 로그인 카드의 '만 14세 이상' 확인(age_confirmed가 참)이 있어야 한다(#251).
+    이용약관에 동의한 계정만 바로 로그인한다. 처음 온 사람과 동의 기록이 없는 계정은 계정을
+    만들거나 고치지 않고, 검증한 Google 계정을 서명한 쿠키에 잠시 둔 채 가입 화면을 보이게
+    한다(#257).
     """
     require_csrf(request)
     account = google.verify(_field(request, "credential", AuthError.GOOGLE_TOKEN_INVALID))
-    if request.data.get("age_confirmed") is not True:
-        # 확인이 없으면 있는 계정만 로그인시킨다. 생성 경로를 아예 타지 않아, 확인과 생성 사이에
-        # 계정이 지워져도 확인 없이 새 계정이 생기지 않는다.
-        user = User.objects.filter(google_sub=account.sub).first()
-        if user is None or not User.objects.filter(pk=user.pk).update(email=account.email):
-            raise BusinessError(AuthError.AGE_NOT_CONFIRMED, "만 14세 이상 확인 없이 처음 가입")
+    user = User.objects.filter(google_sub=account.sub).first()
+    if user is not None and not user.is_active:
+        raise BusinessError(AuthError.ACCOUNT_DISABLED, "막힌 계정")
+    # update가 0이면 그사이 탈퇴한 계정이다. 동의 없이 새로 만들지 않도록 가입 화면으로 보낸다.
+    if (
+        user is not None
+        and user.terms_agreed_at is not None
+        and User.objects.filter(pk=user.pk).update(email=account.email)
+    ):
         user.email = account.email
-        return _start_session(request, user)
-    user, _ = User.objects.update_or_create(
-        google_sub=account.sub,
-        defaults={"email": account.email},
-        create_defaults={
-            # sub는 255자까지 될 수 있어 150자 username에 넣지 않는다.
-            "username": f"google-{uuid.uuid4().hex}",
-            "email": account.email,
-            "password": make_password(None),
-        },
+        response = _start_session(request, user)
+        response.delete_cookie(SIGNUP_COOKIE)
+        return response
+    # 계정이 없으면 로그인 상태가 아니다. 이전 사용자의 세션은 로그아웃처럼 끝낸다.
+    _end_session(request)
+    # id: 이 가입 화면의 식별자. 쿠키는 탭끼리 공유하므로, 가입하기가 화면에 보인 계정인지 대조한다.
+    pending = {"sub": account.sub, "email": account.email, "id": uuid.uuid4().hex}
+    response = Response({"user": None, "signup": {"email": account.email, "id": pending["id"]}})
+    response.set_cookie(
+        SIGNUP_COOKIE,
+        signing.dumps(pending, salt=SIGNUP_SALT),
+        max_age=SIGNUP_WAIT_SECONDS,
+        secure=settings.SESSION_COOKIE_SECURE,
+        httponly=True,
+        samesite="Lax",
     )
-    return _start_session(request, user)
+    return response
+
+
+@api_view(["POST"])
+@authentication_classes([SessionUser])
+@permission_classes([])
+def signup(request):
+    """가입하기: 이용약관에 동의하면 쿠키에 둔 검증한 Google 계정으로 계정을 만들고 로그인한다.
+
+    본문의 이메일·sub는 보지 않는다. 동의 기록이 없던 기존 계정은 그 행에 기록을 채운다.
+    본문의 signup은 가입 화면이 받은 식별자다. 그사이 다른 탭에서 다른 계정으로 Google 로그인해
+    쿠키가 바뀌었으면, 화면에 보이지 않은 계정을 만들지 않고 거부한다.
+    """
+    require_csrf(request)
+    try:
+        # 서명 시각부터 센다. 쿠키 만료를 믿지 않고 서버가 다시 본다.
+        pending = signing.loads(
+            request.COOKIES.get(SIGNUP_COOKIE, ""),
+            salt=SIGNUP_SALT,
+            max_age=SIGNUP_WAIT_SECONDS,
+        )
+    except signing.BadSignature as e:
+        raise BusinessError(AuthError.SIGNUP_EXPIRED, "검증한 Google 로그인이 없거나 만료") from e
+    if _field(request, "agree_terms", AuthError.TERMS_NOT_AGREED) is not True:
+        raise BusinessError(AuthError.TERMS_NOT_AGREED, "이용약관 동의 없음")
+    if request.data.get("signup") != pending["id"]:
+        raise BusinessError(AuthError.ACCOUNT_MISMATCH, "가입 화면의 계정과 쿠키의 계정이 다름")
+    agreement = {
+        "email": pending["email"],
+        "terms_version": TERMS_VERSION,
+        "privacy_version": PRIVACY_VERSION,
+        "terms_agreed_at": timezone.now(),
+    }
+    # 막힌 계정이라 로그인하지 못하면 동의 기록도 되돌린다.
+    with transaction.atomic():
+        user, _ = User.objects.update_or_create(
+            google_sub=pending["sub"],
+            defaults=agreement,
+            create_defaults={
+                **agreement,
+                # sub는 255자까지 될 수 있어 150자 username에 넣지 않는다.
+                "username": f"google-{uuid.uuid4().hex}",
+                "password": make_password(None),
+            },
+        )
+        response = _start_session(request, user)
+    response.delete_cookie(SIGNUP_COOKIE)
+    return response
+
+
+def _end_session(request):
+    """웹 로그아웃. 이 세션이 발급한 확장 토큰도 폐기한다(다른 세션의 연결은 남긴다)."""
+    with transaction.atomic():
+        if request.user.is_authenticated:
+            _lock_user(request.user)
+            tokens.revoke_session(request.user, request._request.session.session_key)
+        # 세션 행도 같은 트랜잭션에서 지워, 기다리던 토큰 발급이 끝난 세션을 보게 한다.
+        auth.logout(request._request)
 
 
 @api_view(["POST"])
@@ -127,12 +207,7 @@ def google_login(request):
 def logout(request):
     """웹 로그아웃. 이 세션이 발급한 확장 토큰도 폐기한다(다른 세션의 연결은 남긴다)."""
     require_csrf(request)
-    with transaction.atomic():
-        if request.user.is_authenticated:
-            _lock_user(request.user)
-            tokens.revoke_session(request.user, request._request.session.session_key)
-        # 세션 행도 같은 트랜잭션에서 지워, 기다리던 토큰 발급이 끝난 세션을 보게 한다.
-        auth.logout(request._request)
+    _end_session(request)
     return Response(_user_body(request._request.user))
 
 

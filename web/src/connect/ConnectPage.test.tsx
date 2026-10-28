@@ -86,43 +86,130 @@ test("Google이 준 ID 토큰을 CSRF 값과 함께 보내고 로그인한 계�
   const login = calls.find((c) => c.url === "/api/auth/google/")!;
   expect(login.method).toBe("POST");
   expect(login.headers["X-CSRFToken"]).toBe("csrf-value");
-  // 체크하지 않았으면 확인 없음으로 보낸다. 이미 있는 계정은 서버가 그대로 로그인시킨다(#251).
-  expect(JSON.parse(login.body!)).toEqual({
-    credential: "google-id-token",
-    age_confirmed: false,
-  });
+  expect(JSON.parse(login.body!)).toEqual({ credential: "google-id-token" });
 });
 
-test("만 14세 이상에 체크하고 로그인하면 확인 값을 함께 보낸다", async () => {
-  responses["POST /api/auth/google/"] = () =>
-    json({ user: { email: "me@example.com", account: "42" } });
-  render(<ConnectPage />);
-  await screen.findByRole("heading", { name: "Dragram에 로그인" });
-
-  await userEvent.click(
-    screen.getByRole("checkbox", { name: "만 14세 이상이에요" }),
-  );
-  await act(async () => googleCallback!({ credential: "google-id-token" }));
-
-  await screen.findByText("me@example.com");
-  const login = calls.find((c) => c.url === "/api/auth/google/")!;
-  expect(JSON.parse(login.body!)).toEqual({
-    credential: "google-id-token",
-    age_confirmed: true,
+describe("가입 화면(#257)", () => {
+  beforeEach(() => {
+    responses["POST /api/auth/google/"] = () =>
+      json({ user: null, signup: { email: "me@example.com", id: "signup-1" } });
+    responses["POST /api/auth/signup/"] = () =>
+      json({ user: { email: "me@example.com", account: "42" } });
   });
-});
 
-test("처음 가입인데 연령 확인이 없어 거부되면 확인하라고 안내한다", async () => {
-  responses["POST /api/auth/google/"] = () =>
-    json({ error: "AUTH:AGE_NOT_CONFIRMED" }, 403);
-  render(<ConnectPage />);
-  await screen.findByRole("heading", { name: "Dragram에 로그인" });
+  async function reachSignup() {
+    render(<ConnectPage />);
+    await screen.findByRole("heading", { name: "Dragram에 로그인" });
+    // 이 화면의 Google 버튼을 그린 뒤에야 콜백이 이 화면 것이다(앞 테스트의 콜백이 남아 있다).
+    await waitFor(() => expect(renderButton).toHaveBeenCalledTimes(1));
+    await act(async () => googleCallback!({ credential: "google-id-token" }));
+    await screen.findByRole("heading", { name: "Dragram에 가입" });
+  }
 
-  await act(async () => googleCallback!({ credential: "google-id-token" }));
+  test("처음 로그인하면 가입 화면을 보이고, 약관에 체크해야 가입할 수 있다", async () => {
+    await reachSignup();
 
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "만 14세 이상만 가입할 수 있어요",
-  );
+    expect(screen.getByText("me@example.com")).toBeInTheDocument();
+    const join = screen.getByRole("button", { name: "가입하기" });
+    expect(join).toBeDisabled();
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "이용약관에 동의해요" }),
+    );
+    await userEvent.click(join);
+
+    expect(
+      await screen.findByRole("heading", { name: "로그인했어요" }),
+    ).toBeInTheDocument();
+    const signup = calls.find((c) => c.url === "/api/auth/signup/")!;
+    expect(signup.method).toBe("POST");
+    expect(signup.headers["X-CSRFToken"]).toBe("csrf-value");
+    // 화면에 보인 가입을 함께 보내, 그사이 다른 탭에서 바뀐 계정으로 가입하지 않게 한다.
+    expect(JSON.parse(signup.body!)).toEqual({
+      agree_terms: true,
+      signup: "signup-1",
+    });
+  });
+
+  test("동의 체크는 이용약관 하나이고, 처리방침은 링크로만 안내한다", async () => {
+    await reachSignup();
+
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "이용약관" })).toHaveAttribute(
+      "href",
+      "/terms",
+    );
+    expect(
+      screen.getByRole("link", { name: "개인정보처리방침" }),
+    ).toHaveAttribute("href", "/privacy");
+    expect(
+      screen.getByText("Dragram은 만 14세 이상만 쓸 수 있어요."),
+    ).toBeInTheDocument();
+    // 처리방침은 동의받지 않는다. '동의' 문구는 약관 체크에만 있다.
+    expect(screen.getAllByText(/동의/)).toHaveLength(1);
+  });
+
+  test("취소하면 아무것도 보내지 않고 로그인 카드로 돌아간다", async () => {
+    await reachSignup();
+
+    await userEvent.click(screen.getByRole("button", { name: "취소" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Dragram에 로그인" }),
+    ).toBeInTheDocument();
+    expect(calls.some((c) => c.url === "/api/auth/signup/")).toBe(false);
+  });
+
+  test("가입을 기다린 시간이 지났으면 다시 로그인하라고 안내한다", async () => {
+    responses["POST /api/auth/signup/"] = () =>
+      json({ error: "AUTH:SIGNUP_EXPIRED" }, 401);
+    await reachSignup();
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "이용약관에 동의해요" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Dragram에 로그인" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "가입 시간이 지났어요. 다시 로그인해 주세요.",
+    );
+  });
+
+  test("다른 탭에서 다른 계정으로 로그인해 가입이 바뀌었으면 다시 로그인하라고 안내한다", async () => {
+    responses["POST /api/auth/signup/"] = () =>
+      json({ error: "AUTH:ACCOUNT_MISMATCH" }, 409);
+    await reachSignup();
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "이용약관에 동의해요" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Dragram에 로그인" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "다른 탭에서 다른 계정으로 로그인했어요. 가입할 계정으로 다시 로그인해 주세요.",
+    );
+  });
+
+  test("가입하지 못하면 가입 화면에서 다시 시도하게 한다", async () => {
+    responses["POST /api/auth/signup/"] = () => json({}, 500);
+    await reachSignup();
+
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "이용약관에 동의해요" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "가입하지 못했어요. 다시 시도해 주세요.",
+    );
+    expect(screen.getByRole("button", { name: "가입하기" })).toBeEnabled();
+  });
 });
 
 test("로그인한 상태면 이메일과 로그아웃을 보이고, 로그아웃하면 로그인 버튼으로 돌아간다", async () => {

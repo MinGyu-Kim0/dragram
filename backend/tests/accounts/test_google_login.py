@@ -4,6 +4,7 @@ from datetime import date
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.contrib.sessions.models import Session
 from django.test import Client
 from google.auth import exceptions as google_exceptions
 
@@ -125,6 +126,18 @@ def test_signup_without_terms_agreement_is_refused(web, google_says, body):
     assert web.get("/api/auth/me/").json() == {"user": None}
     # 거부해도 기다리던 가입은 남아, 체크하고 다시 누르면 된다.
     assert signup(web).status_code == 200
+
+
+def test_waiting_signup_leaves_nothing_in_the_database(web, google_says):
+    # 동의하지 않고 나간 사람의 이메일·Google 식별자는 세션 행에도 남기지 않는다.
+    google_says(claims(sub="sub-not-stored", email="left@example.com"))
+
+    google_login(web)
+
+    assert not any(
+        "left@example.com" in str(s.get_decoded()) or "sub-not-stored" in str(s.get_decoded())
+        for s in Session.objects.all()
+    )
 
 
 def test_signup_without_a_verified_google_login_is_refused(web):

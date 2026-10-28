@@ -1,12 +1,12 @@
 """웹 로그인 세션 API. 웹과 API는 같은 출처에서 Django 세션·CSRF를 쓴다(#92)."""
 
-import time
 import uuid
 from datetime import date
 
 from django.conf import settings
 from django.contrib import auth
 from django.contrib.auth.hashers import make_password
+from django.core import signing
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
@@ -93,8 +93,10 @@ def me(request):
     return Response(_user_body(request.user))
 
 
-# 가입을 기다리는 동안 세션에 두는 검증한 Google 계정. 이 시간 안에 '가입하기'를 눌러야 한다.
-SIGNUP_KEY = "signup"
+# 가입을 기다리는 동안 검증한 Google 계정을 담는 서명한 쿠키. 이 시간 안에 '가입하기'를 눌러야 한다.
+# 세션(DB 행)에 두지 않아, 동의하지 않고 나간 사람의 이메일·sub가 서버에 남지 않는다.
+SIGNUP_COOKIE = "dragram_signup"
+SIGNUP_SALT = "accounts.signup"
 SIGNUP_WAIT_SECONDS = 10 * 60
 # 가입할 때 기록하는 판. 웹 TermsPage·PrivacyPage의 최신 시행일과 맞춘다.
 TERMS_VERSION = date(2026, 10, 28)
@@ -108,11 +110,11 @@ def google_login(request):
     """Google ID 토큰으로 로그인한다. 이메일은 매번 갱신한다.
 
     이용약관에 동의한 계정만 바로 로그인한다. 처음 온 사람과 동의 기록이 없는 계정은 계정을
-    만들거나 고치지 않고, 검증한 Google 계정을 세션에 잠시 둔 채 가입 화면을 보이게 한다(#257).
+    만들거나 고치지 않고, 검증한 Google 계정을 서명한 쿠키에 잠시 둔 채 가입 화면을 보이게
+    한다(#257).
     """
     require_csrf(request)
     account = google.verify(_field(request, "credential", AuthError.GOOGLE_TOKEN_INVALID))
-    session = request._request.session
     user = User.objects.filter(google_sub=account.sub).first()
     if user is not None and not user.is_active:
         raise BusinessError(AuthError.ACCOUNT_DISABLED, "막힌 계정")
@@ -123,32 +125,41 @@ def google_login(request):
         and User.objects.filter(pk=user.pk).update(email=account.email)
     ):
         user.email = account.email
-        session.pop(SIGNUP_KEY, None)
-        return _start_session(request, user)
+        response = _start_session(request, user)
+        response.delete_cookie(SIGNUP_COOKIE)
+        return response
     # 계정이 없으면 로그인 상태가 아니다. 이전 사용자의 세션은 로그아웃처럼 끝낸다.
     _end_session(request)
-    session[SIGNUP_KEY] = {
-        "sub": account.sub,
-        "email": account.email,
-        "until": time.time() + SIGNUP_WAIT_SECONDS,
-    }
-    return Response({"user": None, "signup": {"email": account.email}})
+    response = Response({"user": None, "signup": {"email": account.email}})
+    response.set_cookie(
+        SIGNUP_COOKIE,
+        signing.dumps({"sub": account.sub, "email": account.email}, salt=SIGNUP_SALT),
+        max_age=SIGNUP_WAIT_SECONDS,
+        secure=settings.SESSION_COOKIE_SECURE,
+        httponly=True,
+        samesite="Lax",
+    )
+    return response
 
 
 @api_view(["POST"])
 @authentication_classes([SessionUser])
 @permission_classes([])
 def signup(request):
-    """가입하기: 이용약관에 동의하면 세션에 둔 검증한 Google 계정으로 계정을 만들고 로그인한다.
+    """가입하기: 이용약관에 동의하면 쿠키에 둔 검증한 Google 계정으로 계정을 만들고 로그인한다.
 
     본문의 이메일·sub는 보지 않는다. 동의 기록이 없던 기존 계정은 그 행에 기록을 채운다.
     """
     require_csrf(request)
-    session = request._request.session
-    pending = session.get(SIGNUP_KEY)
-    if pending is None or pending["until"] < time.time():
-        session.pop(SIGNUP_KEY, None)
-        raise BusinessError(AuthError.SIGNUP_EXPIRED, "검증한 Google 로그인이 없거나 만료")
+    try:
+        # 서명 시각부터 센다. 쿠키 만료를 믿지 않고 서버가 다시 본다.
+        pending = signing.loads(
+            request.COOKIES.get(SIGNUP_COOKIE, ""),
+            salt=SIGNUP_SALT,
+            max_age=SIGNUP_WAIT_SECONDS,
+        )
+    except signing.BadSignature as e:
+        raise BusinessError(AuthError.SIGNUP_EXPIRED, "검증한 Google 로그인이 없거나 만료") from e
     if _field(request, "agree_terms", AuthError.TERMS_NOT_AGREED) is not True:
         raise BusinessError(AuthError.TERMS_NOT_AGREED, "이용약관 동의 없음")
     agreement = {
@@ -157,7 +168,6 @@ def signup(request):
         "privacy_version": PRIVACY_VERSION,
         "terms_agreed_at": timezone.now(),
     }
-    del session[SIGNUP_KEY]
     # 막힌 계정이라 로그인하지 못하면 동의 기록도 되돌린다.
     with transaction.atomic():
         user, _ = User.objects.update_or_create(
@@ -170,7 +180,9 @@ def signup(request):
                 "password": make_password(None),
             },
         )
-        return _start_session(request, user)
+        response = _start_session(request, user)
+    response.delete_cookie(SIGNUP_COOKIE)
+    return response
 
 
 def _end_session(request):

@@ -159,36 +159,44 @@ function SignUp({
 
   return (
     <>
-      <h1>Dragram에 가입</h1>
-      <p className="secondary">
-        <strong>{signup.email}</strong> 계정으로 가입해요.
-      </p>
+      <p className="brand">Dragram</p>
+      <div className="title">
+        <h1>거의 다 됐어요</h1>
+        <p className="secondary">
+          약관을 확인하고 가입하면 확장 프로그램을 연결할 수 있어요.
+        </p>
+      </div>
+      <div className="account">
+        <span className="avatar" aria-hidden="true">
+          {signup.email[0].toUpperCase()}
+        </span>
+        <span className="account-text">
+          <span className="label">Google 계정</span>
+          <strong>{signup.email}</strong>
+        </span>
+      </div>
       {failed && (
         <p role="alert" className="danger">
           가입하지 못했어요. 다시 시도해 주세요.
         </p>
       )}
-      <label className="terms-check">
-        <input
-          type="checkbox"
-          checked={agreed}
-          onChange={(e) => setAgreed(e.target.checked)}
-        />
-        <span>
-          <a href="/terms" target="_blank" rel="noreferrer">
-            이용약관
-          </a>
-          에 동의해요
-        </span>
-      </label>
-      <p className="secondary">Dragram은 만 14세 이상만 쓸 수 있어요.</p>
-      <p className="muted">
-        Dragram이 어떤 정보를 어떻게 처리하는지는{" "}
-        <a href="/privacy" target="_blank" rel="noreferrer">
-          개인정보처리방침
-        </a>
-        에서 볼 수 있어요.
-      </p>
+      {/* 박스 전체가 체크 상태를 따라 바뀐다. 14세 안내는 체크박스 이름에 넣지 않으려고 label 밖에 둔다. */}
+      <div className="terms-box">
+        <label className="terms-check">
+          <input
+            type="checkbox"
+            checked={agreed}
+            onChange={(e) => setAgreed(e.target.checked)}
+          />
+          <span>
+            <a href="/terms" target="_blank" rel="noreferrer">
+              이용약관
+            </a>
+            에 동의해요
+          </span>
+        </label>
+        <p className="hint">Dragram은 만 14세 이상만 쓸 수 있어요.</p>
+      </div>
       <button
         type="button"
         className="primary-button"
@@ -199,12 +207,19 @@ function SignUp({
       </button>
       <button
         type="button"
-        className="secondary-button"
+        className="text-button"
         disabled={busy}
         onClick={onCancel}
       >
         취소
       </button>
+      <p className="muted footnote">
+        Dragram이 어떤 정보를 어떻게 처리하는지는{" "}
+        <a href="/privacy" target="_blank" rel="noreferrer">
+          개인정보처리방침
+        </a>
+        에서 볼 수 있어요.
+      </p>
     </>
   );
 }

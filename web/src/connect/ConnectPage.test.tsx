@@ -103,12 +103,14 @@ describe("가입 화면(#257)", () => {
     // 이 화면의 Google 버튼을 그린 뒤에야 콜백이 이 화면 것이다(앞 테스트의 콜백이 남아 있다).
     await waitFor(() => expect(renderButton).toHaveBeenCalledTimes(1));
     await act(async () => googleCallback!({ credential: "google-id-token" }));
-    await screen.findByRole("heading", { name: "Dragram에 가입" });
+    await screen.findByRole("heading", { name: "거의 다 됐어요" });
   }
 
   test("처음 로그인하면 가입 화면을 보이고, 약관에 체크해야 가입할 수 있다", async () => {
     await reachSignup();
 
+    // 가입할 Google 계정을 따로 묶어 보인다(#269).
+    expect(screen.getByText("Google 계정")).toBeInTheDocument();
     expect(screen.getByText("me@example.com")).toBeInTheDocument();
     const join = screen.getByRole("button", { name: "가입하기" });
     expect(join).toBeDisabled();
@@ -129,6 +131,17 @@ describe("가입 화면(#257)", () => {
       agree_terms: true,
       signup: "signup-1",
     });
+  });
+
+  test("약관 체크는 키보드로도 켜고 끌 수 있다", async () => {
+    await reachSignup();
+    const agree = screen.getByRole("checkbox", { name: "이용약관에 동의해요" });
+
+    agree.focus();
+    await userEvent.keyboard(" ");
+
+    expect(agree).toBeChecked();
+    expect(screen.getByRole("button", { name: "가입하기" })).toBeEnabled();
   });
 
   test("동의 체크는 이용약관 하나이고, 처리방침은 링크로만 안내한다", async () => {

@@ -257,3 +257,13 @@ test("문장이 바뀐 뒤 늦게 온 이전 문장의 분석은 보이지 않�
   expect(screen.getByText("두 번째 문장")).toBeInTheDocument();
   expect(screen.queryByText("나는 3명이서 달리고 있다.")).toBeNull();
 });
+
+test("동시 요청 상한이면 잠시 뒤 다시 열라고 안내한다", async () => {
+  responses["/api/my-sentences/7/"] = () =>
+    json({ error: "ANALYSIS:TOO_MANY_REQUESTS" }, 429);
+  open();
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "다른 분석이 진행 중이에요. 잠시 뒤 다시 열어 주세요.",
+  );
+});

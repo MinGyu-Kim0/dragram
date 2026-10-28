@@ -9,6 +9,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from accounts.views import SessionUser, require_csrf
+from analysis import limits
 from analysis.models import UserSentence
 from analysis.normalize import analysis_text
 from analysis.presenter import Presenter
@@ -68,11 +69,16 @@ def _detail(request, sentence_id):
     )
     if sentence is None:
         raise BusinessError(UserSentenceError.NOT_FOUND, "내 기록에 없는 문장")
-    text, origins = analysis_text(sentence.original_text)
-    presenter = Presenter(Sentence(text), sentence.original_text, origins)
-    if presenter.sentence.sentence_hash != sentence.analysis.sentence_hash:
-        raise BusinessError(UserSentenceError.OUTDATED, "기록의 분석 키가 지금 원문과 다름")
-    event = presenter.analysis_event(sentence.analysis)
+    # 형태소 분석·패턴 매칭을 다시 하므로 분석 API와 같은 사용자별 동시 요청 셈에 넣는다.
+    leave = limits.enter(request.user)
+    try:
+        text, origins = analysis_text(sentence.original_text)
+        presenter = Presenter(Sentence(text), sentence.original_text, origins)
+        if presenter.sentence.sentence_hash != sentence.analysis.sentence_hash:
+            raise BusinessError(UserSentenceError.OUTDATED, "기록의 분석 키가 지금 원문과 다름")
+        event = presenter.analysis_event(sentence.analysis)
+    finally:
+        leave()
     del event["type"]
     return Response(
         {

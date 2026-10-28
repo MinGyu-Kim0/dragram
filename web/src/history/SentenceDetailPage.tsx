@@ -31,6 +31,8 @@ function problemOf(e: unknown) {
     return "이 문장을 찾지 못했어요. 이미 지웠을 수 있어요.";
   if (e instanceof AuthError && e.code === "SENTENCE:OUTDATED")
     return "이 문장의 분석 방식이 바뀌었어요. 확장 프로그램에서 이 문장을 다시 분석하면 볼 수 있어요.";
+  if (e instanceof AuthError && e.code === "ANALYSIS:TOO_MANY_REQUESTS")
+    return "다른 분석이 진행 중이에요. 잠시 뒤 다시 열어 주세요.";
   return "분석을 불러오지 못했어요. 페이지를 새로 고쳐 주세요.";
 }
 

@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client
 from django.utils import timezone
 
+from analysis import limits
 from analysis.models import SentenceAnalysis, UserSentence
 from tests.accounts.test_withdrawal import web_session
 from tests.analysis.helpers import analyze, connected_client, new_pattern
@@ -197,3 +198,21 @@ def test_detail_of_a_record_pointing_to_another_key_is_outdated(fake_llm):
     response = web.get(f"{LIST}{target.pk}/")
 
     assert (response.status_code, response.json()) == (409, {"error": "SENTENCE:OUTDATED"})
+
+
+def test_detail_counts_toward_the_concurrent_request_limit(fake_llm, settings):
+    me = analyzed("me", fake_llm, "私は学生です。")
+    target = row(me, "私は学生です。")
+    web, _ = web_session(me)
+    settings.ANALYSIS_MAX_CONCURRENT = 1
+    held = limits.enter(me)
+
+    busy = web.get(f"{LIST}{target.pk}/")
+    held()
+    free = web.get(f"{LIST}{target.pk}/")
+
+    # 상세도 형태소 분석·패턴 매칭을 하므로 분석 API와 같은 셈에 든다.
+    assert (busy.status_code, busy.json()) == (429, {"error": "ANALYSIS:TOO_MANY_REQUESTS"})
+    assert free.status_code == 200
+    # 끝난 조회는 셈에서 빠진다.
+    limits.enter(me)()

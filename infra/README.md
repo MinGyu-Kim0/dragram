@@ -50,8 +50,10 @@ cd ~/dragram && docker compose up -d --force-recreate backend worker
 crontab -e
 ```
 ```
-5 15 * * * cd ~/dragram && docker compose exec -T backend python manage.py purge_withdrawn_usage
+5 15 * * * cd ~/dragram && docker compose exec -T backend python manage.py purge_withdrawn_usage || logger -t dragram "purge_withdrawn_usage 실패"
 ```
+
+실패하면 syslog에 남는다(`journalctl -t dragram`).
 
 등록됐는지 확인:
 ```bash

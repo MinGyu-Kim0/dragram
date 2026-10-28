@@ -21,18 +21,22 @@ def withdrawn_key(user):
     return salted_hmac("analysis.usage.withdrawn", sub, algorithm="sha256").hexdigest()
 
 
+# 탈퇴한 계정의 행에서 비우는 칸. 한도 계산에는 토큰 수·시각만 있으면 된다(#252). 종류·처리
+# 경로·호출 목적·성공 여부는 체크 제약과 NOT NULL 때문에 남는다.
+_BLANK_AFTER_WITHDRAWAL = {"analysis_id": None, "model": None, "attempt": None}
+
+
 def forget(user):
     """탈퇴하는 사용자의 사용량 기록을 지운다. 탈퇴 트랜잭션에서 사용자 행을 잠근 뒤 부른다.
 
     오늘 행만 계정 연결 대신 withdrawn_key를 남겨, 같은 Google 계정이 그날 다시 가입해도 하루
-    한도를 새로 받지 못하게 한다. 한도 계산에 필요한 토큰 수·시각만 두고 분석 연결·모델·재시도
-    차수는 비운다(#252). 종류·처리 경로·호출 목적·성공 여부는 체크 제약과 NOT NULL 때문에
-    남는다. 이 행은 자정이 지나면 purge_withdrawn이 지운다.
+    한도를 새로 받지 못하게 한다. 남기는 행은 _BLANK_AFTER_WITHDRAWAL의 칸을 비운다. 이 행은
+    자정이 지나면 purge_withdrawn이 지운다.
     """
     key = withdrawn_key(user)
     if key:
         UsageLog.objects.filter(user=user, created_at__gte=today_start()).update(
-            user=None, withdrawn_key=key, analysis=None, model=None, attempt=None
+            user=None, withdrawn_key=key, **_BLANK_AFTER_WITHDRAWAL
         )
     UsageLog.objects.filter(user=user).delete()
     purge_withdrawn()
@@ -106,9 +110,9 @@ class RequestUsage:
                     path=path,
                     user=requester,
                     withdrawn_key=key,
-                    # 탈퇴한 계정의 행에는 한도 계산에 필요 없는 분석 연결을 남기지 않는다(#252).
-                    analysis_id=None if key else analysis_id,
+                    analysis_id=analysis_id,
                     success=success,
+                    **(_BLANK_AFTER_WITHDRAWAL if key else {}),
                 )
             )
 
@@ -128,21 +132,24 @@ class RequestUsage:
         """
         with transaction.atomic():
             requester = _lock_requester(self._user)
-            # 요청한 사용자가 그사이 탈퇴했으면 그 Google 계정의 그날 사용량으로 남기되, 토큰 수·
-            # 시각만 두고 분석 연결과 모델은 비운다(#252).
+            # 요청한 사용자가 그사이 탈퇴했으면 그 Google 계정의 그날 사용량으로 남긴다(#252).
             key = None if requester else self._withdrawn_key or withdrawn_key(self._user)
+            fields = {
+                "analysis_id": self._analysis_id,
+                "model": model,
+                "attempt": attempt,
+                **(_BLANK_AFTER_WITHDRAWAL if key else {}),
+            }
             row = UsageLog.objects.create(
                 kind=UsageLog.Kind.LLM,
                 user=requester,
                 withdrawn_key=key,
-                analysis_id=None if key else self._analysis_id,
                 purpose=purpose,
-                model=None if key else model,
                 input_tokens=input_tokens,
                 cached_input_tokens=cached_input_tokens,
                 output_tokens=output_tokens,
                 success=success,
-                attempt=None if key else attempt,
+                **fields,
             )
         self._ids.append(row.pk)
 

@@ -1,0 +1,30 @@
+.connect .history {
+  width: min(100%, 640px);
+}
+
+.history ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 12px;
+}
+
+.history li {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+}
+
+.history .sentence {
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+
+.history .actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

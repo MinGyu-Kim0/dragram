@@ -420,3 +420,14 @@ describe("확장 연결(#109)", () => {
     expect(locked).toEqual(["dragram-connect", "dragram-connect"]);
   });
 });
+
+test("로그인하면 내 기록으로 가는 링크를 보인다", async () => {
+  responses["GET /api/auth/me/"] = () =>
+    json({ user: { email: "me@example.com", account: "42" } });
+  render(<ConnectPage />);
+
+  expect(await screen.findByRole("link", { name: "내 기록" })).toHaveAttribute(
+    "href",
+    "/sentences",
+  );
+});

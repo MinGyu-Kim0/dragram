@@ -51,6 +51,13 @@
   cursor: pointer;
 }
 
+.connect a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
 .connect .primary-button {
   min-height: 44px;
   padding: 0 18px;

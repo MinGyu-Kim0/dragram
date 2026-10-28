@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from accounts import google
 from accounts.models import ExtensionToken
-from analysis import jobs, limits
+from analysis import jobs, limits, usage
 from analysis.models import DesignatedName, SentenceAnalysis, UsageLog, UserSentence
 from tests.analysis.helpers import analyze, connected_client
 
@@ -321,3 +321,18 @@ def test_purge_command_deletes_only_withdrawn_usage_from_before_midnight():
     call_command("purge_withdrawn_usage")
 
     assert set(UsageLog.objects.values_list("pk", flat=True)) == {kept.pk, ordinary.pk}
+
+
+def test_request_record_started_after_withdrawal_keeps_only_tokens_and_time(fake_llm):
+    # 인증을 마친 요청이 처리 경로를 정하기 직전에 탈퇴가 커밋된 경우(PR #259 리뷰).
+    me = User.objects.create(username="me", email="me@example.com", google_sub="google-sub-1")
+    fake_llm.response = {"translation_ko": "학생입니다"}
+    analyze(connected_client("someone"), "私は学生です。")
+    analysis = SentenceAnalysis.objects.get()
+    User.objects.filter(pk=me.pk).delete()
+
+    usage.RequestUsage.start(UsageLog.Path.LLM, me, analysis.pk)
+
+    row = carried_rows().get()
+    assert row.user_id is None
+    assert row.analysis_id is None

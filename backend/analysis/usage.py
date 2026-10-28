@@ -110,9 +110,8 @@ class RequestUsage:
                     path=path,
                     user=requester,
                     withdrawn_key=key,
-                    analysis_id=analysis_id,
                     success=success,
-                    **(_BLANK_AFTER_WITHDRAWAL if key else {}),
+                    **{"analysis_id": analysis_id, **(_BLANK_AFTER_WITHDRAWAL if key else {})},
                 )
             )
 

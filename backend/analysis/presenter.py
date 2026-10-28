@@ -1,7 +1,7 @@
 """원문 기준 응답 이벤트."""
 
 from analysis import patterns, words
-from analysis.korean_reading import korean_reading
+from analysis.korean_reading import korean_reading, place_reading
 from analysis.models import (
     GrammarUsage,
     ReviewStatus,
@@ -336,7 +336,12 @@ class Presenter:
                         self.origins[morph.begin][0] : self.origins[morph.end - 1][1]
                     ],
                     "reading": reading if words.is_kana(reading) else "",
-                    "reading_ko": korean_reading(reading),
+                    # SudachiPy가 지명으로 본 단어는 행정 단위를 한자음으로 적는다(#267).
+                    "reading_ko": (
+                        place_reading(s.text[morph.begin : morph.end], reading)
+                        if morph.pos3 == "地名"
+                        else korean_reading(reading)
+                    ),
                     "tags": ["proper_noun"],
                     "in_dictionary": False,
                     "is_name": True,

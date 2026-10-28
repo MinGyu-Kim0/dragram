@@ -171,3 +171,30 @@ def test_existing_word_in_a_name_span_is_not_duplicated(client, fake_llm):
     assert word["dictionary_form"] == "春"
     assert word["sense"]["gloss_en"] == ["spring"]
     assert not word.get("is_name")
+
+
+def test_place_name_reads_its_administrative_unit_in_korean(client, fake_llm):
+    # SudachiPy는 愛知県을 행정 단위까지 한 단어(固有名詞·地名)로 본다(#267).
+    fake_llm.response = {
+        "translation_ko": "아이치현에 산다",
+        "name_spans": [name([0], "place")],
+    }
+
+    words = analyze(client, "愛知県に住む").json()["words"]
+
+    place = next(w for w in words if w["dictionary_form"] == "愛知県")
+    assert (place["reading"], place["reading_ko"]) == ("あいちけん", "아이치현")
+    assert UserSentence.objects.get().name_readings == [
+        {"start": 0, "end": 3, "reading": "あいちけん", "reading_ko": "아이치현"}
+    ]
+
+
+def test_person_name_keeps_plain_reading(client, fake_llm):
+    # 지명이 아닌 이름은 지금처럼 가나를 그대로 옮긴다.
+    fake_llm.response = {"translation_ko": "니시야마 씨", "name_spans": [name([0, 1])]}
+
+    words = analyze(client, "西山さん").json()["words"]
+
+    person = next(w for w in words if w["dictionary_form"] == "西山")
+
+    assert person["reading_ko"] == "니시야마"

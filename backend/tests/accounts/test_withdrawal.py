@@ -40,7 +40,7 @@ def google_login(web, monkeypatch, settings, sub):
     web.get("/api/auth/me/")
     web.post(
         "/api/auth/google/",
-        {"credential": "google-id-token"},
+        {"credential": "google-id-token", "age_confirmed": True},
         content_type="application/json",
         HTTP_X_CSRFTOKEN=web.cookies["csrftoken"].value,
     )
@@ -132,7 +132,7 @@ def test_logging_in_again_with_the_same_google_account_starts_an_empty_account(
     web.get("/api/auth/me/")
     response = web.post(
         "/api/auth/google/",
-        {"credential": "google-id-token"},
+        {"credential": "google-id-token", "age_confirmed": True},
         content_type="application/json",
         HTTP_X_CSRFTOKEN=web.cookies["csrftoken"].value,
     )

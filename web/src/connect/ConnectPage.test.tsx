@@ -86,7 +86,43 @@ test("Google이 준 ID 토큰을 CSRF 값과 함께 보내고 로그인한 계�
   const login = calls.find((c) => c.url === "/api/auth/google/")!;
   expect(login.method).toBe("POST");
   expect(login.headers["X-CSRFToken"]).toBe("csrf-value");
-  expect(JSON.parse(login.body!)).toEqual({ credential: "google-id-token" });
+  // 체크하지 않았으면 확인 없음으로 보낸다. 이미 있는 계정은 서버가 그대로 로그인시킨다(#251).
+  expect(JSON.parse(login.body!)).toEqual({
+    credential: "google-id-token",
+    age_confirmed: false,
+  });
+});
+
+test("만 14세 이상에 체크하고 로그인하면 확인 값을 함께 보낸다", async () => {
+  responses["POST /api/auth/google/"] = () =>
+    json({ user: { email: "me@example.com", account: "42" } });
+  render(<ConnectPage />);
+  await screen.findByRole("heading", { name: "Dragram에 로그인" });
+
+  await userEvent.click(
+    screen.getByRole("checkbox", { name: "만 14세 이상이에요" }),
+  );
+  await act(async () => googleCallback!({ credential: "google-id-token" }));
+
+  await screen.findByText("me@example.com");
+  const login = calls.find((c) => c.url === "/api/auth/google/")!;
+  expect(JSON.parse(login.body!)).toEqual({
+    credential: "google-id-token",
+    age_confirmed: true,
+  });
+});
+
+test("처음 가입인데 연령 확인이 없어 거부되면 확인하라고 안내한다", async () => {
+  responses["POST /api/auth/google/"] = () =>
+    json({ error: "AUTH:AGE_NOT_CONFIRMED" }, 403);
+  render(<ConnectPage />);
+  await screen.findByRole("heading", { name: "Dragram에 로그인" });
+
+  await act(async () => googleCallback!({ credential: "google-id-token" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "만 14세 이상만 가입할 수 있어요",
+  );
 });
 
 test("로그인한 상태면 이메일과 로그아웃을 보이고, 로그아웃하면 로그인 버튼으로 돌아간다", async () => {

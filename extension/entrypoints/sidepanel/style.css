@@ -160,6 +160,37 @@ h1 {
   width: 60%;
 }
 
+/* 문법·단어 분석 대기: 탭 바로 밑의 회전 표시와 문구 */
+.analyzing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-surface-inset);
+  border-top-color: var(--color-brand);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
 /* 원문 루비(SudachiPy 읽기) */
 .original rt {
   font-size: 10px;

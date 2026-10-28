@@ -235,14 +235,7 @@ export function SentenceView({
         </div>
       )}
       {result?.status === "translated" && !tabbed && (
-        <div
-          role="status"
-          aria-label="문법·단어를 불러오는 중"
-          className="skeleton below-card"
-        >
-          <span />
-          <span />
-        </div>
+        <AnalyzingStatus className="below-card" />
       )}
       {result?.status === "failed" && !analysis && translation && (
         <p className="error below-card">
@@ -269,20 +262,15 @@ export function SentenceView({
               단어 {wordCount}
             </button>
           </div>
+          {/* 먼저 온 문법·단어만 보이는 중이다. 분석이 오면 더 채워지거나 바뀐다. 내용이 길어도
+              보이게 탭 바로 밑에 둔다. */}
+          {!analysis && <AnalyzingStatus />}
           <div role="tabpanel">
+            {/* 단어만 먼저 왔으면 문법 탭은 비워 둔다. 문법이 없다고 단정하지 않고 분석을 기다린다. */}
             {tab === "grammar" &&
             !analysis &&
-            tabbed.grammar.length + tabbed.checking.length === 0 ? (
-              // 단어만 먼저 왔다. 문법이 없다고 단정하지 않고 분석을 기다린다.
-              <div
-                role="status"
-                aria-label="문법을 불러오는 중"
-                className="skeleton below-card"
-              >
-                <span />
-                <span />
-              </div>
-            ) : tab === "grammar" ? (
+            tabbed.grammar.length + tabbed.checking.length ===
+              0 ? null : tab === "grammar" ? (
               <GrammarCards
                 text={text}
                 grammar={tabbed.grammar}
@@ -319,23 +307,19 @@ export function SentenceView({
                 }}
               />
             )}
-            {/* 먼저 온 문법·단어만 보이는 중이다. 분석이 오면 더 채워지거나 바뀐다. 문법 탭이 비어
-                위 스켈레톤을 보이면 겹쳐 보이지 않는다. */}
-            {!analysis &&
-              (tab === "words" ||
-                tabbed.grammar.length + tabbed.checking.length > 0) && (
-                <div
-                  role="status"
-                  aria-label="문법·단어를 불러오는 중"
-                  className="skeleton below-card"
-                >
-                  <span />
-                  <span />
-                </div>
-              )}
           </div>
         </>
       )}
     </>
+  );
+}
+
+// 문법·단어 분석을 기다리는 중. 탭 자리(탭이 생긴 뒤에는 탭 바로 밑)에 둔다.
+function AnalyzingStatus({ className = "" }: { className?: string }) {
+  return (
+    <p role="status" aria-label="분석 중" className={`analyzing ${className}`}>
+      <span aria-hidden="true" className="spinner" />
+      분석 중…
+    </p>
   );
 }

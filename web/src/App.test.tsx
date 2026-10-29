@@ -109,7 +109,7 @@ const FORBIDDEN_PHRASES = [
   "나이 제한이 없",
 ];
 
-test.each(["/privacy", "/privacy/2026-10-28"])(
+test.each(["/privacy", "/privacy/2026-10-29"])(
   "%s는 로그인 없이 처리방침의 모든 절을 보여준다",
   (path) => {
     open(path);
@@ -175,11 +175,7 @@ test("운영자가 확인하기 전인 값은 그럴듯한 값 대신 확인 필
   vi.stubEnv("VITE_PRIVACY_OFFICER", "");
   open("/privacy");
 
-  for (const value of [
-    "운영자 실명",
-    "실제 게시·시행일",
-    "탈퇴 후 보관의 법적 근거와 필요한 최소 항목",
-  ]) {
+  for (const value of ["운영자 실명"]) {
     expect(screen.getAllByText(`확인 필요: ${value}`).length).toBeGreaterThan(
       0,
     );
@@ -210,6 +206,9 @@ test("운영자가 확인한 값은 확인 필요 대신 확정 문구로 적는
     "운영자 한 명",
     "다른 사람의 이름이 들어 있더라도",
     "연령별 콘텐츠 필터를 두지 않습니다",
+    "제15조제1항제6호",
+    "서비스를 종료하면 파기합니다",
+    "서버 접속 기록을 3개월 보관합니다",
   ]) {
     expect(main).toHaveTextContent(fact);
   }
@@ -226,6 +225,12 @@ test("운영자가 확인한 값은 확인 필요 대신 확정 문구로 적는
     "실제 계약·처리 범위가 이 요건을 충족하는지",
     "서버 본 디스크의 저장 시 암호화 여부",
     "만 14~17세 미성년 이용자에 대해 OpenAI의 미성년자 보호·데이터 보관 조건을 충족하는 방식",
+    "실제 게시·시행일",
+    "탈퇴 후 보관의 법적 근거와 필요한 최소 항목",
+    "탈퇴 후 보관의 근거",
+    "개인정보가 포함된 공용 결과의 보유기간, 재사용의 적법한 근거, 삭제 요청 시 재사용 중단·삭제 절차",
+    "구체적 보유기간 또는 종료 기준, 개인정보 포함 결과의 삭제 기준",
+    "Dragram에 실제로 적용되는 법정 보존 의무",
   ]) {
     expect(main).not.toHaveTextContent(`확인 필요: ${resolved}`);
   }
@@ -254,8 +259,8 @@ test("이전 버전 목록은 버전별 주소로 연결된다", () => {
       screen.getByRole("region", {
         name: "15. 처리방침이 바뀌면 어떻게 알리나요?",
       }),
-    ).getByRole("link", { name: "2026년 10월 28일 시행" }),
-  ).toHaveAttribute("href", "/privacy/2026-10-28");
+    ).getByRole("link", { name: "2026년 10월 29일 시행" }),
+  ).toHaveAttribute("href", "/privacy/2026-10-29");
 });
 
 test("없는 버전 주소는 최신 처리방침으로 안내한다", () => {
@@ -305,13 +310,13 @@ const TERMS_SECTIONS = [
   "개인정보와 문의",
 ];
 
-test.each(["/terms", "/terms/2026-10-28"])(
+test.each(["/terms", "/terms/2026-10-29"])(
   "%s는 로그인 없이 약관의 모든 절을 처리방침과 같은 시행일로 보여준다",
   (path) => {
     open(path);
 
     expect(screen.getByRole("main")).toHaveTextContent(
-      "시행일: 2026년 10월 28일",
+      "시행일: 2026년 10월 29일",
     );
     for (const name of TERMS_SECTIONS) {
       expect(
@@ -351,9 +356,9 @@ test("약관은 결정한 제한·재사용·책임·변경 절차를 적는다"
   ).toHaveAttribute("href", "/privacy");
   expect(
     within(section("이전 버전")).getByRole("link", {
-      name: "2026년 10월 28일 시행",
+      name: "2026년 10월 29일 시행",
     }),
-  ).toHaveAttribute("href", "/terms/2026-10-28");
+  ).toHaveAttribute("href", "/terms/2026-10-29");
 });
 
 test("약관의 운영자 이름은 처리방침과 같은 설정값을 쓴다", () => {

@@ -5,7 +5,7 @@ import threading
 import pytest
 from django.db import connection
 
-from analysis import stream
+from analysis import stream, views
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -38,6 +38,25 @@ def test_same_sentence_is_reused_without_llm(client, fake_llm):
     assert response.status_code == 200
     assert response.json()["translation_ko"] == "나는 학생입니다."
     assert fake_llm.all_requests() == []
+
+
+def test_cached_response_reads_translation_with_the_grammar_after_a_concurrent_save(
+    client, fake_llm, monkeypatch
+):
+    fake_llm.response = {"translation_ko": "나는 학생입니다."}
+    analyze(client, "私は学生です。")
+    real = views.grown_spans
+
+    def saved_meanwhile(sentence):
+        # 캐시 행을 읽은 뒤 응답을 만들기 전에 다른 작업이 번역과 구간을 통째로 바꿨다.
+        SentenceAnalysis.objects.update(translation_ko="저는 학생이에요.")
+        return real(sentence)
+
+    monkeypatch.setattr(views, "grown_spans", saved_meanwhile)
+
+    events = analyze(client, "私は学生です。").events
+
+    assert [e["translation_ko"] for e in events] == ["저는 학생이에요."] * 2
 
 
 def test_stored_analysis_has_no_original_text_or_numbers(client, fake_llm):

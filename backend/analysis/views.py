@@ -1,4 +1,5 @@
 from asgiref.sync import sync_to_async
+from django.db import transaction
 from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
@@ -60,11 +61,14 @@ def _analyze(request):
     grown = grown_spans(sentence) if cached else []
     if cached and cached.matcher_version >= sentence.matcher_version and not grown:
         RequestUsage.start(UsageLog.Path.CACHE, user, cached.pk, success=True)
-        # 이미 다 있으니 한 번에 보낸다.
-        events = [
-            presenter.translation_event(cached.translation_ko),
-            presenter.analysis_event(cached),
-        ]
+        # 이미 다 있으니 한 번에 보낸다. 처음 읽은 행 뒤에 다른 작업이 번역과 구간을 바꿨을 수 있어,
+        # 분석 행을 잠가 행과 구간을 한 시점에서 다시 읽는다(rematch_fallback과 같다).
+        with transaction.atomic():
+            row = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=cached.pk)
+            events = [
+                presenter.translation_event(row.translation_ko),
+                presenter.analysis_event(row),
+            ]
         user_sentences.record(user, presenter.original, cached.pk, events[-1]["words"])
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
     if cached:

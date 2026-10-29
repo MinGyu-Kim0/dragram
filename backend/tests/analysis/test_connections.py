@@ -295,6 +295,24 @@ def test_expired_job_can_be_replaced(client, fake_llm):
     assert len(fake_llm.connection_requests) == 1
 
 
+def test_queued_job_skips_the_call_when_the_requester_ran_out_of_quota_meanwhile(
+    client, fake_llm, monkeypatch, settings
+):
+    pattern = missing(client, fake_llm)
+    queued = []
+    monkeypatch.setattr(jobs, "enqueue_connection", lambda *args: queued.append(args))
+    client.post(f"/api/grammar-patterns/{pattern.pk}/connection/")
+    # 큐에서 기다리는 사이 다른 분석이 한도를 다 썼다.
+    settings.ANALYSIS_DAILY_TOKEN_LIMIT = 1
+
+    run_connection(*queued[0])
+
+    assert fake_llm.connection_requests == []
+    pattern.refresh_from_db()
+    assert not pattern.connection_filled
+    assert pattern.connection_started_at is None
+
+
 def test_job_still_fills_the_connection_when_the_requester_withdrew_while_queued(
     client, fake_llm, monkeypatch
 ):

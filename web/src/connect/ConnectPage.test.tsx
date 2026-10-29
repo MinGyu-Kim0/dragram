@@ -393,7 +393,7 @@ describe("확장 연결(#109)", () => {
     reply = { ok: true };
     lastError = undefined;
     responses["GET /api/auth/me/"] = () =>
-      json({ user: { email: "me@example.com" } });
+      json({ user: { email: "me@example.com", account: "42" } });
     responses["POST /api/auth/extension-tokens/"] = () =>
       json({ token: "extension-token", account: "42" }, 201);
     vi.stubEnv("VITE_EXTENSION_ID", "dragram-extension-id");
@@ -436,6 +436,24 @@ describe("확장 연결(#109)", () => {
         },
       },
     ]);
+  });
+
+  test("그사이 다른 탭에서 다른 계정으로 로그인했으면 확장에 넘기지 않고 새로 고치라고 안내한다", async () => {
+    responses["POST /api/auth/extension-tokens/"] = () =>
+      json({ token: "other-token", account: "99" }, 201);
+    render(<ConnectPage />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "확장 프로그램 연결" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "다른 계정으로 로그인되어 있어요",
+    );
+    expect(sent).toEqual([]);
+    expect(
+      screen.queryByRole("heading", { name: "연결했어요" }),
+    ).not.toBeInTheDocument();
   });
 
   test("확장이 응답하지 않으면 설치를 확인하라고 안내한다", async () => {

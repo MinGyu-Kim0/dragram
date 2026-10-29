@@ -4,7 +4,7 @@ from unittest.mock import ANY
 
 import pytest
 
-from analysis import patterns
+from analysis import patterns, review
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, connected_client, new_pattern, span_answer
@@ -237,3 +237,54 @@ def test_rematch_sends_flat_grammar_first_and_parts_in_the_analysis(
     assert outline(first) == [("연결", []), ("완료", [])]
     assert all("parts" not in item for item in first)
     assert outline(response.json()["grammar"]) == expected
+
+
+# 토큰: 0 先生 / 1 に / 2 なる
+NI = new_pattern(
+    (1, "lemma"),
+    pattern_name="に",
+    usage_name="변화의 결과",
+    explanation_ko="변화가 이르는 결과를 나타낸다",
+    example_ja="氷が水に変わる",
+)
+NINARU = new_pattern(
+    (1, "lemma"),
+    (2, "lemma"),
+    pattern_name="명사+になる",
+    usage_name="변화",
+    explanation_ko="어떤 상태로 바뀜을 나타낸다",
+    example_ja="春になる",
+)
+
+
+@pytest.mark.parametrize("usage_closed", [False, True])
+def test_grammar_expression_proposed_over_an_existing_span_shows_it_in_its_parts(
+    client, fake_llm, usage_closed
+):
+    # に가 먼저 패턴으로 등록된 뒤, 그 구간을 품는 になる가 새 구문으로 제안된다(#287).
+    analyze_with(client, fake_llm, NI, sentence="医者になる")
+    if usage_closed:
+        ni = GrammarPattern.objects.get(name="に")
+        ni.test_cases = [
+            {"text": "氷が水に変わる", "should_match": True},
+            {"text": "氷が溶ける", "should_match": False},
+        ]
+        ni.save(update_fields=["test_cases"])
+        review.approve_pattern(ni)
+        review.approve_usage(ni.usages.get())
+        review.close_usages(ni)
+    spans = [] if usage_closed else [span_answer(0, "usage", 1)]
+    fake_llm.response = {
+        "translation_ko": "선생님이 된다",
+        "spans": spans,
+        "new_patterns": [NINARU],
+    }
+
+    response = analyze(client, "先生になる")
+
+    request = fake_llm.requests[-1]
+    assert len(request["decided_spans"]) == int(usage_closed)
+    assert GrammarPattern.objects.get(name="명사+になる").status == "pending"
+    grammar = response.json()["grammar"]
+    assert outline(grammar) == [("변화", ["변화의 결과"])]
+    assert (grammar[0]["start"], grammar[0]["end"]) == (2, 5)

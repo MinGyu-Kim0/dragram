@@ -4,7 +4,8 @@
 
 - `compose.yaml`: 운영 compose. 서버의 `~/dragram`에서 실행한다.
 - `Caddyfile`: 앞단. HTTPS 인증서를 자동으로 받고 `/api`·`/admin`을 backend로 넘긴다. 웹 빌드 결과(`www/web`)와 admin 정적 파일(`www/static`)을 직접 제공하고, 웹 경로는 `index.html`로 연다. 서버에는 `~/dragram/caddy/Caddyfile`로 올리고, 배포할 때마다 Caddy가 다시 읽는다.
-- `deploy.sh`: 개발 PC에서 backend 이미지와 웹을 빌드해 서버로 보내고 다시 띄운다. 웹은 커밋된 `web/`과 서버 `.env`의 공개 값(`VITE_`, `GOOGLE_CLIENT_ID`)으로만 빌드한다.
+- `deploy.sh`: 개발 PC나 Actions에서 backend 이미지와 웹을 빌드해 서버로 보내고 다시 띄운다. 웹은 커밋된 `web/`과 서버 `.env`의 공개 값(`VITE_`, `GOOGLE_CLIENT_ID`)으로만 빌드한다.
+- `.github/workflows/deploy.yml`: `main` CI가 성공하면 Actions에서 `deploy.sh`를 돌린다.
 - 처음 설정과 배포·되돌리기 절차: `README.md`
 
 ## 규칙

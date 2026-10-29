@@ -17,7 +17,32 @@
    nano ~/dragram/.env && chmod 600 ~/dragram/.env
    ```
 
-## 배포 (개발 PC, 저장소 루트)
+## 자동 배포 (GitHub Actions)
+
+`main`에 push된 커밋의 CI가 성공하면 `.github/workflows/deploy.yml`이 그 커밋으로 `infra/deploy.sh`를 돌린 뒤 `/api/health/`를 확인한다. `dev`→`main` 병합이 곧 배포 승인이다. CI가 실패·취소됐거나, 그 사이 `main`에 더 새 커밋이 올라왔으면 배포하지 않는다. 다시 돌리려면 Actions의 Deploy를 `main`에서 수동 실행한다.
+
+처음 한 번, 배포 전용 키를 만들고 저장소 secret 세 개를 넣는다(개발 PC).
+
+1. 배포 전용 키를 만든다. 암호 없이 만들고, 공개키를 서버에 등록한다.
+   ```bash
+   ssh-keygen -t ed25519 -N '' -C dragram-deploy -f ~/.ssh/dragram_deploy
+   ```
+   ```bash
+   ssh-copy-id -i ~/.ssh/dragram_deploy.pub ubuntu@dragram.app
+   ```
+2. secret을 넣는다. 호스트 키는 이미 접속해 본 개발 PC의 `known_hosts`에서 꺼낸다(네트워크로 새로 받지 않는다).
+   ```bash
+   gh secret set DEPLOY_HOST --body ubuntu@dragram.app
+   ```
+   ```bash
+   gh secret set DEPLOY_SSH_KEY < ~/.ssh/dragram_deploy
+   ```
+   ```bash
+   ssh-keygen -F dragram.app | grep -v '^#' | gh secret set DEPLOY_KNOWN_HOSTS
+   ```
+3. 개인키 파일은 secret에 넣었으니 개발 PC에서 지워도 된다. 키를 바꾸면 서버 `~/.ssh/authorized_keys`에서 `dragram-deploy` 줄을 지운다.
+
+## 수동 배포 (개발 PC, 저장소 루트)
 
 운영 웹은 서버 `~/dragram/.env`의 `VITE_` 값(확장 ID, 연락 메일 등)으로 빌드한다. Google 클라이언트 ID는 backend와 같은 `GOOGLE_CLIENT_ID`를 쓰고, 비어 있으면 배포가 멈춘다. 값을 바꾸면 다시 배포해야 웹에 반영된다. 웹은 개발 PC의 Docker에서 Node 22 컨테이너로 빌드한다.
 

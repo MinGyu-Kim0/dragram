@@ -177,13 +177,9 @@ test("운영자가 확인하기 전인 값은 그럴듯한 값 대신 확인 필
 
   for (const value of [
     "운영자 실명",
-    "Dragram이 사용하는 OpenAI 조직·프로젝트의 데이터 공유가 꺼져 있는지",
-    "OpenAI 계약 법인명과 개인정보 문의 연락처",
-    "OpenAI 처리 국가(추론·보관·지원·재위탁 포함 전체)",
-    "서버 접속·오류 기록 보관기간과 삭제 주기",
-    "백업 여부, 대상, 장소, 보관기간 및 삭제 반영 시점",
-    "매일 정리 예약 작업 등록",
     "실제 게시·시행일",
+    "탈퇴 후 보관의 법적 근거와 필요한 최소 항목",
+    "문장에 포함된 이용자 외 사람의 개인정보와 민감정보를 처리하는 근거",
   ]) {
     expect(screen.getAllByText(`확인 필요: ${value}`).length).toBeGreaterThan(
       0,
@@ -191,6 +187,37 @@ test("운영자가 확인하기 전인 값은 그럴듯한 값 대신 확인 필
   }
   expect(screen.queryByRole("link", { name: /@/ })).not.toBeInTheDocument();
   expect(screen.getAllByText("연락처 준비 중").length).toBeGreaterThan(0);
+});
+
+test("운영자가 확인한 값은 확인 필요 대신 확정 문구로 적는다", () => {
+  open("/privacy");
+  const main = screen.getByRole("main");
+
+  for (const fact of [
+    "OpenAI OpCo, LLC",
+    "Amazon Web Services Korea LLC",
+    "Google LLC",
+    "데이터 공유에 참여하지 않습니다",
+    "gpt-6-luna",
+    "최대 30MB",
+    "2주",
+    "최대 7일",
+    "처리 완료 후 1년",
+    "이메일로만",
+    "이용약관에 동의한 시각",
+    "안내한 처리방침의 버전",
+  ]) {
+    expect(main).toHaveTextContent(fact);
+  }
+  for (const resolved of [
+    "매일 정리 예약 작업 등록",
+    "OpenAI 데이터 공유 설정",
+    "서버 접속·오류 기록 보관기간과 삭제 주기",
+    "백업 여부, 대상, 장소, 보관기간 및 삭제 반영 시점",
+    "실제 운영 사이트에서 해당 기능 제공·동작 여부",
+  ]) {
+    expect(main).not.toHaveTextContent(`확인 필요: ${resolved}`);
+  }
 });
 
 test("연락처와 보호책임자가 정해지면 메일 링크와 이름을 보인다", () => {

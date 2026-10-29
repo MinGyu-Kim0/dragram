@@ -44,13 +44,14 @@ cd ~/dragram && docker compose up -d --force-recreate backend worker
 
 ## 매일 정리 (서버)
 
-탈퇴한 Google 계정의 그날 사용량 행(`usage_log.withdrawn_key`)은 한국 시간 자정이 지나면 지운다. 분석 요청·탈퇴 때도 지우지만, 요청이 없는 날에도 늦어도 다음 날 지우도록 매일 예약 실행한다(#252). 서버 시계는 UTC이므로 한국 시간 0시 5분은 UTC 15시 5분이다(`timedatectl`로 확인).
+탈퇴한 Google 계정의 그날 사용량 행(`usage_log.withdrawn_key`)은 한국 시간 자정이 지나면 지운다. 분석 요청·탈퇴 때도 지우지만, 요청이 없는 날에도 늦어도 다음 날 지우도록 매일 예약 실행한다(#252). 만료된 로그인 세션 행도 Django 기본 명령 `clearsessions`로 매일 지운다(처리방침 7절). 서버 시계는 UTC이므로 한국 시간 0시 5분은 UTC 15시 5분이다(`timedatectl`로 확인).
 
 ```bash
 crontab -e
 ```
 ```
 5 15 * * * cd ~/dragram && docker compose exec -T backend python manage.py purge_withdrawn_usage || logger -t dragram "purge_withdrawn_usage 실패"
+10 15 * * * cd ~/dragram && docker compose exec -T backend python manage.py clearsessions || logger -t dragram "clearsessions 실패"
 ```
 
 실패하면 syslog에 남는다(`journalctl -t dragram`).

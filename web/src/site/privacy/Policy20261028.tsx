@@ -11,6 +11,10 @@ const OPENAI_SUBPROCESSORS_URL =
 const AWS_SUBPROCESSORS_URL =
   "https://aws.amazon.com/compliance/sub-processors/";
 const OPENAI_PRIVACY_URL = "https://openai.com/policies/privacy-policy/";
+const OPENAI_PROMPT_CACHING_URL =
+  "https://developers.openai.com/api/docs/guides/prompt-caching";
+const AWS_PRIVACY_FAQ_URL =
+  "https://aws.amazon.com/compliance/data-privacy-faq/";
 const GOOGLE_PRIVACY_URL = "https://policies.google.com/privacy?hl=ko";
 const CHROME_SITE_DATA_URL =
   "https://support.google.com/chrome/answer/14114868?hl=ko";
@@ -324,8 +328,10 @@ function Policy20261028() {
               "웹·API 서버와 데이터베이스 호스팅, 저장소 운영, 서버 스냅샷 보관",
               <>
                 대한민국 서울 리전(Asia Pacific (Seoul))에서 운영하고, 자동
-                스냅샷도 같은 리전에 보관합니다.{" "}
-                <Unconfirmed what="AWS 지원 과정의 국외 조회 여부" />
+                스냅샷도 같은 리전에 보관합니다. AWS는 고객 동의 없이 선택한
+                리전 밖으로 콘텐츠를 옮기거나 콘텐츠에 접근하지 않는다고
+                밝힙니다(
+                <a href={AWS_PRIVACY_FAQ_URL}>AWS 데이터 개인정보 FAQ</a>).
               </>,
             ],
             [
@@ -427,8 +433,13 @@ function Policy20261028() {
                 사용 모델은 gpt-6-luna입니다. Dragram은 응답 상태 저장을 끄도록
                 요청하고 데이터 공유에 참여하지 않습니다. OpenAI의 기본 안전
                 로그는 최대 30일이며 법적 의무 또는 위해 방지를 위해 연장될 수
-                있습니다. 사용 모델의 프롬프트 캐시 보관은 별도입니다.{" "}
-                <Unconfirmed what="gpt-6-luna의 프롬프트 캐시 보관 조건" />
+                있습니다. 이와 별도로 같은 요청을 빠르게 처리하기 위한 프롬프트
+                캐시가 OpenAI 서버에 암호화된 형태로 최소 30분 남으며, 최대
+                24시간을 넘지 않습니다(
+                <a href={OPENAI_PROMPT_CACHING_URL}>
+                  OpenAI 프롬프트 캐싱 안내
+                </a>
+                ).
               </>,
             ],
             [
@@ -474,9 +485,11 @@ function Policy20261028() {
           ]}
         />
         <p>
-          <Unconfirmed what="AWS 지원 과정과 Google 로그인 연동 중 Dragram의 국외이전에 해당하는 흐름" />
-          이 있으면 위 표와 같은 항목을 추가합니다. 국내 서버를 사용한다는
-          사실만으로 모든 처리가 국내에서 이루어진다고 단정하지 않습니다.
+          AWS에 맡긴 정보는 서울 리전에만 보관되고 동의 없이 옮겨지지 않으므로
+          국외이전 표에 넣지 않습니다. Google 로그인은 이용자의 브라우저가
+          Google과 직접 주고받는 과정이며, Dragram이 Google로 개인정보를
+          보내지는 않습니다. 이 밖에 국외로 이전하는 처리가 생기면 위 표와 같은
+          항목을 추가합니다.
         </p>
       </Section>
 
@@ -713,10 +726,15 @@ function Policy20261028() {
           </li>
         </ul>
         <p>
-          운영 사이트에서 HTTPS 적용과 관리 화면의 원문 비노출을 확인했습니다.{" "}
-          <Unconfirmed what="관리자 접근권한·접속기록 점검, 저장 데이터 암호화, 백업 보호, 개인 운영 기기 보호조치" />
-          . 시행하지 않는 직원 교육, 전담 보안조직, 인증 취득 사실을 보호조치로
-          표시하지 않습니다.
+          운영 사이트에서 HTTPS 적용과 관리 화면의 원문 비노출을 확인했습니다.
+          서버와 관리 화면에 접근할 수 있는 사람은 운영자 한 명이며, 서버에는
+          비밀번호 없이 SSH 키로만 접속합니다. 관리 화면에서 바꾼 내용은 누가
+          언제 무엇을 바꿨는지 관리 기록에 남습니다. 서버 스냅샷은 AWS가
+          관리하는 키로 암호화해 보관합니다. 운영에 쓰는 개인 PC는 로그인
+          비밀번호와 화면 잠금, 보안 업데이트와 백신으로 보호합니다.{" "}
+          <Unconfirmed what="서버 본 디스크의 저장 시 암호화 여부" />. 시행하지
+          않는 직원 교육, 전담 보안조직, 인증 취득 사실을 보호조치로 표시하지
+          않습니다.
         </p>
         <p>
           운영자는 서버 관리 권한이 있어 기술적으로 데이터에 접근할 수 있습니다.

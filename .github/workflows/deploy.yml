@@ -1,0 +1,63 @@
+name: Deploy
+
+# main push의 CI가 성공하면 운영에 배포한다. dev→main 병합이 곧 배포 승인이다(#281).
+# 저장소를 비공개로 돌려도 되게 environment 승인·브랜치 보호에 기대지 않는다.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 배포는 하나씩 돌고, 도중에 끊으면 서버가 반쯤 바뀐 채 남으니 끊지 않는다.
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Skip if not latest main
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          main=$(gh api "repos/$GITHUB_REPOSITORY/commits/main" -q .sha)
+          if [ "$main" != "$SHA" ]; then
+            echo "main 최신($main)이 아니라 $SHA는 배포하지 않는다."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.latest.outputs.skip != 'true'
+        with:
+          ref: ${{ env.SHA }}
+          persist-credentials: false
+      - name: Set up SSH
+        if: steps.latest.outputs.skip != 'true'
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # 서버 호스트 키를 고정한다. 다르면 ssh가 접속을 거부한다.
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Deploy
+        if: steps.latest.outputs.skip != 'true'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: infra/deploy.sh
+      - name: Health check
+        if: steps.latest.outputs.skip != 'true'
+        run: curl -fsS --retry 5 --retry-delay 5 --retry-all-errors https://dragram.app/api/health/

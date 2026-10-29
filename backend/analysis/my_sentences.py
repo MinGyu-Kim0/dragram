@@ -76,7 +76,7 @@ def _detail(request, sentence_id):
         presenter = Presenter(Sentence(text), sentence.original_text, origins)
         if presenter.sentence.sentence_hash != sentence.analysis.sentence_hash:
             raise BusinessError(UserSentenceError.OUTDATED, "기록의 분석 키가 지금 원문과 다름")
-        event = presenter.analysis_event(sentence.analysis)
+        _, event = presenter.locked_analysis_event(sentence.analysis_id)
     finally:
         leave()
     del event["type"]

@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.test import Client
 from django.utils import timezone
 
-from analysis import limits
+from analysis import limits, my_sentences
 from analysis.models import SentenceAnalysis, UserSentence
 from tests.accounts.test_withdrawal import web_session
 from tests.analysis.helpers import analyze, connected_client, new_pattern
@@ -216,3 +216,19 @@ def test_detail_counts_toward_the_concurrent_request_limit(fake_llm, settings):
     assert free.status_code == 200
     # 끝난 조회는 셈에서 빠진다.
     limits.enter(me)()
+
+
+def test_detail_reads_translation_with_the_grammar_after_a_concurrent_save(fake_llm, monkeypatch):
+    me = analyzed("me", fake_llm, "私は学生です。")
+    target = row(me, "私は学生です。")
+    web, _ = web_session(me)
+    real = my_sentences.analysis_text
+
+    def saved_meanwhile(original):
+        # 기록을 읽은 뒤 응답을 만들기 전에 다른 작업이 번역과 구간을 통째로 바꿨다.
+        SentenceAnalysis.objects.update(translation_ko="새 번역")
+        return real(original)
+
+    monkeypatch.setattr(my_sentences, "analysis_text", saved_meanwhile)
+
+    assert web.get(f"{LIST}{target.pk}/").json()["translation_ko"] == "새 번역"

@@ -1,10 +1,13 @@
 """원문 기준 응답 이벤트."""
 
+from django.db import transaction
+
 from analysis import patterns, words
 from analysis.korean_reading import korean_reading, place_reading
 from analysis.models import (
     GrammarUsage,
     ReviewStatus,
+    SentenceAnalysis,
     SpanMatch,
     WordSense,
 )
@@ -297,6 +300,15 @@ class Presenter:
             "translation_ko": self.sentence.restore(translation),
             "ruby": self.ruby,
         }
+
+    def locked_analysis_event(self, analysis_id):
+        """분석 행을 잠가 다시 읽고 만든 analysis 이벤트와 그 행. 앞서 읽은 행 뒤에 다른 작업이
+        번역과 구간을 바꿨어도 옛 번역과 새 문법이 섞이지 않는다(구간을 쓰는 모든 경로가 분석 행을
+        잠근 뒤 커밋한다).
+        """
+        with transaction.atomic():
+            row = SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=analysis_id)
+            return row, self.analysis_event(row)
 
     def analysis_event(self, saved):
         # 동시에 저장된 다른 요청의 결과를 쓸 수 있어, 문법·단어와 짝인 번역을 함께 싣는다.

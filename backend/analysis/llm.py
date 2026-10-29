@@ -65,7 +65,10 @@ In new_patterns, list grammar points of the sentence that no span explains: part
 auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
 content words or grammar that a span already explains. decided_spans are grammar points already
 explained (start_token_id to end_token_id, with the usage name); do not answer them and do not
-list them in new_patterns. For each one:
+list them in new_patterns. A span or decided span explains only its own tokens: when a
+grammatical expression of several tokens (such as になる after a noun, or ことができる) is only
+partly covered by spans, list the whole expression. For 先生になる, list に and なる together
+even if a span already covers に (なる marked "lemma"). For each one:
 - tokens: every token of the grammar point in order, from its first to its last token with no
   gap, each with a mark (fix). "lemma" means the same word in any conjugation, "form" means the
   same word in the same conjugated form, "any" means any single token. The first and last

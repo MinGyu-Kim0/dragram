@@ -18,6 +18,8 @@ KOREAN_EQUIVALENT_RULE = """\
   few typical examples in parentheses. Examples: に for time "~에", に for the other party of
   an action "~에게 · ~을/를 (会う·乗る 등)", で for means "~(으)로", が for the subject
   "~이/가 · ~을/를 (好き·できる 등)", ました "~었습니다". Write "" if no Korean expression fits.
+  For a pattern of one particle or auxiliary verb, render only that word, not the word after
+  it: に for the result of a change is "~(으)로", not "~이/가 되다" (that is なる).
 """
 
 # 새 용법의 기능 태그(#151). 새 용법을 만드는 경로와 용법 채우기가 같은 규칙을 쓴다.
@@ -65,7 +67,10 @@ In new_patterns, list grammar points of the sentence that no span explains: part
 auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
 content words or grammar that a span already explains. decided_spans are grammar points already
 explained (start_token_id to end_token_id, with the usage name); do not answer them and do not
-list them in new_patterns. For each one:
+list them in new_patterns. A span or decided span explains only its own tokens: when a
+grammatical expression of several tokens (such as になる after a noun, or ことができる) is only
+partly covered by spans, list the whole expression. For 先生になる, list に and なる together
+even if a span already covers に (なる marked "lemma"). For each one:
 - tokens: every token of the grammar point in order, from its first to its last token with no
   gap, each with a mark (fix). "lemma" means the same word in any conjugation, "form" means the
   same word in the same conjugated form, "any" means any single token. The first and last
@@ -88,7 +93,8 @@ list them in new_patterns. For each one:
   does (for で: place, means, cause, scope, state). Never name a usage after the topic or
   content of this sentence (such as a score or a match result).
 - explanation_ko: a Korean explanation of the usage in general, so that it fits every sentence
-  with this usage. Do not explain this sentence or its content.
+  with this usage. Do not explain this sentence or its content. For a pattern of one particle
+  or auxiliary verb, explain what that word itself does, not the meaning of the word after it.
 - example_ja: a new short Japanese example sentence with the same grammar and usage. Write a
   sentence of your own. Do not reuse this sentence or its words.
 """
@@ -714,7 +720,8 @@ Answer every span in recheck_spans and in spans, each by its span_id. Give a ver
   (example_ja), and korean_equivalent and function_tags as described below.
   Divide usages of a grammar point by its general meanings, as a dictionary or grammar book
   does (for で: place, means, cause, scope, state). Never name a usage after the topic or
-  content of this sentence (such as a score or a match result).
+  content of this sentence (such as a score or a match result). For a pattern of one particle
+  or auxiliary verb, explain what that word itself does, not the meaning of the word after it.
 - "divergent": the sentence alone can really be read with more than one candidate. Give the
   candidate_id of the main reading and, in alternatives, each other candidate that also fits:
   its candidate_id, the Korean translation of the whole sentence read that way

@@ -1,0 +1,99 @@
+// 웹 로그인 세션 API(같은 출처, Django 세션·CSRF). 개발 서버는 /api를 백엔드로 넘긴다.
+
+// account는 바뀌지 않는 계정 식별자다. 탈퇴할 때 화면에 보인 계정인지 서버가 대조한다.
+export type User = { email: string; account: string };
+
+export class AuthError extends Error {
+  readonly status: number;
+  // 서버 오류 코드(예: AUTH:AGE_NOT_CONFIRMED). 본문이 없거나 JSON이 아니면 undefined다.
+  readonly code: string | undefined;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
+function csrfToken() {
+  return document.cookie
+    .split("; ")
+    .find((c) => c.startsWith("csrftoken="))
+    ?.slice("csrftoken=".length);
+}
+
+export async function request<T>(
+  method: "GET" | "POST" | "DELETE",
+  path: string,
+  body?: unknown,
+): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (method !== "GET") {
+    headers["Content-Type"] = "application/json";
+    // 로그인하면 Django가 CSRF 값을 바꾸므로 요청마다 쿠키에서 다시 읽는다.
+    headers["X-CSRFToken"] = csrfToken() ?? "";
+  }
+  const response = await fetch(path, {
+    method,
+    headers,
+    credentials: "same-origin",
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const code = await response.json().then(
+      (b: { error?: string }) => b?.error,
+      () => undefined,
+    );
+    throw new AuthError(
+      `${method} ${path}: ${response.status}`,
+      response.status,
+      code,
+    );
+  }
+  // 204(지운 뒤)는 본문이 없다.
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+const userOf = (body: { user: User | null }) => body.user;
+
+/** 현재 로그인 사용자. 이 요청이 CSRF 쿠키도 받아 온다. */
+export const currentUser = () =>
+  request<{ user: User | null }>("GET", "/api/auth/me/").then(userOf);
+
+// 기다리는 가입. id는 이 가입 화면의 식별자로, 가입하기에 그대로 돌려보낸다.
+export type Signup = { email: string; id: string };
+
+/** Google 로그인. 이용약관에 동의하지 않은 계정이면 user 없이 signup을 받는다(#257). */
+export const loginWithGoogle = (credential: string) =>
+  request<{ user: User | null; signup?: Signup }>("POST", "/api/auth/google/", {
+    credential,
+  });
+
+/** 가입하기: 이용약관에 동의했다고 보낸다. 서버는 세션에 둔 검증한 Google 계정으로 계정을 만든다.
+ * 그 정보가 없거나 10분이 지났으면 AUTH:SIGNUP_EXPIRED로, 그사이 다른 탭에서 다른 계정으로
+ * 로그인해 가입이 바뀌었으면 AUTH:ACCOUNT_MISMATCH로 거부한다. */
+export const signUp = (signup: string) =>
+  request<{ user: User | null }>("POST", "/api/auth/signup/", {
+    agree_terms: true,
+    signup,
+  }).then(userOf);
+
+/** 로그아웃. 서버는 이 세션이 발급한 확장 토큰도 폐기한다. */
+export const logout = () =>
+  request<{ user: User | null }>("POST", "/api/auth/logout/").then(userOf);
+
+/** 회원 탈퇴. 서버는 계정과 원문 기록·지정한 이름·확장 연결·사용량 기록을 지운다.
+ * account는 확인 화면에 보인 계정이다. 그사이 다른 계정으로 로그인했으면 서버가 409로 거부한다. */
+export const withdraw = (account: string) =>
+  request<{ user: User | null }>("POST", "/api/auth/withdraw/", {
+    account,
+  }).then(userOf);
+
+/** 확장에 넘길 토큰을 발급받는다. 원본은 이 응답에만 있다. */
+// account는 바뀌지 않는 계정 식별자다. 확장이 다른 계정의 연결인지 가릴 때 쓴다.
+export const issueExtensionToken = () =>
+  request<{ token: string; account: string }>(
+    "POST",
+    "/api/auth/extension-tokens/",
+  );

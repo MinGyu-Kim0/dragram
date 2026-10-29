@@ -1,0 +1,49 @@
+"""분석 텍스트와 키 텍스트 사이의 위치 변환.
+
+키 텍스트는 분석 텍스트 글자마다 조각을 이어 만든다(normalize.key_pieces). 숫자열의 첫 글자는
+자리표시자(⟨N1⟩), 나머지 숫자는 빈 조각이다. 구간은 모두 반열린 구간 [start, end)이다.
+"""
+
+from bisect import bisect_right
+from itertools import accumulate
+
+
+def key_offsets(pieces):
+    """분석 텍스트 위치 i가 키 텍스트에서 시작하는 위치. 길이는 분석 텍스트 길이 + 1이다."""
+    return [0, *accumulate(len(piece) for piece in pieces)]
+
+
+def to_key(offsets, start, end):
+    """분석 텍스트 구간을 키 텍스트 구간으로 바꾼다.
+
+    형태소가 숫자열 가운데에서 나뉘면(X12 → X1 / 2) 뒤 토큰은 빈 조각에서 시작한다.
+    그런 시작은 숫자열 첫 글자(자리표시자)로 당겨 숫자열 전체를 덮게 한다. 가운데에서 끝나는
+    구간은 이미 자리표시자 뒤에서 끝난다.
+    """
+    while start < end and offsets[start] == offsets[start + 1]:
+        start -= 1
+    return offsets[start], offsets[end]
+
+
+def to_analysis(offsets, start, end):
+    """키 텍스트 구간을 분석 텍스트 구간으로 바꾼다.
+
+    자리표시자를 덮는 구간은 숫자열 전체를 덮는다(⟨N1⟩ → 12). 숫자열의 빈 조각 때문에
+    여러 위치가 같은 키 위치를 가지므로, 시작과 끝 모두 그 위치를 가진 마지막 위치로 잡는다.
+    시작은 빈 조각이 아닌 글자에서, 끝은 숫자열 전체를 지난 뒤에 놓인다(12で의 で → 2가 아닌 で).
+    """
+    return bisect_right(offsets, start) - 1, bisect_right(offsets, end) - 1
+
+
+def utf16_offsets(original):
+    """원문 코드포인트 위치 i가 UTF-16(브라우저 문자열)에서 시작하는 위치. 길이는 원문 + 1."""
+    return [0, *accumulate(2 if ord(ch) > 0xFFFF else 1 for ch in original)]
+
+
+def to_original(origins, utf16, start, end):
+    """분석 텍스트 구간을 원문 UTF-16 구간으로 바꾼다.
+
+    origins는 분석 텍스트 글자마다의 원문 코드포인트 범위다. 구간은 첫 글자의 원문 시작부터
+    마지막 글자의 원문 끝까지다(합쳐진 글자는 원문의 여러 글자를 덮는다).
+    """
+    return utf16[origins[start][0]], utf16[origins[end - 1][1]]

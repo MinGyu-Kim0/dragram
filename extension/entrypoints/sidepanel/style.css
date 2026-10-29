@@ -1,0 +1,716 @@
+/* 토큰은 DESIGN.md 2장. 다크 값 일부가 아직 정해지지 않아 라이트 모드만 맞춘다. */
+:root {
+  --color-bg: #f2f7f3;
+  --color-surface: #ffffff;
+  --color-surface-inset: #e6f0e9;
+  --color-text: #17302a;
+  --color-text-secondary: #33473f;
+  --color-border: #dce7e0;
+  --color-danger-text: #9f1d1d;
+  --color-warn-bg: #fff1d0;
+  --color-warn-text: #6b4100;
+  --color-warn-border: #b26a00;
+  --color-text-muted: #5a6b63;
+  --color-brand: #157a57;
+  --color-brand-strong: #0f5e44;
+  --color-on-brand: #ffffff;
+  --color-border-subtle: #e1ece5;
+  --color-border-control: #cfddd4;
+  /* 형광펜 4색: 칩 배경 / 칩 글자. 라이트 본문 형광펜은 칩 배경과 같다. */
+  --color-highlight-0: #ddf27a;
+  --color-highlight-0-text: #3d4a00;
+  --color-highlight-1: #bde3ff;
+  --color-highlight-1-text: #0f4a78;
+  --color-highlight-2: #ffd6a8;
+  --color-highlight-2-text: #7a3e00;
+  --color-highlight-3: #f7c8e0;
+  --color-highlight-3-text: #7a1f4f;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+}
+
+main {
+  padding: 0 16px 16px;
+}
+
+h1 {
+  margin: 0;
+  height: 60px;
+  line-height: 60px;
+  font-family: "Jua", "IBM Plex Sans KR", sans-serif;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+[lang="ja"] {
+  font-family: "Zen Maru Gothic", "IBM Plex Sans KR", sans-serif;
+}
+
+.sentence-card {
+  background: var(--color-surface);
+  border-radius: 20px;
+  padding: 20px;
+}
+
+/* 원문 위 오른쪽의 표시 켜고 끄기(루비, 드래그 핸들). 원문을 가리지 않게 따로 한 줄을
+   쓴다. 꺼지면 흐리게 보인다. */
+.display-toggles {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: -8px -6px 2px 0;
+}
+
+.display-toggles button {
+  border: 0;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  background: var(--color-surface-inset);
+  color: var(--color-brand-strong);
+  cursor: pointer;
+}
+
+.display-toggles button[aria-pressed="false"] {
+  background: transparent;
+  color: var(--color-text-muted);
+  text-decoration: line-through;
+}
+
+.original {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 2.1;
+}
+
+.sentence-card hr {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  margin: 14px 0;
+}
+
+.translation,
+.error {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.translation {
+  color: var(--color-text-secondary);
+}
+
+.error {
+  color: var(--color-danger-text);
+}
+
+/* 원문 카드 맨 위 줄 왼쪽의 문장 단위 상태(재분석 중, 재분석하지 못했습니다) */
+.display-toggles .reanalysis {
+  margin: 0 auto 0 0;
+  align-self: center;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+
+.display-toggles .reanalysis.error {
+  color: var(--color-danger-text);
+}
+
+/* 실패 문구 옆의 다시 시도 텍스트 버튼. 줄 높이는 그대로 두고 누르는 영역만 44px 이상으로
+   넓힌다(가장 작은 11px 줄에서도). */
+.retry,
+.display-toggles .retry {
+  margin: -14px 0 -14px 6px;
+  padding: 14px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-brand-strong);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* 원문 카드 아래(탭 자리)의 대기·실패 표시 */
+.below-card {
+  margin-top: 14px;
+}
+
+.skeleton {
+  display: grid;
+  gap: 8px;
+}
+
+.skeleton span {
+  display: block;
+  height: 12px;
+  border-radius: 8px;
+  background: var(--color-surface-inset);
+}
+
+.skeleton span:last-child {
+  width: 60%;
+}
+
+/* 문법·단어 분석 대기: 탭 바로 밑의 회전 표시와 문구 */
+.analyzing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-surface-inset);
+  border-top-color: var(--color-brand);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}
+
+/* 원문 루비(SudachiPy 읽기) */
+.original rt {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+/* 원문 형광펜: 아래쪽 절반만 칠한다. */
+.original mark {
+  color: inherit;
+  background: linear-gradient(transparent 46%, var(--highlight) 46%);
+  border-radius: 3px 3px 7px 7px;
+  padding: 0 2px;
+}
+
+/* 드래그 범위: 형광펜 위에 따로 얹는 층. 시작·끝에 텍스트 선택 핸들(원 + 막대)을 붙인다.
+   시작 핸들은 원이 위, 끝 핸들은 원이 아래다. */
+.drag-handle-start,
+.drag-handle-end {
+  display: inline-block;
+  width: 8px;
+  height: 1.4em;
+  margin: 0 -3px;
+  vertical-align: -0.3em;
+  background:
+    radial-gradient(
+      circle 4px at 50% var(--handle-y),
+      var(--color-brand-strong) 95%,
+      transparent
+    ),
+    linear-gradient(var(--color-brand-strong), var(--color-brand-strong))
+      center / 2px 100% no-repeat;
+}
+
+.drag-handle-start {
+  --handle-y: 4px;
+}
+
+.drag-handle-end {
+  --handle-y: calc(100% - 4px);
+}
+
+.highlight-0 {
+  --highlight: var(--color-highlight-0);
+  --highlight-text: var(--color-highlight-0-text);
+}
+
+.highlight-1 {
+  --highlight: var(--color-highlight-1);
+  --highlight-text: var(--color-highlight-1-text);
+}
+
+.highlight-2 {
+  --highlight: var(--color-highlight-2);
+  --highlight-text: var(--color-highlight-2-text);
+}
+
+.highlight-3 {
+  --highlight: var(--color-highlight-3);
+  --highlight-text: var(--color-highlight-3-text);
+}
+
+/* 판별을 기다리는 구간(확인 중): 형광펜 대신 점선 밑줄 */
+.original mark.checking {
+  color: inherit;
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  text-decoration: underline dashed var(--color-border-control) 2px;
+  text-underline-offset: 4px;
+}
+
+.grammar-cards {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.grammar-card {
+  background: var(--color-surface);
+  border-radius: 20px;
+  padding: 14px 16px;
+}
+
+/* 해석 갈림 카드: warn-border 점선(DESIGN.md) */
+.grammar-card.divergent,
+.grammar-part.divergent {
+  border: 1.5px dashed var(--color-warn-border);
+}
+
+/* 구성 문법: 바깥 카드 안의 surface-inset 하위 박스(DESIGN.md 3장) */
+.grammar-parts {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.grammar-part {
+  background: var(--color-surface-inset);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.grammar-part h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 하위 박스 바탕이 회화체 배지 바탕과 같아 배지 면이 보이게 한다. */
+.grammar-part .badge-neutral {
+  background: var(--color-surface);
+}
+
+.alternatives {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.alternative {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+/* 미확정 카드의 "판단하지 못함" */
+.unresolved-note {
+  color: var(--color-text-muted);
+}
+
+/* 확인 중 카드: 점선 대기 카드(DESIGN.md) */
+.grammar-card.checking {
+  border: 1.5px dashed var(--color-border-control);
+  border-radius: 16px;
+}
+
+.checking-chip {
+  background: var(--color-surface-inset);
+  color: var(--color-text-muted);
+}
+
+.checking-skeleton {
+  margin-top: 8px;
+}
+
+/* 드래그한 부분의 문법 카드·단어 행: 선택 링 */
+.grammar-card.dragged,
+.word-row.dragged {
+  box-shadow: inset 0 0 0 2px var(--color-text);
+}
+
+/* 카드 첫 줄: 왼쪽 상태 배지, 오른쪽 "드래그한 부분"(DESIGN.md 3장) */
+.card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.grammar-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grammar-chip {
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 15px;
+  font-weight: 700;
+  background: var(--highlight);
+  color: var(--highlight-text);
+}
+
+.grammar-card h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.badge-warn {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+
+/* '회화체' 배지: 경고가 아닌 중립 알약(DESIGN.md 5장) */
+.badge-neutral {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+}
+
+/* 문법 카드 태그 줄(#151): 태그 칩은 단어 태그와 같고, 미검수 배지가 붙으면 그 뒤에 둔다. */
+.grammar-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.grammar-tags .word-tags {
+  margin: 0;
+}
+
+/* 용법의 한국어 대응 표현 한 줄(#152) */
+.korean-equivalent {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+/* 원문 형태·접속 형태·회화체 원형 안내 */
+.grammar-form,
+.variant-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.grammar-form .badge-warn {
+  margin-left: 6px;
+}
+
+/* 카드 오른쪽 메타("드래그한 부분", "확인 중") */
+.card-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.grammar-explanation {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.no-grammar,
+.no-words {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+/* 세그먼트 탭(DESIGN.md 4장): 트랙 border-subtle, 높이 34, 활성은 brand / on-brand. */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--color-border-subtle);
+}
+
+.tabs button {
+  flex: 1;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.tabs button[aria-selected="true"] {
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font-weight: 600;
+}
+
+.word-list {
+  list-style: none;
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.word-row {
+  background: var(--color-surface);
+  border-radius: 20px;
+  padding: 14px 16px;
+}
+
+.word-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* 단어 표제는 Zen Maru 20 / 700, 읽기는 14 text-muted(DESIGN.md 3장). */
+.word-row h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.word-reading {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.word-meaning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+/* 단어 태그. 칩 모양은 DESIGN.md 7장에서 아직 정하지 않아 중립 배지와 같은 알약을 쓴다. */
+.word-tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.word-tags li {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+}
+
+/* 뜻을 아직 고르지 않은 단어의 대기 표시 */
+.word-choosing {
+  color: var(--color-text-muted);
+}
+
+/* 사전 출처 각주(DESIGN.md 2장: 11 / 1.6) */
+.source-note {
+  margin: 14px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.source-note a {
+  color: inherit;
+}
+
+/* 문장별 페이지 넘김. 모양은 DESIGN.md에 아직 없어 세그먼트 탭과 같은 알약 모양을 쓴다. */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.pager button {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-border-subtle);
+  color: var(--color-text);
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.pager button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 헤더: 제목과 로그아웃(#109). 설정 화면이 생기면 로그아웃은 그리로 옮긴다. */
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.text-button {
+  min-height: 44px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* 로그인 전(DESIGN 사이드 패널 '로그인 전') */
+.login-prompt {
+  display: grid;
+  gap: 12px;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.login-prompt h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.login-prompt p {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.login-prompt .muted {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.primary-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* 이름 지정(#136): 이름 행 표시, 버튼 줄, 읽기 입력 */
+.name-mark {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.name-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.name-actions button:not(.text-button, .primary-button) {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.name-actions .primary-button {
+  padding: 0 16px;
+}
+
+.name-actions .name-remove {
+  margin-left: auto;
+}
+
+.name-editor {
+  margin-top: 8px;
+}
+
+.name-editor label {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.name-editor input {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 12px;
+  font: inherit;
+  font-size: 16px;
+}
+
+.name-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.name-chips button {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}

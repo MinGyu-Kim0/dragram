@@ -1,0 +1,57 @@
+# 인증서 발급·갱신과 http → https 이동은 Caddy가 알아서 한다.
+{$SITE_ADDRESS} {
+	# 접속 기록은 통신비밀보호법 시행령 제41조에 따라 3개월 남긴다(처리방침 7절).
+	# 파일은 크기로 넘기고, 넘길 때 92일이 지난 파일을 지운다. 헤더는 남기지 않는다.
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10MiB
+			roll_keep 1000
+			roll_keep_for 2208h
+		}
+		format filter {
+			request>headers delete
+			resp_headers delete
+		}
+	}
+
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			# 분석 API는 줄 단위 JSON 스트림이다. 모아 두지 않고 바로 넘긴다(ADR 0005).
+			# 응답을 기다리는 시간 제한은 기본으로 없어서 요청 연결 대기 130초를 넘겨도 끊지 않는다.
+			flush_interval -1
+		}
+	}
+
+	redir /admin /admin/
+	handle /admin/* {
+		reverse_proxy backend:8000
+	}
+
+	# admin 정적 파일. 배포가 backend 이미지에서 꺼내 둔다(deploy.sh).
+	handle /static/* {
+		root * /srv
+		encode
+		file_server
+	}
+
+	# 웹 빌드의 이름에 해시가 붙은 파일. 옛 배포의 파일은 HTML 대신 404로 답한다.
+	handle /assets/* {
+		root * /srv/web
+		encode
+		file_server
+	}
+
+	# 웹 페이지. 웹 경로(/connect 등)는 파일이 없으므로 index.html을 주고, 매번 새 배포인지
+	# 확인하게 한다. 로그인·확장 연결 화면이 다른 사이트의 iframe에 실리지 않게 한다.
+	handle {
+		root * /srv/web
+		encode
+		header {
+			Cache-Control no-cache
+			X-Frame-Options DENY
+			Content-Security-Policy "frame-ancestors 'none'"
+		}
+		try_files {path} /index.html
+		file_server
+	}
+}

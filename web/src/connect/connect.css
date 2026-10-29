@@ -1,0 +1,240 @@
+.connect {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.connect .card {
+  box-sizing: border-box;
+  width: min(100%, 420px);
+  padding: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+  display: grid;
+  gap: 14px;
+}
+
+.connect h1 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.connect p {
+  margin: 0;
+}
+
+.connect .secondary {
+  color: var(--color-text-secondary);
+}
+
+.connect .muted {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.connect .danger {
+  color: var(--color-danger-text);
+}
+
+.connect .secondary-button {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.connect a.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  text-decoration: none;
+}
+
+.connect .primary-button {
+  /* DESIGN §2: 웹 주요 버튼은 46–52 */
+  min-height: 48px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.connect .danger-button {
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1.5px var(--color-danger-text);
+  background: var(--color-surface);
+  color: var(--color-danger-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.connect .primary-button:disabled,
+.connect .secondary-button:disabled,
+.connect .danger-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* 가입 화면(#269) */
+.connect .brand {
+  color: var(--color-brand);
+  font-weight: 700;
+}
+
+.connect .title {
+  display: grid;
+  gap: 6px;
+}
+
+.connect .title h1 {
+  font-size: 24px;
+}
+
+.connect a {
+  color: var(--color-brand);
+  text-underline-offset: 3px;
+}
+
+.connect .account {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: var(--color-surface-inset);
+}
+
+.connect .avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font-weight: 700;
+}
+
+.connect .account-text {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.connect .account .label {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.connect .terms-box {
+  display: grid;
+  gap: 4px;
+  padding: 14px;
+  border: 1.5px solid var(--color-border-control);
+  border-radius: 14px;
+}
+
+.connect .terms-box:has(input:checked) {
+  border-color: var(--color-brand);
+  background: var(--color-row-selected);
+}
+
+.connect .terms-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.connect .terms-check input {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  accent-color: var(--color-brand);
+  cursor: pointer;
+}
+
+.connect .terms-box .hint {
+  padding-left: 32px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.connect .primary-button:disabled {
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  opacity: 1;
+}
+
+.connect .text-button {
+  justify-self: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border: 0;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.connect .card.wide {
+  width: min(100%, 680px);
+}
+
+.connect .doc-box {
+  display: grid;
+  gap: 6px;
+}
+
+.connect .doc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.connect .doc-head h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* 본문은 /privacy·/terms와 같은 .document 스타일을 쓰고, 칸 안에서만 스크롤한다. */
+.connect .doc-scroll {
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 4px 16px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-bg);
+  font-size: 14px;
+}
+
+.connect .doc-scroll h2 {
+  margin: 20px 0 6px;
+  font-size: 15px;
+}
+
+.connect .doc-scroll p {
+  margin: 8px 0;
+}

@@ -1,0 +1,155 @@
+"""JMdict 파서(#95). DB 없이 표본 XML만 읽는다."""
+
+from pathlib import Path
+
+from analysis.jmdict import Entry, Sense, parse
+
+SAMPLE = Path(__file__).parent / "data" / "jmdict_sample.xml"
+
+
+def entries():
+    with SAMPLE.open(encoding="utf-8") as f:
+        return {entry.seq: entry for entry in parse(f)}
+
+
+def test_entry_with_kanji_form_takes_its_first_form_and_reading():
+    assert entries()[1358280] == Entry(
+        seq=1358280,
+        dictionary_form="食べる",
+        reading="たべる",
+        forms=["食べる", "たべる"],
+        readings=["たべる"],
+        is_common=True,
+        reading_restrictions=None,
+        pos="v1,vt",
+        tags=["group2", "transitive", "verb"],
+        senses=[
+            # 영어 뜻만 둔다. pos가 없는 뜻은 앞 뜻의 pos를 이어받는다.
+            Sense(index=1, gloss_en=["to eat"], tags=["transitive"], applies_to=None),
+            Sense(
+                index=2,
+                gloss_en=["to live on (e.g. a salary)", "to live off"],
+                tags=["transitive"],
+                applies_to=None,
+            ),
+        ],
+    )
+
+
+def test_kana_only_entry_unifies_readings_to_hiragana_and_keeps_the_display_reading():
+    entry = entries()[1049180]
+
+    assert (entry.dictionary_form, entry.reading) == ("コーヒー", "コーヒー")
+    assert entry.forms == ["コーヒー"]
+    assert entry.readings == ["こーひー"]
+    assert entry.is_common
+    assert entry.tags == ["loanword", "noun"]
+    assert entry.senses[0].tags == ["loanword"]
+
+
+def test_sense_restrictions_and_transitivity_stay_with_each_sense():
+    entry = entries()[1202450]
+
+    assert not entry.is_common
+    assert entry.reading == "あく"
+    assert [(s.applies_to, s.tags) for s in entry.senses] == [
+        ({"readings": ["あく"]}, ["intransitive"]),
+        ({"readings": ["ひらく"]}, ["transitive"]),
+    ]
+    # 단어 태그는 뜻 태그까지 합친다(검색용).
+    assert entry.tags == ["group1", "intransitive", "transitive", "verb"]
+
+
+def test_reading_restrictions_pick_the_first_reading_allowed_for_the_display_form():
+    entry = entries()[1576260]
+
+    # 첫 표기 朔日에는 いちにち를 쓰지 않으므로 ついたち가 대표 읽기다.
+    assert (entry.dictionary_form, entry.reading) == ("朔日", "ついたち")
+    assert entry.forms == ["朔日", "一日", "いちにち", "ついたち", "ツイタチ"]
+    assert entry.readings == ["いちにち", "ついたち"]
+    # 한자 표기에 쓰지 않는 읽기(re_nokanji)는 빈 목록이다.
+    assert entry.reading_restrictions == {"いちにち": ["一日"], "ツイタチ": []}
+    assert entry.is_common
+    assert entry.senses[0].applies_to == {"forms": ["一日"], "readings": ["いちにち"]}
+    assert entry.senses[1].applies_to is None
+
+
+def test_misc_codes_become_sense_tags_and_unknown_codes_are_left_out():
+    entry = entries()[1009760]
+
+    assert entry.pos == "v5aru,vi"
+    assert entry.senses[0].tags == ["honorific", "intransitive", "uk"]
+    assert entry.senses[0].gloss_en == ["to come & to go (honorific)"]
+    # exp는 변환표에 없다.
+    assert entry.senses[1].tags == ["archaic"]
+    assert entry.tags == ["archaic", "group1", "honorific", "intransitive", "uk", "verb"]
+
+
+def verb(seq, keb, reb, pos):
+    return f"""<entry><ent_seq>{seq}</ent_seq><k_ele><keb>{keb}</keb></k_ele>
+<r_ele><reb>{reb}</reb></r_ele><sense><pos>&{pos};</pos><gloss>g</gloss></sense></entry>"""
+
+
+def tags_of(*xml):
+    lines = ["<JMdict>", *xml, "</JMdict>"]
+    return {entry.dictionary_form: entry.tags for entry in parse(lines)}
+
+
+def test_godan_verb_that_looks_like_group2_is_group1_exception():
+    # 모양은 2그룹(-いる·-える)인데 1그룹인 동사는 group1 대신 group1_exception(#107)
+    tags = tags_of(
+        verb(1, "帰る", "かえる", "v5r"),
+        verb(2, "走る", "はしる", "v5r"),
+        verb(3, "取る", "とる", "v5r"),
+        verb(4, "食べる", "たべる", "v1"),
+        verb(5, "行く", "いく", "v5k-s"),
+        verb(6, "来る", "くる", "vk"),
+    )
+
+    assert tags["帰る"] == ["group1_exception", "verb"]
+    assert tags["走る"] == ["group1_exception", "verb"]
+    assert tags["取る"] == ["group1", "verb"]
+    assert tags["食べる"] == ["group2", "verb"]
+    # 모양이 어긋나지 않는 불규칙 동사는 그룹만 붙는다.
+    assert tags["行く"] == ["group1", "verb"]
+    assert tags["来る"] == ["group3", "verb"]
+
+
+def test_group1_exception_checks_katakana_and_every_reading_and_inherited_pos():
+    tags = tags_of(
+        verb(1, "蹴る", "ケル", "v5r"),
+        """<entry><ent_seq>2</ent_seq><k_ele><keb>切る</keb></k_ele>
+<r_ele><reb>きる</reb></r_ele><r_ele><reb>きりる</reb></r_ele>
+<sense><pos>&n;</pos><gloss>a</gloss></sense>
+<sense><pos>&v5r;</pos><gloss>b</gloss></sense><sense><gloss>c</gloss></sense></entry>""",
+    )
+
+    assert tags["蹴る"] == ["group1_exception", "verb"]
+    assert tags["切る"] == ["group1_exception", "noun", "verb"]
+
+
+def test_suffix_pos_is_kept_separate_from_noun_and_honorific_tags():
+    tags = tags_of(
+        """<entry><ent_seq>1</ent_seq><r_ele><reb>さん</reb></r_ele>
+<sense><pos>&suf;</pos><misc>&hon;</misc><gloss>Mr.; Ms.</gloss></sense></entry>""",
+        """<entry><ent_seq>2</ent_seq><k_ele><keb>氏</keb></k_ele>
+<r_ele><reb>し</reb></r_ele><sense><pos>&n-suf;</pos><gloss>Mr.</gloss></sense></entry>""",
+    )
+
+    assert tags == {"さん": ["honorific", "suffix"], "氏": ["suffix"]}
+
+
+def test_register_misc_codes_become_sense_tags():
+    entry = next(
+        parse(
+            [
+                "<JMdict>",
+                """<entry><ent_seq>1</ent_seq><r_ele><reb>マジ</reb></r_ele>
+<sense><pos>&adj-na;</pos><misc>&col;</misc><gloss>serious</gloss></sense>
+<sense><pos>&n;</pos><misc>&form;</misc><misc>&male;</misc><gloss>g</gloss></sense></entry>""",
+                "</JMdict>",
+            ]
+        )
+    )
+
+    assert [sense.tags for sense in entry.senses] == [["colloquial"], ["formal", "male"]]

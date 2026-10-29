@@ -1,0 +1,105 @@
+name: dragram
+
+# 로컬 개발용. 값은 모두 개발 전용이며 운영에서 쓰지 않는다.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: dragram
+      POSTGRES_USER: dragram
+      POSTGRES_PASSWORD: dragram-dev-only
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dragram -d dragram"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 분석 작업 큐(RQ). 큐 입력에 원문이 들어가므로 디스크에 남기지 않는다(NFR-12).
+  redis:
+    image: redis:8-alpine
+    command: redis-server --save "" --appendonly no
+
+  backend:
+    build:
+      context: ./backend
+      target: dev
+    # 마운트한 폴더에 만든 파일(마이그레이션 등)이 root 소유가 되지 않게 한다.
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DJANGO_SECRET_KEY: dev-only-not-secret
+      DJANGO_DEBUG: "true"
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      POSTGRES_DB: dragram
+      POSTGRES_USER: dragram
+      POSTGRES_PASSWORD: dragram-dev-only
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+    # 분석 스트림이 LLM 결과를 기다리는 동안 서버를 붙잡지 않도록 ASGI로 띄운다(ADR 0005).
+    command: sh -c "python manage.py migrate && uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  # 분석 LLM 작업을 실행한다. 코드를 바꾸면 `docker compose restart worker`로 다시 띄운다.
+  worker:
+    build:
+      context: ./backend
+      target: dev
+    user: "${UID:-1000}:${GID:-1000}"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DJANGO_SECRET_KEY: dev-only-not-secret
+      DJANGO_DEBUG: "true"
+      POSTGRES_DB: dragram
+      POSTGRES_USER: dragram
+      POSTGRES_PASSWORD: dragram-dev-only
+      POSTGRES_HOST: db
+      REDIS_URL: redis://redis:6379/0
+    command: python manage.py analysis_worker
+    # 운영처럼 꺼지면 다시 띄운다.
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  web:
+    build: ./web
+    environment:
+      # 개발 서버가 /api를 백엔드로 넘긴다(웹과 API를 같은 출처로).
+      API_PROXY_TARGET: http://backend:8000
+      # 공개 값인 클라이언트 ID만 넘긴다. .env의 다른 값(LLM 키 등)은 웹 컨테이너에 넣지 않는다.
+      VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+      # 연결 메시지를 보낼 확장 ID. 기본값은 extension/wxt.config.ts의 공개 키로 고정한 개발용 ID다.
+      VITE_EXTENSION_ID: ${VITE_EXTENSION_ID:-ilhnmbeleinmgfcigakmfobgngiillah}
+      # 소개·처리방침·약관에 보이는 공개 값(스토어 주소, 연락 메일, 보호책임자)
+      VITE_CHROME_WEB_STORE_URL: ${VITE_CHROME_WEB_STORE_URL:-}
+      VITE_CONTACT_EMAIL: ${VITE_CONTACT_EMAIL:-}
+      VITE_PRIVACY_OFFICER: ${VITE_PRIVACY_OFFICER:-}
+    volumes:
+      - ./web:/app
+      # 이미지에 설치한 node_modules를 쓴다. 의존성을 바꾸면 build 후 `up -V`로 다시 만든다.
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

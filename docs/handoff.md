@@ -1,5 +1,8 @@
 # 인계 메모 (2026-10-18)
 
+> 이 문서는 2026-10-18 당시의 인수인계 스냅샷이다. 아래 레포 상태와 다음 단계는 그때 기준이다.
+> 현재 작업은 [요구사항](requirements.md), [스키마](schema/schema.md), [최신 결정 기록](design-decisions.md)의 뒤 절과 [실행 안내](../README.md)를 따른다.
+
 설계(요구사항·DB 스키마·디자인 기준)는 마감됐다. 다음은 구현 시작이다. 사용자와는 한국어로 대화한다.
 
 ## 문서 위치
@@ -24,14 +27,16 @@
 - Terraform: 첫 배포가 필요할 때 `infra/terraform/`(모듈 없이 시작)으로 ECR + OIDC부터 붙인다. tfstate는 커밋하지 않는다. 운영용 `compose.prod.yaml`(이미지 digest 고정)과 `nginx/`도 `infra/`에 둔다.
 
 ## 현재 레포 상태
-새로 시작한 레포다. 이전 MVP 코드는 `MinGyu-Kim0/dragram-mvp`(아카이브)에 있다. 지금은 문서, 규칙 문서, PR 템플릿만 있다.
-CI, 이슈 템플릿, backend·web·extension 뼈대(Dockerfile, pyproject, Vite 설정, compose)와 `infra/`는 새로 만든다.
-`dev` 브랜치는 첫 PR(문서)을 `main`에 합친 뒤 만든다. 그 뒤로는 `CONTRIBUTING.md`대로 `dev`를 기준으로 작업한다.
+새로 시작한 레포다. 이전 MVP 코드는 `MinGyu-Kim0/dragram-mvp`(아카이브)에 있다.
+backend·web·extension 뼈대와 CI(`.github/workflows/ci.yml`)가 있다. 기능 코드는 아직 없다. 폴더별 명령은 각 폴더의 `AGENTS.md`에 있다.
+이슈 템플릿과 `infra/`(운영 compose, nginx, Terraform)는 아직 없다. `infra/`는 첫 배포 때 만든다.
+작업은 `CONTRIBUTING.md`대로 `dev`에서 브랜치를 만들어 PR로 합친다.
 
 ## 다음 단계
-1. 뼈대(backend, web, extension)를 새로 만들고 CI를 붙인다.
-2. to-spec → to-tickets → implement(tdd + code-review) → retro.
-3. 화면 작업 전에 `DESIGN.md` §7 미정 항목(특히 분석 시작 방식, 루비 켜기/끄기)을 사용자와 정한다.
+1. AI 코드 리뷰는 Codex(ChatGPT GitHub 연동)가 PR을 열 때 자동으로 단다. `AGENTS.md`의 `Review guidelines`와 `CONTRIBUTING.md`의 "코드 리뷰" 절(등급·`[권장]` 기준, "CI의 AI 리뷰" 표현)을 서로 맞춘다.
+2. ~~grill-with-docs로 첫 기능 단위를 정한다. 문서 간 모순도 이때 정리한다.~~ 완료. 결과는 `docs/design-decisions.md` 28절과 ADR 0003.
+3. to-spec → to-tickets → implement(tdd + code-review) → retro.
+4. 화면 작업 전에 `DESIGN.md` §7에 남은 미정 항목(표시 켜고 끄기 버튼의 모양·위치, 오류 상태 문구 등)을 사용자와 정한다. 문장 수·길이에는 상한을 두지 않기로 했다(design-decisions 31절). 분석 시작 방식(첫 단위는 우클릭 메뉴)과 루비 제공(기본 켜짐)은 28절에서 정했다. 자동 분석과 선택 위 버튼은 나중에 검토한다.
 
 ## 주의
 - 합의되지 않은 내용을 결정처럼 기록하지 않는다. 모르면 묻는다.

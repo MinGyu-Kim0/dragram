@@ -1,0 +1,111 @@
+name: dragram
+
+# 운영용. 서버의 ~/dragram에 이 파일·caddy/Caddyfile·.env를 두고 실행한다(README.md).
+# 비밀값은 서버의 .env에만 둔다. 이 파일에 쓰지 않는다.
+
+x-logging: &logging
+  # 기본 로그 드라이버는 크기 제한이 없어 디스크를 채운다.
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+
+x-backend: &backend
+  # 개발 PC에서 빌드해 서버로 보낸 이미지(deploy.sh). 서버에서 빌드하지 않는다(메모리 부족).
+  image: dragram-backend:current
+  restart: unless-stopped
+  logging: *logging
+  env_file: .env
+  environment:
+    DJANGO_DEBUG: "false"
+    DJANGO_HTTPS: "true"
+    # localhost는 컨테이너 상태 확인용이다. backend 포트는 밖에 열지 않는다.
+    DJANGO_ALLOWED_HOSTS: ${SITE_ADDRESS:?},localhost
+    DJANGO_CSRF_TRUSTED_ORIGINS: https://${SITE_ADDRESS:?}
+    POSTGRES_DB: dragram
+    POSTGRES_USER: dragram
+    POSTGRES_HOST: db
+    REDIS_URL: redis://redis:6379/0
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_DB: dragram
+      POSTGRES_USER: dragram
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    # 메모리 2GB 서버 기준. 서버를 키우면 함께 올린다.
+    command: postgres -c shared_buffers=256MB -c effective_cache_size=768MB
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dragram -d dragram"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # 분석 작업 큐(RQ). 큐 입력에 원문이 들어가므로 디스크에 남기지 않는다(NFR-12).
+  redis:
+    image: redis:8-alpine
+    restart: unless-stopped
+    logging: *logging
+    command: redis-server --save "" --appendonly no
+
+  backend:
+    <<: *backend
+    # Caddy만 붙으므로 프록시 헤더(클라이언트 IP)를 믿는다.
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --forwarded-allow-ips "*"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen("http://localhost:8000/api/health/")
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # 분석 LLM 작업을 실행한다(ADR 0005). 작업은 대부분 LLM 응답 대기라 수는 메모리로 정한다.
+  worker:
+    <<: *backend
+    command: python manage.py analysis_worker
+    deploy:
+      replicas: 2
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+      - "${HTTPS_PORT:-443}:443/udp"
+    volumes:
+      # 파일이 아니라 폴더를 붙인다. 배포가 Caddyfile을 바꾸면 컨테이너가 새 내용을 보고
+      # 다시 읽는다(deploy.sh). 파일 하나만 붙이면 교체된 파일을 보지 못할 수 있다.
+      - ./caddy:/etc/caddy:ro
+      # 웹 빌드 결과(www/web)와 admin 정적 파일(www/static). 배포가 폴더째 바꿔 넣는다.
+      - ./www:/srv:ro
+      # 인증서. 지우면 다시 발급받다가 Let's Encrypt 발급 횟수 제한에 걸릴 수 있다.
+      - caddy_data:/data
+      - caddy_config:/config
+      # 접속 기록(Caddyfile log). 3개월 보관해야 해서 컨테이너를 다시 만들어도 남긴다.
+      - caddy_logs:/var/log/caddy
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
+  caddy_logs:

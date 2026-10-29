@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE JMdict [
+<!ELEMENT JMdict (entry*)>
+<!ENTITY v1 "Ichidan verb">
+<!ENTITY v5k "Godan verb with 'ku' ending">
+<!ENTITY v5aru "Godan verb - -aru special class">
+<!ENTITY vt "transitive verb">
+<!ENTITY vi "intransitive verb">
+<!ENTITY n "noun (common) (futsuumeishi)">
+<!ENTITY n-adv "adverbial noun (fukushitekimeishi)">
+<!ENTITY exp "expressions (phrases, clauses, etc.)">
+<!ENTITY hon "honorific or respectful (sonkeigo) language">
+<!ENTITY uk "word usually written using kana alone">
+<!ENTITY arch "archaic">
+]>
+<!-- JMdict created: 2026-10-01 -->
+<JMdict>
+<entry>
+<ent_seq>1358280</ent_seq>
+<k_ele>
+<keb>食べる</keb>
+<ke_pri>ichi1</ke_pri>
+<ke_pri>news1</ke_pri>
+</k_ele>
+<r_ele>
+<reb>たべる</reb>
+<re_pri>ichi1</re_pri>
+</r_ele>
+<sense>
+<pos>&v1;</pos>
+<pos>&vt;</pos>
+<gloss>to eat</gloss>
+<gloss xml:lang="ger">essen</gloss>
+</sense>
+<sense>
+<gloss>to live on (e.g. a salary)</gloss>
+<gloss>to live off</gloss>
+</sense>
+</entry>
+<entry>
+<ent_seq>1049180</ent_seq>
+<r_ele>
+<reb>コーヒー</reb>
+<re_pri>gai1</re_pri>
+</r_ele>
+<sense>
+<pos>&n;</pos>
+<lsource xml:lang="dut">koffie</lsource>
+<gloss>coffee</gloss>
+</sense>
+</entry>
+<entry>
+<ent_seq>1202450</ent_seq>
+<k_ele>
+<keb>開く</keb>
+</k_ele>
+<r_ele>
+<reb>あく</reb>
+</r_ele>
+<r_ele>
+<reb>ひらく</reb>
+</r_ele>
+<sense>
+<stagr>あく</stagr>
+<pos>&v5k;</pos>
+<pos>&vi;</pos>
+<gloss>to open (e.g. doors)</gloss>
+</sense>
+<sense>
+<stagr>ひらく</stagr>
+<pos>&v5k;</pos>
+<pos>&vt;</pos>
+<gloss>to open (a book, etc.)</gloss>
+</sense>
+</entry>
+<entry>
+<ent_seq>1576260</ent_seq>
+<k_ele>
+<keb>朔日</keb>
+</k_ele>
+<k_ele>
+<keb>一日</keb>
+<ke_pri>news1</ke_pri>
+</k_ele>
+<r_ele>
+<reb>いちにち</reb>
+<re_restr>一日</re_restr>
+</r_ele>
+<r_ele>
+<reb>ついたち</reb>
+</r_ele>
+<r_ele>
+<reb>ツイタチ</reb>
+<re_nokanji/>
+</r_ele>
+<sense>
+<stagk>一日</stagk>
+<stagr>いちにち</stagr>
+<pos>&n;</pos>
+<pos>&n-adv;</pos>
+<gloss>one day</gloss>
+</sense>
+<sense>
+<gloss>first day of the month</gloss>
+</sense>
+</entry>
+<entry>
+<ent_seq>1009760</ent_seq>
+<k_ele>
+<keb>居らっしゃる</keb>
+</k_ele>
+<r_ele>
+<reb>いらっしゃる</reb>
+<re_pri>spec1</re_pri>
+</r_ele>
+<sense>
+<pos>&v5aru;</pos>
+<pos>&vi;</pos>
+<misc>&hon;</misc>
+<misc>&uk;</misc>
+<gloss>to come &amp; to go (honorific)</gloss>
+</sense>
+<sense>
+<pos>&exp;</pos>
+<misc>&arch;</misc>
+<gloss>to be</gloss>
+</sense>
+</entry>
+</JMdict>

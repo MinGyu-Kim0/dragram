@@ -117,7 +117,7 @@ def run_connection(pattern_id, started, usage_id):
             return
         basis = (pattern.name, pattern.morpheme_key, pattern.variant_of_id, pattern.status)
         usage = RequestUsage.resume(usage_id)
-        # 큐에서 기다리는 사이 다른 분석이 하루 한도를 다 썼으면 부르지 않는다(worker·rematch와 같다).
+        # 큐에서 기다리는 사이 하루 한도를 다 썼으면 부르지 않는다(worker·rematch와 같다).
         if limits.over_limit(usage.user):
             return
         result = llm.get_client(usage.record_llm).fill_connection(

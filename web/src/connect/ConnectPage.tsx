@@ -298,7 +298,9 @@ function SignedIn({
       setProblem(undefined);
       try {
         const { token, account } = await issueExtensionToken();
-        if (await sendToExtension({ type: "connect", token, account }))
+        // 다른 탭이 다른 계정으로 로그인했으면 토큰은 그 계정 것이다. 화면의 계정으로 착각해 넘기지 않는다.
+        if (account !== user.account) setProblem("accountChanged");
+        else if (await sendToExtension({ type: "connect", token, account }))
           setConnected(true);
         else setProblem("extensionMissing");
       } catch {

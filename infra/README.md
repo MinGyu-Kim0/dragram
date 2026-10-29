@@ -82,3 +82,8 @@ cd ~/dragram && docker compose ps
 ```bash
 cd ~/dragram && docker compose logs -f --tail 100 backend worker caddy
 ```
+
+접속 기록은 `docker compose logs`가 아니라 caddy 컨테이너의 `/var/log/caddy/access.log`(볼륨 `caddy_logs`)에 남는다. 통신비밀보호법 시행령 제41조에 따라 3개월 보관하므로 볼륨을 지우지 않는다(처리방침 7절).
+```bash
+cd ~/dragram && docker compose exec caddy tail -n 20 /var/log/caddy/access.log
+```

@@ -1,5 +1,19 @@
 # 인증서 발급·갱신과 http → https 이동은 Caddy가 알아서 한다.
 {$SITE_ADDRESS} {
+	# 접속 기록은 통신비밀보호법 시행령 제41조에 따라 3개월 남긴다(처리방침 7절).
+	# 파일은 크기로 넘기고, 넘길 때 92일이 지난 파일을 지운다. 헤더는 남기지 않는다.
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10MiB
+			roll_keep 1000
+			roll_keep_for 2208h
+		}
+		format filter {
+			request>headers delete
+			resp_headers delete
+		}
+	}
+
 	handle /api/* {
 		reverse_proxy backend:8000 {
 			# 분석 API는 줄 단위 JSON 스트림이다. 모아 두지 않고 바로 넘긴다(ADR 0005).

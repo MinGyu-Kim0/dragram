@@ -15,6 +15,10 @@ from analysis.stream import _NDJSON, _ndjson, llm_stream
 from analysis.usage import RequestUsage
 from errors import AnalysisError, BusinessError
 
+# 분석 요청 한 번(문장 하나)의 원문 글자 수 상한. 캐시 요청은 토큰을 쓰지 않아 하루 한도에
+# 걸리지 않으므로, 개인 기록 저장량과 형태소 분석 비용을 길이로 막는다(사용자 결정 2026-10-29).
+MAX_TEXT_LENGTH = 1000
+
 
 # 확장 토큰으로 로그인한 사용자만 쓴다. 토큰이 없거나 쓸 수 없으면 형태소 분석·LLM 전에
 # AUTH:LOGIN_REQUIRED로 거부한다(#109).
@@ -54,6 +58,8 @@ def _analyze(request):
     original = request.data.get("text") if isinstance(request.data, dict) else None
     if not _is_text(original):
         raise BusinessError(AnalysisError.TEXT_REQUIRED, "분석할 문장이 없음")
+    if len(original) > MAX_TEXT_LENGTH:
+        raise BusinessError(AnalysisError.TEXT_TOO_LONG, "분석할 문장이 너무 김")
     text, origins = analysis_text(original)
     presenter = Presenter(Sentence(text), original, origins)
     sentence, user = presenter.sentence, request.user

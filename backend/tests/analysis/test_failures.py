@@ -2,6 +2,8 @@
 
 import pytest
 
+from analysis.models import UserSentence
+from analysis.views import MAX_TEXT_LENGTH
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, saved_analyses
 
@@ -24,15 +26,6 @@ def test_invalid_llm_response_fails_the_sentence(client, fake_llm, llm_response)
     response = analyze(client, "私は学生です。")
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-
-
-def test_sentence_too_long_for_morphology_fails_without_calling_llm(client, fake_llm):
-    # SudachiPy는 49,149바이트를 넘는 입력을 나누지 못한다.
-    response = analyze(client, "あ" * 20000)
-
-    assert response.status_code == 502
-    assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert fake_llm.requests == []
 
 
 def test_llm_error_fails_the_sentence(client, fake_llm):
@@ -82,3 +75,17 @@ def test_missing_text_is_rejected_without_calling_llm(client, fake_llm, body):
     assert response.status_code == 400
     assert response.json() == {"error": "ANALYSIS:TEXT_REQUIRED"}
     assert fake_llm.requests == []
+
+
+def test_text_over_the_length_limit_is_rejected_before_analysis_or_recording(client, fake_llm):
+    # 캐시 요청은 토큰을 쓰지 않아 하루 한도로 막히지 않는다. 길이로 저장량과 분석 비용을 막는다.
+    fake_llm.response = {"translation_ko": "고양이"}
+    assert analyze(client, "猫" * MAX_TEXT_LENGTH).status_code == 200
+
+    response = client.post(
+        "/api/analyses/", {"text": "猫" * (MAX_TEXT_LENGTH + 1)}, content_type="application/json"
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {"error": "ANALYSIS:TEXT_TOO_LONG"}
+    assert UserSentence.objects.count() == 1

@@ -13,6 +13,7 @@ from analysis.models import (
     SentenceAnalysis,
     SpanMatch,
 )
+from analysis.views import MAX_TEXT_LENGTH
 from tests.analysis.helpers import analyze, connected_client, new_pattern
 
 pytestmark = pytest.mark.django_db
@@ -177,7 +178,8 @@ def test_concurrent_requests_all_succeed(fake_llm, monkeypatch):
     # 선점한 요청의 작업이 끝나기까지 20초 넘게 걸려, 기다리는 요청이 공통 대기 상한(1초)에
     # 닫히지 않게 늘린다. 테스트 시간 상한(120초)보다는 짧게 둔다.
     monkeypatch.setattr(stream, "WAIT_SECONDS", 60)
-    long_sentence = "吾輩は猫である。名前はまだ無い。" * 200
+    # 길이 상한 안에서 가장 긴 문장으로 형태소 분석을 오래 걸리게 한다.
+    long_sentence = ("吾輩は猫である。名前はまだ無い。" * 100)[:MAX_TEXT_LENGTH]
     results = []
 
     def send_requests():

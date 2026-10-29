@@ -174,8 +174,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Validate compose file
+      - name: Validate development compose file
         run: docker compose config -q
+      - name: Validate production compose file
+        run: |
+          printf 'SITE_ADDRESS=example.invalid\nPOSTGRES_PASSWORD=dragram-ci-only\n' > infra/.env
+          docker compose --env-file infra/.env -f infra/compose.yaml config -q
 
   workflows:
     needs: changes

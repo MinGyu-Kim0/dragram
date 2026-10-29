@@ -6,11 +6,12 @@
 - `backend/`: Django + DRF + PostgreSQL. SudachiPy로 형태소를 분석하고 OpenAI를 호출한다.
 - `web/`: React + Vite + TypeScript 웹페이지(내 일본어, 학습 카드, 작문 평가)
 - `extension/`: 크롬 확장(사이드 패널)
-- `infra/`: 운영 compose·nginx, 나중에 Terraform. 로컬 개발용 compose는 루트 `compose.yaml`
+- `infra/`: 운영 배포 설정·스크립트. 로컬 개발용 compose는 루트 `compose.yaml`
 
 폴더별 규칙은 그 폴더의 `AGENTS.md`에 둔다(폴더를 만들 때 함께 만든다).
 
 ## 먼저 읽을 것
+- 로컬 실행·작업 환경 확인 → `README.md`. 운영 구성·배포 → `infra/README.md`
 - 용어가 낯설거나 이름을 지을 때 → `GLOSSARY.md`. 코드·커밋·이슈에 이 용어를 그대로 쓴다.
 - 기능 범위·수용 기준 → `docs/requirements.md`
 - 테이블·칼럼 → `docs/schema/schema.md`

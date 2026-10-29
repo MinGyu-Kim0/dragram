@@ -11,16 +11,18 @@
 backend/     Django + DRF + PostgreSQL (SudachiPy, OpenAI)
 web/         React + Vite + TypeScript 웹페이지
 extension/   크롬 확장 (사이드 패널)
-infra/       운영 compose, nginx, Terraform
+infra/       운영 배포 설정·스크립트
 docs/        요구사항, DB 스키마, 설계 결정, ADR
 compose.yaml 로컬 개발용 compose
 ```
 
-`infra/`는 첫 배포 때 만든다.
+운영 구성과 배포·되돌리기 절차는 [infra/README.md](infra/README.md)를 따른다.
 
 ## 로컬 실행
 
 Docker(Compose 포함)가 필요하다.
+
+WSL에 저장소를 둔 경우 같은 배포판의 셸에서 실행한다. 작업 시작 전 `git status --short --branch`, `rg --version`, `docker compose version`으로 Git·검색 도구·Compose가 정상 실행되는지 확인한다.
 
 ```bash
 cp .env.example .env   # 필요한 값만 채운다

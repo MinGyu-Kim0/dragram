@@ -151,3 +151,110 @@ test("문장을 누르면 저장된 분석 화면으로 간다", async () => {
     within(first).getByRole("link", { name: "猫が好きです。" }),
   ).toHaveAttribute("href", "/sentences/2");
 });
+
+const GRAMMAR = [
+  {
+    usage_id: 7,
+    pattern_name: "ている",
+    name: "진행",
+    explanation_ko: "동작이 이어지고 있음을 나타낸다",
+    korean_equivalent: "~하고 있다",
+    korean_equivalent_review_status: "approved",
+    review_status: "pending",
+    sentences: [
+      { id: 2, text: "猫が好きです。" },
+      { id: 1, text: "私は学生です。" },
+    ],
+  },
+  {
+    usage_id: 3,
+    pattern_name: "です",
+    name: "정중",
+    explanation_ko: "정중하게 단정한다",
+    korean_equivalent: null,
+    korean_equivalent_review_status: null,
+    review_status: "approved",
+    sentences: [{ id: 1, text: "私は学生です。" }],
+  },
+];
+
+// 카드 안의 문장 목록 항목은 빼고 카드만 고른다.
+const grammarCards = async () => {
+  const list = await screen.findByRole("list", { name: "만난 문법" });
+  return within(list)
+    .getAllByRole("listitem")
+    .filter((li) => li.parentElement === list);
+};
+
+test("문장 탭이 기본이고 문법 탭은 열 때 불러온다", async () => {
+  responses["GET /api/my-japanese/grammar/"] = () => json({ usages: GRAMMAR });
+  open();
+
+  expect(
+    await screen.findByRole("tab", { name: "문장 2", selected: true }),
+  ).toBeInTheDocument();
+  await items();
+  expect(calls.map((c) => c.url)).not.toContain("/api/my-japanese/grammar/");
+
+  await userEvent.click(screen.getByRole("tab", { name: "문법" }));
+
+  expect(
+    screen.getByRole("tab", { name: "문법", selected: true }),
+  ).toBeVisible();
+  const [first, second] = await grammarCards();
+  expect(first).toHaveTextContent("ている");
+  expect(first).toHaveTextContent("진행");
+  expect(first).toHaveTextContent("~하고 있다");
+  expect(first).toHaveTextContent("동작이 이어지고 있음을 나타낸다");
+  expect(within(first).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(within(second).queryByText("AI 생성·미검수")).not.toBeInTheDocument();
+  expect(screen.queryByRole("list", { name: "분석한 문장" })).toBeNull();
+});
+
+test("문법 카드에서 그 용법이 나온 내 문장으로 간다", async () => {
+  responses["GET /api/my-japanese/grammar/"] = () => json({ usages: GRAMMAR });
+  open();
+  await userEvent.click(await screen.findByRole("tab", { name: "문법" }));
+  const [first] = await grammarCards();
+
+  expect(within(first).getByText("문장 2개")).toBeInTheDocument();
+  expect(
+    within(first).getByRole("link", { name: "私は学生です。" }),
+  ).toHaveAttribute("href", "/sentences/1");
+});
+
+test("만난 문법이 없으면 안내한다", async () => {
+  responses["GET /api/my-japanese/grammar/"] = () => json({ usages: [] });
+  open();
+  await userEvent.click(await screen.findByRole("tab", { name: "문법" }));
+
+  expect(
+    await screen.findByText("아직 만난 문법이 없어요."),
+  ).toBeInTheDocument();
+});
+
+test("문법을 불러오지 못하면 알린다", async () => {
+  responses["GET /api/my-japanese/grammar/"] = () => json({}, 500);
+  open();
+  await userEvent.click(await screen.findByRole("tab", { name: "문법" }));
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "문법을 불러오지 못했어요.",
+  );
+});
+
+test("탭은 주소에 남아 뒤로 오면 그 탭을 다시 연다", async () => {
+  responses["GET /api/my-japanese/grammar/"] = () => json({ usages: GRAMMAR });
+  render(
+    <MemoryRouter initialEntries={["/sentences?tab=grammar"]}>
+      <Routes>
+        <Route path="/sentences" element={<MySentencesPage />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+
+  expect(
+    await screen.findByRole("tab", { name: "문법", selected: true }),
+  ).toBeInTheDocument();
+  expect(await grammarCards()).toHaveLength(2);
+});

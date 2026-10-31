@@ -165,3 +165,44 @@
   padding: 0;
   border: 0;
 }
+
+.history .tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--color-track);
+}
+
+.history .tabs button {
+  flex: 1;
+  height: 34px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.history .tabs button[aria-selected="true"] {
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font-weight: 600;
+}
+
+.history .grammar-card h2 {
+  margin: 0;
+}
+
+.history .met-sentences {
+  margin-top: 8px;
+  gap: 4px;
+}
+
+.history .met-sentences li {
+  padding: 0;
+  border: 0;
+}

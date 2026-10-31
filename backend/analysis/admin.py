@@ -1,6 +1,7 @@
 """패턴·용법 검수 화면(#38).
 
-원문이나 원문 위치를 담은 테이블(sentence_analysis, span_match)은 등록하지 않는다. 패턴·용법은
+원문이나 원문 위치를 담은 테이블(sentence_analysis, span_match)은 등록하지 않는다. 정정
+(match_correction)은 문장 없이 분석 ID와 키 텍스트 위치만 보이는 목록으로 둔다(#223). 패턴·용법은
 LLM이 만들므로 여기서 더하거나 지우지 않는다(회화체를 연결하며 자기 용법을 원형 용법으로 합칠
 때만 그 용법을 지운다, #64). 단어·뜻도 문장 분석이 뜻 ID를 가리켜 더하거나 지우지 않고, 한국어
 뜻만 고친다(#97). 사전에 없는 단어(LLM 생성)는 표기·읽기도 고치고, LLM 뜻은 뜻 화면 액션으로
@@ -32,6 +33,7 @@ from analysis.models import (
     FunctionTag,
     GrammarPattern,
     GrammarUsage,
+    MatchCorrection,
     PatternMorpheme,
     ReviewStatus,
     UsageRule,
@@ -796,6 +798,70 @@ class WordSenseAdmin(_ReviewedAdmin):
             "unreject_senses", [ReviewStatus.REJECTED], ReviewStatus.PENDING, "반려 취소(미검수로)"
         ),
     ]
+
+
+def _correction_status_action(name, status, description):
+    """선택한 정정의 적용 상태를 바꾸는 admin 액션(#223)."""
+
+    def action(model_admin, request, queryset):
+        done = 0
+        for correction in queryset:
+            if corrections.set_status(correction, status):
+                model_admin.log_change(request, correction, f"상태: {status.label}")
+                done += 1
+        if done:
+            model_admin.message_user(request, f"{done}개를 바꿨습니다", messages.SUCCESS)
+
+    action.__name__ = name
+    return admin.action(description=description, permissions=["change"])(action)
+
+
+@admin.register(MatchCorrection)
+class MatchCorrectionAdmin(admin.ModelAdmin):
+    """정정 목록(#223). 정정은 평가 결과 화면에서만 만든다(#221). 공용 분석을 ID와 키 텍스트
+    위치로만 가리키고 문장은 보이지 않는다. 바꿀 수 있는 것은 적용 상태(액션)뿐이다.
+    """
+
+    list_display = [
+        "id",
+        "analysis_id",
+        "start_offset",
+        "end_offset",
+        "before_usage",
+        "after",
+        "status",
+        "corrected_by",
+        # 처음 정정한 시각과, 다시 정정하거나 상태를 바꾼 시각(누가 바꿨는지는 admin 기록에 남는다)
+        "created_at",
+        "updated_at",
+    ]
+    list_filter = ["status"]
+    fields = list_display[1:]
+    readonly_fields = fields
+    actions = [
+        _correction_status_action("suspend_corrections", MatchCorrection.Status.SUSPENDED, "멈춤"),
+        _correction_status_action(
+            "activate_corrections", MatchCorrection.Status.ACTIVE, "다시 적용"
+        ),
+    ]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return (
+            super()
+            .get_queryset(request)
+            .select_related("before_usage", "after_usage", "corrected_by")
+            .order_by("-updated_at")
+        )
+
+    @admin.display(description="정정 후 용법")
+    def after(self, correction):
+        return correction.after_usage or "매칭 해제"
 
 
 # 평가 세트(FR-A26, #177). 평가 문장은 관리자가 쓴 문장이라 admin에 보여도 된다(NFR-13).

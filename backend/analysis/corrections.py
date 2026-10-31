@@ -6,6 +6,7 @@
 
 from django.db import transaction
 from django.db.models import F
+from django.utils import timezone
 
 from analysis.evaluation import flat_items
 from analysis.models import GrammarUsage, MatchCorrection, ReviewStatus, SentenceAnalysis
@@ -77,7 +78,27 @@ def correct(item, after_usage_id, user):
             "corrected_by": user,
         },
     )
-    SentenceAnalysis.objects.filter(pk=locked.pk).update(
+    _make_stale(locked.pk)
+    return correction
+
+
+def _make_stale(analysis_id):
+    SentenceAnalysis.objects.filter(pk=analysis_id).update(
         is_stale=True, generation=F("generation") + 1
     )
-    return correction
+
+
+@transaction.atomic
+def set_status(correction, status):
+    """정정을 멈추거나(suspended) 다시 켠다(active, #223). 바뀌었으면 분석을 stale로 만들고 세대
+    번호를 올려 다음 분석부터 반영한다. 이미 그 상태면 아무것도 바꾸지 않고 False다.
+    """
+    SentenceAnalysis.objects.select_for_update(no_key=True).get(pk=correction.analysis_id)
+    changed = (
+        MatchCorrection.objects.filter(pk=correction.pk)
+        .exclude(status=status)
+        .update(status=status, updated_at=timezone.now())
+    )
+    if changed:
+        _make_stale(correction.analysis_id)
+    return bool(changed)

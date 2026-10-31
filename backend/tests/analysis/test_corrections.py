@@ -1,4 +1,6 @@
-"""평가 결과에서 매칭 정정(FR-A21, #221). 이음새는 admin 평가 결과 화면과 분석 API 응답이다."""
+"""평가 결과에서 매칭 정정(FR-A21, #221·#222), 반려 시 건너뛰기와 멈춤·재개·목록(#223).
+이음새는 admin 화면과 분석 API 응답이다.
+"""
 
 import pytest
 from django.contrib.admin.models import LogEntry
@@ -6,7 +8,7 @@ from django.db import transaction
 from django.urls import reverse
 
 from accounts.withdrawal import withdraw
-from analysis import patterns
+from analysis import patterns, review
 from analysis.models import (
     EvalItem,
     EvalSentence,
@@ -19,6 +21,7 @@ from analysis.models import (
 )
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.test_colloquial import base_and_variant
 from tests.analysis.test_evaluation import HASHITTEIRU, evaluate, new_pattern_response
 
 pytestmark = pytest.mark.django_db
@@ -262,3 +265,127 @@ def test_previous_result_skips_a_correction_to_a_rejected_usage(
     response = analyze(client, HASHITTEIRU)
 
     assert previous_names(response) == ["진행"]
+
+
+CORRECTIONS = "/admin/analysis/matchcorrection/"
+# 토큰: 0 食べ / 1 ちゃっ / 2 た
+TABECHATTA = "食べちゃった"
+
+
+@pytest.fixture
+def colloquial_item(client, fake_llm, redis_db):
+    """원형 てしまう(완료·유감)에 연결된 회화체 ちゃう 구간을 평가한 항목. '완료'로 골랐다."""
+    base, variant = base_and_variant(fake_llm)
+    review.link_variant(variant, base)
+    with transaction.atomic():
+        patterns.add_usage(base, "유감", "아쉬움을 나타낸다", None)
+    EvalSentence.objects.create(text=TABECHATTA, category="normal")
+    fake_llm.response = {"translation_ko": "먹어 버렸다", "spans": [span_answer(0, candidate_id=1)]}
+    evaluate("--yes")
+    fake_llm.forget_requests()
+    return EvalItem.objects.get(surface="ちゃっ")
+
+
+def names(response):
+    return [g["name"] for g in response.json()["grammar"]]
+
+
+def test_correction_to_a_rejected_usage_is_skipped_until_unrejected(
+    client, fake_llm, admin_client, item
+):
+    correct(admin_client, item, usage("결과 상태").pk)
+    review.reject_usage(usage("결과 상태"))
+    # 정정을 건너뛰어 그 구간을 다시 LLM에 묻는다.
+    fake_llm.response = {"translation_ko": "달리고 있다", "spans": [span_answer(0, candidate_id=1)]}
+
+    assert names(analyze(client, HASHITTEIRU)) == ["진행"]
+    assert MatchCorrection.objects.get().status == MatchCorrection.Status.ACTIVE
+
+    review.unreject_usage(usage("결과 상태"))
+    fake_llm.response = {"translation_ko": "달려 있다"}
+
+    assert names(analyze(client, HASHITTEIRU)) == ["결과 상태"]
+
+
+def test_correction_of_a_rejected_pattern_is_skipped_until_unrejected(
+    client, fake_llm, admin_client, item
+):
+    # 정정 후 용법의 소속 패턴이 곧 실제 매칭 패턴이다.
+    correct(admin_client, item, usage("결과 상태").pk)
+    teiru = GrammarPattern.objects.get(name="ている")
+    review.reject_pattern(teiru)
+    fake_llm.response = {"translation_ko": "달리고 있다"}
+
+    assert names(analyze(client, HASHITTEIRU)) == []
+    assert MatchCorrection.objects.get().status == MatchCorrection.Status.ACTIVE
+
+    review.unreject_pattern(teiru)
+
+    assert names(analyze(client, HASHITTEIRU)) == ["결과 상태"]
+
+
+@pytest.mark.parametrize("rejected", ["ちゃう", "てしまう"])
+def test_correction_of_a_colloquial_span_is_skipped_while_either_pattern_is_rejected(
+    client, fake_llm, admin_client, colloquial_item, rejected
+):
+    # ちゃう는 실제 매칭 패턴, てしまう는 연결된 원형이자 정정 후 용법의 소속 패턴이다.
+    correct(admin_client, colloquial_item, usage("유감").pk)
+    pattern = GrammarPattern.objects.get(name=rejected)
+    review.reject_pattern(pattern)
+    fake_llm.response = {"translation_ko": "먹어 버렸다"}
+
+    assert names(analyze(client, TABECHATTA)) == []
+    assert MatchCorrection.objects.get().status == MatchCorrection.Status.ACTIVE
+
+    review.unreject_pattern(pattern)
+
+    assert names(analyze(client, TABECHATTA)) == ["유감"]
+
+
+def act(admin_client, action, correction):
+    return admin_client.post(
+        CORRECTIONS, {"action": action, "_selected_action": [correction.pk]}, follow=True
+    )
+
+
+def test_suspending_and_activating_a_correction(client, fake_llm, admin_client, item):
+    correct(admin_client, item, usage("결과 상태").pk)
+    correction = MatchCorrection.objects.get()
+    analyze(client, HASHITTEIRU)
+    before = SentenceAnalysis.objects.get()
+
+    act(admin_client, "suspend_corrections", correction)
+
+    correction.refresh_from_db()
+    after = SentenceAnalysis.objects.get()
+    assert correction.status == MatchCorrection.Status.SUSPENDED
+    assert (after.is_stale, after.generation) == (True, before.generation + 1)
+    fake_llm.response = {"translation_ko": "달리고 있다", "spans": [span_answer(0, candidate_id=1)]}
+    assert names(analyze(client, HASHITTEIRU)) == ["진행"]
+
+    act(admin_client, "activate_corrections", correction)
+
+    correction.refresh_from_db()
+    assert correction.status == MatchCorrection.Status.ACTIVE
+    assert SentenceAnalysis.objects.get().is_stale is True
+    fake_llm.response = {"translation_ko": "달려 있다"}
+    assert names(analyze(client, HASHITTEIRU)) == ["결과 상태"]
+
+
+def test_correction_list_shows_who_when_what_without_the_sentence(admin_client, admin_user, item):
+    correct(admin_client, item, usage("결과 상태").pk)
+
+    page = admin_client.get(CORRECTIONS).content.decode()
+
+    assert admin_user.username in page
+    assert "진행" in page and "결과 상태" in page and "적용" in page
+    # 공용 분석을 가리킬 뿐, 문장(평가 문장도)은 보이지 않는다.
+    assert HASHITTEIRU not in page
+
+
+def test_corrections_are_not_added_or_deleted_in_admin(admin_client, item):
+    correct(admin_client, item, "release")
+    correction = MatchCorrection.objects.get()
+
+    assert admin_client.get(f"{CORRECTIONS}add/").status_code == 403
+    assert admin_client.get(f"{CORRECTIONS}{correction.pk}/delete/").status_code == 403

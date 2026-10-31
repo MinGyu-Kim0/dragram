@@ -182,12 +182,22 @@ def lookup(text, morphs, tokens):
 
     text는 형태소 분석한 분석 텍스트다. 흔한 단어를 앞에 두고, 그다음 JMdict 번호·뜻 순서다.
     반려된 뜻은 후보가 아니다.
+
+    활용하는 토큰을 사전형으로 찾았어도 정규형이 다르면 정규형 단어의 뜻을 뒤에 더한다. 1그룹
+    가능형 行ける(정규형 行く)는 JMdict의 行ける(잘하다)와 行く(가다) 가운데 문맥으로 고른다(#275).
     """
     found = {}
     for token in tokens:
-        for query in _queries(text, morphs[token]):
+        morph = morphs[token]
+        for query in _queries(text, morph):
             candidates = _find(query)
             if candidates:
+                if morph.conjugates and query.form != morph.lemma:
+                    seen = {c.sense.id for c in candidates}
+                    lemma_query = _Query(
+                        morph.lemma, to_hiragana(morph.lemma) if is_kana(morph.lemma) else None
+                    )
+                    candidates += [c for c in _find(lemma_query) if c.sense.id not in seen]
                 found[token] = candidates
                 break
     return found

@@ -220,6 +220,17 @@ function App() {
                       },
                 );
               },
+              // 검증 전 번역 앞부분(#303). 실패하면 실패 결과가 이것을 지운다.
+              (partial) => {
+                if (previous) return;
+                saveAll({
+                  status: "translated",
+                  translation: partial,
+                  earlyGrammar,
+                  checking,
+                  earlyWords,
+                });
+              },
             ),
           () => !current,
         )

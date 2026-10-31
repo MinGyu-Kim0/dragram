@@ -3,10 +3,10 @@ import { loadTheme, saveTheme, type Theme } from "@/utils/preferences";
 
 // 테마 버튼(#296): 처음에는 브라우저 설정을 따르고, 누르면 지금 보이는 테마의 반대로 바꿔 기억한다.
 // 저장값을 읽기 전에 사용자가 바꾸면 늦게 읽힌 저장값으로 덮어쓰지 않는다.
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+
 const systemTheme = (): Theme =>
-  globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  globalThis.matchMedia?.(DARK_QUERY).matches ? "dark" : "light";
 
 function apply(theme: Theme) {
   document.documentElement.dataset.theme = theme;
@@ -15,6 +15,16 @@ function apply(theme: Theme) {
 export function ThemeButton() {
   // chosen: 이 패널에서 고르거나 저장소에서 읽은 테마. 없으면 브라우저 설정을 따른다.
   const [chosen, setChosen] = useState<Theme | null>(null);
+  // 고르기 전에는 브라우저 설정을 따르고, 설정이 바뀌면 버튼도 따라 바뀐다.
+  const [system, setSystem] = useState<Theme>(systemTheme);
+
+  useEffect(() => {
+    const query = globalThis.matchMedia?.(DARK_QUERY);
+    if (!query?.addEventListener) return;
+    const changed = () => setSystem(systemTheme());
+    query.addEventListener("change", changed);
+    return () => query.removeEventListener("change", changed);
+  }, []);
 
   useEffect(() => {
     loadTheme().then((stored) => {
@@ -27,7 +37,7 @@ export function ThemeButton() {
     });
   }, []);
 
-  const theme = chosen ?? systemTheme();
+  const theme = chosen ?? system;
   const toggle = () => {
     const next = theme === "dark" ? "light" : "dark";
     setChosen(next);

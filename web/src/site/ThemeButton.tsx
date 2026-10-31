@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 // 테마 버튼(#296): 처음에는 브라우저 설정을 따르고, 누르면 지금 보이는 테마의 반대로 바꿔 기억한다.
 // 기억한 값은 index.html이 첫 화면을 그리기 전에 <html data-theme>으로 다시 건다.
@@ -16,19 +16,28 @@ function storedTheme(): Theme | null {
   }
 }
 
+const DARK_QUERY = "(prefers-color-scheme: dark)";
+
 const systemTheme = (): Theme =>
-  globalThis.matchMedia?.("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  globalThis.matchMedia?.(DARK_QUERY).matches ? "dark" : "light";
 
 function ThemeButton() {
-  const [theme, setTheme] = useState<Theme>(
-    () => storedTheme() ?? systemTheme(),
-  );
+  // chosen: 고른 테마. 없으면 브라우저 설정(system)을 따르고, 설정이 바뀌면 버튼도 따라 바뀐다.
+  const [chosen, setChosen] = useState<Theme | null>(storedTheme);
+  const [system, setSystem] = useState<Theme>(systemTheme);
 
+  useEffect(() => {
+    const query = globalThis.matchMedia?.(DARK_QUERY);
+    if (!query?.addEventListener) return;
+    const changed = () => setSystem(systemTheme());
+    query.addEventListener("change", changed);
+    return () => query.removeEventListener("change", changed);
+  }, []);
+
+  const theme = chosen ?? system;
   const toggle = () => {
     const next = theme === "dark" ? "light" : "dark";
-    setTheme(next);
+    setChosen(next);
     document.documentElement.dataset.theme = next;
     try {
       localStorage.setItem(KEY, next);

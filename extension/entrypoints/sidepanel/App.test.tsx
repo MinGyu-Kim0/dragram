@@ -134,12 +134,33 @@ afterEach(() => {
   delete document.documentElement.dataset.theme;
 });
 
-/** 브라우저 설정(prefers-color-scheme)을 흉내 낸다. */
+/** 브라우저 설정(prefers-color-scheme)을 흉내 낸다. 돌려준 함수로 설정을 바꾼다. */
 function prefersDark(dark: boolean) {
+  const listeners = new Set<() => void>();
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: dark && query === "(prefers-color-scheme: dark)",
+    get matches() {
+      return dark && query === "(prefers-color-scheme: dark)";
+    },
+    addEventListener: (_: string, listener: () => void) =>
+      listeners.add(listener),
+    removeEventListener: (_: string, listener: () => void) =>
+      listeners.delete(listener),
   }));
+  return (next: boolean) => {
+    dark = next;
+    listeners.forEach((listener) => listener());
+  };
 }
+
+test("고른 적이 없으면 브라우저 설정이 바뀔 때 테마 버튼도 따라 바뀐다", async () => {
+  const setDark = prefersDark(false);
+  render(<App />);
+  const button = await screen.findByRole("button", { name: "다크 모드" });
+  expect(button).toHaveAttribute("aria-pressed", "false");
+
+  act(() => setDark(true));
+  expect(button).toHaveAttribute("aria-pressed", "true");
+});
 
 test("테마 버튼은 처음에는 브라우저 설정을 따르고 고른 테마를 고정하지 않는다", async () => {
   prefersDark(true);

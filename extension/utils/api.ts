@@ -188,6 +188,8 @@ export class AnalysisFailed extends Error {
 // 새 문장은 analysis 전에 judged(첫 LLM 응답이 판정한 문법을 더한 문법, 남은 판별 대상 구간, LLM이
 // 고른 뜻을 채운 단어)가 올 수 있고, 그때 onJudged를 부른다(#97). 판정은 저장 전이라 실패
 // (AnalysisFailed)에는 싣지 않는다.
+// 새 문장은 translation 전에 translation_partial(검증 전 번역 앞부분과 루비)이 여럿 올 수 있고,
+// 그때마다 onPartialTranslation을 부른다(#303). 검증 전이라 실패(AnalysisFailed)에는 싣지 않는다.
 // grammar가 오면 onEarlyGrammar를, 번역이 오면 onTranslation을 부르고, 다 오면 분석 전체를
 // 돌려준다. analysis의 번역은 문법·단어와 짝인 저장된 번역이라 그것을 쓴다.
 export async function analyzeSentence(
@@ -204,6 +206,7 @@ export async function analyzeSentence(
     checking: CheckingItem[],
     words: WordItem[],
   ) => void,
+  onPartialTranslation?: (translation: Translation) => void,
 ): Promise<Analysis> {
   const token = await loadToken();
   if (!token) throw new LoginRequired();
@@ -247,6 +250,11 @@ export async function analyzeSentence(
         onEarlyGrammar?.(earlyGrammar, event.checking, event.words ?? []);
       } else if (event.type === "judged") {
         onJudged?.(event.grammar, event.checking, event.words);
+      } else if (event.type === "translation_partial") {
+        onPartialTranslation?.({
+          translation_ko: event.translation_ko,
+          ruby: event.ruby,
+        });
       } else if (event.type === "translation") {
         translation = {
           translation_ko: event.translation_ko,
@@ -283,6 +291,7 @@ type StreamEvent =
       words?: WordItem[];
     }
   | ({ type: "translation" } & Translation)
+  | ({ type: "translation_partial" } & Translation)
   | {
       type: "judged";
       grammar: GrammarItem[];

@@ -19,6 +19,7 @@ from analysis.models import (
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import (
     analyze,
+    asked_usages,
     connected_client,
     new_pattern,
     new_usage,
@@ -124,8 +125,8 @@ def test_span_without_chosen_usage_is_not_shown(client, fake_llm, verdict, candi
     assert response.status_code == 200
     assert response.json()["grammar"] == []
     assert SpanMatch.objects.filter(state=verdict).count() == 1
-    # 해당 없음은 새 문법을 만들지 않는다.
-    assert (GrammarPattern.objects.count(), GrammarUsage.objects.count()) == (1, 1)
+    # 해당 없음은 새 문법을 찾으려 다시 묻지 않는다.
+    assert len(fake_llm.all_requests()) == 2
 
 
 def test_cached_sentence_reads_grammar_from_span_matches(client, fake_llm):
@@ -761,10 +762,6 @@ def test_other_voiced_auxiliaries_after_sound_change_match_unvoiced_patterns(
     analyze(client, sentence)
 
     assert len(fake_llm.requests[1]["spans"]) == 1
-
-
-def asked_usages(fake_llm):
-    return [[c["name"] for c in span["candidates"]] for span in fake_llm.requests[-1]["spans"]]
 
 
 def test_naide_is_not_read_as_te(client, fake_llm):

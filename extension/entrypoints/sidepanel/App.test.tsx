@@ -701,7 +701,7 @@ function wordItem(
   };
 }
 
-test("같은 단어도 고른 뜻에 따라 자동사·타동사 태그가 다르고, 예외 1그룹 동사는 그렇게 보인다", async () => {
+test("같은 단어도 자리마다 고른 뜻의 자동사·타동사 태그를 보이고, 예외 1그룹 동사에 그 태그를 보인다", async () => {
   respondWith(200, {
     translation_ko: "날이 밝아 돌아가서 문을 연다.",
     grammar: [],

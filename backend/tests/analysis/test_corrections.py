@@ -228,12 +228,14 @@ def test_previous_result_leaves_out_a_released_span(client, fake_llm, admin_clie
 
 
 @pytest.mark.parametrize(
-    ("target", "shown"), [("결과 상태", ["결과 상태"]), ("release", [])], ids=["정정", "해제"]
+    ("target", "shown"),
+    [(lambda: usage("결과 상태").pk, ["결과 상태"]), (lambda: "release", [])],
+    ids=["정정", "해제"],
 )
 def test_failed_reanalysis_does_not_bring_the_wrong_answer_back(
     client, fake_llm, admin_client, item, target, shown
 ):
-    correct(admin_client, item, target if target == "release" else usage(target).pk)
+    correct(admin_client, item, target())
     fake_llm.error = BusinessError(AnalysisError.FAILED, "LLM 호출 실패")
 
     first = analyze(client, HASHITTEIRU)

@@ -14,7 +14,7 @@ from analysis.models import (
     SentenceAnalysis,
     SpanMatch,
 )
-from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.helpers import analyze, asked_usages, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -440,7 +440,7 @@ def test_analysis_whose_pattern_or_usage_changes_while_analyzing_is_not_saved(
 
 
 def test_unapproved_usage_analysis_is_made_again_with_translation_and_spans(client, fake_llm):
-    pattern, usage = approved_teiru(client, fake_llm)
+    _, usage = approved_teiru(client, fake_llm)
     analysis = SentenceAnalysis.objects.get()
     old_spans = list(analysis.span_matches.values_list("pk", flat=True))
     review.unapprove_usage(usage)
@@ -450,8 +450,7 @@ def test_unapproved_usage_analysis_is_made_again_with_translation_and_spans(clie
     analyze(client, "走っている")
 
     assert len(fake_llm.requests) == calls + 1
-    asked = [[c["name"] for c in span["candidates"]] for span in fake_llm.requests[-1]["spans"]]
-    assert asked == [["진행"]]
+    assert asked_usages(fake_llm) == [["진행"]]
     analysis.refresh_from_db()
     assert (analysis.translation_ko, analysis.is_stale) == ("달리는 중이다", False)
     assert not analysis.span_matches.filter(pk__in=old_spans).exists()

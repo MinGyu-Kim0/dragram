@@ -526,7 +526,7 @@ def test_unrejected_base_usage_makes_analyses_of_its_variants_stale(client, fake
     [(False, True, "pending"), (True, False, "pending"), (True, True, "approved")],
     ids=["원형만 미검수", "회화체만 미검수", "둘 다 승인"],
 )
-def test_variant_span_is_approved_only_when_both_patterns_and_the_usage_are(
+def test_variant_span_is_approved_only_when_both_patterns_are_approved(
     client, fake_llm, base_approved, variant_approved, shown
 ):
     base, variant = linked(fake_llm)

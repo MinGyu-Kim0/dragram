@@ -144,9 +144,12 @@ def test_same_word_twice_keeps_a_sense_for_each_place(client, fake_llm, hiraku):
 
     response = analyze(client, "開いて開いた")
 
-    assert [(w["start"], w["sense"]["gloss_en"]) for w in response.json()["words"]] == [
-        (0, ["to open", "to undo", "to unseal", "to unpack"]),
-        (3, ["to bloom"]),
+    # 같은 단어라도 자리마다 고른 뜻의 태그(타동사 / 자동사)가 따라간다.
+    assert [
+        (w["start"], w["sense"]["gloss_en"], w["sense"]["tags"]) for w in response.json()["words"]
+    ] == [
+        (0, ["to open", "to undo", "to unseal", "to unpack"], ["transitive"]),
+        (3, ["to bloom"], ["intransitive"]),
     ]
     row = SentenceAnalysis.objects.get()
     assert row.word_spans == [

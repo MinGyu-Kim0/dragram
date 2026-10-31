@@ -89,7 +89,7 @@ services:
       # 연결 메시지를 보낼 확장 ID. 기본값은 extension/wxt.config.ts의 공개 키로 고정한 개발용 ID다.
       VITE_EXTENSION_ID: ${VITE_EXTENSION_ID:-ilhnmbeleinmgfcigakmfobgngiillah}
       # 소개·처리방침·약관에 보이는 공개 값(스토어 주소, 연락 메일, 보호책임자)
-      VITE_CHROME_WEB_STORE_URL: ${VITE_CHROME_WEB_STORE_URL:-}
+      VITE_CHROME_WEB_STORE_URL: ${VITE_CHROME_WEB_STORE_URL:-https://chromewebstore.google.com/detail/dragram/mmacpijbigbfjbjbcfibnafnpokmjlnd}
       VITE_CONTACT_EMAIL: ${VITE_CONTACT_EMAIL:-}
       VITE_PRIVACY_OFFICER: ${VITE_PRIVACY_OFFICER:-}
     volumes:

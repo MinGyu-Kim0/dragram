@@ -29,20 +29,6 @@
   gap: 8px;
 }
 
-/* 문장 상세(#195). 형광펜·배지 색은 DESIGN §2(사이드 패널과 같은 값). */
-.history {
-  --color-surface-inset: #e6f0e9;
-  --color-warn-border: #b26a00;
-  --color-highlight-0: #ddf27a;
-  --color-highlight-0-text: #3d4a00;
-  --color-highlight-1: #bde3ff;
-  --color-highlight-1-text: #0f4a78;
-  --color-highlight-2: #ffd6a8;
-  --color-highlight-2-text: #7a3e00;
-  --color-highlight-3: #f7c8e0;
-  --color-highlight-3-text: #7a1f4f;
-}
-
 .history h2 {
   margin: 8px 0 0;
   font-size: 16px;

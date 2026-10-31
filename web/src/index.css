@@ -13,7 +13,19 @@
   --color-danger-text: #9f1d1d;
   --color-warn-bg: #fff1d0;
   --color-warn-text: #6b4100;
+  --color-warn-border: #b26a00;
+  /* 형광펜 4색(DESIGN §2 형광펜, 사이드 패널과 같은 값) */
+  --color-highlight-0: #ddf27a;
+  --color-highlight-0-text: #3d4a00;
+  --color-highlight-1: #bde3ff;
+  --color-highlight-1-text: #0f4a78;
+  --color-highlight-2: #ffd6a8;
+  --color-highlight-2-text: #7a3e00;
+  --color-highlight-3: #f7c8e0;
+  --color-highlight-3-text: #7a1f4f;
   --color-brand: #157a57;
+  --color-brand-strong: #0f5e44;
+  --color-brand-soft: #d7efe3;
   --color-on-brand: #ffffff;
 }
 
@@ -21,5 +33,10 @@ body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: system-ui, sans-serif;
+  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+}
+
+/* 일본어는 전부 Zen Maru Gothic(DESIGN §2 글꼴) */
+:lang(ja) {
+  font-family: "Zen Maru Gothic", "IBM Plex Sans KR", sans-serif;
 }

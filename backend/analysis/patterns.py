@@ -16,6 +16,7 @@ from django.utils import timezone
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
+    MatchCorrection,
     PatternMorpheme,
     PatternSetVersion,
     ReviewStatus,
@@ -436,6 +437,10 @@ def merge_usage(source, target):
     SpanMatch.objects.bulk_update(rows, ["usage", "state", "candidates", "alternatives"])
     # 판별 규칙도 target을 가리킨다. 같은 뜻으로 합친 용법이라 규칙의 뜻은 그대로다(#55).
     UsageRule.objects.filter(usage=source).update(usage=target, updated_at=timezone.now())
+    # 관리자 정정도 target을 가리킨다(#221).
+    now = timezone.now()
+    MatchCorrection.objects.filter(before_usage=source).update(before_usage=target, updated_at=now)
+    MatchCorrection.objects.filter(after_usage=source).update(after_usage=target, updated_at=now)
     source.delete()
 
 

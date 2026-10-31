@@ -13,12 +13,16 @@ import json
 from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
+from django.core.exceptions import PermissionDenied
 from django.db.models import Q
 from django.forms.models import BaseInlineFormSet
+from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
+from django.urls import path, reverse
 from django.utils import timezone
+from django.utils.html import format_html
 
-from analysis import answers, evaluation, patterns, review, words
+from analysis import answers, corrections, evaluation, patterns, review, words
 from analysis.jmdict import to_hiragana
 from analysis.models import (
     EvalItem,
@@ -895,13 +899,37 @@ class EvalRunAdmin(admin.ModelAdmin):
 
 class EvalItemInline(admin.TabularInline):
     model = EvalItem
-    fields = ["surface", "start", "end", "state", "name", "alternatives", "review_status", "grade"]
-    readonly_fields = ["surface", "start", "end", "state", "name", "alternatives", "review_status"]
+    fields = [
+        "surface",
+        "start",
+        "end",
+        "state",
+        "name",
+        "alternatives",
+        "review_status",
+        "grade",
+        "correct",
+    ]
+    readonly_fields = [
+        "surface",
+        "start",
+        "end",
+        "state",
+        "name",
+        "alternatives",
+        "review_status",
+        "correct",
+    ]
     extra = 0
     can_delete = False
 
     def has_add_permission(self, request, obj=None):
         return False
+
+    @admin.display(description="정정")
+    def correct(self, item):
+        url = reverse("admin:analysis_evalresult_correct", args=[item.result_id, item.pk])
+        return format_html('<a href="{}">정정</a>', url)
 
 
 @admin.register(EvalResult)
@@ -930,6 +958,60 @@ class EvalResultAdmin(admin.ModelAdmin):
 
     def get_queryset(self, request):
         return super().get_queryset(request).select_related("run", "sentence")
+
+    def get_urls(self):
+        view = self.admin_site.admin_view(self.correct_view)
+        return [
+            path(
+                "<int:result_id>/correct/<int:item_id>/", view, name="analysis_evalresult_correct"
+            ),
+            *super().get_urls(),
+        ]
+
+    def correct_view(self, request, result_id, item_id):
+        """평가 항목의 구간을 정정하는 화면(FR-A21, #221). 평가 문장만 보이고 사용자 원문은 없다."""
+        if not request.user.has_perm("analysis.add_matchcorrection"):
+            raise PermissionDenied
+        item = get_object_or_404(
+            EvalItem.objects.select_related("result"), pk=item_id, result_id=result_id
+        )
+        back = reverse("admin:analysis_evalresult_change", args=[result_id])
+        try:
+            _, span = corrections.target(item)
+        except review.Refused as refused:
+            self.message_user(request, str(refused), messages.ERROR)
+            return redirect(back)
+        if request.method == "POST":
+            after = request.POST.get("after", "")
+            if after != "release" and not after.isdecimal():
+                self.message_user(request, "정정 후 용법을 골라야 합니다", messages.ERROR)
+                return redirect(request.path)
+            try:
+                correction = corrections.correct(
+                    item, None if after == "release" else int(after), request.user
+                )
+            except review.Refused as refused:
+                self.message_user(request, str(refused), messages.ERROR)
+                return redirect(request.path)
+            change = (
+                f"정정: {correction.before_usage or '없음'}"
+                f" → {correction.after_usage or '매칭 해제'}"
+            )
+            self.log_change(request, correction, change)
+            self.message_user(request, change, messages.SUCCESS)
+            return redirect(back)
+        return TemplateResponse(
+            request,
+            "admin/analysis/evalresult/correct.html",
+            {
+                **self.admin_site.each_context(request),
+                "title": "매칭 정정",
+                "opts": self.model._meta,
+                "item": item,
+                "usages": corrections.choices(span).order_by("id"),
+                "current": span.usage_id,
+            },
+        )
 
     @admin.display(description="채점(미채점/항목)")
     def graded(self, result):

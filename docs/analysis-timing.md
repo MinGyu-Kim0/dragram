@@ -28,6 +28,8 @@
 ### `llm_call`: LLM 호출 하나
 
 사용 기록의 llm 행을 남길 때 함께 남긴다. 분석 작업 밖의 호출(재판정, 접속 형태)도 남는다.
+재판정(패턴 세트 버전이 올라 캐시 문장을 다시 매칭하는 경로)은 이 기록만 남고 `analysis_job`·
+`analysis_request`는 없다. 이번 범위는 새 문장의 분석 경로다.
 
 | 칸 | 뜻 |
 | --- | --- |
@@ -35,7 +37,7 @@
 | `purpose` | 호출 목적(`first_response`, `reask`, `example_rewrite`, `word_gloss` 등). 첫 호출 밖은 보조 호출이다 |
 | `model`, `reasoning_effort` | 응답한 모델과 이때의 추론량 설정 |
 | `attempt`, `success` | 시도 차수(일시 오류로 다시 보내면 2)와 성공 여부 |
-| `seconds` | 보내기 시작 → 응답을 끝까지 받거나 실패한 때 |
+| `seconds` | 보내기 시작 → 응답을 끝까지 받거나 실패한 때. 첫 호출(스트림)은 받는 도중 작업자가 번역·판정을 검증하고 알리는 시간도 들어간다 |
 | `input_tokens`, `cached_input_tokens`, `output_tokens` | 공급자가 알린 사용량. 받지 못했으면 `null` |
 
 ### `analysis_request`: 분석 요청 하나
@@ -72,7 +74,9 @@ docker compose logs --no-log-prefix --since 30m backend worker | grep '^{"event"
 2. 캐시를 맞춘다. LLM 시간을 재려면 세트의 분석 행이 없거나 다시 분석해야 하는 상태여야 한다
    (`role`이 `claimed`가 아니면 캐시를 맞추지 못한 것이다).
 3. 실행 구성을 실행 기록으로 남긴다. 모델·추론량은 `llm_call`의 `model`·`reasoning_effort`에서,
-   작업자 수는 `analysis_job`의 서로 다른 `worker` 수에서 읽는다. 코드나 설정 파일로 추정하지 않는다.
+   작업자 수는 `analysis_job`의 서로 다른 `worker` 수에서 읽는다. 추론량은 `.env`에 두지 않으면
+   `low`다(#217). 작업이 적으면 한 작업자가 모두 가져갈 수 있어 관찰한 작업자 수는 하한이다. 그래서
+   실행할 때 띄운 작업자 수(`docker compose ps worker`)도 함께 적는다.
 4. 세트를 정한 횟수만큼 요청하고, 위 명령으로 기록을 모은다.
 5. 아래 양식을 채운다.
 
@@ -88,8 +92,8 @@ docker compose logs --no-log-prefix --since 30m backend worker | grep '^{"event"
 | 항목 | 값 |
 | --- | --- |
 | 날짜·커밋 | |
-| 모델 / 추론량 | (`reasoning_effort`가 기록에 없으면 "미기록") |
-| 작업자 수(관찰) | |
+| 모델 / 추론량 | (`.env`에 명시했는지도 적는다) |
+| 작업자 수(띄운 수 / 관찰한 수) | |
 | 캐시 상태 | (모두 미캐시 / 섞임) |
 | 문장 수 · 입력 길이 또는 `input_tokens` | |
 | 반복 횟수 | |

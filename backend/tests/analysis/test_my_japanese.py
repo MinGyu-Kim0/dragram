@@ -1,5 +1,5 @@
-"""내 일본어: 내 문장들에 나온 용법을 모아 본다(FR-M10, ADR 0002, #313). 웹 세션으로 본인 기록만
-다루고 LLM을 부르지 않는다.
+"""내 일본어: 내 문장들에 나온 용법(#313)과 단어 뜻(#314)을 모아 본다(FR-M10, ADR 0002).
+웹 세션으로 본인 기록만 다루고 LLM을 부르지 않는다.
 """
 
 import pytest
@@ -16,13 +16,14 @@ from analysis.models import (
     UserSentence,
 )
 from tests.accounts.test_withdrawal import web_session
-from tests.analysis.helpers import analyze, connected_client
+from tests.analysis.helpers import add_word, analyze, connected_client
 from tests.analysis.test_my_sentences import GRAMMAR_RESPONSE, GRAMMAR_SENTENCE
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 GRAMMAR = "/api/my-japanese/grammar/"
+WORDS = "/api/my-japanese/words/"
 # 숫자만 달라 GRAMMAR_SENTENCE와 같은 분석을 쓰는 원문
 SAME_ANALYSIS = "私は4人で走っている。"
 
@@ -209,3 +210,88 @@ def test_divergent_span_counts_only_its_main_usage(fake_llm):
     ている.save()
 
     assert [u["pattern_name"] for u in grammar(me)] == ["ている"]
+
+
+def words(user):
+    web, _ = web_session(user)
+    response = web.get(WORDS)
+    assert response.status_code == 200
+    return response.json()["words"]
+
+
+def with_senses(user, text, *senses):
+    """그 내 문장의 분석에 고른 뜻들을 둔다."""
+    analysis = UserSentence.objects.get(user=user, original_text=text).analysis
+    analysis.sense_ids = [s.pk for s in senses]
+    analysis.save()
+
+
+def test_words_lists_each_sense_once_with_the_sentences_it_came_from(fake_llm):
+    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE, SAME_ANALYSIS)
+    analyzed("other", fake_llm, GRAMMAR_SENTENCE)
+    run = add_word(1, ["走る"], ["はしる"], [(["to run"], ["v5r"], None)], tags=("verb", "group1"))
+    sense = run.senses.get()
+    sense.meaning_ko = "달리다"
+    sense.save()
+    with_senses(me, GRAMMAR_SENTENCE, sense)
+    fake_llm.forget_requests()
+
+    listed = words(me)
+
+    assert fake_llm.all_requests() == []
+    ids = sentence_ids(me, SAME_ANALYSIS, GRAMMAR_SENTENCE)
+    assert listed == [
+        {
+            "sense_id": sense.pk,
+            "dictionary_form": "走る",
+            "reading": "はしる",
+            "tags": ["group1", "verb"],
+            "in_dictionary": True,
+            "sense": {
+                "tags": ["v5r"],
+                "gloss_en": ["to run"],
+                "origin": "jmdict",
+                "status": "approved",
+                "meaning_ko": "달리다",
+                "meaning_status": "ai",
+            },
+            "sentences": [
+                {"id": ids[0], "text": SAME_ANALYSIS},
+                {"id": ids[1], "text": GRAMMAR_SENTENCE},
+            ],
+        }
+    ]
+
+
+def test_words_leaves_out_rejected_and_missing_senses_and_orders_by_count(fake_llm):
+    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
+    other = SentenceAnalysis.objects.create(
+        sentence_hash="0" * 64,
+        normalize_version=1,
+        normalized_length=7,
+        status=SentenceAnalysis.Status.COMPLETE,
+        word_spans=[],
+    )
+    UserSentence.objects.create(
+        user=me,
+        original_hash="1" * 64,
+        original_text="雨が降っている。",
+        analysis=other,
+        last_analyzed_at=timezone.now(),
+    )
+    rain = add_word(1, ["雨"], ["あめ"], [(["rain"], [], None)]).senses.get()
+    person = add_word(2, ["人"], ["ひと"], [(["person"], [], None)]).senses.get()
+    rejected = add_word(3, ["私"], ["わたし"], [(["I"], [], None)]).senses.get()
+    rejected.sense_status = ReviewStatus.REJECTED
+    rejected.save()
+    with_senses(me, GRAMMAR_SENTENCE, person, rejected, rain)
+    other.sense_ids = [rain.pk, 999999]
+    other.save()
+
+    assert [w["dictionary_form"] for w in words(me)] == ["雨", "人"]
+
+
+def test_words_needs_a_logged_in_web_session(fake_llm):
+    for client in (Client(), connected_client("me2")):
+        response = client.get(WORDS)
+        assert (response.status_code, response.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})

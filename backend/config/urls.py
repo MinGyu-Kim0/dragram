@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.urls import include, path
 
 from analysis.connections import connection
-from analysis.my_japanese import my_grammar
+from analysis.my_japanese import my_grammar, my_words
 from analysis.my_sentences import my_sentence, my_sentences
 from analysis.names import designated_names
 from analysis.views import analyze
@@ -16,6 +16,7 @@ urlpatterns = [
     path("api/my-sentences/", my_sentences),
     path("api/my-sentences/<int:sentence_id>/", my_sentence),
     path("api/my-japanese/grammar/", my_grammar),
+    path("api/my-japanese/words/", my_words),
     path("api/grammar-patterns/<int:pattern_id>/connection/", connection),
     path("api/auth/", include("accounts.urls")),
 ]

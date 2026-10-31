@@ -78,7 +78,10 @@ export function SentenceList() {
 function MySentencesPage() {
   return (
     <SiteLayout>
-      {(user) => (user ? <SentenceList /> : <Navigate to="/connect" replace />)}
+      {/* 로그인 확인이 실패했으면 로그인 화면으로 보내지 않고 목록 요청의 결과(오류)를 보인다. */}
+      {(user, failed) =>
+        user || failed ? <SentenceList /> : <Navigate to="/connect" replace />
+      }
     </SiteLayout>
   );
 }

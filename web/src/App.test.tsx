@@ -90,7 +90,8 @@ test("로그인 후 헤더에 내 기록과 계정 메뉴가 있고, 로그아�
   open("/");
   const header = within(screen.getByRole("banner"));
 
-  expect(await header.findByRole("link", { name: "내 기록" })).toHaveAttribute(
+  const nav = within(await header.findByRole("navigation", { name: "메뉴" }));
+  expect(nav.getByRole("link", { name: "내 기록" })).toHaveAttribute(
     "href",
     "/sentences",
   );
@@ -109,6 +110,36 @@ test("로그인 후 헤더에 내 기록과 계정 메뉴가 있고, 로그아�
   expect(header.getByRole("link", { name: "로그인" })).toBeInTheDocument();
 });
 
+test("계정 메뉴는 Escape로 닫히고 포커스가 메뉴 단추로 돌아온다", async () => {
+  const user = userEvent.setup();
+  responses["GET /api/auth/me/"] = () => json({ user: ME });
+  responses["GET /api/my-sentences/"] = () => json({ sentences: [] });
+  open("/");
+  const header = within(screen.getByRole("banner"));
+  const toggle = (await header.findByText("계정 메뉴")).closest("summary")!;
+  const menu = toggle.closest("details")!;
+
+  // Enter·Space로 여는 것은 브라우저의 summary 기본 동작이라 jsdom에서는 눌러서 연다.
+  await user.click(toggle);
+  expect(menu).toHaveAttribute("open");
+  await user.keyboard("{Escape}");
+  expect(menu).not.toHaveAttribute("open");
+  expect(toggle).toHaveFocus();
+});
+
+test("로그인 확인이 서버 오류로 실패해도 /sentences는 로그인 화면으로 보내지 않고 기록 오류를 보인다", async () => {
+  responses["GET /api/auth/me/"] = () => json({}, 500);
+  responses["GET /api/my-sentences/"] = () => json({}, 500);
+  open("/sentences");
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "기록을 불러오지 못했어요",
+  );
+  expect(
+    within(screen.getByRole("banner")).queryByRole("link", { name: "로그인" }),
+  ).not.toBeInTheDocument();
+});
+
 test("로그아웃에 실패하면 로그인한 헤더를 그대로 두고 알린다", async () => {
   const user = userEvent.setup();
   responses["GET /api/auth/me/"] = () => json({ user: ME });
@@ -123,7 +154,7 @@ test("로그아웃에 실패하면 로그인한 헤더를 그대로 두고 알�
   expect(await header.findByRole("alert")).toHaveTextContent(
     "로그아웃하지 못했어요",
   );
-  expect(header.getByRole("link", { name: "내 기록" })).toBeInTheDocument();
+  expect(header.getByRole("navigation", { name: "메뉴" })).toBeInTheDocument();
 });
 
 test("홈은 로그인 없이 소개, 세 단계, 자주 묻는 질문을 보여준다", async () => {

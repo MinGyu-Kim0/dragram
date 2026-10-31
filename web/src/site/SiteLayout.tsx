@@ -144,13 +144,25 @@ function AccountMenu({
   };
 
   return (
-    <details className="account-menu">
+    <details
+      className="account-menu"
+      // Escape로 닫고 포커스를 메뉴 단추로 돌려준다.
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || !e.currentTarget.open) return;
+        e.currentTarget.open = false;
+        e.currentTarget.querySelector("summary")?.focus();
+      }}
+    >
       <summary>
         <span aria-hidden="true">{user.email.charAt(0).toUpperCase()}</span>
         <span className="visually-hidden">계정 메뉴</span>
       </summary>
       <div className="account-panel">
         <p className="account-email">{user.email}</p>
+        {/* 좁은 폭에서는 헤더 메뉴를 숨기고 이 안에 접어 둔다. */}
+        <Link to="/sentences" className="narrow-only">
+          내 기록
+        </Link>
         {failed && (
           <p role="alert" className="danger">
             로그아웃하지 못했어요. 다시 시도해 주세요.
@@ -169,23 +181,25 @@ function AccountMenu({
   );
 }
 
-/** children이 함수면 로그인 확인 뒤에 로그인한 사용자(없으면 null)로 그린다. 확인 중에는 헤더만 보인다. */
+/** children이 함수면 로그인 확인 뒤에 로그인한 사용자(없으면 null)로 그린다. 확인 중에는 헤더만 보인다.
+ * 확인 자체가 실패하면(서버 오류) user는 null, failed는 true다. 헤더에는 로그인도 계정도 보이지 않는다. */
 function SiteLayout({
   children,
 }: {
-  children: ReactNode | ((user: User | null) => ReactNode);
+  children: ReactNode | ((user: User | null, failed: boolean) => ReactNode);
 }) {
-  // undefined는 확인 중이다. 확인하지 못하면 로그인하지 않은 것으로 본다.
-  const [user, setUser] = useState<User | null>();
+  // undefined는 확인 중이다.
+  const [user, setUser] = useState<User | null | "failed">();
   const navigate = useNavigate();
 
   useEffect(() => {
-    currentUser().then(setUser, () => setUser(null));
+    currentUser().then(setUser, () => setUser("failed"));
   }, []);
 
+  const failed = user === "failed";
   const content =
     typeof children === "function"
-      ? user !== undefined && children(user)
+      ? user !== undefined && children(failed ? null : user, failed)
       : children;
 
   return (
@@ -201,7 +215,7 @@ function SiteLayout({
               로그인
             </Link>
           )}
-          {user && (
+          {user && !failed && (
             <>
               <nav aria-label="메뉴">
                 <Link to="/sentences" className="header-link">

@@ -121,6 +121,10 @@
   cursor: pointer;
 }
 
+.account-panel .narrow-only {
+  display: none;
+}
+
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -469,6 +473,16 @@
 }
 
 @media (max-width: 480px) {
+  .site-header nav {
+    display: none;
+  }
+
+  .account-panel .narrow-only {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
   .site-inner {
     padding: 0 16px;
   }

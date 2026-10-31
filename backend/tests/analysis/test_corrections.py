@@ -227,10 +227,13 @@ def test_previous_result_leaves_out_a_released_span(client, fake_llm, admin_clie
     assert previous_names(response) == []
 
 
+@pytest.mark.parametrize(
+    ("target", "shown"), [("결과 상태", ["결과 상태"]), ("release", [])], ids=["정정", "해제"]
+)
 def test_failed_reanalysis_does_not_bring_the_wrong_answer_back(
-    client, fake_llm, admin_client, item
+    client, fake_llm, admin_client, item, target, shown
 ):
-    correct(admin_client, item, usage("결과 상태").pk)
+    correct(admin_client, item, target if target == "release" else usage(target).pk)
     fake_llm.error = BusinessError(AnalysisError.FAILED, "LLM 호출 실패")
 
     first = analyze(client, HASHITTEIRU)
@@ -238,7 +241,7 @@ def test_failed_reanalysis_does_not_bring_the_wrong_answer_back(
 
     assert first.json() == {"error": "ANALYSIS:FAILED"}
     # 실패한 시도는 저장하지 않아 옛 구간이 남지만, 다시 와도 정정 결과로 보인다.
-    assert previous_names(first) == previous_names(again) == ["결과 상태"]
+    assert previous_names(first) == previous_names(again) == shown
     assert SpanMatch.objects.get().usage == usage("진행")
 
 

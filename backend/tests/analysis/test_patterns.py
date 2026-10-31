@@ -124,6 +124,8 @@ def test_span_without_chosen_usage_is_not_shown(client, fake_llm, verdict, candi
     assert response.status_code == 200
     assert response.json()["grammar"] == []
     assert SpanMatch.objects.filter(state=verdict).count() == 1
+    # 해당 없음은 새 문법을 만들지 않는다.
+    assert (GrammarPattern.objects.count(), GrammarUsage.objects.count()) == (1, 1)
 
 
 def test_cached_sentence_reads_grammar_from_span_matches(client, fake_llm):
@@ -759,6 +761,86 @@ def test_other_voiced_auxiliaries_after_sound_change_match_unvoiced_patterns(
     analyze(client, sentence)
 
     assert len(fake_llm.requests[1]["spans"]) == 1
+
+
+def asked_usages(fake_llm):
+    return [[c["name"] for c in span["candidates"]] for span in fake_llm.requests[-1]["spans"]]
+
+
+def test_naide_is_not_read_as_te(client, fake_llm):
+    # 토큰: 0 食べ / 1 ない / 2 で
+    fake_llm.response = {
+        "translation_ko": "먹지 말고",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                (2, "lemma"),
+                pattern_name="ないで",
+                usage_name="부정 지시",
+                example_ja="泣かないでほしい",
+            )
+        ],
+    }
+    analyze(client, "食べないで")
+    # 토큰: 0 見 / 1 て / 2 ください
+    fake_llm.response = {
+        "translation_ko": "봐 주세요",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                (2, "lemma"),
+                pattern_name="てください",
+                usage_name="요청",
+                example_ja="早く来てください",
+            )
+        ],
+    }
+    analyze(client, "見てください")
+    fake_llm.response = {"translation_ko": "가지 말아 주세요"}
+
+    analyze(client, "行かないでください")
+
+    assert asked_usages(fake_llm) == [["부정 지시"]]
+
+
+def test_chaikenai_and_teikenai_are_different_patterns(client, fake_llm):
+    # 토큰: 0 食べ / 1 ちゃ / 2 いけ / 3 ない
+    fake_llm.response = {
+        "translation_ko": "먹으면 안 된다",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                (2, "lemma"),
+                (3, "lemma"),
+                pattern_name="ちゃいけない",
+                usage_name="금지",
+                example_ja="ここで寝ちゃいけない",
+            )
+        ],
+    }
+    analyze(client, "食べちゃいけない")
+    # 토큰: 0 生き / 1 て / 2 いけ / 3 ない
+    fake_llm.response = {
+        "translation_ko": "살아갈 수 없다",
+        "new_patterns": [
+            new_pattern(
+                (1, "lemma"),
+                (2, "lemma"),
+                (3, "lemma"),
+                pattern_name="ていけない",
+                usage_name="지속 불가",
+                example_ja="一人で暮らしていけない",
+            )
+        ],
+    }
+    analyze(client, "生きていけない")
+    fake_llm.response = {"translation_ko": "번역"}
+
+    analyze(client, "これを食べちゃいけない")
+    assert asked_usages(fake_llm) == [["금지"]]
+
+    analyze(client, "その給料じゃ食べていけない")
+    assert asked_usages(fake_llm) == [["지속 불가"]]
 
 
 def register_nagara(client, fake_llm):

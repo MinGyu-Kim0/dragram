@@ -1,8 +1,10 @@
-import { useId, type ReactNode } from "react";
-import { Link } from "react-router";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router";
+import { currentUser, type User } from "../connect/auth";
+import { logoutAndDisconnect } from "../connect/extension";
 import "./site.css";
 
-// 로그인 없이 여는 소개·처리방침·약관 화면의 공통 틀(DESIGN §4 '웹 — Phase 1').
+// 웹 화면의 공통 틀(DESIGN §4 '웹 — Phase 2' 공통 헤더: 로고 + 메뉴 + 계정).
 
 export const JMDICT_URL = "https://www.edrdg.org/jmdict/j_jmdict.html";
 export const CC_BY_SA_URL = "https://creativecommons.org/licenses/by-sa/4.0/";
@@ -116,7 +118,76 @@ function LogoMark() {
   );
 }
 
-function SiteLayout({ children }: { children: ReactNode }) {
+/** 로그인 후 헤더의 계정 메뉴: 이메일, 로그아웃 */
+function AccountMenu({
+  user,
+  onLoggedOut,
+}: {
+  user: User;
+  onLoggedOut: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const signOut = async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await logoutAndDisconnect();
+    } catch {
+      // 세션이 남아 있으므로 로그인한 헤더를 그대로 둔다.
+      setFailed(true);
+      setBusy(false);
+      return;
+    }
+    onLoggedOut();
+  };
+
+  return (
+    <details className="account-menu">
+      <summary>
+        <span aria-hidden="true">{user.email.charAt(0).toUpperCase()}</span>
+        <span className="visually-hidden">계정 메뉴</span>
+      </summary>
+      <div className="account-panel">
+        <p className="account-email">{user.email}</p>
+        {failed && (
+          <p role="alert" className="danger">
+            로그아웃하지 못했어요. 다시 시도해 주세요.
+          </p>
+        )}
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={signOut}
+        >
+          로그아웃
+        </button>
+      </div>
+    </details>
+  );
+}
+
+/** children이 함수면 로그인 확인 뒤에 로그인한 사용자(없으면 null)로 그린다. 확인 중에는 헤더만 보인다. */
+function SiteLayout({
+  children,
+}: {
+  children: ReactNode | ((user: User | null) => ReactNode);
+}) {
+  // undefined는 확인 중이다. 확인하지 못하면 로그인하지 않은 것으로 본다.
+  const [user, setUser] = useState<User | null>();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    currentUser().then(setUser, () => setUser(null));
+  }, []);
+
+  const content =
+    typeof children === "function"
+      ? user !== undefined && children(user)
+      : children;
+
   return (
     <div className="site">
       <header className="site-header">
@@ -125,12 +196,30 @@ function SiteLayout({ children }: { children: ReactNode }) {
             <LogoMark />
             Dragram
           </Link>
-          <Link to="/connect" className="header-link">
-            로그인
-          </Link>
+          {user === null && (
+            <Link to="/connect" className="header-link">
+              로그인
+            </Link>
+          )}
+          {user && (
+            <>
+              <nav aria-label="메뉴">
+                <Link to="/sentences" className="header-link">
+                  내 기록
+                </Link>
+              </nav>
+              <AccountMenu
+                user={user}
+                onLoggedOut={() => {
+                  setUser(null);
+                  navigate("/");
+                }}
+              />
+            </>
+          )}
         </div>
       </header>
-      <main>{children}</main>
+      <main>{content}</main>
       <footer>
         <div className="site-inner">
           <nav aria-label="사이트">

@@ -59,6 +59,83 @@
   color: var(--color-brand);
 }
 
+/* 로그인 후 헤더: 메뉴 + 계정 메뉴(DESIGN §4 웹 — Phase 2 공통 헤더) */
+.site-header nav {
+  display: flex;
+}
+
+.account-menu {
+  position: relative;
+}
+
+.account-menu summary {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--color-border-subtle);
+  color: var(--color-text);
+  font-weight: 600;
+  list-style: none;
+  cursor: pointer;
+}
+
+.account-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.account-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 1;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 32px));
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+.account-panel p {
+  margin: 0;
+}
+
+.account-email {
+  overflow-wrap: anywhere;
+  font-size: 14px;
+}
+
+.account-panel .danger {
+  color: var(--color-danger-text);
+  font-size: 13px;
+}
+
+.account-panel .secondary-button {
+  justify-content: center;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* 내 기록 카드(connect.css)는 화면 가운데 놓는 틀이라 헤더 아래에서는 높이를 풀어 준다. */
+.site .connect {
+  min-height: auto;
+  padding: 32px 16px 56px;
+}
+
 .site .secondary {
   color: var(--color-text-secondary);
 }

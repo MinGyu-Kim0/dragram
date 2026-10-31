@@ -11,7 +11,6 @@ import {
   currentUser,
   issueExtensionToken,
   loginWithGoogle,
-  logout,
   signUp,
   withdraw,
   type Signup,
@@ -20,7 +19,7 @@ import {
 import { koreanDate } from "../site/koreanDate";
 import { POLICIES, TERMS } from "../site/documents";
 import type { Version } from "../site/VersionedDocument";
-import { sendToExtension } from "./extension";
+import { logoutAndDisconnect, oneAtATime, sendToExtension } from "./extension";
 import { renderGoogleButton } from "./google";
 import "./connect.css";
 
@@ -273,12 +272,6 @@ const PROBLEMS: Record<Problem, string> = {
 };
 
 // 로그인 카드(로그인 뒤) → 확장 연결 → 연결 성공 카드
-// 연결(발급·전달)과 로그아웃은 같은 출처의 모든 탭에서 한 번에 하나만 한다. 다른 탭의 로그아웃이
-// 폐기한 토큰을 늦게 끝난 연결이 확장에 넘기지 않게 한다. Web Locks가 없으면 그냥 실행한다.
-function oneAtATime(task: () => Promise<void>) {
-  const locks = globalThis.navigator?.locks;
-  return locks ? locks.request("dragram-connect", task) : task();
-}
 
 function SignedIn({
   user,
@@ -310,22 +303,19 @@ function SignedIn({
       }
     });
 
-  const signOut = () =>
-    oneAtATime(async () => {
-      setBusy(true);
-      setProblem(undefined);
-      try {
-        await logout();
-      } catch {
-        // 실패하면 세션이 남아 있으므로 로그인한 상태를 그대로 보인다.
-        setProblem("logoutFailed");
-        setBusy(false);
-        return;
-      }
-      // 서버가 이 세션의 토큰을 폐기했다. 확장이 바로 로그인 안내로 바뀌게 알린다(없어도 된다).
-      await sendToExtension({ type: "disconnect" });
-      onLoggedOut();
-    });
+  const signOut = async () => {
+    setBusy(true);
+    setProblem(undefined);
+    try {
+      await logoutAndDisconnect();
+    } catch {
+      // 실패하면 세션이 남아 있으므로 로그인한 상태를 그대로 보인다.
+      setProblem("logoutFailed");
+      setBusy(false);
+      return;
+    }
+    onLoggedOut();
+  };
 
   const leave = () =>
     oneAtATime(async () => {

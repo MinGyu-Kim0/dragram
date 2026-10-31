@@ -1,7 +1,7 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
 
 function open(path: string) {
@@ -12,14 +12,122 @@ function open(path: string) {
   );
 }
 
+/** 로그인하지 않은 채로 /를 열고 소개 페이지가 그려질 때까지 기다린다. */
+async function openLanding() {
+  open("/");
+  await screen.findByRole("list", { name: "시작하는 방법" });
+}
+
 const footer = () => within(screen.getByRole("contentinfo"));
+
+const ME = { email: "me@example.com", account: "42" };
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+let calls: string[];
+let responses: Record<string, () => Response | Promise<Response>>;
+
+beforeEach(() => {
+  calls = [];
+  responses = {
+    "GET /api/auth/me/": () => json({ user: null }),
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      const key = `${init.method ?? "GET"} ${url}`;
+      calls.push(key);
+      return responses[key]();
+    }),
+  );
+});
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
-test("홈은 로그인 없이 소개, 세 단계, 자주 묻는 질문을 보여준다", () => {
+test("로그인했으면 /에서 소개 페이지 대신 내 기록 목록을 보인다", async () => {
+  responses["GET /api/auth/me/"] = () => json({ user: ME });
+  responses["GET /api/my-sentences/"] = () =>
+    json({
+      sentences: [
+        { id: 1, text: "猫が好きです。", analyzed_at: "2026-10-28T03:00:00Z" },
+      ],
+    });
   open("/");
+
+  expect(
+    await screen.findByRole("list", { name: "분석한 문장" }),
+  ).toHaveTextContent("猫が好きです。");
+  expect(
+    screen.queryByRole("list", { name: "시작하는 방법" }),
+  ).not.toBeInTheDocument();
+});
+
+test("로그인 확인 전에는 헤더만 보이고 소개 페이지도 홈도 그리지 않는다", async () => {
+  responses["GET /api/auth/me/"] = () => new Promise<Response>(() => {});
+  open("/");
+
+  await waitFor(() => expect(calls).toContain("GET /api/auth/me/"));
+  expect(screen.getByRole("banner")).toBeInTheDocument();
+  expect(screen.queryByRole("heading", { level: 1 })).not.toBeInTheDocument();
+  expect(
+    within(screen.getByRole("banner")).queryByRole("link", { name: "로그인" }),
+  ).not.toBeInTheDocument();
+});
+
+test("로그인 후 헤더에 내 기록과 계정 메뉴가 있고, 로그아웃하면 소개 페이지로 돌아간다", async () => {
+  const user = userEvent.setup();
+  responses["GET /api/auth/me/"] = () => json({ user: ME });
+  responses["GET /api/my-sentences/"] = () => json({ sentences: [] });
+  responses["POST /api/auth/logout/"] = () => json({ user: null });
+  open("/");
+  const header = within(screen.getByRole("banner"));
+
+  expect(await header.findByRole("link", { name: "내 기록" })).toHaveAttribute(
+    "href",
+    "/sentences",
+  );
+  expect(
+    header.queryByRole("link", { name: "로그인" }),
+  ).not.toBeInTheDocument();
+
+  await user.click(header.getByText("계정 메뉴"));
+  expect(header.getByText("me@example.com")).toBeVisible();
+  await user.click(header.getByRole("button", { name: "로그아웃" }));
+
+  expect(
+    await screen.findByRole("list", { name: "시작하는 방법" }),
+  ).toBeInTheDocument();
+  expect(calls).toContain("POST /api/auth/logout/");
+  expect(header.getByRole("link", { name: "로그인" })).toBeInTheDocument();
+});
+
+test("로그아웃에 실패하면 로그인한 헤더를 그대로 두고 알린다", async () => {
+  const user = userEvent.setup();
+  responses["GET /api/auth/me/"] = () => json({ user: ME });
+  responses["GET /api/my-sentences/"] = () => json({ sentences: [] });
+  responses["POST /api/auth/logout/"] = () => json({}, 500);
+  open("/");
+  const header = within(screen.getByRole("banner"));
+
+  await user.click(await header.findByText("계정 메뉴"));
+  await user.click(header.getByRole("button", { name: "로그아웃" }));
+
+  expect(await header.findByRole("alert")).toHaveTextContent(
+    "로그아웃하지 못했어요",
+  );
+  expect(header.getByRole("link", { name: "내 기록" })).toBeInTheDocument();
+});
+
+test("홈은 로그인 없이 소개, 세 단계, 자주 묻는 질문을 보여준다", async () => {
+  await openLanding();
 
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
     "읽다가 막힌 일본어 문장, 드래그하면 문법이 보여요",
@@ -41,8 +149,8 @@ test("홈은 로그인 없이 소개, 세 단계, 자주 묻는 질문을 보여
   ).toBeInTheDocument();
 });
 
-test("헤더에 로고와 로그인 링크가 있다", () => {
-  open("/");
+test("헤더에 로고와 로그인 링크가 있다", async () => {
+  await openLanding();
   const header = within(screen.getByRole("banner"));
 
   expect(header.getByRole("link", { name: "Dragram" })).toHaveAttribute(
@@ -55,8 +163,8 @@ test("헤더에 로고와 로그인 링크가 있다", () => {
   );
 });
 
-test("사이드 패널 예시는 일본어 예문, 번역, 문법 카드를 보여준다", () => {
-  open("/");
+test("사이드 패널 예시는 일본어 예문, 번역, 문법 카드를 보여준다", async () => {
+  await openLanding();
   const preview = screen.getByRole("figure", { name: "사이드 패널 예시" });
 
   expect(preview.querySelector('[lang="ja"]')).toHaveTextContent(
@@ -72,7 +180,7 @@ test("사이드 패널 예시는 일본어 예문, 번역, 문법 카드를 보�
 
 test("자주 묻는 질문은 질문을 눌러 답을 펼친다", async () => {
   const user = userEvent.setup();
-  open("/");
+  await openLanding();
   const question = screen.getByText("분석에 AI를 쓰나요?");
   const item = question.closest("details");
 
@@ -81,12 +189,12 @@ test("자주 묻는 질문은 질문을 눌러 답을 펼친다", async () => {
   expect(item).toHaveAttribute("open");
 });
 
-test("스토어 주소가 있으면 Chrome에 추가 링크가 그 주소로 간다", () => {
+test("스토어 주소가 있으면 Chrome에 추가 링크가 그 주소로 간다", async () => {
   vi.stubEnv(
     "VITE_CHROME_WEB_STORE_URL",
     "https://chromewebstore.google.com/detail/dragram/x",
   );
-  open("/");
+  await openLanding();
 
   expect(screen.getByRole("link", { name: "Chrome에 추가" })).toHaveAttribute(
     "href",
@@ -94,9 +202,9 @@ test("스토어 주소가 있으면 Chrome에 추가 링크가 그 주소로 간
   );
 });
 
-test("스토어 주소가 없으면 준비 중으로 보이고 링크는 없다", () => {
+test("스토어 주소가 없으면 준비 중으로 보이고 링크는 없다", async () => {
   vi.stubEnv("VITE_CHROME_WEB_STORE_URL", "");
-  open("/");
+  await openLanding();
 
   expect(
     screen.queryByRole("link", { name: "Chrome에 추가" }),
@@ -106,7 +214,7 @@ test("스토어 주소가 없으면 준비 중으로 보이고 링크는 없다"
 
 test("푸터 링크로 홈, 개인정보처리방침, 이용약관을 오간다", async () => {
   const user = userEvent.setup();
-  open("/");
+  await openLanding();
 
   await user.click(footer().getByRole("link", { name: "개인정보처리방침" }));
   expect(

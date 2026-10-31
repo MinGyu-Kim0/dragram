@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, Navigate } from "react-router";
-import { AuthError, currentUser, request } from "../connect/auth";
+import { AuthError, request } from "../connect/auth";
+import SiteLayout from "../site/SiteLayout";
 import "../connect/connect.css";
 import "./history.css";
 
@@ -10,7 +11,6 @@ type Sentence = { id: number; text: string; analyzed_at: string };
 
 type State =
   | { kind: "loading" }
-  | { kind: "signedOut" }
   | { kind: "failed" }
   | { kind: "ready"; sentences: Sentence[] };
 
@@ -28,19 +28,16 @@ const analyzedAt = (iso: string) =>
     timeStyle: "short",
   });
 
-function MySentencesPage() {
+/** 로그인한 사용자의 문장 목록. 홈(/)과 /sentences가 같이 쓴다. */
+export function SentenceList() {
   const [state, setState] = useState<State>({ kind: "loading" });
 
   useEffect(() => {
-    currentUser()
-      .then(async (user) => {
-        if (!user) return setState({ kind: "signedOut" });
-        setState({ kind: "ready", sentences: await fetchSentences() });
-      })
-      .catch(() => setState({ kind: "failed" }));
+    fetchSentences().then(
+      (sentences) => setState({ kind: "ready", sentences }),
+      () => setState({ kind: "failed" }),
+    );
   }, []);
-
-  if (state.kind === "signedOut") return <Navigate to="/connect" replace />;
 
   const removed = (id: number) =>
     setState((s) =>
@@ -50,7 +47,7 @@ function MySentencesPage() {
     );
 
   return (
-    <main className="connect">
+    <div className="connect">
       <section className="card history">
         <h1>내 기록</h1>
         {state.kind === "loading" && <p className="muted">불러오는 중…</p>}
@@ -74,7 +71,15 @@ function MySentencesPage() {
             </ul>
           ))}
       </section>
-    </main>
+    </div>
+  );
+}
+
+function MySentencesPage() {
+  return (
+    <SiteLayout>
+      {(user) => (user ? <SentenceList /> : <Navigate to="/connect" replace />)}
+    </SiteLayout>
   );
 }
 

@@ -17,6 +17,7 @@ from analysis.models import (
     SpanMatch,
     UserSentence,
 )
+from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, span_answer
 from tests.analysis.test_evaluation import HASHITTEIRU, evaluate, new_pattern_response
 
@@ -195,3 +196,69 @@ def test_release_leaves_another_pattern_at_the_same_place(client, fake_llm, admi
 
 def item_pattern():
     return GrammarPattern.objects.get(name="ている")
+
+
+def previous_names(response):
+    """stale 재분석 스트림의 previous 이벤트에 보인 문법 이름(#222)."""
+    first = response.events[0]
+    assert first["type"] == "previous"
+    return [g["name"] for g in first["grammar"]]
+
+
+def test_previous_result_shows_the_corrected_usage(client, fake_llm, admin_client, item):
+    correct(admin_client, item, usage("결과 상태").pk)
+    fake_llm.response = {"translation_ko": "달려 있다"}
+
+    response = analyze(client, HASHITTEIRU)
+
+    assert previous_names(response) == ["결과 상태"]
+    # 번역은 기존 규칙대로 옛 번역을 그대로 보인다.
+    assert response.events[0]["translation_ko"] == "달리고 있다"
+
+
+def test_previous_result_leaves_out_a_released_span(client, fake_llm, admin_client, item):
+    correct(admin_client, item, "release")
+
+    response = analyze(client, HASHITTEIRU)
+
+    assert previous_names(response) == []
+
+
+def test_failed_reanalysis_does_not_bring_the_wrong_answer_back(
+    client, fake_llm, admin_client, item
+):
+    correct(admin_client, item, usage("결과 상태").pk)
+    fake_llm.error = BusinessError(AnalysisError.FAILED, "LLM 호출 실패")
+
+    first = analyze(client, HASHITTEIRU)
+    again = analyze(client, HASHITTEIRU)
+
+    assert first.json() == {"error": "ANALYSIS:FAILED"}
+    # 실패한 시도는 저장하지 않아 옛 구간이 남지만, 다시 와도 정정 결과로 보인다.
+    assert previous_names(first) == previous_names(again) == ["결과 상태"]
+    assert SpanMatch.objects.get().usage == usage("진행")
+
+
+def test_suspended_correction_leaves_the_previous_result_as_it_was(
+    client, fake_llm, admin_client, item
+):
+    correct(admin_client, item, usage("결과 상태").pk)
+    MatchCorrection.objects.update(status=MatchCorrection.Status.SUSPENDED)
+    fake_llm.response = {"translation_ko": "달리고 있다", "spans": [span_answer(0, candidate_id=1)]}
+
+    response = analyze(client, HASHITTEIRU)
+
+    assert previous_names(response) == ["진행"]
+
+
+def test_previous_result_skips_a_correction_to_a_rejected_usage(
+    client, fake_llm, admin_client, item
+):
+    # 재분석이 정정을 건너뛰듯(정정 후 용법이 후보에 없음) 옛 결과도 원래 판정을 보인다.
+    correct(admin_client, item, usage("결과 상태").pk)
+    GrammarUsage.objects.filter(name="결과 상태").update(status="rejected")
+    fake_llm.response = {"translation_ko": "달리고 있다", "spans": [span_answer(0, candidate_id=1)]}
+
+    response = analyze(client, HASHITTEIRU)
+
+    assert previous_names(response) == ["진행"]

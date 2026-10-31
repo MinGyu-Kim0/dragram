@@ -100,7 +100,7 @@ def _corrections(analysis):
     if analysis is None:
         return {}
     active = analysis.corrections.filter(status=MatchCorrection.Status.ACTIVE).select_related(
-        "before_usage", "after_usage"
+        "before_usage", "after_usage__pattern"
     )
     return {(c.start_offset, c.end_offset): c for c in active}
 

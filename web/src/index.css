@@ -12,6 +12,8 @@
   --color-border: light-dark(#dce7e0, #2c3d55);
   --color-border-control: light-dark(#cfddd4, #3a4d68);
   --color-border-subtle: light-dark(#e1ece5, #23344b);
+  /* 세그먼트 탭·페이지 넘김 트랙: border-subtle, 다크는 surface(DESIGN §3 세그먼트 탭) */
+  --color-track: light-dark(#e1ece5, #1b283a);
   --color-danger-text: light-dark(#9f1d1d, #ffb4b4);
   --color-warn-bg: light-dark(#fff1d0, rgba(255, 196, 80, 0.16));
   --color-warn-text: light-dark(#6b4100, #ffd27a);

@@ -32,7 +32,7 @@
 | `brand-strong` | `#0F5E44` | `#C8DA8E` | hover, 드래그 핸들(다크 핸들은 `text`) |
 | `brand-soft` | `#D7EFE3` | `#273424` | 옅은 강조 면 |
 | `border` | `#DCE7E0` | `#2C3D55` | 카드 안 구분선, 타일 외곽 |
-| `border-subtle` | `#E1ECE5` | `#23344B` | 헤더 아래선, 탭 트랙 |
+| `border-subtle` | `#E1ECE5` | `#23344B` | 헤더 아래선, 탭 트랙(다크 트랙은 `surface`, §3 세그먼트 탭) |
 | `border-control` | `#CFDDD4` | `#3A4D68` | 보조 버튼, 입력, 점선 대기 카드 |
 | `row-selected` | `#EEF7F1` | `#22324A` | 선택된 행 |
 

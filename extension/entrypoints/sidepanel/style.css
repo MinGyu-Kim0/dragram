@@ -18,6 +18,8 @@
   --color-brand-strong: light-dark(#0f5e44, #c8da8e);
   --color-on-brand: light-dark(#ffffff, #16210a);
   --color-border-subtle: light-dark(#e1ece5, #23344b);
+  /* 세그먼트 탭·페이지 넘김 트랙: border-subtle, 다크는 surface(DESIGN §3 세그먼트 탭) */
+  --color-track: light-dark(#e1ece5, #1b283a);
   --color-border-control: light-dark(#cfddd4, #3a4d68);
   /* 선택 링(다크는 brand), 드래그 핸들(라이트 brand-strong, 다크 text) */
   --color-ring: light-dark(#17302a, #a2bc4e);
@@ -490,14 +492,14 @@ h1 {
   color: var(--color-text-muted);
 }
 
-/* 세그먼트 탭(DESIGN.md 4장): 트랙 border-subtle, 높이 34, 활성은 brand / on-brand. */
+/* 세그먼트 탭(DESIGN.md 4장): 트랙 border-subtle(다크는 surface), 높이 34, 활성은 brand / on-brand. */
 .tabs {
   display: flex;
   gap: 4px;
   margin-top: 14px;
   padding: 3px;
   border-radius: 999px;
-  background: var(--color-border-subtle);
+  background: var(--color-track);
 }
 
 .tabs button {
@@ -613,7 +615,7 @@ h1 {
   height: 34px;
   border: 0;
   border-radius: 999px;
-  background: var(--color-border-subtle);
+  background: var(--color-track);
   color: var(--color-text);
   font-size: 18px;
   cursor: pointer;

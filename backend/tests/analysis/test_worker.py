@@ -146,8 +146,8 @@ def _read_in_thread(response, results):
     return thread
 
 
-def _wait_until(condition):
-    deadline = time.monotonic() + 10
+def _wait_until(condition, seconds=10):
+    deadline = time.monotonic() + seconds
     while not condition():
         assert time.monotonic() < deadline
         time.sleep(0.05)

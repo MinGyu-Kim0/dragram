@@ -22,7 +22,7 @@ from analysis.normalize import analysis_text
 from analysis.sentence import Sentence
 from errors import AnalysisError
 from tests.analysis.helpers import Analyzed, connected_client, post
-from tests.analysis.test_worker import _requests, _stored_values
+from tests.analysis.test_worker import _requests, _stored_values, _wait_until
 from tests.analysis.worker_process import ENTERED, release_key, translation
 
 SENTENCES = ["雨が降る。", "猫が寝ている。", "本を読みました。", "駅まで歩く。", "空が青い。"]
@@ -40,13 +40,6 @@ def queued(settings, redis_db, monkeypatch):
     # 요청이 작업자 프로세스가 뜨기를 기다리는 동안 대기 상한에 걸리지 않게 한다.
     monkeypatch.setattr(stream, "WAIT_SECONDS", 60)
     return redis_db
-
-
-def _wait_until(condition, seconds=10):
-    deadline = time.monotonic() + seconds
-    while not condition():
-        assert time.monotonic() < deadline
-        time.sleep(0.05)
 
 
 class Requests:
@@ -156,21 +149,25 @@ def test_worker_that_timed_out_a_job_goes_on_to_the_next_one(queued, monkeypatch
     monkeypatch.setattr(jobs, "JOB_TIMEOUT_SECONDS", 2)
     requests = Requests()
     requests.send("stuck", SENTENCES[0])
-    requests.send("next", SENTENCES[1])
-    # 첫 작업에는 응답 신호를 보내지 않는다. 다음 작업은 들어오자마자 응답한다.
-    release(queued, 1)
+    requests.send("llm_timeout", SENTENCES[1])
+    requests.send("next", SENTENCES[2])
+    # 첫 작업에는 응답 신호를 보내지 않아 작업 시간 제한에 걸린다. 둘째 작업은 LLM 클라이언트가
+    # 스트림 시간 초과로 실패한다. 셋째 작업은 들어오자마자 응답한다.
+    release(queued, 1, value="timeout")
+    release(queued, 2)
     worker = start_worker(SENTENCES)
 
     jobs_done = finish(worker)
     results = requests.wait()
 
-    # 같은 작업자 프로세스가 시간 초과한 작업을 실패로 정리하고 다음 작업을 끝냈다.
-    assert [pid for *_, pid in entered(queued)] == [worker.pid, worker.pid]
-    assert results["stuck"].events[-1] == {"type": "error", "error": AnalysisError.FAILED.code}
-    stuck = SentenceAnalysis.objects.get(sentence_hash=sentence(SENTENCES[0]).sentence_hash)
-    assert (stuck.status, stuck.word_spans) == ("failed", None)
-    assert results["next"].json()["translation_ko"] == translation(1, 1)
-    assert sorted(j["result"] for j in jobs_done) == ["done", "failed"]
+    # 종료 신호 없이 같은 작업자 프로세스가 두 실패를 정리하고 다음 작업을 끝냈다.
+    assert [pid for *_, pid in entered(queued)] == [worker.pid] * 3
+    for key, text in (("stuck", SENTENCES[0]), ("llm_timeout", SENTENCES[1])):
+        assert results[key].events[-1] == {"type": "error", "error": AnalysisError.FAILED.code}
+        row = SentenceAnalysis.objects.get(sentence_hash=sentence(text).sentence_hash)
+        assert (row.status, row.word_spans) == ("failed", None)
+    assert results["next"].json()["translation_ko"] == translation(2, 1)
+    assert sorted(j["result"] for j in jobs_done) == ["done", "failed", "failed"]
     assert not queued.keys("rq:job:*")
 
 

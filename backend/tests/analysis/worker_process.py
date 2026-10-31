@@ -2,7 +2,8 @@
 
 LLM만 가짜로 바꾼다. 가짜 LLM은 Redis 목록으로 테스트와 신호를 주고받는다. 첫 분석 호출에 들어오면
 ENTERED에 '문장 번호:그 문장의 호출 차수:PID'를 넣는다. 그다음 release_key(문장 번호, 차수)에 값이
-올 때까지 기다린다. 값이 'hold:초'면 그만큼 생성 시간을 흉내 낸다. 원문은 Redis에 넣지 않는다.
+올 때까지 기다린다. 값이 'hold:초'면 그만큼 생성 시간을 흉내 내고, 'timeout'이면 LLM 클라이언트의
+스트림 시간 초과처럼 실패한다. 원문은 Redis에 넣지 않는다.
 
     python -m tests.analysis.worker_process <테스트 DB> <Redis URL> <{분석 텍스트: 문장 번호} JSON>
 """
@@ -37,6 +38,7 @@ def main(db_name, redis_url, answers):
     from django.conf import settings
 
     from analysis import jobs, llm
+    from errors import AnalysisError, BusinessError
     from tests.conftest import FakeLLMClient
 
     settings.REDIS_URL = redis_url
@@ -50,6 +52,8 @@ def main(db_name, redis_url, answers):
             released = signals.blpop([release_key(index, call)], timeout=WAIT_SECONDS)
             if released and released[1].startswith(b"hold:"):
                 time.sleep(float(released[1].removeprefix(b"hold:")))
+            if released and released[1] == b"timeout":
+                raise BusinessError(AnalysisError.FAILED, "LLM 스트림 전체 시간 초과")
             self.response = {"translation_ko": translation(index, call)}
             yield from super().analyze_stream(sentence, *args)
 

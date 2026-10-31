@@ -1,0 +1,197 @@
+"""평가 결과에서 매칭 정정(FR-A21, #221). 이음새는 admin 평가 결과 화면과 분석 API 응답이다."""
+
+import pytest
+from django.contrib.admin.models import LogEntry
+from django.db import transaction
+from django.urls import reverse
+
+from accounts.withdrawal import withdraw
+from analysis import patterns
+from analysis.models import (
+    EvalItem,
+    EvalSentence,
+    GrammarPattern,
+    GrammarUsage,
+    MatchCorrection,
+    SentenceAnalysis,
+    SpanMatch,
+    UserSentence,
+)
+from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.test_evaluation import HASHITTEIRU, evaluate, new_pattern_response
+
+pytestmark = pytest.mark.django_db
+
+
+@pytest.fixture
+def item(client, fake_llm, redis_db):
+    """走っている를 평가해 ている를 '진행'으로 고른 평가 항목. ている 패턴엔 '결과 상태'도 있다."""
+    new_pattern_response(fake_llm)
+    analyze(client, HASHITTEIRU)
+    with transaction.atomic():
+        patterns.add_usage(GrammarPattern.objects.get(), "결과 상태", "결과가 남아 있다", None)
+    fake_llm.response = {"translation_ko": "달리고 있다", "spans": [span_answer(0, candidate_id=1)]}
+    EvalSentence.objects.create(text=HASHITTEIRU, category="normal")
+    evaluate("--yes")
+    fake_llm.forget_requests()
+    return EvalItem.objects.get()
+
+
+def usage(name):
+    return GrammarUsage.objects.get(name=name)
+
+
+def correct_url(item):
+    return reverse("admin:analysis_evalresult_correct", args=[item.result_id, item.pk])
+
+
+def correct(admin_client, item, after):
+    return admin_client.post(correct_url(item), {"after": after}, follow=True)
+
+
+def test_correction_page_offers_the_usages_of_the_matched_pattern(admin_client, item):
+    response = admin_client.get(correct_url(item))
+
+    assert response.status_code == 200
+    page = response.content.decode()
+    assert "진행" in page and "결과 상태" in page and "매칭 해제" in page
+
+
+def test_correction_makes_the_analysis_stale_and_is_logged(admin_client, admin_user, item):
+    before = SentenceAnalysis.objects.get()
+
+    correct(admin_client, item, usage("결과 상태").pk)
+
+    correction = MatchCorrection.objects.get()
+    assert (correction.start_offset, correction.end_offset) == (2, 5)
+    assert correction.before_usage == usage("진행")
+    assert correction.after_usage == usage("결과 상태")
+    assert correction.status == MatchCorrection.Status.ACTIVE
+    assert correction.corrected_by == admin_user
+    after = SentenceAnalysis.objects.get()
+    assert after.is_stale is True
+    assert after.generation == before.generation + 1
+    assert LogEntry.objects.filter(object_id=str(correction.pk), user=admin_user).exists()
+
+
+def test_correcting_the_same_span_again_changes_the_one_row(admin_client, item):
+    correct(admin_client, item, usage("결과 상태").pk)
+    correct(admin_client, item, "release")
+
+    correction = MatchCorrection.objects.get()
+    assert correction.after_usage is None
+    # 정정 전 용법은 처음 정정한 때의 LLM 판정이다.
+    assert correction.before_usage == usage("진행")
+
+
+def test_corrected_span_wins_over_the_llm_and_is_not_asked(client, fake_llm, admin_client, item):
+    correct(admin_client, item, usage("결과 상태").pk)
+    # 정정한 구간은 묻지 않으므로 LLM이 그 구간을 다시 고를 수 없다(묻지 않은 구간의 답은 검증에
+    # 걸린다). 확정 구간으로 알려 번역이 정정한 해석을 따르게 한다.
+    fake_llm.response = {"translation_ko": "달려 있다"}
+
+    response = analyze(client, HASHITTEIRU)
+
+    [request] = fake_llm.requests
+    assert request["spans"] == []
+    assert request["decided_spans"] == [
+        {"start_token_id": 1, "end_token_id": 2, "name": "결과 상태"}
+    ]
+    [grammar] = response.json()["grammar"]
+    assert (grammar["start"], grammar["end"], grammar["name"]) == (2, 5, "결과 상태")
+    # 정정 후 용법이 미검수라 미검수로 보인다.
+    assert grammar["review_status"] == "pending"
+    row = SpanMatch.objects.get()
+    assert (row.usage, row.decided_by) == (usage("결과 상태"), SpanMatch.DecidedBy.ADMIN)
+    assert response.json()["translation_ko"] == "달려 있다"
+
+
+def test_released_span_is_left_out(client, fake_llm, admin_client, item):
+    correct(admin_client, item, "release")
+    fake_llm.response = {"translation_ko": "달리고 있다"}
+
+    response = analyze(client, HASHITTEIRU)
+
+    [request] = fake_llm.requests
+    assert (request["spans"], request["decided_spans"]) == ([], [])
+    assert response.json()["grammar"] == []
+    assert not SpanMatch.objects.exists()
+
+
+def test_released_span_is_not_proposed_again_as_a_new_pattern(client, fake_llm, admin_client, item):
+    correct(admin_client, item, "release")
+    fake_llm.response = {
+        "translation_ko": "달리고 있다",
+        "new_patterns": [new_pattern((1, "lemma"), (2, "lemma"))],
+    }
+
+    response = analyze(client, HASHITTEIRU)
+
+    assert response.json()["grammar"] == []
+    assert GrammarPattern.objects.count() == 1
+
+
+def test_usage_outside_the_choices_is_refused(admin_client, item):
+    other = GrammarPattern.objects.create(
+        name="で", morpheme_key="other", is_active=True, status="pending"
+    )
+    stranger = GrammarUsage.objects.create(
+        pattern=other, name="수단", explanation_ko="수단", status="pending", origin="llm"
+    )
+
+    response = correct(admin_client, item, stranger.pk)
+
+    assert "고를 수 없는 용법" in response.content.decode()
+    assert not MatchCorrection.objects.exists()
+    assert SentenceAnalysis.objects.get().is_stale is False
+
+
+@pytest.mark.parametrize("status", [SentenceAnalysis.Status.PROCESSING, "missing"])
+def test_correction_needs_a_complete_analysis(admin_client, item, status):
+    if status == "missing":
+        UserSentence.objects.all().delete()
+        SentenceAnalysis.objects.all().delete()
+    else:
+        SentenceAnalysis.objects.update(status=status)
+
+    response = correct(admin_client, item, usage("결과 상태").pk)
+
+    assert "분석이 없거나 처리 중" in response.content.decode()
+    assert not MatchCorrection.objects.exists()
+
+
+def test_result_page_links_each_item_to_its_correction(admin_client, item):
+    response = admin_client.get(reverse("admin:analysis_evalresult_change", args=[item.result_id]))
+
+    assert correct_url(item) in response.content.decode()
+
+
+def test_correction_outlives_the_admin_who_made_it(admin_client, admin_user, item):
+    correct(admin_client, item, usage("결과 상태").pk)
+
+    withdraw(admin_user)
+
+    assert MatchCorrection.objects.get().corrected_by is None
+
+
+def test_release_leaves_another_pattern_at_the_same_place(client, fake_llm, admin_client, item):
+    # 같은 자리(ている)에 걸리는 다른 패턴. 승인된 용법 완결 패턴이라 LLM 없이 정해진다.
+    first, *rest = patterns.conditions_of(item_pattern())
+    conditions = [first._replace(lemma=None), *rest]
+    with transaction.atomic():
+        other, _ = patterns.register(
+            conditions, "ている(넓게)", "상태", "상태를 나타낸다", None, HASHITTEIRU
+        )
+        patterns.raise_pattern_set_version()
+    GrammarPattern.objects.filter(pk=other.pk).update(status="approved", usage_closed=True)
+    other.usages.update(status="approved")
+    correct(admin_client, item, "release")
+    fake_llm.response = {"translation_ko": "달리고 있다"}
+
+    response = analyze(client, HASHITTEIRU)
+
+    assert [g["pattern_name"] for g in response.json()["grammar"]] == ["ている(넓게)"]
+
+
+def item_pattern():
+    return GrammarPattern.objects.get(name="ている")

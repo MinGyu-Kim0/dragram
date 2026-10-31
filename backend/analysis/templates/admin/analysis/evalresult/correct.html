@@ -1,0 +1,18 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+<p>평가 문장: {{ item.result.text }}</p>
+<p>구간: 「{{ item.surface }}」({{ item.start }}–{{ item.end }}) · 패턴: 「{{ item.pattern_name }}」 · 지금: 「{{ item.name }}」</p>
+<p>정정하면 이 문장의 분석은 다시 분석해야 하는 상태가 되고, 다음 분석부터 이 구간은 LLM 판정 대신
+고른 용법으로 정해집니다. 매칭 해제를 고르면 이 구간은 결과에서 빠집니다.</p>
+<form method="post">{% csrf_token %}
+  <select name="after" required>
+    <option value="">고르세요</option>
+    {% for usage in usages %}
+    <option value="{{ usage.pk }}">「{{ usage.name }}」({{ usage.get_status_display }}){% if usage.pk == current %} · 지금{% endif %}</option>
+    {% endfor %}
+    <option value="release">매칭 해제</option>
+  </select>
+  <p><input type="submit" value="정정"></p>
+</form>
+{% endblock %}

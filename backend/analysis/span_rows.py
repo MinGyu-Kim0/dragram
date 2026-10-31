@@ -81,7 +81,9 @@ class _PatternTaken(Exception):  # noqa: N818
 
 
 def closed_rows(sentence, saved, closed):
-    """LLM 없이 확정한 구간(구간, 후보 ID, 용법, 판별 규칙)들의 구간 매칭."""
+    """LLM 없이 확정한 구간(구간, 후보 ID, 용법, 판별 규칙)들의 구간 매칭. 관리자 정정을 적용한
+    구간(sentence.corrected)은 decided_by = admin이다(#221).
+    """
     rows = []
     for span, candidate_id, usage, rule in closed:
         start, end = sentence.key_span(span.start_token, span.end_token)
@@ -93,7 +95,13 @@ def closed_rows(sentence, saved, closed):
                 start_offset=start,
                 end_offset=end,
                 state=SpanMatch.State.DECIDED,
-                decided_by=(SpanMatch.DecidedBy.RULE if rule else SpanMatch.DecidedBy.SINGLE_USAGE),
+                decided_by=(
+                    SpanMatch.DecidedBy.ADMIN
+                    if sentence.span_key(span) in sentence.corrected
+                    else SpanMatch.DecidedBy.RULE
+                    if rule
+                    else SpanMatch.DecidedBy.SINGLE_USAGE
+                ),
                 rule=rule,
                 candidates=[{"candidate_id": candidate_id, "usage_id": usage.id}],
             )

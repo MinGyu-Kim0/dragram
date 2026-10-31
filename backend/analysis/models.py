@@ -300,6 +300,8 @@ class SpanMatch(models.Model):
         # 승인된 판별 규칙으로 LLM 없이 확정(#55)
         RULE = "rule"
         LLM = "llm"
+        # 관리자 정정(match_correction)을 적용했다(#221)
+        ADMIN = "admin"
 
     analysis = models.ForeignKey(
         SentenceAnalysis, on_delete=models.CASCADE, related_name="span_matches"
@@ -361,6 +363,48 @@ class SpanMatch(models.Model):
 
     def __str__(self):
         return f"{self.analysis_id} [{self.start_offset}, {self.end_offset}) {self.state}"
+
+
+class MatchCorrection(models.Model):
+    """관리자 매칭 정정(FR-A21, #221). 위치는 키 텍스트 코드포인트 기준 [start, end)다.
+
+    재분석해도 덮어쓰지 않는다. 분석할 때 활성 정정이 LLM·DB 판정보다 먼저 적용된다.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "적용"
+        SUSPENDED = "suspended", "멈춤"
+
+    analysis = models.ForeignKey(
+        SentenceAnalysis, on_delete=models.CASCADE, related_name="corrections"
+    )
+    start_offset = models.IntegerField()
+    end_offset = models.IntegerField()
+    before_usage = models.ForeignKey(
+        GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    # NULL이면 매칭 해제
+    after_usage = models.ForeignKey(
+        GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.ACTIVE)
+    # 정정한 관리자가 탈퇴해도 정정은 남는다(다른 관리자 칸과 같다).
+    corrected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "match_correction"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["analysis", "start_offset", "end_offset"], name="match_correction_place"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.analysis_id} [{self.start_offset}, {self.end_offset})"
 
 
 class PatternSetVersion(models.Model):

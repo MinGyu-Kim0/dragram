@@ -13,7 +13,7 @@ from analysis.models import (
 )
 from analysis.positions import to_analysis, to_original, utf16_offsets
 from analysis.ruby import ruby_pieces
-from analysis.sentence import _pattern_statuses
+from analysis.sentence import _corrections, _corrects, _pattern_statuses
 
 # 화면에 보이는 구간 판정
 _SHOWN_STATES = (
@@ -38,6 +38,9 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
     'AI 생성·미검수'다. 해석 갈림의 대안도 하나씩 같게 보고, 반려된 대안만 뺀다(주 용법 쪽이
     반려면 구간째 뺀다). 미확정은 매칭된 패턴만 본다. excluded는 뺄 저장 행 ID다(다시 판정하는
     구간, #176). span_of를 주면 {id(항목): 저장 구간}을 채운다.
+
+    활성 정정이 있는 구간은 저장된 판정 대신 정정 후 용법으로 보이고, 해제면 뺀다. 정정 뒤 다시
+    분석하기 전(stale 행의 옛 결과, 재분석 실패로 남은 결과)에도 오답이 보이지 않게 한다(#222).
     """
     spans = list(
         analysis.span_matches.filter(state__in=_SHOWN_STATES)
@@ -49,8 +52,18 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
     alternative_usages = GrammarUsage.objects.select_related("pattern").in_bulk(
         [alt["usage_id"] for span in spans for alt in span.alternatives or []]
     )
+    corrections = _corrections(analysis)
     entries = []
     for span in spans:
+        correction = corrections.get((span.start_offset, span.end_offset))
+        if correction is not None and _corrects(correction, span):
+            after = correction.after_usage
+            if after is None:
+                continue
+            # 정정 후 용법(그 패턴 포함)이 반려됐으면 분석할 때처럼 정정을 건너뛰고 저장된 판정을
+            # 보인다. 읽어 온 행을 바꾸므로 span_of로 받는 쪽(평가, 정정 화면)도 정정 결과를 본다.
+            if _review_status(span.pattern, after) is not None:
+                span.usage, span.state, span.alternatives = after, SpanMatch.State.DECIDED, None
         if span.state == SpanMatch.State.UNRESOLVED:
             item = _unresolved_item(span, offsets, origins, utf16)
         else:

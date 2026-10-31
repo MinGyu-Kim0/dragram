@@ -131,6 +131,51 @@ beforeEach(async () => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  delete document.documentElement.dataset.theme;
+});
+
+/** 브라우저 설정(prefers-color-scheme)을 흉내 낸다. */
+function prefersDark(dark: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: dark && query === "(prefers-color-scheme: dark)",
+  }));
+}
+
+test("테마 버튼은 처음에는 브라우저 설정을 따르고 고른 테마를 고정하지 않는다", async () => {
+  prefersDark(true);
+  render(<App />);
+
+  expect(
+    await screen.findByRole("button", { name: "다크 모드" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  expect(document.documentElement.dataset.theme).toBeUndefined();
+});
+
+test("테마 버튼을 누르면 반대 테마로 바뀌고 패널을 다시 열어도 유지된다", async () => {
+  prefersDark(false);
+  const { unmount } = render(<App />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "다크 모드" }));
+  expect(document.documentElement.dataset.theme).toBe("dark");
+
+  unmount();
+  delete document.documentElement.dataset.theme;
+  render(<App />);
+  await waitFor(() =>
+    expect(document.documentElement.dataset.theme).toBe("dark"),
+  );
+  expect(screen.getByRole("button", { name: "다크 모드" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+});
+
+test("로그인 전 화면에도 테마 버튼이 있다", async () => {
+  await fakeBrowser.storage.local.clear();
+  render(<App />);
+
+  await screen.findByRole("heading", { name: "로그인이 필요해요" });
+  expect(screen.getByRole("button", { name: "다크 모드" })).toBeInTheDocument();
 });
 
 test("사이드 패널에 앱 이름을 제목으로 보여준다", () => {

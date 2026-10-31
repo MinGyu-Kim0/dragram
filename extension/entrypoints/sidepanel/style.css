@@ -1,30 +1,59 @@
-/* 토큰은 DESIGN.md 2장. 다크 값 일부가 아직 정해지지 않아 라이트 모드만 맞춘다. */
+/* 토큰은 DESIGN.md 2장. light-dark(라이트, 다크)로 두 모드 값을 함께 둔다. 처음에는 브라우저 설정을
+   따르고, 테마 버튼으로 고르면 <html data-theme>이 color-scheme을 고정한다(#296).
+   웹(web/src/index.css)과 같은 값이다. */
 :root {
-  --color-bg: #f2f7f3;
-  --color-surface: #ffffff;
-  --color-surface-inset: #e6f0e9;
-  --color-text: #17302a;
-  --color-text-secondary: #33473f;
-  --color-border: #dce7e0;
-  --color-danger-text: #9f1d1d;
-  --color-warn-bg: #fff1d0;
-  --color-warn-text: #6b4100;
-  --color-warn-border: #b26a00;
-  --color-text-muted: #5a6b63;
-  --color-brand: #157a57;
-  --color-brand-strong: #0f5e44;
-  --color-on-brand: #ffffff;
-  --color-border-subtle: #e1ece5;
-  --color-border-control: #cfddd4;
-  /* 형광펜 4색: 칩 배경 / 칩 글자. 라이트 본문 형광펜은 칩 배경과 같다. */
-  --color-highlight-0: #ddf27a;
-  --color-highlight-0-text: #3d4a00;
-  --color-highlight-1: #bde3ff;
-  --color-highlight-1-text: #0f4a78;
-  --color-highlight-2: #ffd6a8;
-  --color-highlight-2-text: #7a3e00;
-  --color-highlight-3: #f7c8e0;
-  --color-highlight-3-text: #7a1f4f;
+  color-scheme: light dark;
+  --color-bg: light-dark(#f2f7f3, #111a26);
+  --color-surface: light-dark(#ffffff, #1b283a);
+  --color-surface-inset: light-dark(#e6f0e9, #23344b);
+  --color-text: light-dark(#17302a, #eef2f7);
+  --color-text-secondary: light-dark(#33473f, #c9d3e0);
+  --color-border: light-dark(#dce7e0, #2c3d55);
+  --color-danger-text: light-dark(#9f1d1d, #ffb4b4);
+  --color-warn-bg: light-dark(#fff1d0, rgba(255, 196, 80, 0.16));
+  --color-warn-text: light-dark(#6b4100, #ffd27a);
+  --color-warn-border: light-dark(#b26a00, #e0a840);
+  --color-text-muted: light-dark(#5a6b63, #93a3b8);
+  --color-brand: light-dark(#157a57, #a2bc4e);
+  --color-brand-strong: light-dark(#0f5e44, #c8da8e);
+  --color-on-brand: light-dark(#ffffff, #16210a);
+  --color-border-subtle: light-dark(#e1ece5, #23344b);
+  --color-border-control: light-dark(#cfddd4, #3a4d68);
+  /* 선택 링(다크는 brand), 드래그 핸들(라이트 brand-strong, 다크 text) */
+  --color-ring: light-dark(#17302a, #a2bc4e);
+  --color-handle: light-dark(#0f5e44, #eef2f7);
+  /* 형광펜 4색: 칩 배경 / 칩 글자 / 본문 형광펜. 라이트 본문 형광펜은 칩 배경과 같고,
+     다크는 더 진한 반투명이다. */
+  --color-highlight-0: light-dark(#ddf27a, rgba(162, 188, 78, 0.2));
+  --color-highlight-0-text: light-dark(#3d4a00, #c8da8e);
+  --color-highlight-0-mark: light-dark(#ddf27a, rgba(162, 188, 78, 0.42));
+  --color-highlight-1: light-dark(#bde3ff, rgba(110, 180, 255, 0.18));
+  --color-highlight-1-text: light-dark(#0f4a78, #a9d3ff);
+  --color-highlight-1-mark: light-dark(#bde3ff, rgba(110, 180, 255, 0.38));
+  --color-highlight-2: light-dark(#ffd6a8, rgba(255, 160, 90, 0.18));
+  --color-highlight-2-text: light-dark(#7a3e00, #ffc598);
+  --color-highlight-2-mark: light-dark(#ffd6a8, rgba(255, 160, 90, 0.38));
+  --color-highlight-3: light-dark(#f7c8e0, rgba(240, 120, 180, 0.18));
+  --color-highlight-3-text: light-dark(#7a1f4f, #f6b3d3);
+  --color-highlight-3-mark: light-dark(#f7c8e0, rgba(240, 120, 180, 0.38));
+  /* 본문 형광펜은 아래쪽만 칠한다. 다크는 조금 더 높이 칠한다. */
+  --mark-cut: 46%;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  /* --mark-cut은 색이 아니라 light-dark()를 못 쓴다. 다크로 보이는 두 경우(여기와 아래)에 바꾼다. */
+  --mark-cut: 40%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --mark-cut: 40%;
+  }
 }
 
 body {
@@ -201,7 +230,10 @@ h1 {
 /* 원문 형광펜: 아래쪽 절반만 칠한다. */
 .original mark {
   color: inherit;
-  background: linear-gradient(transparent 46%, var(--highlight) 46%);
+  background: linear-gradient(
+    transparent var(--mark-cut),
+    var(--highlight-mark) var(--mark-cut)
+  );
   border-radius: 3px 3px 7px 7px;
   padding: 0 2px;
 }
@@ -218,11 +250,11 @@ h1 {
   background:
     radial-gradient(
       circle 4px at 50% var(--handle-y),
-      var(--color-brand-strong) 95%,
+      var(--color-handle) 95%,
       transparent
     ),
-    linear-gradient(var(--color-brand-strong), var(--color-brand-strong))
-      center / 2px 100% no-repeat;
+    linear-gradient(var(--color-handle), var(--color-handle)) center / 2px 100%
+      no-repeat;
 }
 
 .drag-handle-start {
@@ -236,21 +268,25 @@ h1 {
 .highlight-0 {
   --highlight: var(--color-highlight-0);
   --highlight-text: var(--color-highlight-0-text);
+  --highlight-mark: var(--color-highlight-0-mark);
 }
 
 .highlight-1 {
   --highlight: var(--color-highlight-1);
   --highlight-text: var(--color-highlight-1-text);
+  --highlight-mark: var(--color-highlight-1-mark);
 }
 
 .highlight-2 {
   --highlight: var(--color-highlight-2);
   --highlight-text: var(--color-highlight-2-text);
+  --highlight-mark: var(--color-highlight-2-mark);
 }
 
 .highlight-3 {
   --highlight: var(--color-highlight-3);
   --highlight-text: var(--color-highlight-3-text);
+  --highlight-mark: var(--color-highlight-3-mark);
 }
 
 /* 판별을 기다리는 구간(확인 중): 형광펜 대신 점선 밑줄 */
@@ -350,7 +386,7 @@ h1 {
 /* 드래그한 부분의 문법 카드·단어 행: 선택 링 */
 .grammar-card.dragged,
 .word-row.dragged {
-  box-shadow: inset 0 0 0 2px var(--color-text);
+  box-shadow: inset 0 0 0 2px var(--color-ring);
 }
 
 /* 카드 첫 줄: 왼쪽 상태 배지, 오른쪽 "드래그한 부분"(DESIGN.md 3장) */
@@ -586,6 +622,29 @@ h1 {
 .pager button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 테마 버튼(#296): 지금 테마의 아이콘(라이트 해, 다크 달) */
+.theme-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.theme-button:hover {
+  color: var(--color-text);
 }
 
 /* 헤더: 제목과 로그아웃(#109). 설정 화면이 생기면 로그아웃은 그리로 옮긴다. */

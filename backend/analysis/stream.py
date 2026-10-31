@@ -8,7 +8,7 @@ from asgiref.sync import sync_to_async
 from django.db.models import F
 from django.utils import timezone
 
-from analysis import jobs, user_sentences
+from analysis import jobs, timing, user_sentences
 from analysis.models import SentenceAnalysis, UsageLog
 from analysis.normalize import NORMALIZE_VERSION
 from analysis.sentence import _is_fresh
@@ -40,8 +40,9 @@ WAIT_SECONDS = 130
 CLAIM_EXPIRY_SECONDS = 150
 
 
-def claim(sentence, user):
-    """이 문장의 LLM 작업을 선점한다. 구독한 뒤에 부른다(ADR 0005).
+def claim(sentence, user, record):
+    """이 문장의 LLM 작업을 선점한다. 구독한 뒤에 부른다(ADR 0005). record는 요청의 시간 기록이고,
+    큐에 넣기 전에 역할과 식별자를 채워 큐 넣기가 실패해도 남게 한다(#216).
 
     (상태, 분석 행, 사용 기록)이다. 상태는 claimed(이 요청이 선점해 작업을 넣음),
     processing(다른 요청의 작업을 기다림), saved(그사이 다른 요청의 작업이 저장을 마침)다.
@@ -50,9 +51,16 @@ def claim(sentence, user):
     기록도 그 행에 잇는다.
     """
     row, claimed = take(sentence)
-    if not claimed and _is_fresh(row):
-        return "saved", row, RequestUsage.start(UsageLog.Path.CACHE, user, row.pk, True)
-    usage = RequestUsage.start(UsageLog.Path.LLM, user, row.pk)
+    saved = not claimed and _is_fresh(row)
+    path = UsageLog.Path.CACHE if saved else UsageLog.Path.LLM
+    usage = RequestUsage.start(path, user, row.pk, saved)
+    state = "saved" if saved else "claimed" if claimed else "processing"
+    record.fields.update(
+        role="joined" if state == "processing" else state,
+        request_id=usage.id,
+        analysis_id=row.pk,
+        attempt=None if saved else _attempt(row.processing_started_at),
+    )
     if claimed:
         try:
             jobs.enqueue_analysis(row.pk, sentence.text, usage.id, row.processing_started_at)
@@ -60,7 +68,7 @@ def claim(sentence, user):
             # 큐에 넣지 못했으면 선점을 풀어, 다음 요청이 처리 중 행에 붙잡히지 않게 한다.
             _fail(row.pk, row.processing_started_at, AnalysisError.FAILED.code)
             raise
-    return "claimed" if claimed else "processing", row, usage
+    return state, row, usage
 
 
 def take(sentence, again=False):
@@ -111,30 +119,61 @@ def saved_events(presenter, user, row, translated):
     return events
 
 
-async def llm_stream(presenter, user, early):
-    """LLM 작업을 기다리는 요청의 이벤트(ADR 0005).
+def request_record(requested, role, **fields):
+    """분석 요청 하나의 시간 기록(#216). requested(timing.clock)는 요청을 받은 때다. role은
+    cache(캐시 응답), saved(그사이 저장된 결과), claimed(선점해 작업을 넣음), joined(다른 요청의
+    작업에 붙음)다. 요청이 기다린 시간만 재고, 작업 시간은 작업자가 따로 남긴다.
+    """
+    return timing.Record(
+        "analysis_request",
+        requested,
+        role=role,
+        **{"request_id": None, "analysis_id": None, "attempt": None, **fields},
+        translation_s=None,
+        analysis_s=None,
+        # 끝을 보기 전에 연결이 끊긴 요청은 closed로 남는다.
+        result="closed",
+        error=None,
+    )
+
+
+async def llm_stream(presenter, user, early, requested):
+    """LLM 작업을 기다리는 요청의 이벤트(ADR 0005). requested는 요청을 받은 때(timing.clock)다.
 
     DB만으로 정해지는 이벤트를 먼저 보내고, 작업 소식을 구독한 뒤 선점하거나 처리 중인 작업에
     붙는다. 번역 소식이 오면 번역을, 저장 소식이 오면 저장된 행으로 만든 analysis를 보낸다.
     늦게 붙은 요청은 작업이 먼저 저장한 번역부터 보낸다. 큐 넣기 실패, 실패 소식, 대기 상한이면
-    error다.
+    error다. 끝나면(연결이 끊겨도) 시간 기록을 남긴다.
     """
+    record = request_record(requested, None)
+    try:
+        async for line in _llm_stream(presenter, user, early, record):
+            yield line
+    finally:
+        record.log()
+
+
+async def _llm_stream(presenter, user, early, record):
     async with jobs.listen(presenter.sentence.sentence_hash) as pubsub:
         for event in early:
             yield _ndjson(event)
         try:
-            state, row, request_usage = await sync_to_async(claim)(presenter.sentence, user)
+            state, row, request_usage = await sync_to_async(claim)(presenter.sentence, user, record)
         except BusinessError as e:
             # 선점은 claim이 풀고 기다리던 요청에 실패 소식도 보냈다.
             log_business_error(e)
+            record.end("error", e.error_code.code)
             yield _ndjson({"type": "error", "error": e.error_code.code})
             return
         if state == "saved":
             for event in await sync_to_async(saved_events)(presenter, user, row, False):
+                record.mark(event["type"])
                 yield _ndjson(event)
+            record.end("done")
             return
         translated = state == "processing" and row.processing_translation_ko is not None
         if translated:
+            record.mark("translation")
             yield _ndjson(presenter.translation_event(row.processing_translation_ko))
         error = AnalysisError.FAILED.code
         attempt = _attempt(row.processing_started_at)
@@ -156,6 +195,7 @@ async def llm_stream(presenter, user, early):
             if message["type"] == "translation":
                 if not translated:
                     translated = True
+                    record.mark("translation")
                     yield _ndjson(presenter.translation_event(message["translation_ko"]))
                 continue
             if message["type"] == "judged":
@@ -170,12 +210,16 @@ async def llm_stream(presenter, user, early):
                     for event in await sync_to_async(saved_events)(
                         presenter, user, row, translated
                     ):
+                        record.mark(event["type"])
                         yield _ndjson(event)
                     await sync_to_async(request_usage.succeed)()
+                    record.end("done")
                     return
             else:
                 error = message["error"]
+            record.end("error", error)
             break
         else:
             logger.warning("분석 작업 대기 시간 초과: analysis_id=%s", row.pk)
+            record.end("timeout", error)
         yield _ndjson({"type": "error", "error": error})

@@ -56,7 +56,7 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
     corrections = _corrections(analysis)
     entries = []
     for span in spans:
-        if not corrected(span, corrections):
+        if not apply_correction(span, corrections):
             continue
         if span.state == SpanMatch.State.UNRESOLVED:
             item = _unresolved_item(span, offsets, origins, utf16)
@@ -96,7 +96,7 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
     return entries
 
 
-def corrected(span, corrections):
+def apply_correction(span, corrections):
     """활성 정정(corrections: {키 텍스트 (start, end): 정정})을 저장 구간에 적용한다. 정정이
     매칭을 해제했으면 False다.
 

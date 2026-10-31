@@ -180,7 +180,7 @@ const GRAMMAR = [
 
 // 카드 안의 문장 목록 항목은 빼고 카드만 고른다.
 const grammarCards = async () => {
-  const list = await screen.findByRole("list", { name: "만난 문법" });
+  const list = await screen.findByRole("list", { name: "내 문법" });
   return within(list)
     .getAllByRole("listitem")
     .filter((li) => li.parentElement === list);
@@ -223,13 +223,13 @@ test("문법 카드에서 그 용법이 나온 내 문장으로 간다", async (
   ).toHaveAttribute("href", "/sentences/1");
 });
 
-test("만난 문법이 없으면 안내한다", async () => {
+test("문법이 없으면 안내한다", async () => {
   responses["GET /api/my-japanese/grammar/"] = () => json({ usages: [] });
   open();
   await userEvent.click(await screen.findByRole("tab", { name: "문법" }));
 
   expect(
-    await screen.findByText("아직 만난 문법이 없어요."),
+    await screen.findByText("분석한 문장에 나온 문법이 아직 없어요."),
   ).toBeInTheDocument();
 });
 

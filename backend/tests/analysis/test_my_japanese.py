@@ -1,4 +1,4 @@
-"""내 일본어: 내 문장들에서 만난 용법을 모아 본다(FR-M10, ADR 0002, #313). 웹 세션으로 본인 기록만
+"""내 일본어: 내 문장들에 나온 용법을 모아 본다(FR-M10, ADR 0002, #313). 웹 세션으로 본인 기록만
 다루고 LLM을 부르지 않는다.
 """
 
@@ -178,3 +178,34 @@ def test_needs_a_logged_in_web_session(fake_llm):
     for client in (Client(), connected_client("me2")):
         response = client.get(GRAMMAR)
         assert (response.status_code, response.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})
+
+
+@pytest.mark.parametrize(("show_parts", "listed"), [(True, ["人で", "ている"]), (False, ["人で"])])
+def test_parts_hidden_by_the_outer_pattern_are_not_listed(fake_llm, show_parts, listed):
+    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
+    人で, ている = span("人で"), span("ている")
+    # 人で의 용법으로 ている를 감싸는 바깥 구간을 둔다. 문장 화면처럼 show_parts를 따른다.
+    SpanMatch.objects.create(
+        analysis=ている.analysis,
+        pattern=人で.pattern,
+        usage=人で.usage,
+        start_offset=ている.start_offset - 1,
+        end_offset=ている.end_offset,
+        state=SpanMatch.State.DECIDED,
+        decided_by=SpanMatch.DecidedBy.LLM,
+    )
+    人で.pattern.show_parts = show_parts
+    人で.pattern.save()
+
+    assert [u["pattern_name"] for u in grammar(me)] == listed
+
+
+def test_divergent_span_counts_only_its_main_usage(fake_llm):
+    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
+    人で, ている = span("人で"), span("ている")
+    人で.delete()
+    ている.state = SpanMatch.State.DIVERGENT
+    ている.alternatives = [{"usage_id": 人で.usage_id, "translation_ko": "다른 번역"}]
+    ている.save()
+
+    assert [u["pattern_name"] for u in grammar(me)] == ["ている"]

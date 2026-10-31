@@ -7,7 +7,7 @@ import { BadgeRow, PendingBadge } from "./SentenceDetailPage";
 import "../connect/connect.css";
 import "./history.css";
 
-// 내 기록: 내가 분석한 문장 목록(#195)과 문장별 삭제(#196), 만난 문법(#313). 문장을 누르면 저장된
+// 내 기록: 내가 분석한 문장 목록(#195)과 문장별 삭제(#196), 내 일본어 문법(#313). 문장을 누르면 저장된
 // 분석을 본다.
 
 type Sentence = { id: number; text: string; analyzed_at: string };
@@ -145,7 +145,7 @@ type Usage = {
 type GrammarState =
   { kind: "loading" } | { kind: "failed" } | { kind: "ready"; usages: Usage[] };
 
-/** 내 문장에서 만난 용법(FR-M10). 탭을 열 때 불러온다. 미검수 표시는 문장 분석 화면과 같다. */
+/** 내 일본어 중 용법(FR-M10). 탭을 열 때 불러온다. 미검수 표시는 문장 분석 화면과 같다. */
 function GrammarTab() {
   const [state, setState] = useState<GrammarState>({ kind: "loading" });
 
@@ -164,9 +164,9 @@ function GrammarTab() {
       </p>
     );
   if (state.usages.length === 0)
-    return <p className="secondary">아직 만난 문법이 없어요.</p>;
+    return <p className="secondary">분석한 문장에 나온 문법이 아직 없어요.</p>;
   return (
-    <ul aria-label="만난 문법">
+    <ul aria-label="내 문법">
       {state.usages.map((usage, index) => {
         const pending = usage.review_status === "pending";
         return (
@@ -192,7 +192,7 @@ function GrammarTab() {
               <summary className="muted">
                 문장 {usage.sentences.length}개
               </summary>
-              <ul className="met-sentences">
+              <ul className="usage-sentences">
                 {usage.sentences.map((s) => (
                   <li key={s.id} lang="ja">
                     <Link to={`/sentences/${s.id}`} className="sentence-link">

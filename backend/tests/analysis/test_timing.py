@@ -8,8 +8,9 @@ import json
 import logging
 
 import pytest
+import redis
 
-from analysis import llm, timing, worker
+from analysis import jobs, llm, timing, worker
 from analysis.models import SentenceAnalysis
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, connected_client, post
@@ -199,7 +200,36 @@ def test_cached_answer_is_not_logged_as_an_llm_run(client, fake_llm, logs):
 
     assert response.types() == ["translation", "analysis"]
     assert (len(logs("analysis_job")), len(logs("llm_call"))) == (jobs_before, calls_before)
-    assert logs("analysis_request")[-1]["role"] == "cache"
+    request = logs("analysis_request")[-1]
+    assert request["role"] == "cache"
+    assert request["translation_s"] <= request["analysis_s"] <= request["total_s"]
+
+
+@pytest.mark.django_db
+def test_request_that_could_not_queue_its_job_keeps_its_identifiers(
+    client, fake_llm, logs, monkeypatch, settings
+):
+    class UnreachableQueue:
+        def __init__(self, *_, **__):
+            pass
+
+        def enqueue(self, *_, **__):
+            raise redis.ConnectionError("Redis에 연결하지 못함")
+
+    settings.ANALYSIS_INLINE = False
+    monkeypatch.setattr(jobs, "Queue", UnreachableQueue)
+
+    response = analyze(client, TEXT)
+
+    assert response.types() == ["error"]
+    [request] = logs("analysis_request")
+    row = SentenceAnalysis.objects.get()
+    assert (request["role"], request["request_id"], request["analysis_id"]) == (
+        "claimed",
+        _requests().get().pk,
+        row.pk,
+    )
+    assert (request["result"], request["error"]) == ("error", AnalysisError.FAILED.code)
 
 
 @pytest.mark.django_db

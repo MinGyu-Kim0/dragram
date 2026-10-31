@@ -72,6 +72,9 @@ def _analyze(request):
         events = [presenter.translation_event(row.translation_ko), event]
         user_sentences.record(user, presenter.original, cached.pk, events[-1]["words"])
         record = request_record(requested, "cache", request_id=usage.id, analysis_id=cached.pk)
+        # 두 이벤트를 한 응답으로 함께 보낸다.
+        record.mark("translation")
+        record.mark("analysis")
         record.end("done")
         record.log()
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)

@@ -39,8 +39,9 @@ WAIT_SECONDS = 130
 CLAIM_EXPIRY_SECONDS = 150
 
 
-def claim(sentence, user):
-    """이 문장의 LLM 작업을 선점한다. 구독한 뒤에 부른다(ADR 0005).
+def claim(sentence, user, record):
+    """이 문장의 LLM 작업을 선점한다. 구독한 뒤에 부른다(ADR 0005). record는 요청의 시간 기록이고,
+    큐에 넣기 전에 역할과 식별자를 채워 큐 넣기가 실패해도 남게 한다(#216).
 
     (상태, 분석 행, 사용 기록)이다. 상태는 claimed(이 요청이 선점해 작업을 넣음),
     processing(다른 요청의 작업을 기다림), saved(그사이 다른 요청의 작업이 저장을 마침)다.
@@ -49,9 +50,16 @@ def claim(sentence, user):
     기록도 그 행에 잇는다.
     """
     row, claimed = take(sentence)
-    if not claimed and _is_fresh(row):
-        return "saved", row, RequestUsage.start(UsageLog.Path.CACHE, user, row.pk, True)
-    usage = RequestUsage.start(UsageLog.Path.LLM, user, row.pk)
+    saved = not claimed and _is_fresh(row)
+    path = UsageLog.Path.CACHE if saved else UsageLog.Path.LLM
+    usage = RequestUsage.start(path, user, row.pk, saved)
+    state = "saved" if saved else "claimed" if claimed else "processing"
+    record.fields.update(
+        role="joined" if state == "processing" else state,
+        request_id=usage.id,
+        analysis_id=row.pk,
+        attempt=None if saved else _attempt(row.processing_started_at),
+    )
     if claimed:
         try:
             jobs.enqueue_analysis(row.pk, sentence.text, usage.id, row.processing_started_at)
@@ -59,7 +67,7 @@ def claim(sentence, user):
             # 큐에 넣지 못했으면 선점을 풀어, 다음 요청이 처리 중 행에 붙잡히지 않게 한다.
             _fail(row.pk, row.processing_started_at, AnalysisError.FAILED.code)
             raise
-    return "claimed" if claimed else "processing", row, usage
+    return state, row, usage
 
 
 def take(sentence, again=False):
@@ -149,20 +157,13 @@ async def _llm_stream(presenter, user, early, record):
         for event in early:
             yield _ndjson(event)
         try:
-            state, row, request_usage = await sync_to_async(claim)(presenter.sentence, user)
+            state, row, request_usage = await sync_to_async(claim)(presenter.sentence, user, record)
         except BusinessError as e:
             # 선점은 claim이 풀고 기다리던 요청에 실패 소식도 보냈다.
             log_business_error(e)
             record.end("error", e.error_code.code)
             yield _ndjson({"type": "error", "error": e.error_code.code})
             return
-        attempt = _attempt(row.processing_started_at)
-        record.fields.update(
-            role="joined" if state == "processing" else state,
-            request_id=request_usage.id,
-            analysis_id=row.pk,
-            attempt=None if state == "saved" else attempt,
-        )
         if state == "saved":
             for event in await sync_to_async(saved_events)(presenter, user, row, False):
                 record.mark(event["type"])
@@ -174,6 +175,7 @@ async def _llm_stream(presenter, user, early, record):
             record.mark("translation")
             yield _ndjson(presenter.translation_event(row.processing_translation_ko))
         error = AnalysisError.FAILED.code
+        attempt = _attempt(row.processing_started_at)
         async for message in jobs.messages(pubsub, WAIT_SECONDS):
             if message.get("attempt") != attempt:
                 continue

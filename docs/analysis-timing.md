@@ -85,7 +85,8 @@ docker compose logs --no-log-prefix --since 30m backend worker | grep '^{"event"
   `OPENAI_REASONING_EFFORT`를 바꾸면 백엔드와 작업자 둘 다 다시 띄워야 적용된다
   (`docker compose up -d backend worker`).
 - **작업자 수만 바꾸는 비교**: 추론량을 고정하고 여러 문장을 한꺼번에 보낸다. `queue_wait_s`와 요청의
-  `translation_s`·`total_s`를 본다. 작업자 수를 바꾸는 방법은 #218에서 정한다.
+  `translation_s`·`total_s`를 본다. 작업자 수는 `docker compose up -d --scale worker=N`으로 바꾼다
+  (README "로컬 실행").
 
 ### 비교 결과 양식
 
@@ -113,3 +114,29 @@ docker compose logs --no-log-prefix --since 30m backend worker | grep '^{"event"
 | 실행 구성(로컬) | 모델 `gpt-6-luna`, 추론량 `low`(`.env`), `compose.yaml`의 worker 서비스 1개 |
 | 실제 모델 측정 | **미측정**. 유료 API를 부르지 않았다. 속도와 분석 품질은 검증하지 않았다 |
 | 모의 LLM 검증 | 실제 분석 API·PostgreSQL·Redis·RQ 작업자와 가짜 시계로 기록의 의미를 확인했다(`backend/tests/analysis/test_timing.py`). 정상 분석에서 번역 2초, 첫 응답 완료 7초로 돌린 가짜 시계가 `translation_s=2`, `first_response_s=7`, `total_s=7`로 남았다. 실패 두 경로, 공유 작업, 캐시 응답도 확인했다. 이 값은 모의 결과이며 실제 지연 시간이 아니다 |
+
+## 작업자 1개·3개 모의 비교 (2026-11-01, #218)
+
+`backend/tests/analysis/test_parallel_workers.py`의 `test_mock_comparison_of_one_and_three_workers`를
+`-s`로 실행한 결과다. 분석 API·PostgreSQL·Redis·RQ와 작업자 프로세스는 실제로 쓰고, LLM만 호출마다
+0.3초 생성 시간을 흉내 내는 가짜다. 모든 작업자가 LLM 단계에 들어온 뒤 한꺼번에 놓아 주고, 그때부터
+모든 응답이 끝날 때까지를 쟀다. **실제 모델의 속도 향상이 아니다.**
+
+| 항목 | 작업자 1개 | 작업자 3개 |
+| --- | --- | --- |
+| 모델 / 추론량 | 가짜 LLM / 설정 `low`(가짜라 쓰이지 않음) | 같음 |
+| 캐시 상태 | 모두 미캐시 | 같음 |
+| 문장 수 · 글자 수 | 5개 · 5, 7, 8, 6, 5자 | 같음 |
+| 반복 | 수동으로 4번 실행(테스트 한 번에 1회) | 같음 |
+| 성공 / 실패 | 회마다 5 / 0 | 회마다 5 / 0 |
+| 관찰한 작업자 수 | 1 | 3 |
+| 놓아 준 뒤 모두 끝날 때까지 | 2.02~2.12초 | 1.01~1.05초 |
+| 작업별 첫 응답 완료(`first_response_s`) | 0.33~0.42초 | 0.34~0.53초 |
+
+큐 대기(`queue_wait_s`)는 표에 넣지 않았다. 이 측정은 작업을 먼저 큐에 넣고 작업자 프로세스를 띄우므로
+대기에 작업자 프로세스의 기동 시간(Django·형태소 사전 읽기)이 섞여 작업자 수의 효과를 보여 주지 못한다. 작업자를 미리 띄운 실제
+비교에서는 위 "비교 절차"대로 `queue_wait_s`를 본다.
+
+병렬 실행의 근거: 같은 파일의 `test_three_workers_take_different_sentences_at_once`에서 아무 작업도
+놓아 주지 않은 상태로 세 작업이 서로 다른 작업자 PID에서 동시에 LLM 단계에 있다. 메모리 사용, OpenAI
+동시 호출 한계, 실제 모델의 속도와 분석 품질은 측정하지 않았다(미검증).

@@ -81,14 +81,19 @@ function PanelPreview() {
           <span>단어 4</span>
         </div>
         <div className="card grammar-card selected">
+          <div className="badge-row">
+            <span className="badge-warn">AI 생성·미검수</span>
+            <span className="muted">드래그한 부분</span>
+          </div>
           <div className="grammar-title">
             <span lang="ja" className="chip chip-sky">
               ようにしている
             </span>
             <strong>~하도록 하고 있다</strong>
-            <span className="muted">드래그한 부분</span>
           </div>
-          <p className="muted">문장 속 형태: ようにしてい</p>
+          <p className="muted">
+            문장 속 형태: <span lang="ja">ようにしてい</span>
+          </p>
           <p className="secondary">
             습관이 되도록 꾸준히 신경 쓰고 있다는 뜻이에요.
           </p>

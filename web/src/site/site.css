@@ -26,6 +26,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-height: 44px;
   margin-right: auto;
   color: var(--color-text);
   font-family: "Jua", sans-serif;
@@ -33,6 +34,7 @@
   text-decoration: none;
 }
 
+/* 로고 전용 색(와이어프레임 헤더 로고). 토큰 표에는 없다. */
 .logo-pen {
   fill: #7ccba7;
 }
@@ -185,22 +187,22 @@
   line-height: 2.1;
 }
 
-.hl {
+.preview .hl {
   padding: 0 2px;
   border-radius: 3px 3px 7px 7px;
   color: inherit;
 }
 
-.hl-lime {
-  background: linear-gradient(transparent 46%, #ddf27a 46%);
+.preview .hl-lime {
+  background: linear-gradient(transparent 46%, var(--color-highlight-0) 46%);
 }
 
-.hl-sky {
-  background: linear-gradient(transparent 46%, #bde3ff 46%);
+.preview .hl-sky {
+  background: linear-gradient(transparent 46%, var(--color-highlight-1) 46%);
 }
 
 /* 드래그 핸들: 원 + 막대. 시작은 원이 위, 끝은 원이 아래 */
-.handle {
+.preview .handle {
   display: inline-block;
   position: relative;
   width: 2px;
@@ -211,7 +213,7 @@
   background: var(--color-brand-strong);
 }
 
-.handle::before {
+.preview .handle::before {
   content: "";
   position: absolute;
   left: -3px;
@@ -222,7 +224,7 @@
   background: inherit;
 }
 
-.handle-end::before {
+.preview .handle-end::before {
   top: auto;
   bottom: -6px;
 }
@@ -249,53 +251,69 @@
   font-weight: 600;
 }
 
-.site .grammar-card {
+.preview .grammar-card {
   display: grid;
   gap: 6px;
   padding: 14px 16px;
 }
 
-.grammar-card.selected {
+.preview .grammar-card.selected {
   box-shadow: 0 0 0 2px var(--color-text);
 }
 
-.grammar-title {
+.preview .badge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.preview .badge-warn {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.preview .grammar-title {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
 }
 
-.grammar-title strong {
+.preview .grammar-title strong {
   flex-grow: 1;
   font-size: 15px;
   font-weight: 600;
 }
 
-.grammar-card .muted {
+.preview .grammar-card .muted {
   font-size: 12px;
 }
 
-.grammar-card .secondary {
+.preview .grammar-card .secondary {
   font-size: 13px;
   line-height: 1.7;
 }
 
-.chip {
+.preview .chip {
   padding: 3px 12px;
   border-radius: 999px;
   font-size: 15px;
   font-weight: 700;
 }
 
-.chip-lime {
-  background: #ddf27a;
-  color: #3d4a00;
+.preview .chip-lime {
+  background: var(--color-highlight-0);
+  color: var(--color-highlight-0-text);
 }
 
-.chip-sky {
-  background: #bde3ff;
-  color: #0f4a78;
+.preview .chip-sky {
+  background: var(--color-highlight-1);
+  color: var(--color-highlight-1-text);
 }
 
 .band {
@@ -353,7 +371,6 @@
 }
 
 .faq details {
-  padding: 18px 0;
   border-bottom: 1px solid var(--color-border-subtle);
 }
 
@@ -362,13 +379,14 @@
 }
 
 .faq summary {
+  padding: 18px 0;
   cursor: pointer;
   font-size: 16px;
   font-weight: 600;
 }
 
 .faq details p {
-  margin: 10px 0 0;
+  margin: 0 0 18px;
   font-size: 14px;
   line-height: 1.7;
 }

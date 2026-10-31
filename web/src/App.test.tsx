@@ -66,6 +66,8 @@ test("사이드 패널 예시는 일본어 예문, 번역, 문법 카드를 보�
     within(preview).getByText("바빠도 매일 아침 책을 읽으려고 하고 있어요."),
   ).toBeInTheDocument();
   expect(within(preview).getByText("~하도록 하고 있다")).toBeInTheDocument();
+  // 예시도 실제 패널처럼 미검수 설명에는 배지를 단다.
+  expect(within(preview).getByText("AI 생성·미검수")).toBeInTheDocument();
 });
 
 test("자주 묻는 질문은 질문을 눌러 답을 펼친다", async () => {

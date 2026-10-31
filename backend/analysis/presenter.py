@@ -11,6 +11,7 @@ from analysis.models import (
     SpanMatch,
     WordSense,
 )
+from analysis.normalize import has_only_known_placeholders, settled_prefix
 from analysis.positions import to_analysis, to_original, utf16_offsets
 from analysis.ruby import ruby_pieces
 from analysis.sentence import _corrections, _corrects, _pattern_statuses
@@ -313,6 +314,15 @@ class Presenter:
             "translation_ko": self.sentence.restore(translation),
             "ruby": self.ruby,
         }
+
+    def partial_translation_event(self, prefix):
+        """검증 전 번역 앞부분 이벤트(#303). 보낼 만큼 정해진 글이 없으면 None이다. 없는 번호의
+        자리표시자를 쓴 앞부분은 숫자를 되돌릴 수 없어 보내지 않는다(번역 검증에서 실패한다).
+        """
+        settled = settled_prefix(prefix)
+        if not settled or not has_only_known_placeholders(settled, self.sentence.numbers):
+            return None
+        return {"type": "translation_partial", "translation_ko": self.sentence.restore(settled)}
 
     def locked_analysis_event(self, analysis_id):
         """분석 행을 잠가 다시 읽고 만든 analysis 이벤트와 그 행. 앞서 읽은 행 뒤에 다른 작업이

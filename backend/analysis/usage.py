@@ -1,10 +1,12 @@
 """분석 요청 하나의 사용 기록(usage_log, FR-A18). 원문은 받지도 남기지도 않는다."""
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
 from django.utils.crypto import salted_hmac
 
+from analysis import timing
 from analysis.models import UsageLog
 
 
@@ -125,9 +127,11 @@ class RequestUsage:
         output_tokens,
         success,
         attempt=1,
+        seconds=None,
     ):
         """LLM 클라이언트가 보낸 호출마다 부른다. attempt는 시도 차수다(일시 오류로 다시 보낸
-        호출은 2, #99).
+        호출은 2, #99). seconds는 호출에 걸린 시간이고 모르면 None이다. 남긴 행을 시간 기록에도
+        남긴다(#216). 받지 못한 토큰 수는 null 그대로 남긴다.
         """
         with transaction.atomic():
             requester = _lock_requester(self._user)
@@ -151,6 +155,21 @@ class RequestUsage:
                 **fields,
             )
         self._ids.append(row.pk)
+        timing.log(
+            "llm_call",
+            request_id=self.id,
+            llm_usage_id=row.pk,
+            analysis_id=row.analysis_id,
+            purpose=purpose,
+            model=row.model,
+            reasoning_effort=settings.OPENAI_REASONING_EFFORT,
+            attempt=row.attempt,
+            success=success,
+            seconds=seconds,
+            input_tokens=input_tokens,
+            cached_input_tokens=cached_input_tokens,
+            output_tokens=output_tokens,
+        )
 
     def succeed(self):
         """요청이 이 경로의 결과를 오류 없이 냈다."""

@@ -5,7 +5,7 @@ import httpx2 as httpx
 import openai
 import pytest
 
-from analysis import llm
+from analysis import llm, timing
 from analysis.llm import OpenAILLMClient, SectionParser
 from errors import AnalysisError, BusinessError
 
@@ -21,9 +21,11 @@ def recorder(recorded):
 
 
 @pytest.fixture
-def llm_client(settings, recorded):
+def llm_client(settings, recorded, monkeypatch):
     # 실제 OpenAI는 부르지 않는다. SDK 호출(responses.create)만 바꿔 끼운다.
     settings.OPENAI_API_KEY = "test-key"
+    # 호출 시간을 재는 시계는 멈춰 둔다. 시간을 보는 테스트만 돌린다.
+    monkeypatch.setattr(timing, "clock", lambda: 0.0)
     return OpenAILLMClient(recorder(recorded))
 
 
@@ -579,8 +581,34 @@ def test_stream_records_first_response_with_its_model_and_tokens(llm_client, mon
             "output_tokens": 20,
             "success": True,
             "attempt": 1,
+            "seconds": 0.0,
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda c: list(c.analyze_stream("文", [], [], [], [], [])),
+        lambda c: c.judge_spans("は", [], "는", [], [], SPANS),
+    ],
+)
+def test_call_records_how_long_it_took_from_sending_to_the_end(
+    llm_client, monkeypatch, recorded, call
+):
+    # 보내기 시작할 때 10초, 기록할 때 13.5초다(#216).
+    now = iter([10.0, 13.5])
+    monkeypatch.setattr(timing, "clock", lambda: next(now))
+    events = [*deltas('{"translation_ko": "번역"}'), completed_event()]
+    monkeypatch.setattr(
+        llm_client._client.responses,
+        "create",
+        lambda stream=False, **_: stream_of(events) if stream else response_with(),
+    )
+
+    call(llm_client)
+
+    assert [c["seconds"] for c in recorded] == [3.5]
 
 
 def test_failed_stream_records_failure_with_the_tokens_it_used(llm_client, monkeypatch, recorded):
@@ -620,6 +648,7 @@ def test_stream_that_could_not_be_sent_records_failure_without_tokens(
             "output_tokens": None,
             "success": False,
             "attempt": 1,
+            "seconds": 0.0,
         }
     ]
 
@@ -681,6 +710,7 @@ def test_follow_up_call_records_its_purpose_model_and_tokens(
             "output_tokens": 10,
             "success": True,
             "attempt": 1,
+            "seconds": 0.0,
         }
     ]
 

@@ -6,6 +6,7 @@ import openai
 from django.conf import settings
 from openai import OpenAI, OpenAIError
 
+from analysis import timing
 from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS
 from analysis.models import FunctionTag, UsageLog
 from errors import AnalysisError, BusinessError
@@ -410,8 +411,9 @@ class OpenAILLMClient:
     """요청 하나가 쓰는 클라이언트. 그 요청의 호출들이 마감 시각 하나를 함께 쓴다.
 
     보낸 호출마다 record(purpose, model, input_tokens, cached_input_tokens, output_tokens,
-    success, attempt)를 한 번 부른다. 보내지 못했거나 응답이 없으면 토큰은 None이다. 마감이
-    지나 보내지 않은 호출은 부르지 않는다.
+    success, attempt, seconds)를 한 번 부른다. 보내지 못했거나 응답이 없으면 토큰은 None이다.
+    seconds는 보내기 시작해 끝나기(실패 포함)까지의 시간이다(#216). 마감이 지나 보내지 않은 호출은
+    부르지 않는다.
     """
 
     def __init__(self, record):
@@ -448,7 +450,7 @@ class OpenAILLMClient:
         now = time.monotonic()
         deadline = min(now + STREAM_DEADLINE_SECONDS, self._deadline)
         # 사이드 패널이 연결을 끊어 중간에 닫혀도 보낸 호출은 기록한다.
-        final, success, received = None, False, False
+        final, success, received, sent = None, False, False, timing.clock()
         try:
             stream = self._client.responses.create(
                 timeout=min(TIMEOUT_SECONDS, self._deadline - now),
@@ -498,7 +500,7 @@ class OpenAILLMClient:
             failure = _NothingReceived if not received and _transient(e) else BusinessError
             raise failure(AnalysisError.FAILED, "LLM 호출 실패") from e
         finally:
-            self._record_call(UsageLog.Purpose.FIRST_RESPONSE, final, success, attempt)
+            self._record_call(UsageLog.Purpose.FIRST_RESPONSE, final, success, attempt, sent)
         yield "result", result
 
     def judge_spans(self, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans):
@@ -644,7 +646,7 @@ class OpenAILLMClient:
         remaining = self._deadline - time.monotonic()
         if remaining <= 0:
             raise BusinessError(AnalysisError.FAILED, f"LLM {label} 전에 요청 시간 초과")
-        response, success = None, False
+        response, success, sent = None, False, timing.clock()
         try:
             response = self._client.responses.create(
                 timeout=min(TIMEOUT_SECONDS, remaining),
@@ -675,10 +677,12 @@ class OpenAILLMClient:
             failure = _NothingReceived if _transient(e) else BusinessError
             raise failure(AnalysisError.FAILED, f"LLM {label} 호출 실패") from e
         finally:
-            self._record_call(purpose, response, success, attempt)
+            self._record_call(purpose, response, success, attempt, sent)
 
-    def _record_call(self, purpose, response, success, attempt):
-        """보낸 호출 하나를 기록한다. response는 SDK 응답이고 받지 못했으면 None이다."""
+    def _record_call(self, purpose, response, success, attempt, sent):
+        """보낸 호출 하나를 기록한다. response는 SDK 응답이고 받지 못했으면 None이다. sent는 보내기
+        시작한 시각(timing.clock)이다.
+        """
         model, tokens = settings.OPENAI_MODEL, (None, None, None)
         if response is not None:
             model = response.model
@@ -697,6 +701,7 @@ class OpenAILLMClient:
             output_tokens=output_tokens,
             success=success,
             attempt=attempt,
+            seconds=timing.seconds_since(sent),
         )
 
 

@@ -5,6 +5,14 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Dragram</title>
+    <!-- 고른 테마를 첫 화면 전에 건다(ThemeButton.tsx와 같은 키). 없으면 브라우저 설정을 따른다. -->
+    <script>
+      try {
+        var theme = localStorage.getItem("dragram-theme");
+        if (theme === "light" || theme === "dark")
+          document.documentElement.dataset.theme = theme;
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

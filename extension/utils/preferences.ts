@@ -15,3 +15,15 @@ export async function savePreference(
 ): Promise<void> {
   await browser.storage.local.set({ [key]: value });
 }
+
+// 테마(#296). 고른 적이 없으면 null이고 브라우저 설정을 따른다.
+export type Theme = "light" | "dark";
+
+export async function loadTheme(): Promise<Theme | null> {
+  const { theme } = await browser.storage.local.get("theme");
+  return theme === "light" || theme === "dark" ? theme : null;
+}
+
+export async function saveTheme(theme: Theme): Promise<void> {
+  await browser.storage.local.set({ theme });
+}

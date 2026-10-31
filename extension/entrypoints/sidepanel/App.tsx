@@ -24,6 +24,7 @@ import {
   type DesignatedName,
 } from "@/utils/names";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
+import { ThemeButton } from "./ThemeButton";
 import { usePreference } from "./use-preference";
 
 // 서버에 동시에 보내는 문장 분석 요청 수. 문장 수에는 상한이 없어서(#23), 긴 글을 골라도
@@ -297,7 +298,10 @@ function App() {
   if (connected === false) {
     return (
       <main>
-        <h1>Dragram</h1>
+        <header className="panel-header">
+          <h1>Dragram</h1>
+          <ThemeButton />
+        </header>
         <LoginPrompt />
       </main>
     );
@@ -307,15 +311,18 @@ function App() {
     <main>
       <header className="panel-header">
         <h1>Dragram</h1>
-        {connected && (
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => logoutExtension()}
-          >
-            로그아웃
-          </button>
-        )}
+        <div className="header-actions">
+          <ThemeButton />
+          {connected && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => logoutExtension()}
+            >
+              로그아웃
+            </button>
+          )}
+        </div>
       </header>
       {request && request.sentences.length > 1 && (
         <nav className="pager" aria-label="문장">

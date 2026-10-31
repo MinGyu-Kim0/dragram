@@ -1,5 +1,8 @@
 """작업자의 분석 실행과 저장(#98, ADR 0005)."""
 
+import math
+import time
+
 from django.db import IntegrityError, transaction
 
 from analysis import jobs, limits, llm, morphology, patterns, words
@@ -25,6 +28,9 @@ from analysis.span_rows import _basis_changed, _is_place_conflict, _PatternTaken
 from analysis.usage import RequestUsage
 from errors import AnalysisError, BusinessError
 from errors.handler import log_business_error
+
+# 번역 앞부분(#303)을 알리는 최소 간격. 조각마다 알리면 Redis 소식과 화면 갱신이 너무 잦다.
+PARTIAL_INTERVAL_SECONDS = 0.1
 
 
 def _new_pattern_conditions(tokens, morphs, overlaps_number):
@@ -185,10 +191,18 @@ class Worker:
         # 먼저 알린 판정. 알리지 않았으면 None
         span_answers = None
         result = None
+        partial_at = -math.inf
         for kind, value in self.client.analyze_stream(
             s.key_text, s.tokens, s.llm_spans, s.decided_spans, s.llm_words, s.unknown
         ):
-            if kind == "translation":
+            if kind == "translation_partial":
+                # 검증 전 앞부분이라 저장하지 않고 알리기만 한다. 늦게 붙은 요청은 다음 앞부분이나
+                # 저장된 번역을 받는다.
+                now = time.monotonic()
+                if now - partial_at >= PARTIAL_INTERVAL_SECONDS:
+                    partial_at = now
+                    self.publish({"type": "translation_partial", "translation_ko": value})
+            elif kind == "translation":
                 _validate_translation(value, s.numbers)
                 translated = True
                 self.share_translation(value)

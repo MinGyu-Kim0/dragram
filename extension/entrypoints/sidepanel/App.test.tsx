@@ -941,6 +941,55 @@ test("LLM이 만든 단어만 있으면 JMdict 출처 각주를 달지 않는다
   ).not.toBeInTheDocument();
 });
 
+test("번역은 앞부분부터 늘어나다 검증한 번역으로 바뀐다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+
+  stream.push({
+    type: "translation_partial",
+    translation_ko: "나는",
+    ruby: [],
+  });
+  expect(await screen.findByText("나는")).toBeInTheDocument();
+  stream.push({
+    type: "translation_partial",
+    translation_ko: "나는 학생",
+    ruby: [],
+  });
+  expect(await screen.findByText("나는 학생")).toBeInTheDocument();
+  expect(screen.queryByText("나는")).not.toBeInTheDocument();
+
+  stream.push({
+    type: "translation",
+    translation_ko: "나는 학생입니다.",
+    ruby: [],
+  });
+  expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
+  stream.end();
+});
+
+test("앞부분만 받고 실패하면 앞부분을 지우고 실패를 보인다", async () => {
+  // 검증 전 앞부분이 확정 번역처럼 남지 않는다(#303).
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "3人で行く");
+
+  stream.push({
+    type: "translation_partial",
+    translation_ko: "셋이서",
+    ruby: [],
+  });
+  expect(await screen.findByText("셋이서")).toBeInTheDocument();
+  stream.push({ type: "error", error: "ANALYSIS:FAILED" });
+  stream.end();
+
+  expect(await screen.findByText(/분석하지 못했습니다/)).toBeInTheDocument();
+  expect(screen.queryByText("셋이서")).not.toBeInTheDocument();
+});
+
 test("분석 전에 온 judged 이벤트로 고른 뜻을 채운다", async () => {
   const stream = streamed();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));

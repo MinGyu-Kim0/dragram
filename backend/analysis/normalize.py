@@ -274,3 +274,18 @@ def restore_numbers(text, numbers, particle_numbers=frozenset()):
         return number + particle_for(number, particle)
 
     return _PLACEHOLDER_WITH_PARTICLE.sub(replace, text)
+
+
+def settled_prefix(prefix):
+    """번역 앞부분에서 숫자를 되돌려도 완성본과 같을 곳까지(#303).
+
+    마지막 자리표시자가 덜 왔거나 그 뒤 한글이 아직 이어지면(조사가 숫자 발음에 맞춰 바뀔 수
+    있다) 그 자리표시자 앞에서 자른다.
+    """
+    start = prefix.rfind("⟨")
+    if start == -1:
+        return prefix
+    end = prefix.find("⟩", start)
+    if end == -1 or re.fullmatch(r"[가-힣]*", prefix[end + 1 :]):
+        return prefix[:start]
+    return prefix

@@ -76,6 +76,18 @@ def test_stream_gives_translation_first_and_then_the_whole_result(llm_client, mo
     ]
 
 
+def test_stream_gives_the_growing_translation_prefix_before_it_closes(llm_client, monkeypatch):
+    chunks = ['{"translation_ko": "', "나는", "", ' 학생"', ', "spans": []}']
+    stream_with(llm_client, monkeypatch, lambda **kwargs: stream_of(deltas(*chunks)))
+
+    # 앞부분은 늘어났을 때만 넘긴다(빈 앞부분, 그대로인 조각은 넘기지 않는다).
+    assert list(llm_client.analyze_stream("文", [], [], [], [], []))[:3] == [
+        ("translation_partial", "나는"),
+        ("translation", "나는 학생"),
+        ("spans", []),
+    ]
+
+
 def test_response_writes_translation_then_judgments_then_word_choices():
     # 구조화 출력은 스키마 속성 순서대로 쓴다. 먼저 넘기는 칸이 길이가 긴 새 구문보다 앞이다(#205).
     order = ["translation_ko", "spans", "words", "new_patterns", "new_words", "name_spans"]
@@ -194,6 +206,43 @@ def test_scalar_and_object_sections_with_newlines_come_out():
         (1, "n", -1.5),
         (1, "obj", {"a": [1]}),
     ]
+
+
+def partials(parser, chunks, key="translation_ko"):
+    """조각을 차례로 넣으며, 조각마다 아직 닫히지 않은 그 칸 문자열의 앞부분을 모은다."""
+    found = []
+    for chunk in chunks:
+        parser.feed(chunk)
+        found.append(parser.partial(key))
+    return found
+
+
+def test_unclosed_translation_comes_out_as_its_prefix_grows():
+    # 번역은 칸이 닫히기 전에도 글자 단위로 보인다(#303). 닫히면 앞부분은 없다.
+    chunks = ['{"transla', 'tion_ko": "', "나는 ", "학생", '입니다."', ', "spans": []}']
+
+    assert partials(SectionParser(), chunks) == [None, "", "나는 ", "나는 학생", None, None]
+
+
+def test_prefix_does_not_end_in_a_cut_escape():
+    # 조각이 이스케이프·\u 가운데, 서로게이트 쌍 사이에서 끊겨도 깨진 글자를 내지 않는다.
+    chunks = ['{"translation_ko": "그는 \\', '"간다\\', '" \\u30', "42 \\ud83d", "\\ude00"]
+
+    assert partials(SectionParser(), chunks) == [
+        "그는 ",
+        '그는 "간다',
+        '그는 "간다" ',
+        '그는 "간다" あ ',
+        '그는 "간다" あ 😀',
+    ]
+
+
+def test_prefix_is_only_for_the_asked_section():
+    parser = SectionParser()
+    parser.feed('{"translation_ko": "번역", "spans": [{"basis": "근거')
+
+    assert parser.partial("translation_ko") is None
+    assert parser.partial("basis") is None
 
 
 def test_result_that_is_not_json_becomes_analysis_failure():

@@ -12,6 +12,8 @@ class FakeLLMClient:
         self.record = None
         self.usage = (100, 0, 10)
         self.response = {"translation_ko": "번역"}
+        # 번역 칸이 닫히기 전에 넘길 검증 전 번역 앞부분들(#303)
+        self.translation_partials = []
         # 테스트가 정하지 않은 칸은 기본값으로 채운다. 칸이 빠진 응답을 시험할 때만 끈다.
         self.fill_defaults = True
         self.error = None
@@ -123,6 +125,8 @@ class FakeLLMClient:
         response = self.response
         if self.fill_defaults and isinstance(response, dict):
             response = {"spans": [], "new_patterns": [], "words": [], "new_words": [], **response}
+        for prefix in self.translation_partials:
+            yield "translation_partial", prefix
         if isinstance(response, dict) and isinstance(response.get("translation_ko"), str):
             yield "translation", response["translation_ko"]
         for section in ("spans", "words"):

@@ -198,8 +198,9 @@ class Worker:
             if kind == "translation_partial":
                 # 검증 전 앞부분이라 저장하지 않고 알리기만 한다. 늦게 붙은 요청은 다음 앞부분이나
                 # 저장된 번역을 받는다.
-                if time.monotonic() - partial_at >= PARTIAL_INTERVAL_SECONDS:
-                    partial_at = time.monotonic()
+                now = time.monotonic()
+                if now - partial_at >= PARTIAL_INTERVAL_SECONDS:
+                    partial_at = now
                     self.publish({"type": "translation_partial", "translation_ko": value})
             elif kind == "translation":
                 _validate_translation(value, s.numbers)

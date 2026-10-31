@@ -138,8 +138,7 @@ async def llm_stream(presenter, user, early):
             yield _ndjson(presenter.translation_event(row.processing_translation_ko))
         error = AnalysisError.FAILED.code
         attempt = _attempt(row.processing_started_at)
-        # 마지막으로 보낸 번역 앞부분 이벤트
-        shown = None
+        last_partial = None
         async for message in jobs.messages(pubsub, WAIT_SECONDS):
             if message.get("attempt") != attempt:
                 continue
@@ -150,8 +149,8 @@ async def llm_stream(presenter, user, early):
                     else presenter.partial_translation_event(message["translation_ko"])
                 )
                 # 자른 앞부분이 그대로면 다시 보내지 않는다.
-                if event is not None and event != shown:
-                    shown = event
+                if event is not None and event != last_partial:
+                    last_partial = event
                     yield _ndjson(event)
                 continue
             if message["type"] == "translation":

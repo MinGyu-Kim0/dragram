@@ -473,8 +473,7 @@ class OpenAILLMClient:
         deadline = min(now + STREAM_DEADLINE_SECONDS, self._deadline)
         # 사이드 패널이 연결을 끊어 중간에 닫혀도 보낸 호출은 기록한다.
         final, success, received = None, False, False
-        # 마지막으로 넘긴 번역 앞부분
-        shown = None
+        last_prefix = None
         try:
             stream = self._client.responses.create(
                 timeout=min(TIMEOUT_SECONDS, self._deadline - now),
@@ -520,8 +519,8 @@ class OpenAILLMClient:
                                 yield _EARLY_SECTIONS[key], value
                         # 번역은 닫히기 전에도 앞부분이 늘 때마다 넘긴다(#303).
                         prefix = parser.partial("translation_ko")
-                        if prefix and prefix != shown:
-                            shown = prefix
+                        if prefix and prefix != last_prefix:
+                            last_prefix = prefix
                             yield "translation_partial", prefix
             result = parser.result()
             success = True

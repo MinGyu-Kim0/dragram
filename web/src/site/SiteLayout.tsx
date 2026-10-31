@@ -1,8 +1,10 @@
-import { useId, type ReactNode } from "react";
-import { Link } from "react-router";
+import { useEffect, useId, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router";
+import { currentUser, type User } from "../connect/auth";
+import { logoutAndDisconnect } from "../connect/extension";
 import "./site.css";
 
-// 로그인 없이 여는 소개·처리방침·약관 화면의 공통 틀(DESIGN §4 '웹 — Phase 1').
+// 웹 화면의 공통 틀(DESIGN §4 '웹 — Phase 2' 공통 헤더: 로고 + 메뉴 + 계정).
 
 export const JMDICT_URL = "https://www.edrdg.org/jmdict/j_jmdict.html";
 export const CC_BY_SA_URL = "https://creativecommons.org/licenses/by-sa/4.0/";
@@ -116,7 +118,90 @@ function LogoMark() {
   );
 }
 
-function SiteLayout({ children }: { children: ReactNode }) {
+/** 로그인 후 헤더의 계정 메뉴: 이메일, 로그아웃 */
+function AccountMenu({
+  user,
+  onLoggedOut,
+}: {
+  user: User;
+  onLoggedOut: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const signOut = async () => {
+    setBusy(true);
+    setFailed(false);
+    try {
+      await logoutAndDisconnect();
+    } catch {
+      // 세션이 남아 있으므로 로그인한 헤더를 그대로 둔다.
+      setFailed(true);
+      setBusy(false);
+      return;
+    }
+    onLoggedOut();
+  };
+
+  return (
+    <details
+      className="account-menu"
+      // Escape로 닫고 포커스를 메뉴 단추로 돌려준다.
+      onKeyDown={(e) => {
+        if (e.key !== "Escape" || !e.currentTarget.open) return;
+        e.currentTarget.open = false;
+        e.currentTarget.querySelector("summary")?.focus();
+      }}
+    >
+      <summary>
+        <span aria-hidden="true">{user.email.charAt(0).toUpperCase()}</span>
+        <span className="visually-hidden">계정 메뉴</span>
+      </summary>
+      <div className="account-panel">
+        <p className="account-email">{user.email}</p>
+        {/* 좁은 폭에서는 헤더 메뉴를 숨기고 이 안에 접어 둔다. */}
+        <Link to="/sentences" className="narrow-only">
+          내 기록
+        </Link>
+        {failed && (
+          <p role="alert" className="danger">
+            로그아웃하지 못했어요. 다시 시도해 주세요.
+          </p>
+        )}
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={signOut}
+        >
+          로그아웃
+        </button>
+      </div>
+    </details>
+  );
+}
+
+/** children이 함수면 로그인 확인 뒤에 로그인한 사용자(없으면 null)로 그린다. 확인 중에는 헤더만 보인다.
+ * 확인 자체가 실패하면(서버 오류) user는 null, failed는 true다. 헤더에는 로그인도 계정도 보이지 않는다. */
+function SiteLayout({
+  children,
+}: {
+  children: ReactNode | ((user: User | null, failed: boolean) => ReactNode);
+}) {
+  // undefined는 확인 중이다.
+  const [user, setUser] = useState<User | null | "failed">();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    currentUser().then(setUser, () => setUser("failed"));
+  }, []);
+
+  const failed = user === "failed";
+  const content =
+    typeof children === "function"
+      ? user !== undefined && children(failed ? null : user, failed)
+      : children;
+
   return (
     <div className="site">
       <header className="site-header">
@@ -125,12 +210,30 @@ function SiteLayout({ children }: { children: ReactNode }) {
             <LogoMark />
             Dragram
           </Link>
-          <Link to="/connect" className="header-link">
-            로그인
-          </Link>
+          {user === null && (
+            <Link to="/connect" className="header-link">
+              로그인
+            </Link>
+          )}
+          {user && !failed && (
+            <>
+              <nav aria-label="메뉴">
+                <Link to="/sentences" className="header-link">
+                  내 기록
+                </Link>
+              </nav>
+              <AccountMenu
+                user={user}
+                onLoggedOut={() => {
+                  setUser(null);
+                  navigate("/");
+                }}
+              />
+            </>
+          )}
         </div>
       </header>
-      <main>{children}</main>
+      <main>{content}</main>
       <footer>
         <div className="site-inner">
           <nav aria-label="사이트">

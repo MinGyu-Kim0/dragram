@@ -1,3 +1,4 @@
+import { SentenceList } from "../history/MySentencesPage";
 import SiteLayout from "./SiteLayout";
 
 // 소개·설치(DESIGN WebLanding): 히어로 → 세 단계 카드 → FAQ.
@@ -114,9 +115,9 @@ function PanelPreview() {
   );
 }
 
-function LandingPage() {
+function Landing() {
   return (
-    <SiteLayout>
+    <>
       <section className="site-inner hero">
         <div className="hero-text">
           <h1>읽다가 막힌 일본어 문장, 드래그하면 문법이 보여요</h1>
@@ -159,8 +160,15 @@ function LandingPage() {
           </details>
         ))}
       </section>
-    </SiteLayout>
+    </>
   );
 }
 
-export default LandingPage;
+/** /: 로그인했으면 홈, 아니면 소개 페이지. 홈 대시보드를 정하기 전까지 홈은 내 기록 목록이다. */
+function HomePage() {
+  return (
+    <SiteLayout>{(user) => (user ? <SentenceList /> : <Landing />)}</SiteLayout>
+  );
+}
+
+export default HomePage;

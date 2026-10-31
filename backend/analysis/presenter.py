@@ -322,7 +322,11 @@ class Presenter:
         settled = settled_prefix(prefix)
         if not settled or not has_only_known_placeholders(settled, self.sentence.numbers):
             return None
-        return {"type": "translation_partial", "translation_ko": self.sentence.restore(settled)}
+        return {
+            "type": "translation_partial",
+            "translation_ko": self.sentence.restore(settled),
+            "ruby": self.ruby,
+        }
 
     def locked_analysis_event(self, analysis_id):
         """분석 행을 잠가 다시 읽고 만든 analysis 이벤트와 그 행. 앞서 읽은 행 뒤에 다른 작업이

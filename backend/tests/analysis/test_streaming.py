@@ -47,19 +47,24 @@ def partial(text):
     return {"type": "translation_partial", "translation_ko": text}
 
 
+def shown(events):
+    """이벤트에서 루비를 뺀 것. 루비는 번역 이벤트와 같다."""
+    return [{k: v for k, v in event.items() if k != "ruby"} for event in events]
+
+
 def test_translation_prefix_grows_before_the_checked_translation(client, fake_llm, every_partial):
     fake_llm.response = {"translation_ko": "나는 학생입니다."}
     fake_llm.translation_partials = ["나는", "나는 학생"]
 
     response = analyze(client, "私は学生です。")
 
-    assert response.events[:3] == [partial("나는"), partial("나는 학생")] + [
+    assert shown(response.events[:3]) == [partial("나는"), partial("나는 학생")] + [
         {
             "type": "translation",
             "translation_ko": "나는 학생입니다.",
-            "ruby": response.events[2]["ruby"],
         }
     ]
+    assert response.events[0]["ruby"] == response.events[2]["ruby"]
     assert response.types()[3:] == ["analysis"]
 
 
@@ -71,7 +76,7 @@ def test_prefix_holds_back_a_number_until_its_particle_is_settled(client, fake_l
 
     response = analyze(client, "1は奇数だ。")
 
-    assert response.events[0] == partial("1은 홀")
+    assert shown(response.events)[0] == partial("1은 홀")
     assert response.types() == ["translation_partial", "translation", "analysis"]
     assert response.events[1]["translation_ko"] == "1은 홀수다."
 
@@ -84,7 +89,7 @@ def test_partials_are_sent_at_most_once_per_interval(client, fake_llm, monkeypat
     response = analyze(client, "私は学生です。")
 
     assert response.types() == ["translation_partial", "translation", "analysis"]
-    assert response.events[0] == partial("나는")
+    assert shown(response.events)[0] == partial("나는")
 
 
 def test_translation_failing_after_its_prefix_ends_in_an_error(client, fake_llm, every_partial):
@@ -94,7 +99,10 @@ def test_translation_failing_after_its_prefix_ends_in_an_error(client, fake_llm,
 
     response = analyze(client, "3人で行く")
 
-    assert response.events == [partial("셋이서"), {"type": "error", "error": "ANALYSIS:FAILED"}]
+    assert shown(response.events) == [
+        partial("셋이서"),
+        {"type": "error", "error": "ANALYSIS:FAILED"},
+    ]
     assert saved_analyses().count() == 0
 
 

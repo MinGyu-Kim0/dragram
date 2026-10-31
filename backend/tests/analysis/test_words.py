@@ -258,3 +258,34 @@ def test_chosen_senses_are_sent_as_soon_as_the_words_section_closes(
     [judged] = (e for e in response.events if e["type"] == "judged")
     assert judged["words"][0]["sense"]["tags"] == ["intransitive"]
     assert SentenceAnalysis.objects.get().sense_ids == [bloom]
+
+
+@pytest.fixture
+def ikeru():
+    """行ける(いける)와 行く(いく): 가능형 行ける의 후보는 두 단어의 뜻이다(#275)."""
+    return (
+        add_word(12, ["行ける"], ["いける"], [(["to be good (at)", "to go well"], [], None)]),
+        add_word(13, ["行く"], ["いく", "ゆく"], [(["to go", "to move"], [], None)]),
+    )
+
+
+@pytest.mark.parametrize(("chosen", "card"), [(1, ("行く", "いく")), (0, ("行ける", "いける"))])
+def test_potential_form_card_follows_the_chosen_word(client, fake_llm, ikeru, chosen, card):
+    # 토큰: 0 どこ / 1 まで / 2 も / 3 行ける
+    good, go = sense(ikeru[0], 1).id, sense(ikeru[1], 1).id
+    fake_llm.response = {
+        "translation_ko": "어디까지든 갈 수 있어",
+        "words": [word_answer(3, [good, go][chosen])],
+    }
+
+    response = analyze(client, "どこまでも行ける")
+
+    assert fake_llm.requests[0]["words"] == [
+        {
+            "token_id": 3,
+            "candidates": [f"{good}: to be good (at); to go well", f"{go}: to go; to move"],
+        }
+    ]
+    [word] = response.json()["words"]
+    assert (word["start"], word["end"], word["dictionary_form"], word["reading"]) == (5, 8, *card)
+    assert SentenceAnalysis.objects.get().sense_ids == [[good, go][chosen]]

@@ -22,7 +22,14 @@ test("홈은 로그인 없이 소개, 세 단계, 자주 묻는 질문을 보여
   open("/");
 
   expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-    "Dragram",
+    "읽다가 막힌 일본어 문장, 드래그하면 문법이 보여요",
+  );
+  expect(screen.getByRole("link", { name: "작동 방식 보기" })).toHaveAttribute(
+    "href",
+    "#how",
+  );
+  expect(document.getElementById("how")).toContainElement(
+    screen.getByRole("list", { name: "시작하는 방법" }),
   );
   expect(
     within(screen.getByRole("list", { name: "시작하는 방법" })).getAllByRole(
@@ -32,6 +39,44 @@ test("홈은 로그인 없이 소개, 세 단계, 자주 묻는 질문을 보여
   expect(
     screen.getByRole("heading", { name: "자주 묻는 질문" }),
   ).toBeInTheDocument();
+});
+
+test("헤더에 로고와 로그인 링크가 있다", () => {
+  open("/");
+  const header = within(screen.getByRole("banner"));
+
+  expect(header.getByRole("link", { name: "Dragram" })).toHaveAttribute(
+    "href",
+    "/",
+  );
+  expect(header.getByRole("link", { name: "로그인" })).toHaveAttribute(
+    "href",
+    "/connect",
+  );
+});
+
+test("사이드 패널 예시는 일본어 예문, 번역, 문법 카드를 보여준다", () => {
+  open("/");
+  const preview = screen.getByRole("figure", { name: "사이드 패널 예시" });
+
+  expect(preview.querySelector('[lang="ja"]')).toHaveTextContent(
+    "忙しくても、毎朝本を読むようにしています。",
+  );
+  expect(
+    within(preview).getByText("바빠도 매일 아침 책을 읽으려고 하고 있어요."),
+  ).toBeInTheDocument();
+  expect(within(preview).getByText("~하도록 하고 있다")).toBeInTheDocument();
+});
+
+test("자주 묻는 질문은 질문을 눌러 답을 펼친다", async () => {
+  const user = userEvent.setup();
+  open("/");
+  const question = screen.getByText("분석에 AI를 쓰나요?");
+  const item = question.closest("details");
+
+  expect(item).not.toHaveAttribute("open");
+  await user.click(question);
+  expect(item).toHaveAttribute("open");
 });
 
 test("스토어 주소가 있으면 Chrome에 추가 링크가 그 주소로 간다", () => {
@@ -72,9 +117,9 @@ test("푸터 링크로 홈, 개인정보처리방침, 이용약관을 오간다"
   ).toBeInTheDocument();
 
   await user.click(footer().getByRole("link", { name: "Dragram 홈" }));
-  expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
-    "Dragram",
-  );
+  expect(
+    screen.getByRole("list", { name: "시작하는 방법" }),
+  ).toBeInTheDocument();
 });
 
 // #253의 운영자 검토 초안에서 옮긴 절

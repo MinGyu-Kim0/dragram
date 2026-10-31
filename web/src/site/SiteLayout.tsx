@@ -71,25 +71,78 @@ export function Section({
   );
 }
 
+/** 헤더 로고(와이어프레임의 32 viewBox 변형): 형광펜 두 줄 + 드래그 핸들 + 커서 */
+function LogoMark() {
+  return (
+    <svg
+      className="logo-mark"
+      width="26"
+      height="26"
+      viewBox="0 0 32 32"
+      aria-hidden="true"
+    >
+      <rect
+        className="logo-pen"
+        x="10"
+        y="5"
+        width="19"
+        height="8.5"
+        rx="2.6"
+      />
+      <rect
+        className="logo-pen"
+        x="3"
+        y="15.5"
+        width="15"
+        height="8.5"
+        rx="2.6"
+      />
+      <rect
+        className="logo-ink"
+        x="8.6"
+        y="3"
+        width="2.8"
+        height="12.5"
+        rx="1.4"
+      />
+      <path
+        className="logo-ink logo-cursor"
+        d="M16.5 18 L16.5 31.6 L20.1 28.4 L22.5 34 L25.3 32.8 L22.9 27.2 L27.3 27.2 Z"
+        strokeWidth="2.2"
+        strokeLinejoin="round"
+        paintOrder="stroke"
+      />
+    </svg>
+  );
+}
+
 function SiteLayout({ children }: { children: ReactNode }) {
   return (
     <div className="site">
       <header className="site-header">
-        <Link to="/" className="logo">
-          Dragram
-        </Link>
+        <div className="site-inner">
+          <Link to="/" className="logo">
+            <LogoMark />
+            Dragram
+          </Link>
+          <Link to="/connect" className="header-link">
+            로그인
+          </Link>
+        </div>
       </header>
       <main>{children}</main>
       <footer>
-        <nav aria-label="사이트">
-          <Link to="/">Dragram 홈</Link>
-          <Link to="/privacy">개인정보처리방침</Link>
-          <Link to="/terms">이용약관</Link>
-        </nav>
-        <p>
-          단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
-          <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>)
-        </p>
+        <div className="site-inner">
+          <nav aria-label="사이트">
+            <Link to="/">Dragram 홈</Link>
+            <Link to="/privacy">개인정보처리방침</Link>
+            <Link to="/terms">이용약관</Link>
+          </nav>
+          <p>
+            단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
+            <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>)
+          </p>
+        </div>
       </footer>
     </div>
   );

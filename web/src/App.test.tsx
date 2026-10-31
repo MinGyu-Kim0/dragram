@@ -1,4 +1,10 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -50,6 +56,42 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  localStorage.clear();
+  delete document.documentElement.dataset.theme;
+});
+
+/** 브라우저 설정(prefers-color-scheme)을 흉내 낸다. */
+function prefersDark(dark: boolean) {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: dark && query === "(prefers-color-scheme: dark)",
+  }));
+}
+
+test("테마 버튼은 처음에는 브라우저 설정을 따르고 고른 테마를 고정하지 않는다", async () => {
+  prefersDark(true);
+  await openLanding();
+
+  expect(screen.getByRole("button", { name: "다크 모드" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(document.documentElement.dataset.theme).toBeUndefined();
+});
+
+test("테마 버튼을 누르면 반대 테마로 바뀌고 다시 열어도 유지된다", async () => {
+  const user = userEvent.setup();
+  prefersDark(false);
+  await openLanding();
+
+  await user.click(screen.getByRole("button", { name: "다크 모드" }));
+  expect(document.documentElement.dataset.theme).toBe("dark");
+
+  cleanup();
+  await openLanding();
+  expect(screen.getByRole("button", { name: "다크 모드" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });
 
 test("로그인했으면 /에서 소개 페이지 대신 내 기록 목록을 보인다", async () => {

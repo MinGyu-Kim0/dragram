@@ -34,17 +34,16 @@
   text-decoration: none;
 }
 
-/* 로고 전용 색(와이어프레임 헤더 로고). 토큰 표에는 없다. */
 .logo-pen {
-  fill: #7ccba7;
+  fill: var(--color-logo-pen);
 }
 
 .logo-ink {
-  fill: var(--color-brand-strong);
+  fill: var(--color-logo-ink);
 }
 
 .logo-cursor {
-  stroke: var(--color-surface);
+  stroke: var(--color-logo-outline);
 }
 
 .site .header-link {
@@ -57,6 +56,23 @@
 
 .site a {
   color: var(--color-brand);
+}
+
+/* 테마 버튼(#296): 지금 테마의 아이콘(라이트 해, 다크 달) */
+.theme-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.theme-button:hover {
+  color: var(--color-text);
 }
 
 /* 로그인 후 헤더: 메뉴 + 계정 메뉴(DESIGN §4 웹 — Phase 2 공통 헤더) */
@@ -277,11 +293,17 @@
 }
 
 .preview .hl-lime {
-  background: linear-gradient(transparent 46%, var(--color-highlight-0) 46%);
+  background: linear-gradient(
+    transparent var(--mark-cut),
+    var(--color-highlight-0-mark) var(--mark-cut)
+  );
 }
 
 .preview .hl-sky {
-  background: linear-gradient(transparent 46%, var(--color-highlight-1) 46%);
+  background: linear-gradient(
+    transparent var(--mark-cut),
+    var(--color-highlight-1-mark) var(--mark-cut)
+  );
 }
 
 /* 드래그 핸들: 원 + 막대. 시작은 원이 위, 끝은 원이 아래 */
@@ -293,7 +315,7 @@
   margin: 0 3px;
   vertical-align: -0.25em;
   border-radius: 1px;
-  background: var(--color-brand-strong);
+  background: var(--color-handle);
 }
 
 .preview .handle::before {
@@ -341,7 +363,7 @@
 }
 
 .preview .grammar-card.selected {
-  box-shadow: 0 0 0 2px var(--color-text);
+  box-shadow: 0 0 0 2px var(--color-ring);
 }
 
 .preview .badge-row {

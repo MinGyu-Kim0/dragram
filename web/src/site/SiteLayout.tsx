@@ -2,6 +2,7 @@ import { useEffect, useId, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 import { currentUser, type User } from "../connect/auth";
 import { logoutAndDisconnect } from "../connect/extension";
+import ThemeButton from "./ThemeButton";
 import "./site.css";
 
 // 웹 화면의 공통 틀(DESIGN §4 '웹 — Phase 2' 공통 헤더: 로고 + 메뉴 + 계정).
@@ -210,6 +211,7 @@ function SiteLayout({
             <LogoMark />
             Dragram
           </Link>
+          <ThemeButton />
           {user === null && (
             <Link to="/connect" className="header-link">
               로그인

@@ -39,6 +39,8 @@
 
 ## user_sentence — 분석 기록
 
+> 사용 중단(2026-11-01, #322, ADR 0006): 분석할 때 원문을 더는 저장하지 않는다. 남은 행과 테이블을 없앨지는 배포할 때 정한다. 아래는 예전 설명이다.
+
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
@@ -76,6 +78,32 @@
 | reading | 읽기 | varchar(50) | Y |  | 가나만 받아 히라가나로 통일해 저장. 비었으면 NULL(읽기 없음) |
 | created_at | 생성일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |
+
+## my_item — 내 일본어 항목
+
+사용자가 사이드 패널 카드에서 추가하거나 '표시 안 함'으로 숨긴 용법·단어 뜻(#322, ADR 0006). 개인 데이터라 본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다. 원문은 없다. 사용자당 10,000행 상한.
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| user_id | 사용자 ID | bigint |  | → users | 탈퇴 시 삭제(CASCADE) |
+| usage_id | 용법 ID | bigint | Y | → grammar_usage | usage_id와 sense_id 중 하나만 있다(CHECK). UNIQUE(user_id, usage_id). 용법을 합치면 합친 용법으로 옮긴다(추가가 숨김보다 앞섬). 용법을 지우지 못하게 PROTECT |
+| sense_id | 단어 뜻 ID | bigint | Y | → word_sense | UNIQUE(user_id, sense_id). 뜻이 지워지면 함께 지운다(CASCADE) |
+| state | 상태 | varchar(30) |  |  | added(추가, 웹 내 기록에 보임) / hidden(표시 안 함, 사이드 패널에서 접음) |
+| created_at | 등록일시 | timestamptz |  |  |  |
+| updated_at | 변경일시 | timestamptz |  |  | 웹 목록은 최근 바꾼 순 |
+
+## my_example — 예문
+
+사용자가 카드를 추가한 뒤 예문으로 저장하기로 고른 문장(#322). 개인 원문은 이 테이블에만 둔다. 본인 user_id(항목의 사용자)로만 조회하고 Django admin·로그·공용 테이블에 남기지 않는다. 항목당 20개 상한.
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| item_id | 항목 ID | bigint |  | → my_item | 항목을 빼면(해제) 함께 지운다(CASCADE) |
+| original_hash | 원문 해시 | varchar(64) |  |  | 원문의 SHA-256. UNIQUE(item_id, original_hash) |
+| original_text | 원문 | text |  |  | 사용자가 고른 문장 그대로(분석 원문과 같은 1,000자 상한) |
+| created_at | 저장일시 | timestamptz |  |  |  |
 
 ## usage_log — 사용 기록
 
@@ -273,7 +301,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| character | 한자 | varchar(4) |  |  | 한자 한 글자(코드포인트 1개). UNIQUE. 단어의 한자는 표기를 글자 단위로 잘라 이 칸으로 조회(연결 테이블 없음). 만난 한자는 사전형이 아니라 user_sentence 원문에서 추출 |
+| character | 한자 | varchar(4) |  |  | 한자 한 글자(코드포인트 1개). UNIQUE. 단어의 한자는 표기를 글자 단위로 잘라 이 칸으로 조회(연결 테이블 없음). 내 일본어의 한자는 아직 정하지 않았다(원문을 저장하지 않아 예전처럼 user_sentence 원문에서 뽑을 수 없다, ADR 0006) |
 | on_readings | 음독 | jsonb | Y |  | KANJIDIC2 음독 목록(가타카나) |
 | kun_readings | 훈독 | jsonb | Y |  | KANJIDIC2 훈독 목록(히라가나, 오쿠리가나 구분점 포함) |
 | korean_readings | 한국 한자음 | jsonb | Y |  | KANJIDIC2 한국어 음(한글). 예: 学→학 |

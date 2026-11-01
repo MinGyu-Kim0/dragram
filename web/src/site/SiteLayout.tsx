@@ -239,22 +239,33 @@ function SiteLayout({
       <main>{content}</main>
       <footer>
         <div className="site-inner">
+          {/* 칸 사이의 | 는 CSS가 그린다(링크 밖에 두어 누르는 범위에 들지 않게). */}
           <nav aria-label="사이트">
-            <Link to="/">Dragram 홈</Link>
-            <Link to="/privacy">개인정보처리방침</Link>
-            <Link to="/terms">이용약관</Link>
+            <ul className="footer-row">
+              <li>
+                <Link to="/">Dragram 홈</Link>
+              </li>
+              <li>
+                <Link to="/privacy">개인정보처리방침</Link>
+              </li>
+              <li>
+                <Link to="/terms">이용약관</Link>
+              </li>
+              <li>
+                문의: <ContactEmail />
+              </li>
+            </ul>
           </nav>
-          <p>
-            문의: <ContactEmail />
-          </p>
-          <p>
-            단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
-            <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>)
-          </p>
-          <p>
-            글꼴: Jua, IBM Plex Sans KR, Zen Maru Gothic (
-            <a href={OFL_URL}>SIL OFL 1.1</a>)
-          </p>
+          <ul className="footer-row footer-credits">
+            <li>
+              단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
+              <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>)
+            </li>
+            <li>
+              글꼴: Jua, IBM Plex Sans KR, Zen Maru Gothic (
+              <a href={OFL_URL}>SIL OFL 1.1</a>)
+            </li>
+          </ul>
         </div>
       </footer>
     </div>

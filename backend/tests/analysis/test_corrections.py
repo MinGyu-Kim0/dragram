@@ -394,3 +394,55 @@ def test_corrections_are_not_added_or_deleted_in_admin(admin_client, item):
 
     assert admin_client.get(f"{CORRECTIONS}add/").status_code == 403
     assert admin_client.get(f"{CORRECTIONS}{correction.pk}/delete/").status_code == 403
+
+
+# PR #320 Codex 리뷰의 관리자 정정 지적 세 건(재현 테스트)
+
+
+def test_released_span_can_be_corrected_again_before_reanalysis(admin_client, item):
+    correct(admin_client, item, "release")
+
+    correct(admin_client, item, usage("결과 상태").pk)
+
+    assert MatchCorrection.objects.get().after_usage == usage("결과 상태")
+
+
+def test_rejecting_the_corrected_usage_during_reanalysis_does_not_store_it(
+    client, fake_llm, admin_client, item
+):
+    correct(admin_client, item, usage("결과 상태").pk)
+    fake_llm.response = {"translation_ko": "달려 있다"}
+    # 재분석이 정정 후 용법을 읽고 LLM 응답을 기다리는 사이 그 용법을 반려한다.
+    fake_llm.before_respond = lambda: review.reject_usage(usage("결과 상태"))
+
+    analyze(client, HASHITTEIRU)
+
+    assert not SpanMatch.objects.filter(usage=usage("결과 상태")).exists()
+    assert SentenceAnalysis.objects.get().is_stale is True
+
+
+def test_two_patterns_at_the_same_place_are_corrected_apart(client, fake_llm, admin_client, item):
+    first, *rest = patterns.conditions_of(item_pattern())
+    conditions = [first._replace(lemma=None), *rest]
+    with transaction.atomic():
+        other, _ = patterns.register(
+            conditions, "ている(넓게)", "상태", "상태를 나타낸다", None, HASHITTEIRU
+        )
+        patterns.raise_pattern_set_version()
+    GrammarPattern.objects.filter(pk=other.pk).update(status="approved", usage_closed=True)
+    other.usages.update(status="approved")
+    analyze(client, HASHITTEIRU)
+    evaluate("--yes")
+    latest = EvalItem.objects.order_by("-result_id").first().result_id
+    teiru = EvalItem.objects.get(result_id=latest, pattern_ref=item_pattern().pk)
+    wide = EvalItem.objects.get(result_id=latest, pattern_ref=other.pk)
+
+    correct(admin_client, teiru, usage("결과 상태").pk)
+    correct(admin_client, wide, "release")
+    fake_llm.response = {"translation_ko": "달려 있다"}
+    response = analyze(client, HASHITTEIRU)
+
+    assert MatchCorrection.objects.count() == 2
+    assert [(g["pattern_name"], g["name"]) for g in response.json()["grammar"]] == [
+        ("ている", "결과 상태")
+    ]

@@ -26,7 +26,8 @@ def target(item):
     row = sentence.existing
     if row is None or row.status != SentenceAnalysis.Status.COMPLETE:
         raise Refused("분석이 없거나 처리 중이라 정정할 수 없습니다")
-    grammar, spans = Presenter(sentence, original, origins).grammar_spans(row)
+    # 해제한 구간도 찾아야 다시 평가하지 않고 다른 용법으로 고칠 수 있다(PR #320 리뷰).
+    grammar, spans = Presenter(sentence, original, origins).grammar_spans(row, released=True)
     for entry in flat_items(grammar):
         span = spans[id(entry)]
         if (entry["start"], entry["end"], span.pattern_id) == (
@@ -50,7 +51,7 @@ def choices(span):
 def correct(item, after_usage_id, user):
     """평가 항목의 구간을 정정한다. after_usage_id가 None이면 매칭 해제다.
 
-    같은 자리를 다시 정정하면 같은 행을 고친다(정정 전 용법은 처음 정정한 때의 값). 분석을
+    같은 자리·패턴을 다시 정정하면 같은 행을 고친다(정정 전 용법은 처음 정정한 때의 값). 분석을
     stale로 만들고 세대 번호를 올려, 다음 요청이 다시 분석하고 그사이 분석은 저장하지 않게 한다.
     """
     row, span = target(item)
@@ -67,6 +68,7 @@ def correct(item, after_usage_id, user):
         analysis=locked,
         start_offset=span.start_offset,
         end_offset=span.end_offset,
+        pattern_id=span.pattern_id,
         defaults={
             "after_usage": after,
             "status": MatchCorrection.Status.ACTIVE,

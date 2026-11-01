@@ -14,7 +14,7 @@ from analysis.models import (
 from analysis.normalize import has_only_known_placeholders, settled_prefix
 from analysis.positions import to_analysis, to_original, utf16_offsets
 from analysis.ruby import ruby_pieces
-from analysis.sentence import _corrections, _corrects, _pattern_statuses
+from analysis.sentence import _corrections, _pattern_statuses
 
 # 화면에 보이는 구간 판정
 _SHOWN_STATES = (
@@ -29,7 +29,9 @@ def _grammar_response(analysis, offsets, origins, utf16, restore):
     return _with_parts(_grammar_entries(analysis, offsets, origins, utf16, restore))
 
 
-def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), span_of=None):
+def _grammar_entries(
+    analysis, offsets, origins, utf16, restore, excluded=(), span_of=None, released=False
+):
     """용법이 정해진 구간, 해석 갈림, 미확정 구간을 이 요청 원문의 UTF-16 위치로 보인다.
     (항목, 매칭된 패턴의 show_parts) 목록(원문 순서)이다.
 
@@ -42,6 +44,7 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
 
     활성 정정이 있는 구간은 저장된 판정 대신 정정 후 용법으로 보이고, 해제면 뺀다. 정정 뒤 다시
     분석하기 전(stale 행의 옛 결과, 재분석 실패로 남은 결과)에도 오답이 보이지 않게 한다(#222).
+    released면 해제한 구간도 저장된 판정으로 남긴다(정정 화면이 그 구간을 다시 고칠 수 있게).
     """
     spans = list(
         analysis.span_matches.filter(state__in=_SHOWN_STATES)
@@ -56,7 +59,7 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
     corrections = _corrections(analysis)
     entries = []
     for span in spans:
-        if not apply_correction(span, corrections):
+        if not apply_correction(span, corrections) and not released:
             continue
         if span.state == SpanMatch.State.UNRESOLVED:
             item = _unresolved_item(span, offsets, origins, utf16)
@@ -97,14 +100,14 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
 
 
 def apply_correction(span, corrections):
-    """활성 정정(corrections: {키 텍스트 (start, end): 정정})을 저장 구간에 적용한다. 정정이
-    매칭을 해제했으면 False다.
+    """활성 정정(corrections: {(키 텍스트 start, end, 패턴 ID): 정정})을 저장 구간에 적용한다.
+    정정이 매칭을 해제했으면 False다.
 
     정정 후 용법(그 패턴 포함)이 반려됐으면 분석할 때처럼 정정을 건너뛰고 저장된 판정을 둔다.
     읽어 온 행을 바꾸므로 span_of로 받는 쪽(평가, 정정 화면)도 정정 결과를 본다.
     """
-    correction = corrections.get((span.start_offset, span.end_offset))
-    if correction is None or not _corrects(correction, span):
+    correction = corrections.get((span.start_offset, span.end_offset, span.pattern_id))
+    if correction is None:
         return True
     after = correction.after_usage
     if after is None:
@@ -444,11 +447,18 @@ class Presenter:
         s = self.sentence
         return _grammar_entries(analysis, s.offsets, self.origins, self.utf16, s.restore, excluded)
 
-    def grammar_spans(self, analysis):
-        """analysis 이벤트의 문법과, 항목마다 그 저장 구간 {id(항목): 구간}(평가 #177)."""
+    def grammar_spans(self, analysis, released=False):
+        """analysis 이벤트의 문법과, 항목마다 그 저장 구간 {id(항목): 구간}(평가 #177). released면
+        해제한 구간도 남긴다(정정 대상 찾기)."""
         s, spans = self.sentence, {}
         entries = _grammar_entries(
-            analysis, s.offsets, self.origins, self.utf16, s.restore, span_of=spans
+            analysis,
+            s.offsets,
+            self.origins,
+            self.utf16,
+            s.restore,
+            span_of=spans,
+            released=released,
         )
         return _with_parts(entries), spans
 

@@ -371,7 +371,7 @@ const FORBIDDEN_PHRASES = [
   "나이 제한이 없",
 ];
 
-test.each(["/privacy", "/privacy/2026-10-29"])(
+test.each(["/privacy", "/privacy/2026-11-01", "/privacy/2026-10-29"])(
   "%s는 로그인 없이 처리방침의 모든 절을 보여준다",
   (path) => {
     open(path);
@@ -572,13 +572,13 @@ const TERMS_SECTIONS = [
   "개인정보와 문의",
 ];
 
-test.each(["/terms", "/terms/2026-10-29"])(
+test.each(["/terms", "/terms/2026-11-01"])(
   "%s는 로그인 없이 약관의 모든 절을 처리방침과 같은 시행일로 보여준다",
   (path) => {
     open(path);
 
     expect(screen.getByRole("main")).toHaveTextContent(
-      "시행일: 2026년 10월 29일",
+      "시행일: 2026년 11월 1일",
     );
     for (const name of TERMS_SECTIONS) {
       expect(
@@ -595,7 +595,10 @@ test("약관은 결정한 제한·재사용·책임·변경 절차를 적는다"
   expect(section("서비스 범위")).toHaveTextContent("무료");
   expect(section("사용량 한도")).toHaveTextContent("그날 한도는 이어집니다");
   expect(section("입력한 글과 공용 분석")).toHaveTextContent(
-    "원문은 공용으로 저장하지 않습니다",
+    "분석한 문장의 원문을 저장하지 않습니다",
+  );
+  expect(section("입력한 글과 공용 분석")).toHaveTextContent(
+    "예문으로 저장하기로 직접 고른 문장만",
   );
   expect(section("계정")).toHaveTextContent("만 14세 이상");
   expect(section("계정")).toHaveTextContent("14세 미만");

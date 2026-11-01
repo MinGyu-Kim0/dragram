@@ -160,9 +160,9 @@ describe("가입 화면(#257)", () => {
     expect(
       privacy.compareDocumentPosition(terms) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    // 서버가 기록하는 판(2026-10-29)과 같은 시행일을 보인다.
-    expect(within(privacy).getByText("2026년 10월 29일 시행")).toBeVisible();
-    expect(within(terms).getByText("2026년 10월 29일 시행")).toBeVisible();
+    // 서버가 기록하는 판(2026-11-01)과 같은 시행일을 보인다.
+    expect(within(privacy).getByText("2026년 11월 1일 시행")).toBeVisible();
+    expect(within(terms).getByText("2026년 11월 1일 시행")).toBeVisible();
     // 처리방침은 동의받지 않는다. 체크는 이용약관 하나다.
     expect(screen.getAllByRole("checkbox")).toHaveLength(1);
     expect(screen.queryByText(/처리방침에 동의/)).not.toBeInTheDocument();

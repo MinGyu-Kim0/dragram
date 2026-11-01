@@ -113,8 +113,8 @@ def test_signing_up_with_terms_agreed_creates_user_and_starts_session(web, googl
     assert not user.has_usable_password()
     assert not user.is_staff
     # 버전은 서버가 정한다. 처리방침 버전은 동의가 아니라 가입 때 보여 준 판이다.
-    assert user.terms_version == date(2026, 10, 29)
-    assert user.privacy_version == date(2026, 10, 29)
+    assert user.terms_version == date(2026, 11, 1)
+    assert user.privacy_version == date(2026, 11, 1)
     assert user.terms_agreed_at is not None
     assert web.get("/api/auth/me/").json() == response.json()
 

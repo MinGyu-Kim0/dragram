@@ -96,23 +96,13 @@ def _llm_spans(spans):
 
 
 def _corrections(analysis):
-    """그 분석의 활성 정정. {키 텍스트 (start, end): 정정}(#221)."""
+    """그 분석의 활성 정정. {(키 텍스트 start, end, 매칭된 패턴 ID): 정정}(#221)."""
     if analysis is None:
         return {}
     active = analysis.corrections.filter(status=MatchCorrection.Status.ACTIVE).select_related(
         "before_usage", "after_usage__pattern"
     )
-    return {(c.start_offset, c.end_offset): c for c in active}
-
-
-def _corrects(correction, span):
-    """정정이 이 구간의 것인가. 정정은 자리로 찾으므로, 같은 자리의 다른 패턴 구간과는 정정 전·후
-    용법의 소속 패턴(회화체면 원형)으로 가른다.
-    """
-    owner = (span.pattern.variant_of or span.pattern).pk
-    usages = [u for u in (correction.before_usage, correction.after_usage) if u is not None]
-    # shortcut: 미확정 구간의 해제는 용법이 없어 자리로만 가른다. 같은 자리 다른 패턴도 빠진다.
-    return not usages or any(u.pattern_id == owner for u in usages)
+    return {(c.start_offset, c.end_offset, c.pattern_id): c for c in active}
 
 
 def _is_fresh(analysis):
@@ -174,8 +164,9 @@ class Sentence:
         # 정정을 적용한 구간의 열쇠(span_key). 저장 때 decided_by = admin이다.
         self.corrected = set()
         for span in self.matched:
-            correction = corrections.get(self.key_span(span.start_token, span.end_token))
-            if correction is not None and _corrects(correction, span):
+            start, end = self.key_span(span.start_token, span.end_token)
+            correction = corrections.get((start, end, span.pattern.pk))
+            if correction is not None:
                 if correction.after_usage_id is None:
                     continue
                 after = correction.after_usage_id

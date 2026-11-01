@@ -380,6 +380,8 @@ class MatchCorrection(models.Model):
     )
     start_offset = models.IntegerField()
     end_offset = models.IntegerField()
+    # 정정한 구간에 실제로 매칭된 패턴. 같은 자리에 여러 패턴이 걸리면 이것으로 가른다.
+    pattern = models.ForeignKey(GrammarPattern, on_delete=models.PROTECT, related_name="+")
     before_usage = models.ForeignKey(
         GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+"
     )
@@ -399,7 +401,8 @@ class MatchCorrection(models.Model):
         db_table = "match_correction"
         constraints = [
             models.UniqueConstraint(
-                fields=["analysis", "start_offset", "end_offset"], name="match_correction_place"
+                fields=["analysis", "start_offset", "end_offset", "pattern"],
+                name="match_correction_place",
             )
         ]
 

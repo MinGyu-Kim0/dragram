@@ -3957,6 +3957,8 @@ describe("내 일본어 항목(#321)", () => {
     const hidden = within(screen.getByRole("list", { name: "숨긴 카드" }));
     expect(screen.getByText("숨긴 카드 1개")).toBeInTheDocument();
     expect(hidden.getByText("주제 は")).toBeInTheDocument();
+    // 미검수 용법은 숨긴 줄에서도 배지를 단다.
+    expect(hidden.getByText("AI 생성·미검수")).toBeInTheDocument();
 
     fireEvent.click(hidden.getByRole("button", { name: "다시 보이기" }));
 
@@ -3985,6 +3987,47 @@ describe("내 일본어 항목(#321)", () => {
         "学生 뜻",
       ),
     ).toBeInTheDocument();
+  });
+
+  test("추가한 카드에서 빼기를 누르면 해제하고 다시 '추가'를 보인다", async () => {
+    respondWithCards();
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 12, state: "added" },
+    ]);
+    vi.mocked(removeMyItem).mockResolvedValue();
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    const card = () => cardOf("정중 です");
+    expect(
+      await within(await waitFor(card)).findByText("내 일본어에 추가됨"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(card()).getByRole("button", { name: "빼기" }));
+
+    expect(
+      await within(card()).findByRole("button", { name: "추가" }),
+    ).toBeInTheDocument();
+    expect(removeMyItem).toHaveBeenCalledWith("usage", 12);
+  });
+
+  test("다시 보이기에 실패하면 숨긴 채로 두고 알린다", async () => {
+    respondWithCards();
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 11, state: "hidden" },
+    ]);
+    vi.mocked(removeMyItem).mockRejectedValue(new Error("실패"));
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    const hidden = within(
+      await screen.findByRole("list", { name: "숨긴 카드" }),
+    );
+
+    fireEvent.click(hidden.getByRole("button", { name: "다시 보이기" }));
+
+    expect(
+      await screen.findByText("바꾸지 못했습니다. 다시 시도해 주세요."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "주제 は" })).toBeNull();
   });
 
   test("저장에 실패하면 상태를 바꾸지 않고 알린다", async () => {

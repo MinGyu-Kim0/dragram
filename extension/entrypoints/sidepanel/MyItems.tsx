@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { itemKey, type ItemKind, type ItemState } from "@/utils/my-items";
+import { BadgeRow } from "./BadgeRow";
 
 // 내 일본어 항목(#321): 카드에서 추가하거나 '표시 안 함'으로 숨긴 용법·단어 뜻의 상태와 바꾸는
 // 동작. 바꾸는 동작은 실패하면 거부되고, 화면은 성공했을 때만 바뀐다.
@@ -109,6 +110,9 @@ export interface HiddenCard {
   // 칩 글자(문법은 패턴, 단어는 사전형)와 이름(용법 이름, 단어 뜻)
   chip: string;
   name: string;
+  // 이름에 다는 배지. 카드에서처럼 미검수가 검수처럼 보이지 않게 한다(ADR 0003).
+  pending: boolean;
+  translated: boolean;
 }
 
 // '표시 안 함'으로 숨긴 카드. 접어 두고, 펼치면 칩과 이름, '다시 보이기'만 보인다. 형광펜은 칠하지
@@ -138,6 +142,7 @@ function HiddenRow({ card, items }: { card: HiddenCard; items: MyItems }) {
   const [error, setError] = useState(false);
   return (
     <li>
+      <BadgeRow pending={card.pending} translated={card.translated} />
       <span lang="ja" className="grammar-chip hidden-chip">
         {card.chip}
       </span>

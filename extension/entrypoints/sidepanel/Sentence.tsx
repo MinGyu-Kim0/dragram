@@ -12,6 +12,7 @@ import { grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
 import { isHidden } from "@/utils/my-items";
 import { HiddenCards, type HiddenCard, type MyItems } from "./MyItems";
+import { senseBadges } from "./sense-badges";
 import { WordList, type NameActions } from "./Words";
 import { wordRowCount } from "./word-groups";
 
@@ -182,18 +183,26 @@ export function SentenceView({
     allGrammar.filter(
       (item) => items && isHidden(items.states, "usage", item.usage_id),
     ),
-    (item) => ["usage", item.usage_id!, item.pattern_name, item.name],
+    (item) => ({
+      kind: "usage",
+      id: item.usage_id!,
+      chip: item.pattern_name,
+      name: item.name,
+      pending: item.review_status === "pending",
+      translated: false,
+    }),
   );
   const hiddenWords = hiddenCards(
     allWords.filter(
       (word) => items && isHidden(items.states, "sense", word.sense?.id),
     ),
-    (word) => [
-      "sense",
-      word.sense!.id!,
-      word.dictionary_form,
-      word.sense!.meaning_ko ?? "",
-    ],
+    (word) => ({
+      kind: "sense",
+      id: word.sense!.id!,
+      chip: word.dictionary_form,
+      name: word.sense!.meaning_ko ?? "",
+      ...senseBadges(word.sense),
+    }),
   );
   // 단어 개수도 보이는 행 수다(합친 행은 한 행, #211).
   const wordCount = tabbed
@@ -361,13 +370,13 @@ export function SentenceView({
 // 숨긴 항목을 칸 하나에 한 번만 접어 둘 카드로 만든다(합친 카드처럼 같은 용법·뜻은 한 장).
 function hiddenCards<T>(
   list: T[],
-  fields: (item: T) => [HiddenCard["kind"], number, string, string],
+  fields: (item: T) => Omit<HiddenCard, "key">,
 ): HiddenCard[] {
   const cards = new Map<string, HiddenCard>();
   for (const item of list) {
-    const [kind, id, chip, name] = fields(item);
-    const key = `${kind}:${id}`;
-    if (!cards.has(key)) cards.set(key, { key, kind, id, chip, name });
+    const card = fields(item);
+    const key = `${card.kind}:${card.id}`;
+    if (!cards.has(key)) cards.set(key, { key, ...card });
   }
   return [...cards.values()];
 }

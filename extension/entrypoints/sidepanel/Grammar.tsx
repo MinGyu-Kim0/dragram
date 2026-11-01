@@ -4,6 +4,7 @@ import { BadgeRow } from "./BadgeRow";
 import { ConnectionNote } from "./ConnectionNote";
 import { draggedFirst, type DragRange } from "./drag-range";
 import { groupGrammar, sortGrammar } from "./grammar-groups";
+import { itemKey } from "@/utils/my-items";
 import { ItemActions, type MyItems } from "./MyItems";
 import { TAG_NAMES } from "./tag-names";
 
@@ -320,6 +321,7 @@ function GrammarCard({
       )}
       {items && item.usage_id != null && (
         <ItemActions
+          key={itemKey("usage", item.usage_id)}
           kind="usage"
           id={item.usage_id}
           text={text}

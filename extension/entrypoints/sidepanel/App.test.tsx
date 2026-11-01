@@ -749,6 +749,38 @@ test("같은 단어도 자리마다 고른 뜻의 자동사·타동사 태그를
   ]);
 });
 
+test("읽기가 여럿인 단어는 대표 읽기를 보이고, 누르면 그 단어만 나머지 읽기까지 펼친다", async () => {
+  respondWith(200, {
+    translation_ko: "일본에서 학생이다.",
+    grammar: [],
+    words: [
+      { ...wordItem(0, 2, "日本", "にほん"), other_readings: ["にっぽん"] },
+      wordItem(3, 5, "学生", "がくせい"),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "日本で学生だ");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
+  const [nihon, gakusei] = within(screen.getByRole("list", { name: "단어" }))
+    .getAllByRole("listitem")
+    .filter((row) => row.classList.contains("word-row"));
+  expect(within(nihon!).getByText("にほん")).toBeInTheDocument();
+  expect(
+    within(gakusei!).queryByRole("button", { name: /다른 읽기/ }),
+  ).toBeNull();
+
+  fireEvent.click(
+    within(nihon!).getByRole("button", { name: "다른 읽기 1개 보기" }),
+  );
+
+  expect(within(nihon!).getByText("にほん・にっぽん")).toBeInTheDocument();
+  fireEvent.click(
+    within(nihon!).getByRole("button", { name: "다른 읽기 접기" }),
+  );
+  expect(within(nihon!).getByText("にほん")).toBeInTheDocument();
+});
+
 test("탭에 문법과 단어 개수를 보이고, 처음에는 문법 탭을 보인다", async () => {
   respondWith(200, {
     translation_ko: "나는 학생입니다.",

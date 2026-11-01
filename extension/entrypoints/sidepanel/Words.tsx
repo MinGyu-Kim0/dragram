@@ -231,6 +231,8 @@ export function WordList({
 } & NameActions) {
   // 읽기 입력을 연 단어 자리
   const [editing, setEditing] = useState<string>();
+  // 나머지 읽기까지 펼친 단어 자리
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   if (words.length === 0) {
     return <p className="no-words">단어 없음</p>;
   }
@@ -289,6 +291,7 @@ export function WordList({
             );
           }
           const tags = tagNames(word);
+          const others = word.other_readings ?? [];
           return (
             <li key={key} className={dragged ? "word-row dragged" : "word-row"}>
               <BadgeRow
@@ -299,8 +302,31 @@ export function WordList({
               <div className="word-head">
                 <h3 lang="ja">{word.dictionary_form}</h3>
                 <span lang="ja" className="word-reading">
-                  {word.reading}
+                  {expanded.has(key)
+                    ? [word.reading, ...others].join("・")
+                    : word.reading}
                 </span>
+                {others.length > 0 && (
+                  <button
+                    type="button"
+                    className="text-button"
+                    aria-expanded={expanded.has(key)}
+                    aria-label={
+                      expanded.has(key)
+                        ? "다른 읽기 접기"
+                        : `다른 읽기 ${others.length}개 보기`
+                    }
+                    onClick={() =>
+                      setExpanded((open) => {
+                        const next = new Set(open);
+                        if (!next.delete(key)) next.add(key);
+                        return next;
+                      })
+                    }
+                  >
+                    {expanded.has(key) ? "접기" : `+${others.length}`}
+                  </button>
+                )}
               </div>
               {tags.length > 0 && (
                 <ul className="word-tags" aria-label="태그">

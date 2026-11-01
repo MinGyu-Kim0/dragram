@@ -33,6 +33,7 @@ import {
 } from "@/utils/my-items";
 import type { MyItems } from "./MyItems";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
+import { Logo } from "./Logo";
 import { ThemeButton } from "./ThemeButton";
 import { usePreference } from "./use-preference";
 
@@ -390,7 +391,7 @@ function App() {
     return (
       <main>
         <header className="panel-header">
-          <h1>Dragram</h1>
+          <Logo />
           <ThemeButton />
         </header>
         <LoginPrompt />
@@ -401,7 +402,7 @@ function App() {
   return (
     <main>
       <header className="panel-header">
-        <h1>Dragram</h1>
+        <Logo />
         <div className="header-actions">
           <ThemeButton />
           {connected && (

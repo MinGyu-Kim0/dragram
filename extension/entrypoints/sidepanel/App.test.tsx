@@ -3002,6 +3002,17 @@ describe("로그인과 확장 연결(#109)", () => {
     expect(openTab).toHaveBeenCalledWith({ url: `${WEB_ORIGIN}/connect` });
   });
 
+  test("헤더 로고는 웹 페이지로 가는 링크다", async () => {
+    await fakeBrowser.storage.local.clear();
+    render(<App />);
+
+    const logo = await screen.findByRole("link", { name: "Dragram" });
+
+    expect(logo).toHaveAttribute("href", `${WEB_ORIGIN}/`);
+    expect(logo).toHaveAttribute("target", "_blank");
+    expect(logo.querySelector("svg.logo-mark")).not.toBeNull();
+  });
+
   test("분석 요청에 토큰을 Bearer로 붙인다", async () => {
     const fetchMock = respondWith(200, analysis("나는 학생입니다."));
     render(<App />);

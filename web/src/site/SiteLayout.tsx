@@ -250,12 +250,12 @@ function SiteLayout({
               <li>
                 <Link to="/terms">이용약관</Link>
               </li>
-              <li>
-                문의: <ContactEmail />
-              </li>
             </ul>
           </nav>
           <ul className="footer-row footer-credits">
+            <li>
+              문의: <ContactEmail />
+            </li>
             <li>
               단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
               <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>)

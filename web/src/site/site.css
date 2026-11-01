@@ -585,9 +585,24 @@
   text-align: center;
 }
 
-.site footer nav {
+/* 푸터 한 줄: 칸을 가운데로 모으고 칸 사이에 | 를 둔다. 좁으면 다음 줄로 넘긴다. */
+.site footer .footer-row {
   display: flex;
   flex-wrap: wrap;
   justify-content: center;
-  gap: 16px;
+  row-gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site footer .footer-row li + li::before {
+  content: "|";
+  margin: 0 12px;
+  color: var(--color-border);
+}
+
+.site footer .footer-credits {
+  margin-top: 10px;
+  font-size: 12px;
 }

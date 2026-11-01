@@ -107,6 +107,7 @@ def test_new_word_is_made_in_two_steps_and_shown_as_unreviewed(client, fake_llm)
             "end": 2,
             "dictionary_form": "走る",
             "reading": "はしる",
+            "other_readings": [],
             "tags": ["verb"],
             "in_dictionary": False,
             "sense": {

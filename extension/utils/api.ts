@@ -109,6 +109,8 @@ export interface WordItem {
   // JMdict 표제(사전형)와 이 표기에 맞는 읽기(食べて → 食べる / たべる)
   dictionary_form: string;
   reading: string;
+  // 이 표기로 쓸 수 있는 나머지 읽기(日本 にほん → にっぽん). 화면은 눌러야 펼친다(#341).
+  other_readings?: string[];
   // 단어 전체 태그(품사, 동사 그룹 등) 코드
   tags: string[];
   // 사전(JMdict) 단어인가. 아니면 LLM이 만든 단어 또는 뜻 없이 보충한 이름이다.

@@ -25,7 +25,7 @@ const CHROME_LIMITED_USE_URL =
 const GOOGLE_USER_DATA_POLICY_URL =
   "https://developers.google.com/terms/api-services-user-data-policy";
 
-function Policy20261101() {
+function Policy20261102() {
   const officer = import.meta.env.VITE_PRIVACY_OFFICER;
   const name = officer || <Unconfirmed what="운영자 실명" />;
   return (
@@ -874,4 +874,4 @@ function Policy20261101() {
   );
 }
 
-export default Policy20261101;
+export default Policy20261102;

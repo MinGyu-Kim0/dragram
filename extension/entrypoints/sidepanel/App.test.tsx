@@ -4066,7 +4066,7 @@ describe("내 일본어 항목(#321)", () => {
     ).toBeInTheDocument();
   });
 
-  test("바깥 문법만 숨기면 숨기지 않은 구성 문법은 독립 카드로 남는다", async () => {
+  test("바깥 문법을 숨기면 그 안의 구성 문법도 함께 숨는다", async () => {
     respondWith(200, {
       translation_ko: "나는 학생입니다.",
       grammar: [
@@ -4083,14 +4083,10 @@ describe("내 일본어 항목(#321)", () => {
     render(<App />);
     await send(panelWindowId, SENTENCE);
 
-    expect(
-      await screen.findByRole("heading", { name: "정중 です" }),
-    ).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "바깥 문법" })).toBeNull(),
-    );
-    expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
-    expect(screen.getByText("숨긴 카드 1개")).toBeInTheDocument();
+    // 다시 분석해도 구성 문법이 독립 카드로 튀어나오지 않는다. 숨긴 카드에는 바깥만 모인다.
+    expect(await screen.findByText("숨긴 카드 1개")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "바깥 문법" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "정중 です" })).toBeNull();
   });
 
   test("지정한 이름 행은 그 사전 뜻을 숨겨도 남는다", async () => {

@@ -3596,8 +3596,8 @@ describe("이름 종류 배지(#184)", () => {
   }
 
   test.each([
-    ["person", "사람 이름"],
-    ["place", "장소 이름"],
+    ["person", "인명"],
+    ["place", "지명"],
     ["org", "조직 이름"],
     ["work", "작품 이름"],
     ["other", "기타 이름"],
@@ -3629,7 +3629,7 @@ describe("이름 종류 배지(#184)", () => {
   });
 
   test.each(["니시야마", null, undefined])(
-    "이름과 경칭은 별도 카드이고 접미사에는 사람 이름 배지를 달지 않는다 (한글 읽기: %s)",
+    "이름과 경칭은 별도 카드이고 접미사에는 인명 배지를 달지 않는다 (한글 읽기: %s)",
     async (readingKo) => {
       respondWith(200, {
         translation_ko: "니시야마 씨",
@@ -3664,7 +3664,7 @@ describe("이름 종류 배지(#184)", () => {
         within(person!).getByRole("heading", { name: "西山" }),
       ).toBeInTheDocument();
       expect(within(person!).getByText("고유명사")).toBeInTheDocument();
-      expect(within(person!).getByText("사람 이름")).toBeInTheDocument();
+      expect(within(person!).getByText("인명")).toBeInTheDocument();
       expect(within(person!).getByText("にしやま")).toBeInTheDocument();
       if (readingKo) {
         expect(within(person!).getByLabelText("한글 읽기")).toHaveTextContent(
@@ -3685,7 +3685,7 @@ describe("이름 종류 배지(#184)", () => {
       expect(within(suffix!).getByText("접미사")).toBeInTheDocument();
       expect(within(suffix!).getByText("존경어")).toBeInTheDocument();
       expect(within(suffix!).queryByText("명사")).not.toBeInTheDocument();
-      expect(within(suffix!).queryByText("사람 이름")).not.toBeInTheDocument();
+      expect(within(suffix!).queryByText("인명")).not.toBeInTheDocument();
       expect(
         within(suffix!).queryByLabelText("한글 읽기"),
       ).not.toBeInTheDocument();
@@ -3705,7 +3705,7 @@ describe("이름 종류 배지(#184)", () => {
     const [, iku] = await wordRows();
 
     expect(within(iku!).getByText("작품 이름")).toBeInTheDocument();
-    expect(within(iku!).queryByText("장소 이름")).not.toBeInTheDocument();
+    expect(within(iku!).queryByText("지명")).not.toBeInTheDocument();
   });
 
   test.each([[null], [[]]])(
@@ -3730,11 +3730,11 @@ describe("이름 종류 배지(#184)", () => {
     await send(panelWindowId, "東京へ行った");
     await wordRows();
     expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
-    expect(screen.queryByText("장소 이름")).not.toBeInTheDocument();
+    expect(screen.queryByText("지명")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "사전 단어 보기" }));
 
-    expect(screen.getByText("장소 이름")).toBeInTheDocument();
+    expect(screen.getByText("지명")).toBeInTheDocument();
   });
 });
 

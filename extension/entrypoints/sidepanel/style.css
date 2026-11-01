@@ -7,6 +7,9 @@
   --color-surface: light-dark(#ffffff, #1b283a);
   --color-surface-inset: light-dark(#e6f0e9, #23344b);
   --color-text: light-dark(#17302a, #eef2f7);
+  --color-logo-pen: light-dark(#7ccba7, #a2bc4e);
+  --color-logo-ink: light-dark(#0f5e44, #ffffff);
+  --color-logo-outline: light-dark(#ffffff, #1d2b3f);
   --color-text-secondary: light-dark(#33473f, #c9d3e0);
   --color-border: light-dark(#dce7e0, #2c3d55);
   --color-danger-text: light-dark(#9f1d1d, #ffb4b4);
@@ -647,6 +650,28 @@ h1 {
 
 .theme-button:hover {
   color: var(--color-text);
+}
+
+/* 헤더 로고: 웹과 같은 그림. 누르면 웹 페이지를 연다. */
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.logo-pen {
+  fill: var(--color-logo-pen);
+}
+
+.logo-ink {
+  fill: var(--color-logo-ink);
+}
+
+.logo-cursor {
+  stroke: var(--color-logo-outline);
 }
 
 /* 헤더: 제목과 로그아웃(#109). 설정 화면이 생기면 로그아웃은 그리로 옮긴다. */

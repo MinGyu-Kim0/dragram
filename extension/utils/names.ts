@@ -1,5 +1,4 @@
-import { API_BASE_URL, LoginRequired } from "./api";
-import { clearTokenIfStill, loadToken } from "./auth";
+import { tokenRequest } from "./token-request";
 
 // 지정한 이름(#136): 사용자가 단어 카드의 표기를 이름으로 지정한 것. 본인만 보는 개인 데이터라
 // 표기는 URL이 아닌 본문으로 보낸다(접근 로그에 남지 않게).
@@ -23,24 +22,8 @@ export function toHiragana(text: string) {
   );
 }
 
-// 로그인한 요청을 보낸다. 401이면 토큰을 지우고 LoginRequired, 그 밖의 실패는 오류다.
-async function request(method: string, body?: object): Promise<Response> {
-  const token = await loadToken();
-  if (!token) throw new LoginRequired();
-  const response = await fetch(`${API_BASE_URL}/api/names/`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(body && { "Content-Type": "application/json" }),
-    },
-    body: body && JSON.stringify(body),
-  });
-  if (response.status === 401) {
-    await clearTokenIfStill(token);
-    throw new LoginRequired();
-  }
-  if (!response.ok) throw new Error("이름 요청 실패");
-  return response;
+function request(method: string, body?: object) {
+  return tokenRequest("/api/names/", method, body);
 }
 
 export async function fetchNames(): Promise<DesignatedName[]> {

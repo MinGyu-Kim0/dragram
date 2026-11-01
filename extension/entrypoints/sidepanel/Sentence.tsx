@@ -10,6 +10,8 @@ import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
 import { grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
+import { isHidden } from "@/utils/my-items";
+import { HiddenCards, type HiddenCard, type MyItems } from "./MyItems";
 import { WordList, type NameActions } from "./Words";
 import { wordRowCount } from "./word-groups";
 
@@ -122,6 +124,7 @@ export function SentenceView({
   names,
   onSave,
   onRemove,
+  items,
 }: {
   text: string;
   selection: DragRange;
@@ -136,33 +139,62 @@ export function SentenceView({
   onRetry: () => void;
   // 지정한 이름(표기 → 읽기, #136)
   names: ReadonlyMap<string, string | null>;
+  // 내 일본어 항목(#321). '표시 안 함'으로 숨긴 카드는 목록·형광펜·개수에서 빼고 맨 아래에 접어 둔다.
+  items?: MyItems;
 } & NameActions) {
   // '사전 단어 보기' 토글로 고른 보기(자리 → 이름 행인가). 화면 상태라 저장하지 않는다.
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
   const chooseView = (key: string, named: boolean) =>
     setChosen((current) => new Map(current).set(key, named));
+  const shownGrammar = (list: GrammarItem[]) =>
+    items
+      ? list.filter((item) => !isHidden(items.states, "usage", item.usage_id))
+      : list;
+  const shownWords = (list: WordItem[]) =>
+    items
+      ? list.filter((word) => !isHidden(items.states, "sense", word.sense?.id))
+      : list;
   const analysis = analysisOf(result);
   const translation = translationOf(result);
-  const grammar = grammarOf(result);
+  const allGrammar = grammarOf(result);
+  const grammar = shownGrammar(allGrammar);
   const checking = checkingOf(result);
   const earlyWords = earlyWordsOf(result);
   // 탭에 보일 문법·단어. 분석이 끝나기 전에도 먼저 온 단어가 있으면 먼저 온 문법과 함께 탭으로
   // 보인다(#96). 문법 개수는 보이는 카드 수다(합친 카드는 한 장, 구성 문법의 하위 박스도 센다).
+  const allWords = analysis ? analysis.words : earlyWords;
   const tabbed = analysis
     ? {
-        grammar: analysis.grammar,
+        grammar,
         checking: [],
-        words: analysis.words,
-        grammarCount: grammarCardCount(analysis.grammar),
+        words: shownWords(analysis.words),
+        grammarCount: grammarCardCount(grammar),
       }
     : earlyWords.length > 0
       ? {
           grammar,
           checking,
-          words: earlyWords,
+          words: shownWords(earlyWords),
           grammarCount: grammarCardCount(grammar) + checking.length,
         }
       : undefined;
+  const hiddenGrammar = hiddenCards(
+    allGrammar.filter(
+      (item) => items && isHidden(items.states, "usage", item.usage_id),
+    ),
+    (item) => ["usage", item.usage_id!, item.pattern_name, item.name],
+  );
+  const hiddenWords = hiddenCards(
+    allWords.filter(
+      (word) => items && isHidden(items.states, "sense", word.sense?.id),
+    ),
+    (word) => [
+      "sense",
+      word.sense!.id!,
+      word.dictionary_form,
+      word.sense!.meaning_ko ?? "",
+    ],
+  );
   // 단어 개수도 보이는 행 수다(합친 행은 한 행, #211).
   const wordCount = tabbed
     ? wordRowCount(text, tabbed.words, names, analysis?.name_spans)
@@ -234,6 +266,7 @@ export function SentenceView({
             grammar={grammar}
             checking={checking}
             selection={selection}
+            items={items}
           />
         </div>
       )}
@@ -274,47 +307,69 @@ export function SentenceView({
             !analysis &&
             tabbed.grammar.length + tabbed.checking.length ===
               0 ? null : tab === "grammar" ? (
-              <GrammarCards
-                text={text}
-                grammar={tabbed.grammar}
-                checking={tabbed.checking}
-                selection={selection}
-              />
+              <>
+                <GrammarCards
+                  text={text}
+                  grammar={tabbed.grammar}
+                  checking={tabbed.checking}
+                  selection={selection}
+                  items={items}
+                />
+                {items && <HiddenCards cards={hiddenGrammar} items={items} />}
+              </>
             ) : (
-              <WordList
-                text={text}
-                words={tabbed.words}
-                ruby={ruby}
-                selection={selection}
-                names={names}
-                chosen={chosen}
-                nameSpans={analysis?.name_spans}
-                onChooseView={chooseView}
-                onSave={onSave}
-                onRemove={async (surface) => {
-                  await onRemove(surface);
-                  // 해제한 표기의 자리는 다시 지정해도 기본 보기로 시작한다.
-                  setChosen(
-                    (current) =>
-                      new Map(
-                        [...current].filter(
-                          ([key]) =>
-                            !tabbed.words.some(
-                              (word) =>
-                                wordKey(word) === key &&
-                                text.slice(word.start, word.end) === surface,
-                            ),
+              <>
+                <WordList
+                  text={text}
+                  words={tabbed.words}
+                  ruby={ruby}
+                  selection={selection}
+                  names={names}
+                  chosen={chosen}
+                  nameSpans={analysis?.name_spans}
+                  onChooseView={chooseView}
+                  onSave={onSave}
+                  onRemove={async (surface) => {
+                    await onRemove(surface);
+                    // 해제한 표기의 자리는 다시 지정해도 기본 보기로 시작한다.
+                    setChosen(
+                      (current) =>
+                        new Map(
+                          [...current].filter(
+                            ([key]) =>
+                              !tabbed.words.some(
+                                (word) =>
+                                  wordKey(word) === key &&
+                                  text.slice(word.start, word.end) === surface,
+                              ),
+                          ),
                         ),
-                      ),
-                  );
-                }}
-              />
+                    );
+                  }}
+                  items={items}
+                />
+                {items && <HiddenCards cards={hiddenWords} items={items} />}
+              </>
             )}
           </div>
         </>
       )}
     </>
   );
+}
+
+// 숨긴 항목을 칸 하나에 한 번만 접어 둘 카드로 만든다(합친 카드처럼 같은 용법·뜻은 한 장).
+function hiddenCards<T>(
+  list: T[],
+  fields: (item: T) => [HiddenCard["kind"], number, string, string],
+): HiddenCard[] {
+  const cards = new Map<string, HiddenCard>();
+  for (const item of list) {
+    const [kind, id, chip, name] = fields(item);
+    const key = `${kind}:${id}`;
+    if (!cards.has(key)) cards.set(key, { key, kind, id, chip, name });
+  }
+  return [...cards.values()];
 }
 
 // 문법·단어 분석을 기다리는 중. 탭 자리(탭이 생긴 뒤에는 탭 바로 밑)에 둔다.

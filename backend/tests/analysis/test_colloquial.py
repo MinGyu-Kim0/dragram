@@ -267,6 +267,7 @@ CHAU_ITEM = {
     "end": 6,
     "state": "decided",
     "connection": ANY,
+    "usage_id": ANY,
     "pattern_name": "ちゃう",
     "name": "완료",
     "explanation_ko": "동작이 끝나 버렸음을 나타낸다",

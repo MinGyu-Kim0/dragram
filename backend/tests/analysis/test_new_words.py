@@ -4,6 +4,8 @@
 찾은 기존 후보에서 뜻을 고르거나 새 단어·뜻을 만든다.
 """
 
+from unittest.mock import ANY
+
 import pytest
 from django.core import serializers
 
@@ -108,6 +110,7 @@ def test_new_word_is_made_in_two_steps_and_shown_as_unreviewed(client, fake_llm)
             "tags": ["verb"],
             "in_dictionary": False,
             "sense": {
+                "id": ANY,
                 "tags": ["intransitive"],
                 "gloss_en": [],
                 "origin": "llm",

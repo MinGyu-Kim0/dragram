@@ -76,6 +76,7 @@ def test_span_decided_by_an_approved_rule_is_not_asked_and_shown_first(client, f
             "end": 3,
             "state": "decided",
             "connection": ANY,
+            "usage_id": ANY,
             "pattern_name": "で",
             "name": "장소",
             "explanation_ko": "장소을 나타낸다",

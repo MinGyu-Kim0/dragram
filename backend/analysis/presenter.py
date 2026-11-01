@@ -183,6 +183,8 @@ def _usage_fields(pattern, usage):
     if review_status is None:
         return None
     return {
+        # 사이드 패널이 카드를 내 일본어에 추가·숨길 때 쓰는 ID(#322)
+        "usage_id": usage.pk,
         "pattern_name": pattern.name,
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
@@ -234,6 +236,7 @@ def _unresolved_item(span, offsets, origins, utf16):
         "start": start,
         "end": end,
         "state": SpanMatch.State.UNRESOLVED,
+        "usage_id": None,
         "pattern_name": span.pattern.name,
         "name": span.pattern.name,
         "explanation_ko": None,

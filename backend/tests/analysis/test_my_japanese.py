@@ -1,247 +1,144 @@
-"""내 일본어: 내 문장들에 나온 용법(#313)과 단어 뜻(#314)을 모아 본다(FR-M10, ADR 0002).
-웹 세션으로 본인 기록만 다루고 LLM을 부르지 않는다.
+"""내 일본어: 사용자가 추가하거나 숨긴 용법(#313)·단어 뜻(#314)을 웹에 보인다(#322, FR-M10).
+웹 세션으로 본인 항목만 다루고 LLM을 부르지 않는다.
 """
+
+import json
+from unittest.mock import ANY
 
 import pytest
 from django.contrib.auth import get_user_model
 from django.test import Client
-from django.utils import timezone
 
-from analysis.models import (
-    GrammarUsage,
-    MatchCorrection,
-    ReviewStatus,
-    SentenceAnalysis,
-    SpanMatch,
-    UserSentence,
-    WordSense,
-)
+from analysis.models import GrammarUsage, ReviewStatus, SpanMatch, WordSense
 from tests.accounts.test_withdrawal import web_session
-from tests.analysis.helpers import add_word, analyze, connected_client
-from tests.analysis.test_my_sentences import GRAMMAR_RESPONSE, GRAMMAR_SENTENCE
+from tests.analysis.helpers import add_word, analyze, connected_client, new_pattern
 
 pytestmark = pytest.mark.django_db
 
 User = get_user_model()
 GRAMMAR = "/api/my-japanese/grammar/"
 WORDS = "/api/my-japanese/words/"
-# 숫자만 달라 GRAMMAR_SENTENCE와 같은 분석을 쓰는 원문
-SAME_ANALYSIS = "私は4人で走っている。"
+
+# 토큰: 0 私 / 1 は / 2 3 / 3 人 / 4 で / 5 走っ / 6 て / 7 いる
+GRAMMAR_SENTENCE = "私は3人で走っている。"
+GRAMMAR_RESPONSE = {
+    "translation_ko": "나는 ⟨N1⟩명이서 달리고 있다.",
+    "new_patterns": [
+        new_pattern(
+            (3, "lemma"),
+            (4, "lemma"),
+            pattern_name="人で",
+            usage_name="인원",
+            explanation_ko="함께하는 사람 수를 나타낸다",
+            example_ja="5人で来た",
+        ),
+        new_pattern((6, "lemma"), (7, "lemma")),
+    ],
+}
 
 
-def analyzed(username, fake_llm, *texts):
-    client = connected_client(username)
+@pytest.fixture
+def usages(fake_llm):
+    """분석으로 생긴 용법 (人で 인원, ている 진행)"""
     fake_llm.response = GRAMMAR_RESPONSE
-    for text in texts:
-        analyze(client, text)
-    return User.objects.get(username=username)
-
-
-def sentence_ids(user, *texts):
-    return [UserSentence.objects.get(user=user, original_text=t).pk for t in texts]
-
-
-def grammar(user):
-    web, _ = web_session(user)
-    response = web.get(GRAMMAR)
-    assert response.status_code == 200
-    return response.json()["usages"]
-
-
-def span(pattern_name):
-    return SpanMatch.objects.get(pattern__name=pattern_name)
-
-
-def test_lists_each_usage_once_with_the_sentences_it_came_from(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE, SAME_ANALYSIS)
-    analyzed("other", fake_llm, GRAMMAR_SENTENCE)
+    analyze(connected_client("seed"), GRAMMAR_SENTENCE)
     fake_llm.forget_requests()
+    return [SpanMatch.objects.get(pattern__name=name).usage for name in ("人で", "ている")]
 
-    usages = grammar(me)
+
+def put(client, kind, target, state, example=None):
+    body = {"kind": kind, "id": target.pk, "state": state}
+    if example is not None:
+        body["example"] = example
+    response = client.put("/api/my-items/", json.dumps(body), content_type="application/json")
+    assert response.status_code == 200
+
+
+def listed(user, url, state=None):
+    web, _ = web_session(user)
+    response = web.get(url, {"state": state} if state else {})
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_grammar_lists_added_usages_with_examples_most_recent_first(usages, fake_llm):
+    人で, ている = usages
+    extension = connected_client("me")
+    put(extension, "usage", ている, "added", "雨が降っている。")
+    put(extension, "usage", 人で, "added")
+    put(extension, "usage", ている, "added", "猫が寝ている。")
+    put(connected_client("other"), "usage", 人で, "hidden")
+    me = User.objects.get(username="me")
+
+    usages_listed = listed(me, GRAMMAR)["usages"]
 
     assert fake_llm.all_requests() == []
-    ids = sentence_ids(me, SAME_ANALYSIS, GRAMMAR_SENTENCE)
-    # 다른 사용자의 같은 문장은 세지 않는다. 문장은 최근 분석 순이다.
-    assert usages == [
-        {
-            "usage_id": span("人で").usage_id,
-            "pattern_name": "人で",
-            "name": "인원",
-            "explanation_ko": "함께하는 사람 수를 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "review_status": "pending",
-            "sentences": [
-                {"id": ids[0], "text": SAME_ANALYSIS},
-                {"id": ids[1], "text": GRAMMAR_SENTENCE},
-            ],
-        },
-        {
-            "usage_id": span("ている").usage_id,
-            "pattern_name": "ている",
-            "name": "진행",
-            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "review_status": "pending",
-            "sentences": [
-                {"id": ids[0], "text": SAME_ANALYSIS},
-                {"id": ids[1], "text": GRAMMAR_SENTENCE},
-            ],
-        },
-    ]
+    assert [u["pattern_name"] for u in usages_listed] == ["ている", "人で"]
+    examples = usages_listed[0]["examples"]
+    assert usages_listed[0] == {
+        "usage_id": ている.pk,
+        "pattern_name": "ている",
+        "name": "진행",
+        "explanation_ko": "동작이 이어지고 있음을 나타낸다",
+        "korean_equivalent": None,
+        "korean_equivalent_review_status": None,
+        "review_status": "pending",
+        "examples": [
+            {"id": examples[0]["id"], "text": "雨が降っている。"},
+            {"id": examples[1]["id"], "text": "猫が寝ている。"},
+        ],
+    }
+    assert usages_listed[1]["examples"] == []
 
 
-def test_more_often_met_usages_come_first(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    ている = span("ている")
-    # ている만 있는 다른 분석의 내 문장 하나를 더한다.
-    other = SentenceAnalysis.objects.create(
-        sentence_hash="0" * 64,
-        normalize_version=1,
-        normalized_length=7,
-        status=SentenceAnalysis.Status.COMPLETE,
-        word_spans=[],
-    )
-    SpanMatch.objects.create(
-        analysis=other,
-        pattern=ている.pattern,
-        usage=ている.usage,
-        start_offset=3,
-        end_offset=5,
-        state=SpanMatch.State.DECIDED,
-        decided_by=SpanMatch.DecidedBy.LLM,
-    )
-    UserSentence.objects.create(
-        user=me,
-        original_hash="1" * 64,
-        original_text="雨が降っている。",
-        analysis=other,
-        last_analyzed_at=timezone.now(),
-    )
+def test_hidden_filter_lists_only_hidden_items(usages):
+    人で, ている = usages
+    extension = connected_client("me")
+    put(extension, "usage", 人で, "hidden")
+    put(extension, "usage", ている, "added")
+    me = User.objects.get(username="me")
 
-    usages = grammar(me)
-
-    assert [(u["pattern_name"], len(u["sentences"])) for u in usages] == [
-        ("ている", 2),
-        ("人で", 1),
-    ]
+    assert [u["name"] for u in listed(me, GRAMMAR, "hidden")["usages"]] == ["인원"]
+    assert [u["name"] for u in listed(me, GRAMMAR)["usages"]] == ["진행"]
 
 
-def test_rejected_usage_is_left_out_and_approved_has_no_pending_badge(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    GrammarUsage.objects.filter(pk=span("人で").usage_id).update(status=ReviewStatus.REJECTED)
-    ている = span("ている")
-    GrammarUsage.objects.filter(pk=ている.usage_id).update(status=ReviewStatus.APPROVED)
+def test_rejected_usage_shows_only_its_examples_and_approved_has_no_pending_badge(usages):
+    人で, ている = usages
+    extension = connected_client("me")
+    put(extension, "usage", 人で, "added", "5人で来た。")
+    put(extension, "usage", ている, "added")
+    GrammarUsage.objects.filter(pk=人で.pk).update(status=ReviewStatus.REJECTED)
+    GrammarUsage.objects.filter(pk=ている.pk).update(status=ReviewStatus.APPROVED)
     ている.pattern.status = ReviewStatus.APPROVED
     ている.pattern.save()
 
-    usages = grammar(me)
+    usages_listed = listed(User.objects.get(username="me"), GRAMMAR)["usages"]
 
-    assert [(u["pattern_name"], u["review_status"]) for u in usages] == [("ている", "approved")]
-
-
-def test_active_correction_counts_the_corrected_usage_and_release_drops_it(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    ている, 人で = span("ている"), span("人で")
-    corrected = GrammarUsage.objects.create(
-        pattern=ている.pattern,
-        name="결과 상태",
-        explanation_ko="동작의 결과가 남아 있음을 나타낸다",
-        status=ReviewStatus.PENDING,
-        origin=GrammarUsage.Origin.ADMIN,
-    )
-    for target, after in ((ている, corrected), (人で, None)):
-        MatchCorrection.objects.create(
-            analysis=target.analysis,
-            start_offset=target.start_offset,
-            end_offset=target.end_offset,
-            before_usage=target.usage,
-            after_usage=after,
-        )
-
-    usages = grammar(me)
-
-    assert [(u["usage_id"], u["name"]) for u in usages] == [(corrected.pk, "결과 상태")]
+    # 반려된 용법은 내용 없이 예문만 보내, 사용자가 자기 원문을 지울 수 있게 한다.
+    approved, rejected = usages_listed
+    assert rejected == {
+        "usage_id": 人で.pk,
+        "rejected": True,
+        "examples": [{"id": ANY, "text": "5人で来た。"}],
+    }
+    assert (approved["name"], approved["review_status"]) == ("진행", "approved")
 
 
-def test_unresolved_spans_are_not_listed(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    SpanMatch.objects.filter(pk=span("人で").pk).update(
-        state=SpanMatch.State.UNRESOLVED, usage=None
-    )
-
-    assert [u["pattern_name"] for u in grammar(me)] == ["ている"]
-
-
-def test_needs_a_logged_in_web_session(fake_llm):
-    analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-
-    for client in (Client(), connected_client("me2")):
-        response = client.get(GRAMMAR)
-        assert (response.status_code, response.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})
-
-
-@pytest.mark.parametrize(("show_parts", "listed"), [(True, ["人で", "ている"]), (False, ["人で"])])
-def test_parts_hidden_by_the_outer_pattern_are_not_listed(fake_llm, show_parts, listed):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    人で, ている = span("人で"), span("ている")
-    # 人で의 용법으로 ている를 감싸는 바깥 구간을 둔다. 문장 화면처럼 show_parts를 따른다.
-    SpanMatch.objects.create(
-        analysis=ている.analysis,
-        pattern=人で.pattern,
-        usage=人で.usage,
-        start_offset=ている.start_offset - 1,
-        end_offset=ている.end_offset,
-        state=SpanMatch.State.DECIDED,
-        decided_by=SpanMatch.DecidedBy.LLM,
-    )
-    人で.pattern.show_parts = show_parts
-    人で.pattern.save()
-
-    assert [u["pattern_name"] for u in grammar(me)] == listed
-
-
-def test_divergent_span_counts_only_its_main_usage(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    人で, ている = span("人で"), span("ている")
-    人で.delete()
-    ている.state = SpanMatch.State.DIVERGENT
-    ている.alternatives = [{"usage_id": 人で.usage_id, "translation_ko": "다른 번역"}]
-    ている.save()
-
-    assert [u["pattern_name"] for u in grammar(me)] == ["ている"]
-
-
-def words(user):
-    web, _ = web_session(user)
-    response = web.get(WORDS)
-    assert response.status_code == 200
-    return response.json()["words"]
-
-
-def with_senses(user, text, *senses):
-    """그 내 문장의 분석에 고른 뜻들을 둔다."""
-    analysis = UserSentence.objects.get(user=user, original_text=text).analysis
-    analysis.sense_ids = [s.pk for s in senses]
-    analysis.save()
-
-
-def test_words_lists_each_sense_once_with_the_sentences_it_came_from(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE, SAME_ANALYSIS)
-    analyzed("other", fake_llm, GRAMMAR_SENTENCE)
+def test_words_lists_added_senses_with_dictionary_fields(fake_llm):
     run = add_word(1, ["走る"], ["はしる"], [(["to run"], ["v5r"], None)], tags=("verb", "group1"))
     sense = run.senses.get()
     sense.meaning_ko = "달리다"
     sense.save()
-    with_senses(me, GRAMMAR_SENTENCE, sense)
-    fake_llm.forget_requests()
+    rejected = add_word(2, ["私"], ["わたし"], [(["I"], [], None)]).senses.get()
+    extension = connected_client("me")
+    put(extension, "sense", sense, "added", "毎朝走る。")
+    put(extension, "sense", rejected, "added")
+    WordSense.objects.filter(pk=rejected.pk).update(sense_status=ReviewStatus.REJECTED)
 
-    listed = words(me)
+    words = listed(User.objects.get(username="me"), WORDS)["words"]
 
-    assert fake_llm.all_requests() == []
-    ids = sentence_ids(me, SAME_ANALYSIS, GRAMMAR_SENTENCE)
-    assert listed == [
+    assert words.pop(0) == {"sense_id": rejected.pk, "rejected": True, "examples": []}
+    assert words == [
         {
             "sense_id": sense.pk,
             "dictionary_form": "走る",
@@ -249,6 +146,7 @@ def test_words_lists_each_sense_once_with_the_sentences_it_came_from(fake_llm):
             "tags": ["group1", "verb"],
             "in_dictionary": True,
             "sense": {
+                "id": ANY,
                 "tags": ["v5r"],
                 "gloss_en": ["to run"],
                 "origin": "jmdict",
@@ -256,86 +154,16 @@ def test_words_lists_each_sense_once_with_the_sentences_it_came_from(fake_llm):
                 "meaning_ko": "달리다",
                 "meaning_status": "ai",
             },
-            "sentences": [
-                {"id": ids[0], "text": SAME_ANALYSIS},
-                {"id": ids[1], "text": GRAMMAR_SENTENCE},
-            ],
+            "examples": [{"id": words[0]["examples"][0]["id"], "text": "毎朝走る。"}],
         }
     ]
 
 
-def test_words_leaves_out_rejected_and_missing_senses_and_orders_by_count(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    other = SentenceAnalysis.objects.create(
-        sentence_hash="0" * 64,
-        normalize_version=1,
-        normalized_length=7,
-        status=SentenceAnalysis.Status.COMPLETE,
-        word_spans=[],
-    )
-    UserSentence.objects.create(
-        user=me,
-        original_hash="1" * 64,
-        original_text="雨が降っている。",
-        analysis=other,
-        last_analyzed_at=timezone.now(),
-    )
-    rain = add_word(1, ["雨"], ["あめ"], [(["rain"], [], None)]).senses.get()
-    person = add_word(2, ["人"], ["ひと"], [(["person"], [], None)]).senses.get()
-    rejected = add_word(3, ["私"], ["わたし"], [(["I"], [], None)]).senses.get()
-    rejected.sense_status = ReviewStatus.REJECTED
-    rejected.save()
-    with_senses(me, GRAMMAR_SENTENCE, person, rejected, rain)
-    other.sense_ids = [rain.pk, 999999]
-    other.save()
-
-    assert [w["dictionary_form"] for w in words(me)] == ["雨", "人"]
-
-
-def test_words_needs_a_logged_in_web_session(fake_llm):
+@pytest.mark.parametrize("url", [GRAMMAR, WORDS])
+def test_needs_a_logged_in_web_session_and_a_known_state(url):
     for client in (Client(), connected_client("me2")):
-        response = client.get(WORDS)
+        response = client.get(url)
         assert (response.status_code, response.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})
-
-
-def other_analysis(user, text, sense_ids=()):
-    """그 사용자에게만 있는 다른 분석의 문장"""
-    analysis = SentenceAnalysis.objects.create(
-        sentence_hash="0" * 64,
-        normalize_version=1,
-        normalized_length=len(text),
-        status=SentenceAnalysis.Status.COMPLETE,
-        word_spans=[],
-        sense_ids=list(sense_ids),
-    )
-    UserSentence.objects.create(
-        user=user,
-        original_hash="1" * 64,
-        original_text=text,
-        analysis=analysis,
-        last_analyzed_at=timezone.now(),
-    )
-    return analysis
-
-
-def test_words_of_another_users_own_analysis_are_not_mixed_in(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    mine = add_word(1, ["走る"], ["はしる"], [(["to run"], [], None)]).senses.get()
-    theirs = add_word(2, ["歩く"], ["あるく"], [(["to walk"], [], None)]).senses.get()
-    with_senses(me, GRAMMAR_SENTENCE, mine)
-    other_analysis(User.objects.create(username="other"), "駅まで歩く。", [theirs.pk])
-
-    assert [w["sense_id"] for w in words(me)] == [mine.pk]
-
-
-def test_llm_made_sense_is_sent_as_pending(fake_llm):
-    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
-    sense = add_word(1, ["走る"], ["はしる"], [(["to run"], [], None)]).senses.get()
-    sense.sense_origin = WordSense.Origin.LLM
-    sense.sense_status = ReviewStatus.PENDING
-    sense.save()
-    with_senses(me, GRAMMAR_SENTENCE, sense)
-
-    [word] = words(me)
-
-    assert (word["sense"]["origin"], word["sense"]["status"]) == ("llm", "pending")
+    web, _ = web_session(User.objects.create(username="me"))
+    response = web.get(url, {"state": "all"})
+    assert (response.status_code, response.json()) == (400, {"error": "MY_ITEM:INVALID"})

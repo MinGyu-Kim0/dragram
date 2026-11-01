@@ -83,6 +83,7 @@ def test_span_of_a_usage_closed_pattern_is_decided_without_asking_the_llm(client
         "end": 6,
         "state": "decided",
         "connection": ANY,
+        "usage_id": ANY,
         "pattern_name": "ている",
         "name": "진행",
         "explanation_ko": "동작이 이어지고 있음을 나타낸다",
@@ -167,6 +168,7 @@ def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fak
                 # 후보가 하나라 판정 전에도 그 용법 칸을 싣는다(#203).
                 "usage": {
                     "connection": ANY,
+                    "usage_id": ANY,
                     "pattern_name": "ている",
                     "name": "진행",
                     "explanation_ko": "동작이 이어지고 있음을 나타낸다",

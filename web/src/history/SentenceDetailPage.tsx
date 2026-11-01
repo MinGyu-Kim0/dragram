@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link, Navigate, useParams } from "react-router";
 import { AuthError, currentUser, request } from "../connect/auth";
 import { CC_BY_SA_URL, JMDICT_URL } from "../site/SiteLayout";
@@ -300,12 +300,16 @@ function nameLabel(word: WordItem, nameSpans: NameSpan[] | null | undefined) {
   return span && NAME_TYPE_NAMES[span.type];
 }
 
-function WordRow({
+// 내 기록 단어 탭(#314)도 쓴다. 그 단어는 문장 속 위치가 없어 이름 종류를 달지 않고, 나온 문장을
+// children으로 붙인다.
+export function WordRow({
   word,
   nameSpans,
+  children,
 }: {
-  word: WordItem;
-  nameSpans: NameSpan[] | null | undefined;
+  word: WordItem | Omit<WordItem, "start" | "end">;
+  nameSpans?: NameSpan[] | null;
+  children?: ReactNode;
 }) {
   const codes = new Set([...word.tags, ...(word.sense?.tags ?? [])]);
   const tags = Object.keys(TAG_NAMES)
@@ -316,7 +320,7 @@ function WordRow({
     <li className="word-row">
       <BadgeRow
         {...senseBadges(sense)}
-        nameLabel={nameLabel(word, nameSpans)}
+        nameLabel={"start" in word ? nameLabel(word, nameSpans) : undefined}
       />
       <div className="word-head">
         <h3 lang="ja">{word.dictionary_form}</h3>
@@ -340,6 +344,7 @@ function WordRow({
       ) : (
         <p className="muted">뜻을 아직 고르지 않았어요</p>
       )}
+      {children}
     </li>
   );
 }

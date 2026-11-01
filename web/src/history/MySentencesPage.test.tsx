@@ -258,3 +258,89 @@ test("탭은 주소에 남아 뒤로 오면 그 탭을 다시 연다", async () 
   ).toBeInTheDocument();
   expect(await grammarCards()).toHaveLength(2);
 });
+
+const WORDS = [
+  {
+    sense_id: 11,
+    dictionary_form: "走る",
+    reading: "はしる",
+    tags: ["verb", "group1"],
+    in_dictionary: true,
+    sense: {
+      tags: [],
+      gloss_en: ["to run"],
+      origin: "jmdict",
+      status: "approved",
+      meaning_ko: "달리다",
+      meaning_status: "ai",
+    },
+    sentences: [
+      { id: 2, text: "猫が好きです。" },
+      { id: 1, text: "私は学生です。" },
+    ],
+  },
+  {
+    sense_id: 12,
+    dictionary_form: "猫",
+    reading: "ねこ",
+    tags: ["noun"],
+    in_dictionary: true,
+    sense: {
+      tags: [],
+      gloss_en: ["cat"],
+      origin: "jmdict",
+      status: "approved",
+      meaning_ko: "고양이",
+      meaning_status: "reviewed",
+    },
+    sentences: [{ id: 2, text: "猫が好きです。" }],
+  },
+];
+
+const wordRows = async () => {
+  const list = await screen.findByRole("list", { name: "내 단어" });
+  return within(list)
+    .getAllByRole("listitem")
+    .filter((li) => li.parentElement === list);
+};
+
+test("단어 탭은 열 때 불러와 뜻·태그·AI 번역 표시와 나온 문장을 보인다", async () => {
+  responses["GET /api/my-japanese/words/"] = () => json({ words: WORDS });
+  open();
+  await items();
+  expect(calls.map((c) => c.url)).not.toContain("/api/my-japanese/words/");
+
+  await userEvent.click(screen.getByRole("tab", { name: "단어" }));
+
+  const [run, cat] = await wordRows();
+  expect(within(run).getByRole("heading", { name: "走る" })).toBeVisible();
+  expect(run).toHaveTextContent("はしる");
+  expect(run).toHaveTextContent("달리다");
+  expect(within(run).getByText("1그룹")).toBeInTheDocument();
+  expect(within(run).getByText("AI 번역")).toBeInTheDocument();
+  expect(within(cat).queryByText("AI 번역")).not.toBeInTheDocument();
+  expect(within(run).getByText("문장 2개")).toBeInTheDocument();
+  expect(
+    within(run).getByRole("link", { name: "私は学生です。" }),
+  ).toHaveAttribute("href", "/sentences/1");
+  const credit = screen.getByText(/내 문장에서 고른 뜻만/);
+  expect(within(credit).getByRole("link", { name: "JMdict" })).toBeVisible();
+});
+
+test("단어가 없으면 안내한다", async () => {
+  responses["GET /api/my-japanese/words/"] = () => json({ words: [] });
+  open();
+  await userEvent.click(await screen.findByRole("tab", { name: "단어" }));
+  expect(
+    await screen.findByText("분석한 문장에 나온 단어가 아직 없어요."),
+  ).toBeInTheDocument();
+});
+
+test("단어를 불러오지 못하면 알린다", async () => {
+  responses["GET /api/my-japanese/words/"] = () => json({}, 500);
+  open();
+  await userEvent.click(await screen.findByRole("tab", { name: "단어" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "단어를 불러오지 못했어요.",
+  );
+});

@@ -4030,6 +4030,54 @@ describe("내 일본어 항목(#321)", () => {
     expect(screen.queryByRole("heading", { name: "주제 は" })).toBeNull();
   });
 
+  test("숨긴 용법은 다른 카드의 구성 문법에서도 빠지고 숨긴 카드에 모인다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [
+        withParts(
+          { ...grammarItem(2, 6, "바깥 문법", "学生です"), usage_id: 30 },
+          { ...grammarItem(4, 6, "정중 です", "です"), usage_id: 12 },
+        ),
+      ],
+      words: [],
+    });
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 12, state: "hidden" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+
+    await screen.findByRole("heading", { name: "바깥 문법" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("list", { name: "구성 문법" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("list", { name: "숨긴 카드" })).getByText(
+        "정중 です",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test("지정한 이름 행은 그 사전 뜻을 숨겨도 남는다", async () => {
+    respondWithCards();
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "学生", reading: "がくせい" },
+    ]);
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "sense", id: 21, state: "hidden" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(screen.queryByText(/숨긴 카드/)).not.toBeInTheDocument();
+  });
+
   test("저장에 실패하면 상태를 바꾸지 않고 알린다", async () => {
     respondWithCards();
     vi.mocked(saveMyItem).mockRejectedValue(new Error("실패"));

@@ -147,14 +147,17 @@ export function SentenceView({
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
   const chooseView = (key: string, named: boolean) =>
     setChosen((current) => new Map(current).set(key, named));
+  const hiddenUsage = (item: GrammarItem) =>
+    !!items && isHidden(items.states, "usage", item.usage_id);
+  // 숨긴 용법은 바깥 카드에서도, 다른 카드의 구성 문법(parts)에서도 뺀다(PR #327 리뷰).
   const shownGrammar = (list: GrammarItem[]) =>
-    items
-      ? list.filter((item) => !isHidden(items.states, "usage", item.usage_id))
-      : list;
-  const shownWords = (list: WordItem[]) =>
-    items
-      ? list.filter((word) => !isHidden(items.states, "sense", word.sense?.id))
-      : list;
+    list
+      .filter((item) => !hiddenUsage(item))
+      .map((item) =>
+        item.parts
+          ? { ...item, parts: item.parts.filter((p) => !hiddenUsage(p)) }
+          : item,
+      );
   const analysis = analysisOf(result);
   const translation = translationOf(result);
   const allGrammar = grammarOf(result);
@@ -164,6 +167,18 @@ export function SentenceView({
   // 탭에 보일 문법·단어. 분석이 끝나기 전에도 먼저 온 단어가 있으면 먼저 온 문법과 함께 탭으로
   // 보인다(#96). 문법 개수는 보이는 카드 수다(합친 카드는 한 장, 구성 문법의 하위 박스도 센다).
   const allWords = analysis ? analysis.words : earlyWords;
+  // 이름 행으로 보이는 자리는 사전 뜻을 숨겨도 남긴다. 숨김은 사전 뜻 카드에만 쓴다(PR #327 리뷰).
+  const named = new Set(
+    namedWords(text, allWords, names, chosen, analysis?.name_spans).map(
+      ({ word }) => wordKey(word),
+    ),
+  );
+  const hiddenWord = (word: WordItem) =>
+    !!items &&
+    !named.has(wordKey(word)) &&
+    isHidden(items.states, "sense", word.sense?.id);
+  const shownWords = (list: WordItem[]) =>
+    list.filter((word) => !hiddenWord(word));
   const tabbed = analysis
     ? {
         grammar,
@@ -180,9 +195,9 @@ export function SentenceView({
         }
       : undefined;
   const hiddenGrammar = hiddenCards(
-    allGrammar.filter(
-      (item) => items && isHidden(items.states, "usage", item.usage_id),
-    ),
+    allGrammar
+      .flatMap((item) => [item, ...(item.parts ?? [])])
+      .filter(hiddenUsage),
     (item) => ({
       kind: "usage",
       id: item.usage_id!,
@@ -192,18 +207,13 @@ export function SentenceView({
       translated: false,
     }),
   );
-  const hiddenWords = hiddenCards(
-    allWords.filter(
-      (word) => items && isHidden(items.states, "sense", word.sense?.id),
-    ),
-    (word) => ({
-      kind: "sense",
-      id: word.sense!.id!,
-      chip: word.dictionary_form,
-      name: word.sense!.meaning_ko ?? "",
-      ...senseBadges(word.sense),
-    }),
-  );
+  const hiddenWords = hiddenCards(allWords.filter(hiddenWord), (word) => ({
+    kind: "sense",
+    id: word.sense!.id!,
+    chip: word.dictionary_form,
+    name: word.sense!.meaning_ko ?? "",
+    ...senseBadges(word.sense),
+  }));
   // 단어 개수도 보이는 행 수다(합친 행은 한 행, #211).
   const wordCount = tabbed
     ? wordRowCount(text, tabbed.words, names, analysis?.name_spans)
@@ -211,7 +221,7 @@ export function SentenceView({
   const ruby = translation?.ruby ?? [];
   const shownRuby = withNameRuby(
     ruby,
-    namedWords(text, tabbed?.words ?? [], names, chosen, analysis?.name_spans),
+    namedWords(text, allWords, names, chosen, analysis?.name_spans),
   );
   return (
     <>

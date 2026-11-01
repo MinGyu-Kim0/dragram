@@ -321,7 +321,7 @@ function GrammarCard({
       )}
       {items && item.usage_id != null && (
         <ItemActions
-          key={itemKey("usage", item.usage_id)}
+          key={`${itemKey("usage", item.usage_id)}:${items.states.get(itemKey("usage", item.usage_id)) ?? "none"}`}
           kind="usage"
           id={item.usage_id}
           text={text}

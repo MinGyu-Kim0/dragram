@@ -15,7 +15,8 @@ export interface MyItems {
   remove: (kind: ItemKind, id: number) => Promise<void>;
 }
 
-// 카드 아래 버튼 줄. 추가 전: 추가 · 표시 안 함. 추가한 뒤: 추가됨 표시, 이 문장을 예문으로 저장,
+// 카드 아래 버튼 줄. 부르는 쪽이 key에 상태를 넣어, 같은 항목을 다른 줄에서 빼면 이 줄의
+// '예문 저장됨'도 함께 초기화된다(PR #327 리뷰). 추가 전: 추가 · 표시 안 함. 추가한 뒤: 추가됨 표시, 이 문장을 예문으로 저장,
 // 빼기(예문도 지운다). 예문은 사용자가 누를 때만 원문 그대로 보낸다.
 export function ItemActions({
   kind,

@@ -342,7 +342,7 @@ export function WordList({
               {editor}
               {items && word.sense?.id != null && (
                 <ItemActions
-                  key={itemKey("sense", word.sense.id)}
+                  key={`${itemKey("sense", word.sense.id)}:${items.states.get(itemKey("sense", word.sense.id)) ?? "none"}`}
                   kind="sense"
                   id={word.sense.id}
                   text={text}

@@ -156,7 +156,9 @@ def test_words_lists_added_senses_with_dictionary_fields(fake_llm):
                 "meaning_ko": "달리다",
                 "meaning_status": "ai",
             },
-            "examples": [{"id": words[0]["examples"][0]["id"], "text": "毎朝走る。", "start": 2, "end": 4}],
+            "examples": [
+                {"id": words[0]["examples"][0]["id"], "text": "毎朝走る。", "start": 2, "end": 4}
+            ],
         }
     ]
 

@@ -4,20 +4,19 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('analysis', '0030_delete_old_user_sentences'),
+        ("analysis", "0030_delete_old_user_sentences"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='myexample',
-            name='highlight_end',
+            model_name="myexample",
+            name="highlight_end",
             field=models.IntegerField(null=True),
         ),
         migrations.AddField(
-            model_name='myexample',
-            name='highlight_start',
+            model_name="myexample",
+            name="highlight_start",
             field=models.IntegerField(null=True),
         ),
     ]

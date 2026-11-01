@@ -97,7 +97,8 @@ def _authorized(request):
 @permission_classes([])
 def my_items(request):
     """GET은 내 항목 상태 목록(만든 순), PUT은 추가·숨김(같은 항목이면 상태만 바뀐다. 추가할 때
-    example과 그 안의 카드 구간 example_start·example_end를 주면 예문으로 저장한다), DELETE는 해제(예문도 지운다)다.
+    example과 그 안의 카드 구간 example_start·example_end를 주면 예문으로 저장한다), DELETE는
+    해제(예문도 지운다)다.
     """
     _authorized(request)
     user = request.user

@@ -51,6 +51,7 @@ def test_single_sense_word_is_recorded_without_asking_the_llm(client, fake_llm, 
             "end": 4,
             "dictionary_form": "学生",
             "reading": "がくせい",
+            "other_readings": [],
             "tags": ["noun"],
             "in_dictionary": True,
             "sense": {
@@ -294,3 +295,12 @@ def test_potential_form_card_follows_the_chosen_word(client, fake_llm, ikeru, ch
     [word] = response.json()["words"]
     assert (word["start"], word["end"], word["dictionary_form"], word["reading"]) == (5, 8, *card)
     assert SentenceAnalysis.objects.get().sense_ids == [[good, go][chosen]]
+
+
+def test_saved_word_shows_the_dictionary_reading_and_its_other_readings(client, fake_llm):
+    # 저장된 분석을 다시 보일 때도 대표 읽기를 먼저 두고 나머지를 함께 싣는다(#341).
+    add_word(15, ["日本"], ["にほん", "にっぽん"], [(["Japan"], [], None)])
+    analyze(client, "日本に行く。")
+
+    [word] = analyze(client, "日本に行く。").json()["words"]
+    assert (word["reading"], word["other_readings"]) == ("にほん", ["にっぽん"])

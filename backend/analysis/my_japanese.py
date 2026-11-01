@@ -79,6 +79,6 @@ def my_words(request):
             items.append({"sense_id": sense.pk, "rejected": True, "examples": _examples(item)})
             continue
         word = words.response_item(None, None, sense.word, sense.word.reading, sense)
-        del word["start"], word["end"]
+        del word["start"], word["end"], word["other_readings"]
         items.append({"sense_id": sense.pk, **word, "examples": _examples(item)})
     return Response({"words": items})

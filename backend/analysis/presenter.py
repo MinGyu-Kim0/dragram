@@ -281,10 +281,19 @@ def _words_response(word_spans, text, token_at, offsets, origins, utf16, before_
         if sense is None or sense.sense_status == ReviewStatus.REJECTED:
             continue
         morph = token_at.get((span["start"], span["end"]))
-        reading = words.reading_for(sense, text, morph)
+        [reading, *others] = words.readings_for(sense, text, morph)
         start, end = to_original(origins, utf16, *to_analysis(offsets, span["start"], span["end"]))
         items.append(
-            words.response_item(start, end, sense.word, reading, sense, before_save, morph=morph)
+            words.response_item(
+                start,
+                end,
+                sense.word,
+                reading,
+                sense,
+                before_save,
+                morph=morph,
+                other_readings=others,
+            )
         )
     return items
 
@@ -540,13 +549,18 @@ class Presenter:
                         only.sense,
                         before_save=True,
                         morph=morphs[token],
+                        other_readings=only.other_readings,
                     )
                 )
                 continue
             item = words.response_item(
                 start, end, cands[0].sense.word, cands[0].reading, None, morph=morphs[token]
             )
-            item["reading"] = "・".join(dict.fromkeys(c.reading for c in cands))
+            shown = list(dict.fromkeys(c.reading for c in cands))
+            item["reading"] = "・".join(shown)
+            item["other_readings"] = list(
+                dict.fromkeys(r for c in cands for r in c.other_readings if r not in shown)
+            )
             item["tags"] = sorted(
                 set.intersection(
                     *(set(words.word_tags(c.sense.word, morphs[token])) for c in cands)

@@ -24,8 +24,9 @@ _KANJI_NUMERAL = re.compile(r"[〇一二三四五六七八九十百千万億兆]
 class Candidate(NamedTuple):
     # 후보 뜻(word를 함께 읽어 둔다)
     sense: WordSense
-    # 이 토큰의 표기에 맞는 그 단어의 읽기(보일 값)
+    # 이 토큰의 표기에 맞는 그 단어의 읽기(보일 값)와, 펼쳐 볼 나머지 읽기
     reading: str
+    other_readings: list
 
 
 class _Query(NamedTuple):
@@ -101,12 +102,21 @@ def _sense_readings(sense, query, allowed):
     return allowed
 
 
-def _display_reading(word, query, readings):
-    """보일 읽기. 가나로 쓴 토큰은 그 표기를, 아니면 대표 읽기나 원래 읽기 중 허용된 것을 쓴다."""
+def _display_readings(word, query, sense):
+    """보일 읽기(첫 것을 보이고 나머지는 펼쳐 본다). 가나로 쓴 토큰은 그 표기 하나다.
+
+    아니면 그 표기·뜻에 쓸 수 있는 읽기를 대표 읽기부터 둔다. 뜻은 형태소 읽기로 좁혀 찾지만,
+    보일 읽기는 좁히지 않는다. SudachiPy는 日本을 늘 ニッポン으로 읽는다(#341).
+    """
     if is_kana(query.form):
-        return query.form
+        return [query.form]
+    readings = _sense_readings(sense, query, _allowed_readings(word, query._replace(reading=None)))
     rebs = [word.reading, *(reb for reb in word.forms if to_hiragana(reb) in word.readings)]
-    return next(reb for reb in rebs if to_hiragana(reb) in readings)
+    shown = {}
+    for reb in rebs:
+        if to_hiragana(reb) in readings:
+            shown.setdefault(to_hiragana(reb), reb)
+    return list(shown.values())
 
 
 def _candidates(words, query):
@@ -114,9 +124,9 @@ def _candidates(words, query):
     for word in words:
         allowed = _allowed_readings(word, query)
         for sense in word.senses.all():
-            readings = _sense_readings(sense, query, allowed)
-            if readings:
-                found.append(Candidate(sense, _display_reading(word, query, readings)))
+            if _sense_readings(sense, query, allowed):
+                shown = _display_readings(word, query, sense)
+                found.append(Candidate(sense, shown[0], shown[1:]))
     return found
 
 
@@ -257,17 +267,16 @@ def get_or_make_word(form, reading, tags):
     return word
 
 
-def reading_for(sense, text, morph):
-    """저장된 뜻을 이 토큰으로 보일 때의 읽기. 찾을 때와 같은 차례로 맞춰 본다.
+def readings_for(sense, text, morph):
+    """저장된 뜻을 이 토큰으로 보일 때의 읽기(첫 것을 보인다). 찾을 때와 같은 차례로 맞춰 본다.
 
-    형태소 경계가 달라 토큰을 모르면(morph가 None) 그 단어의 대표 읽기다.
+    형태소 경계가 달라 토큰을 모르면(morph가 None) 그 단어의 대표 읽기 하나다.
     """
     word = sense.word
     for query in _queries(text, morph) if morph is not None else ():
-        readings = _sense_readings(sense, query, _allowed_readings(word, query))
-        if readings:
-            return _display_reading(word, query, readings)
-    return word.reading
+        if _sense_readings(sense, query, _allowed_readings(word, query)):
+            return _display_readings(word, query, sense)
+    return [word.reading]
 
 
 def word_tags(word, morph=None):
@@ -279,7 +288,9 @@ def word_tags(word, morph=None):
     return sorted(tags)
 
 
-def response_item(start, end, word, reading, sense, before_save=False, *, morph=None):
+def response_item(
+    start, end, word, reading, sense, before_save=False, *, morph=None, other_readings=()
+):
     """응답의 단어 항목. sense가 None이면 뜻을 아직 고르지 않은 것이다(LLM 응답 전).
 
     before_save는 분석을 저장하기 전에 보내는 항목이다. 한국어 뜻이 없는 뜻은 이 작업이 만들므로
@@ -293,6 +304,8 @@ def response_item(start, end, word, reading, sense, before_save=False, *, morph=
         "end": end,
         "dictionary_form": word.dictionary_form,
         "reading": reading,
+        # 이 표기로 쓸 수 있는 나머지 읽기. 화면은 눌러야 펼친다(#341).
+        "other_readings": list(other_readings),
         "tags": word_tags(word, morph),
         # 사전(JMdict) 단어인가. 화면은 사전 단어가 있을 때만 JMdict 출처 각주를 단다(#134).
         "in_dictionary": word.jmdict_seq is not None,

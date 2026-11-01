@@ -129,3 +129,21 @@ def test_same_word_by_dictionary_and_normalized_form_is_offered_once():
     morphs = morphemes("行なう")
     assert (morphs[0].dictionary_form, morphs[0].lemma) == ("行なう", "行う")
     assert lookup("行なう") == {0: [(14, 1, "おこなう")]}
+
+
+def test_word_of_several_readings_shows_the_dictionary_reading_first():
+    # SudachiPy는 日本을 ニッポン으로 읽는다. 뜻은 그 읽기로 찾고, 보일 읽기는 사전 대표 읽기를
+    # 먼저 두고 나머지는 펼쳐 볼 읽기로 둔다(#341).
+    add_word(15, ["日本"], ["にほん", "にっぽん"], [(["Japan"], [], None)])
+
+    morphs = morphemes("日本に行く")
+    assert morphs[0].reading == "ニッポン"
+    [found] = words.lookup("日本に行く", morphs, [0])[0]
+    assert (found.reading, found.other_readings) == ("にほん", ["にっぽん"])
+
+
+def test_kana_written_word_has_no_other_readings():
+    add_word(15, ["日本"], ["にほん", "にっぽん"], [(["Japan"], [], None)])
+
+    [found] = words.lookup("にほん", morphemes("にほん"), [0])[0]
+    assert (found.reading, found.other_readings) == ("にほん", [])

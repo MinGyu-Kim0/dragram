@@ -3,6 +3,7 @@
 """
 
 import json
+from unittest.mock import ANY
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -101,10 +102,10 @@ def test_hidden_filter_lists_only_hidden_items(usages):
     assert [u["name"] for u in listed(me, GRAMMAR)["usages"]] == ["진행"]
 
 
-def test_rejected_usage_is_left_out_and_approved_has_no_pending_badge(usages):
+def test_rejected_usage_shows_only_its_examples_and_approved_has_no_pending_badge(usages):
     人で, ている = usages
     extension = connected_client("me")
-    put(extension, "usage", 人で, "added")
+    put(extension, "usage", 人で, "added", "5人で来た。")
     put(extension, "usage", ている, "added")
     GrammarUsage.objects.filter(pk=人で.pk).update(status=ReviewStatus.REJECTED)
     GrammarUsage.objects.filter(pk=ている.pk).update(status=ReviewStatus.APPROVED)
@@ -113,7 +114,14 @@ def test_rejected_usage_is_left_out_and_approved_has_no_pending_badge(usages):
 
     usages_listed = listed(User.objects.get(username="me"), GRAMMAR)["usages"]
 
-    assert [(u["name"], u["review_status"]) for u in usages_listed] == [("진행", "approved")]
+    # 반려된 용법은 내용 없이 예문만 보내, 사용자가 자기 원문을 지울 수 있게 한다.
+    approved, rejected = usages_listed
+    assert rejected == {
+        "usage_id": 人で.pk,
+        "rejected": True,
+        "examples": [{"id": ANY, "text": "5人で来た。"}],
+    }
+    assert (approved["name"], approved["review_status"]) == ("진행", "approved")
 
 
 def test_words_lists_added_senses_with_dictionary_fields(fake_llm):
@@ -129,6 +137,7 @@ def test_words_lists_added_senses_with_dictionary_fields(fake_llm):
 
     words = listed(User.objects.get(username="me"), WORDS)["words"]
 
+    assert words.pop(0) == {"sense_id": rejected.pk, "rejected": True, "examples": []}
     assert words == [
         {
             "sense_id": sense.pk,
@@ -137,6 +146,7 @@ def test_words_lists_added_senses_with_dictionary_fields(fake_llm):
             "tags": ["group1", "verb"],
             "in_dictionary": True,
             "sense": {
+                "id": ANY,
                 "tags": ["v5r"],
                 "gloss_en": ["to run"],
                 "origin": "jmdict",

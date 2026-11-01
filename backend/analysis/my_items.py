@@ -13,7 +13,9 @@ from rest_framework.response import Response
 
 from accounts.tokens import ExtensionTokenAuthentication, lock_user
 from accounts.views import SessionUser, require_csrf
+from analysis.answers import _is_text
 from analysis.models import GrammarUsage, MyExample, MyItem, ReviewStatus, WordSense
+from analysis.presenter import _review_status
 from analysis.views import MAX_TEXT_LENGTH
 from errors.auth import AuthError
 from errors.base import BusinessError
@@ -41,17 +43,23 @@ def _invalid(reason):
 
 
 def _target(data):
-    """본문의 (종류, 용법·뜻). 없거나 반려된 것이면 거부한다."""
+    """본문의 (종류, 용법·뜻). 없으면 거부한다."""
     if not isinstance(data, dict):
         raise _invalid("본문이 객체가 아님")
     kind, target_id = data.get("kind"), data.get("id")
     if kind not in _KINDS or type(target_id) is not int:
         raise _invalid("종류나 ID가 맞지 않음")
     target = _KINDS[kind].objects.filter(pk=target_id).first()
-    status = target and (target.status if kind == "usage" else target.sense_status)
-    if target is None or status == ReviewStatus.REJECTED:
-        raise _invalid("없거나 반려된 항목")
+    if target is None:
+        raise _invalid("없는 항목")
     return kind, target
+
+
+def _rejected(kind, target):
+    """화면에 보이지 않는(반려된) 용법·뜻인가. 용법은 패턴까지 본다(ADR 0003)."""
+    if kind == "usage":
+        return _review_status(target.pattern, target) is None
+    return target.sense_status == ReviewStatus.REJECTED
 
 
 def _example(data):
@@ -59,14 +67,8 @@ def _example(data):
     text = data.get("example")
     if text is None:
         return None
-    if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT_LENGTH:
+    if not _is_text(text) or len(text) > MAX_TEXT_LENGTH or "\x00" in text:
         raise _invalid("예문이 맞지 않음")
-    if "\x00" in text:
-        raise _invalid("예문이 맞지 않음")
-    try:
-        text.encode("utf-8")
-    except UnicodeEncodeError:
-        raise _invalid("예문이 맞지 않음") from None
     return text
 
 
@@ -97,8 +99,11 @@ def my_items(request):
         return Response({"items": [_item(row) for row in rows]})
     kind, target = _target(request.data)
     if request.method == "DELETE":
+        # 반려된 항목도 지울 수 있어야 그 예문(본인 원문)을 언제든 지운다.
         MyItem.objects.filter(user=user, **{kind: target}).delete()
         return Response(status=204)
+    if _rejected(kind, target):
+        raise _invalid("반려된 항목")
     state, example = request.data.get("state"), _example(request.data)
     if state not in MyItem.State.values or (example is not None and state != MyItem.State.ADDED):
         raise _invalid("상태가 맞지 않거나 숨기며 예문을 줌")

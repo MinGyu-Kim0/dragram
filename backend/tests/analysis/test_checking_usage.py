@@ -31,6 +31,7 @@ def test_checking_span_with_one_candidate_carries_its_usage(client, fake_llm):
     [item] = response.events[0]["checking"]
     assert item["usage"] == {
         "connection": ANY,
+        "usage_id": ANY,
         "pattern_name": "ている",
         "name": "진행",
         "explanation_ko": "동작이 이어지고 있음을 나타낸다",

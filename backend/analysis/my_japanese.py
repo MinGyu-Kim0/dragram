@@ -1,8 +1,9 @@
 """내 일본어: 사용자가 사이드 패널 카드에서 추가하거나 숨긴 용법(#313)과 단어 뜻(#314)을 웹에 보인다
 (#322, FR-M10). 항목마다 사용자가 고른 예문을 함께 싣는다.
 
-본인 항목만 읽고 LLM을 부르지 않는다. 반려된 용법·패턴·뜻은 보이지 않고, 미검수면 pending이다
-(ADR 0003). 회화체로 만났어도 용법 단위라 원형 패턴 이름으로 보인다.
+본인 항목만 읽고 LLM을 부르지 않는다. 미검수면 pending이다(ADR 0003). 반려된 용법·패턴·뜻은 내용
+없이 ID와 예문만 보낸다({"rejected": true}). 사용자가 그 예문(본인 원문)과 항목을 지울 수 있게 하기
+위해서다. 회화체로 만났어도 용법 단위라 원형 패턴 이름으로 보인다.
 """
 
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -49,6 +50,7 @@ def my_grammar(request):
         usage = item.usage
         review_status = _review_status(usage.pattern, usage)
         if review_status is None:
+            usages.append({"usage_id": usage.pk, "rejected": True, "examples": _examples(item)})
             continue
         usages.append(
             {
@@ -74,6 +76,7 @@ def my_words(request):
     for item in _my_items(request, "sense").select_related("sense__word"):
         sense = item.sense
         if sense.sense_status == ReviewStatus.REJECTED:
+            items.append({"sense_id": sense.pk, "rejected": True, "examples": _examples(item)})
             continue
         word = words.response_item(None, None, sense.word, sense.word.reading, sense)
         del word["start"], word["end"]

@@ -1,6 +1,7 @@
 """분석 API: 문장 단어를 JMdict에서 찾아 위치별 뜻으로 기록한다(#96)."""
 
 import json
+from unittest.mock import ANY
 
 import pytest
 
@@ -53,6 +54,7 @@ def test_single_sense_word_is_recorded_without_asking_the_llm(client, fake_llm, 
             "tags": ["noun"],
             "in_dictionary": True,
             "sense": {
+                "id": ANY,
                 "tags": [],
                 "gloss_en": ["student"],
                 "origin": "jmdict",

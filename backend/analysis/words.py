@@ -299,6 +299,8 @@ def response_item(start, end, word, reading, sense, before_save=False, *, morph=
         "sense": None
         if sense is None
         else {
+            # 사이드 패널이 단어를 내 일본어에 추가·숨길 때 쓰는 ID(#322)
+            "id": sense.pk,
             "tags": sense.tags,
             "gloss_en": sense.gloss_en or [],
             "origin": sense.sense_origin,

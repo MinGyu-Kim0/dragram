@@ -5,7 +5,9 @@
 import json
 
 import pytest
+from django.apps import apps
 from django.contrib.auth import get_user_model
+from django.core import serializers
 from django.db import transaction
 from django.test import Client
 
@@ -131,15 +133,20 @@ def test_invalid_requests_are_refused_without_changes(usage, body):
     assert not MyItem.objects.exists()
 
 
-def test_rejected_usage_cannot_be_added(usage):
-    usage.status = ReviewStatus.REJECTED
-    usage.save()
+@pytest.mark.parametrize("rejected", ["usage", "pattern"])
+def test_rejected_usage_cannot_be_added_but_can_be_removed_with_its_examples(usage, rejected):
+    extension = connected_client("me")
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE})
+    target = usage if rejected == "usage" else usage.pattern
+    target.status = ReviewStatus.REJECTED
+    target.save()
 
-    response = send(
-        connected_client("me"), "put", {"kind": "usage", "id": usage.pk, "state": "added"}
-    )
+    again = send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "hidden"})
+    removed = send(extension, "delete", {"kind": "usage", "id": usage.pk})
 
-    assert (response.status_code, response.json()) == (400, {"error": "MY_ITEM:INVALID"})
+    assert (again.status_code, again.json()) == (400, {"error": "MY_ITEM:INVALID"})
+    assert removed.status_code == 204
+    assert not MyExample.objects.exists()
 
 
 def test_each_user_sees_and_changes_only_own_items(usage):
@@ -215,7 +222,7 @@ def test_merging_usages_keeps_the_users_item(usage):
     assert MyExample.objects.get().item.usage == target
 
 
-def test_example_is_not_logged(usage, caplog):
+def test_example_is_kept_only_in_my_example_and_not_logged(usage, caplog):
     send(
         connected_client("me"),
         "put",
@@ -223,3 +230,7 @@ def test_example_is_not_logged(usage, caplog):
     )
 
     assert EXAMPLE not in caplog.text
+    for model in apps.get_models():
+        if model is MyExample:
+            continue
+        assert EXAMPLE not in serializers.serialize("json", model.objects.all()), model

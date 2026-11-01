@@ -95,8 +95,10 @@ export function MyRecords() {
           {tab === "grammar" && (
             <MyJapaneseTab<Usage>
               url="/api/my-japanese/grammar/"
-              field="usages"
+              select={usagesOf}
               name="문법"
+              failed="문법을 불러오지 못했어요. 페이지를 새로 고쳐 주세요."
+              empty="분석한 문장에 나온 문법이 아직 없어요."
               render={(usage, index) => (
                 <UsageCard key={usage.usage_id} usage={usage} index={index} />
               )}
@@ -105,8 +107,10 @@ export function MyRecords() {
           {tab === "words" && (
             <MyJapaneseTab<MyWord>
               url="/api/my-japanese/words/"
-              field="words"
+              select={wordsOf}
               name="단어"
+              failed="단어를 불러오지 못했어요. 페이지를 새로 고쳐 주세요."
+              empty="분석한 문장에 나온 단어가 아직 없어요."
               render={(word) => (
                 <WordRow key={word.sense_id} word={word}>
                   <UsedIn sentences={word.sentences} />
@@ -176,48 +180,47 @@ type MyWord = Omit<WordItem, "start" | "end"> & {
   sentences: SentenceLink[];
 };
 
+const usagesOf = (body: { usages: Usage[] }) => body.usages;
+const wordsOf = (body: { words: MyWord[] }) => body.words;
+
 type Load<T> =
   { kind: "loading" } | { kind: "failed" } | { kind: "ready"; items: T[] };
 
 /** 내 일본어 탭 하나(FR-M10). 탭을 열 때 불러오고, 불러오는 중·실패·빈 목록을 보인다. */
 function MyJapaneseTab<T>({
   url,
-  field,
+  select,
   name,
+  failed,
+  empty,
   render,
   after,
 }: {
   url: string;
-  field: string;
+  select: (body: never) => T[];
   name: string;
+  failed: string;
+  empty: string;
   render: (item: T, index: number) => ReactNode;
   after?: (items: T[]) => ReactNode;
 }) {
   const [state, setState] = useState<Load<T>>({ kind: "loading" });
 
   useEffect(() => {
-    request<Record<string, T[]>>("GET", url).then(
-      (body) => setState({ kind: "ready", items: body[field] }),
+    request<never>("GET", url).then(
+      (body) => setState({ kind: "ready", items: select(body) }),
       () => setState({ kind: "failed" }),
     );
-  }, [url, field]);
+  }, [url, select]);
 
   if (state.kind === "loading") return <p className="muted">불러오는 중…</p>;
   if (state.kind === "failed")
     return (
       <p role="alert" className="danger">
-        {name}
-        {particle(name, "을", "를")} 불러오지 못했어요. 페이지를 새로 고쳐
-        주세요.
+        {failed}
       </p>
     );
-  if (state.items.length === 0)
-    return (
-      <p className="secondary">
-        분석한 문장에 나온 {name}
-        {particle(name, "이", "가")} 아직 없어요.
-      </p>
-    );
+  if (state.items.length === 0) return <p className="secondary">{empty}</p>;
   return (
     <>
       <ul aria-label={`내 ${name}`}>{state.items.map(render)}</ul>
@@ -225,10 +228,6 @@ function MyJapaneseTab<T>({
     </>
   );
 }
-
-// 받침이 있으면 앞 조사, 없으면 뒤 조사
-const particle = (word: string, final: string, open: string) =>
-  (word.charCodeAt(word.length - 1) - 0xac00) % 28 === 0 ? open : final;
 
 /** 그 항목이 나온 내 문장 링크(접어 둔다) */
 function UsedIn({ sentences }: { sentences: SentenceLink[] }) {

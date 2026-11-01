@@ -14,6 +14,7 @@ from analysis.models import (
     SentenceAnalysis,
     SpanMatch,
     UserSentence,
+    WordSense,
 )
 from tests.accounts.test_withdrawal import web_session
 from tests.analysis.helpers import add_word, analyze, connected_client
@@ -295,3 +296,46 @@ def test_words_needs_a_logged_in_web_session(fake_llm):
     for client in (Client(), connected_client("me2")):
         response = client.get(WORDS)
         assert (response.status_code, response.json()) == (401, {"error": "AUTH:LOGIN_REQUIRED"})
+
+
+def other_analysis(user, text, sense_ids=()):
+    """그 사용자에게만 있는 다른 분석의 문장"""
+    analysis = SentenceAnalysis.objects.create(
+        sentence_hash="0" * 64,
+        normalize_version=1,
+        normalized_length=len(text),
+        status=SentenceAnalysis.Status.COMPLETE,
+        word_spans=[],
+        sense_ids=list(sense_ids),
+    )
+    UserSentence.objects.create(
+        user=user,
+        original_hash="1" * 64,
+        original_text=text,
+        analysis=analysis,
+        last_analyzed_at=timezone.now(),
+    )
+    return analysis
+
+
+def test_words_of_another_users_own_analysis_are_not_mixed_in(fake_llm):
+    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
+    mine = add_word(1, ["走る"], ["はしる"], [(["to run"], [], None)]).senses.get()
+    theirs = add_word(2, ["歩く"], ["あるく"], [(["to walk"], [], None)]).senses.get()
+    with_senses(me, GRAMMAR_SENTENCE, mine)
+    other_analysis(User.objects.create(username="other"), "駅まで歩く。", [theirs.pk])
+
+    assert [w["sense_id"] for w in words(me)] == [mine.pk]
+
+
+def test_llm_made_sense_is_sent_as_pending(fake_llm):
+    me = analyzed("me", fake_llm, GRAMMAR_SENTENCE)
+    sense = add_word(1, ["走る"], ["はしる"], [(["to run"], [], None)]).senses.get()
+    sense.sense_origin = WordSense.Origin.LLM
+    sense.sense_status = ReviewStatus.PENDING
+    sense.save()
+    with_senses(me, GRAMMAR_SENTENCE, sense)
+
+    [word] = words(me)
+
+    assert (word["sense"]["origin"], word["sense"]["status"]) == ("llm", "pending")

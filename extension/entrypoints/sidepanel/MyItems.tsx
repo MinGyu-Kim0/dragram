@@ -28,12 +28,15 @@ export function ItemActions({
   id,
   example,
   items,
+  hideable = true,
 }: {
   kind: ItemKind;
   id: number;
   // 예문으로 저장할 문장(이 페이지의 원문)과 그 안에서 이 카드가 가리키는 부분
   example: Example;
   items: MyItems;
+  // 구성 문법 하위 박스는 바깥 카드와 함께 보이고 숨으므로 '표시 안 함'을 두지 않는다.
+  hideable?: boolean;
 }) {
   const state = items.states.get(itemKey(kind, id));
   const [busy, setBusy] = useState(false);
@@ -91,14 +94,16 @@ export function ItemActions({
             >
               추가
             </button>
-            <button
-              type="button"
-              className="text-button item-remove"
-              disabled={busy}
-              onClick={() => run(() => items.save(kind, id, "hidden"))}
-            >
-              표시 안 함
-            </button>
+            {hideable && (
+              <button
+                type="button"
+                className="text-button item-remove"
+                disabled={busy}
+                onClick={() => run(() => items.save(kind, id, "hidden"))}
+              >
+                표시 안 함
+              </button>
+            )}
           </>
         )}
       </div>

@@ -244,6 +244,9 @@ function SiteLayout({
             <Link to="/terms">이용약관</Link>
           </nav>
           <p>
+            문의: <ContactEmail />
+          </p>
+          <p>
             단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
             <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>)
           </p>

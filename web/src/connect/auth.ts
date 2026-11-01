@@ -23,7 +23,7 @@ function csrfToken() {
 }
 
 export async function request<T>(
-  method: "GET" | "POST" | "DELETE",
+  method: "GET" | "POST" | "PUT" | "DELETE",
   path: string,
   body?: unknown,
 ): Promise<T> {

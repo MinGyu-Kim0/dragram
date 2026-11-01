@@ -62,14 +62,16 @@ def test_extension_adds_hides_and_removes_items(usage, sense):
     assert added.json() == {"kind": "usage", "id": usage.pk, "state": "added"}
     assert hidden.json() == {"kind": "sense", "id": sense.pk, "state": "hidden"}
     assert states(extension) == [
-        {"kind": "usage", "id": usage.pk, "state": "added"},
-        {"kind": "sense", "id": sense.pk, "state": "hidden"},
+        {"kind": "usage", "id": usage.pk, "state": "added", "has_examples": False},
+        {"kind": "sense", "id": sense.pk, "state": "hidden", "has_examples": False},
     ]
     # 같은 항목을 다시 보내면 상태만 바뀐다.
     send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "hidden"})
     assert MyItem.objects.filter(usage=usage).count() == 1
     assert send(extension, "delete", {"kind": "usage", "id": usage.pk}).status_code == 204
-    assert states(extension) == [{"kind": "sense", "id": sense.pk, "state": "hidden"}]
+    assert states(extension) == [
+        {"kind": "sense", "id": sense.pk, "state": "hidden", "has_examples": False}
+    ]
 
 
 def test_adding_with_an_example_keeps_only_that_sentence(usage):
@@ -89,6 +91,19 @@ def test_adding_with_an_example_keeps_only_that_sentence(usage):
     # 예문 없이 다시 추가해도 저장한 예문은 그대로다.
     send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added"})
     assert MyExample.objects.count() == 1
+
+
+def test_item_list_tells_which_items_have_examples(usage, sense):
+    extension = connected_client("me")
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "hidden"})
+    send(extension, "put", {"kind": "sense", "id": sense.pk, "state": "hidden"})
+
+    # 확장이 빼기·다시 보이기 전에 예문이 함께 지워짐을 확인받을 수 있게 알린다(PR #320 리뷰).
+    assert extension.get(ITEMS).json()["items"] == [
+        {"kind": "usage", "id": usage.pk, "state": "hidden", "has_examples": True},
+        {"kind": "sense", "id": sense.pk, "state": "hidden", "has_examples": False},
+    ]
 
 
 def test_hiding_does_not_take_an_example(usage):
@@ -180,7 +195,9 @@ def test_web_session_needs_csrf_to_change(usage):
 
     assert (refused.status_code, refused.json()) == (403, {"error": "AUTH:CSRF_FAILED"})
     assert accepted.status_code == 200
-    assert states(web) == [{"kind": "usage", "id": usage.pk, "state": "added"}]
+    assert states(web) == [
+        {"kind": "usage", "id": usage.pk, "state": "added", "has_examples": False}
+    ]
 
 
 def test_needs_login(usage):
@@ -230,7 +247,9 @@ def test_merging_usages_keeps_the_users_item(usage):
         merge_usage(usage, target)
 
     # 추가가 숨김보다 앞서고, 예문은 합친 항목으로 옮긴다.
-    assert states(extension) == [{"kind": "usage", "id": target.pk, "state": "added"}]
+    assert states(extension) == [
+        {"kind": "usage", "id": target.pk, "state": "added", "has_examples": True}
+    ]
     assert MyExample.objects.get().item.usage == target
 
 

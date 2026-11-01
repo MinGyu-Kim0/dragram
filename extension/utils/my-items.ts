@@ -9,6 +9,8 @@ export interface MyItem {
   kind: ItemKind;
   id: number;
   state: ItemState;
+  // 저장한 예문이 있는가. 목록(GET)에만 온다.
+  has_examples?: boolean;
 }
 
 // 웹에서 항목을 바꾼 시각. 열린 패널이 이 값의 변경을 보고 항목을 다시 불러온다.

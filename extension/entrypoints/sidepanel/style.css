@@ -803,6 +803,17 @@ h1 {
 }
 
 /* 내 일본어 항목(#321): 카드 아래 추가·표시 안 함 버튼 줄과 숨긴 카드 */
+/* 예문이 있는 항목을 빼거나 다시 보이기 전의 확인 줄. 버튼 줄 아래로 넘겨 한 줄을 차지한다. */
+.remove-confirm {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
 .item-actions {
   display: flex;
   flex-wrap: wrap;

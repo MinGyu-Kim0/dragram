@@ -11,6 +11,8 @@ import { BadgeRow } from "./BadgeRow";
 // 동작. 바꾸는 동작은 실패하면 거부되고, 화면은 성공했을 때만 바뀐다.
 export interface MyItems {
   states: ReadonlyMap<string, ItemState>;
+  // 저장한 예문이 있는 항목의 열쇠. 빼기·다시 보이기는 예문도 지우므로 한 번 확인받는다.
+  withExamples: ReadonlySet<string>;
   save: (
     kind: ItemKind,
     id: number,
@@ -71,19 +73,19 @@ export function ItemActions({
                 이 문장을 예문으로 저장
               </button>
             )}
-            <button
-              type="button"
+            <RemoveButton
+              label="빼기"
+              confirmLabel="예문과 함께 빼기"
               className="text-button item-remove"
-              disabled={busy}
-              onClick={() =>
+              confirm={items.withExamples.has(itemKey(kind, id))}
+              busy={busy}
+              onRemove={() =>
                 run(
                   () => items.remove(kind, id),
                   () => setExampleSaved(false),
                 )
               }
-            >
-              빼기
-            </button>
+            />
           </>
         ) : (
           <>
@@ -158,10 +160,12 @@ function HiddenRow({ card, items }: { card: HiddenCard; items: MyItems }) {
         {card.chip}
       </span>
       <span>{card.name}</span>
-      <button
-        type="button"
-        disabled={busy}
-        onClick={() => {
+      <RemoveButton
+        label="다시 보이기"
+        confirmLabel="예문과 함께 다시 보이기"
+        confirm={items.withExamples.has(itemKey(card.kind, card.id))}
+        busy={busy}
+        onRemove={() => {
           setBusy(true);
           setError(false);
           items
@@ -169,10 +173,61 @@ function HiddenRow({ card, items }: { card: HiddenCard; items: MyItems }) {
             .catch(() => setError(true))
             .finally(() => setBusy(false));
         }}
-      >
-        다시 보이기
-      </button>
+      />
       {error && <p className="error">바꾸지 못했습니다. 다시 시도해 주세요.</p>}
     </li>
+  );
+}
+
+// 항목을 빼는 버튼. 저장한 예문이 있으면(confirm) 예문도 함께 지워짐을 한 번 확인받는다(웹과 같다,
+// PR #320 리뷰).
+function RemoveButton({
+  label,
+  confirmLabel,
+  className,
+  confirm,
+  busy,
+  onRemove,
+}: {
+  label: string;
+  confirmLabel: string;
+  className?: string;
+  confirm: boolean;
+  busy: boolean;
+  onRemove: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  if (confirming)
+    return (
+      <span className="remove-confirm">
+        <span>저장한 예문도 함께 지워져요. 되돌릴 수 없어요.</span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            setConfirming(false);
+            onRemove();
+          }}
+        >
+          {confirmLabel}
+        </button>
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => setConfirming(false)}
+        >
+          취소
+        </button>
+      </span>
+    );
+  return (
+    <button
+      type="button"
+      className={className}
+      disabled={busy}
+      onClick={() => (confirm ? setConfirming(true) : onRemove())}
+    >
+      {label}
+    </button>
   );
 }

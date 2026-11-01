@@ -149,15 +149,14 @@ export function SentenceView({
     setChosen((current) => new Map(current).set(key, named));
   const hiddenUsage = (item: GrammarItem) =>
     !!items && isHidden(items.states, "usage", item.usage_id);
-  // 숨긴 용법은 바깥 카드에서도, 다른 카드의 구성 문법(parts)에서도 뺀다(PR #327 리뷰).
+  // 숨긴 용법은 바깥 카드에서도, 다른 카드의 구성 문법(parts)에서도 뺀다(PR #327 리뷰). 바깥만
+  // 숨겼으면 숨기지 않은 구성 문법은 독립 카드로 꺼내 남긴다(PR #320 리뷰).
   const shownGrammar = (list: GrammarItem[]) =>
-    list
-      .filter((item) => !hiddenUsage(item))
-      .map((item) =>
-        item.parts
-          ? { ...item, parts: item.parts.filter((p) => !hiddenUsage(p)) }
-          : item,
-      );
+    list.flatMap((item) => {
+      const parts = (item.parts ?? []).filter((p) => !hiddenUsage(p));
+      if (hiddenUsage(item)) return parts;
+      return item.parts ? [{ ...item, parts }] : [item];
+    });
   const analysis = analysisOf(result);
   const translation = translationOf(result);
   const allGrammar = grammarOf(result);

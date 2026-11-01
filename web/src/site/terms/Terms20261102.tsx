@@ -5,7 +5,7 @@ import { CC_BY_SA_URL, ContactEmail, JMDICT_URL, Section } from "../SiteLayout";
 // #249에서 정한 약관 1~15절. 처리방침과 같은 합니다체로 쓴다. 시행한 뒤에는 고치지 않고 새
 // 시행일 파일을 만든다.
 
-function Terms20261101() {
+function Terms20261102() {
   const officer = import.meta.env.VITE_PRIVACY_OFFICER;
   const name = officer || <Unconfirmed what="운영자 이름" />;
   return (
@@ -172,4 +172,4 @@ function Terms20261101() {
   );
 }
 
-export default Terms20261101;
+export default Terms20261102;

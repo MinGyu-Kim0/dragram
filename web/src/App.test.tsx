@@ -380,7 +380,7 @@ const FORBIDDEN_PHRASES = [
   "나이 제한이 없",
 ];
 
-test.each(["/privacy", "/privacy/2026-11-01", "/privacy/2026-10-29"])(
+test.each(["/privacy", "/privacy/2026-11-02", "/privacy/2026-10-29"])(
   "%s는 로그인 없이 처리방침의 모든 절을 보여준다",
   (path) => {
     open(path);
@@ -581,13 +581,13 @@ const TERMS_SECTIONS = [
   "개인정보와 문의",
 ];
 
-test.each(["/terms", "/terms/2026-11-01"])(
+test.each(["/terms", "/terms/2026-11-02"])(
   "%s는 로그인 없이 약관의 모든 절을 처리방침과 같은 시행일로 보여준다",
   (path) => {
     open(path);
 
     expect(screen.getByRole("main")).toHaveTextContent(
-      "시행일: 2026년 11월 1일",
+      "시행일: 2026년 11월 2일",
     );
     for (const name of TERMS_SECTIONS) {
       expect(

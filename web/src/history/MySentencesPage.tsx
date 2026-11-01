@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { request } from "../connect/auth";
 import { sendToExtension } from "../connect/extension";
@@ -205,6 +205,8 @@ function ItemList<T extends { examples: Example[] }>({
 
   // 사이드 패널에서 바꾼 상태가 보이게, 이 창으로 돌아오면 다시 불러온다.
   const [returned, setReturned] = useState(0);
+  // 이 화면에서 바꾼 횟수. 요청을 보낸 뒤 바뀌었으면 그 응답은 바꾸기 전 목록이라 버리고 다시 부른다.
+  const edits = useRef(0);
   useEffect(() => {
     const again = () => {
       if (document.visibilityState === "visible") setReturned((n) => n + 1);
@@ -219,8 +221,13 @@ function ItemList<T extends { examples: Example[] }>({
 
   useEffect(() => {
     let active = true;
+    const seen = edits.current;
     request<never>("GET", url).then(
-      (body) => active && setLoad({ kind: "ready", items: select(body) }),
+      (body) => {
+        if (!active) return;
+        if (edits.current !== seen) setReturned((n) => n + 1);
+        else setLoad({ kind: "ready", items: select(body) });
+      },
       // 다시 불러오다 실패하면 보이던 목록을 그대로 둔다.
       () =>
         active &&
@@ -241,7 +248,8 @@ function ItemList<T extends { examples: Example[] }>({
       </p>
     );
   if (load.items.length === 0) return <p className="secondary">{empty}</p>;
-  const update = (id: number, change: (item: T) => T | undefined) =>
+  const update = (id: number, change: (item: T) => T | undefined) => {
+    edits.current += 1;
     setLoad((current) =>
       current.kind !== "ready"
         ? current
@@ -254,6 +262,7 @@ function ItemList<T extends { examples: Example[] }>({
             }),
           },
     );
+  };
   return (
     <>
       <ul aria-label={name}>

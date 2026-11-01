@@ -298,8 +298,8 @@ function Examples({
   onDeleted: (id: number) => void;
 }) {
   const [failed, setFailed] = useState(false);
-  // 지우는 중인 예문. 두 번 눌러 두 번째 요청이 404로 실패해 보이지 않게 한다.
-  const [deleting, setDeleting] = useState<number>();
+  // 지우는 중인 예문들. 두 번 눌러 두 번째 요청이 404로 실패해 보이지 않게 예문마다 따로 둔다.
+  const [deleting, setDeleting] = useState<ReadonlySet<number>>(new Set());
   if (examples.length === 0) return null;
   return (
     <>
@@ -310,15 +310,19 @@ function Examples({
             <button
               type="button"
               className="text-button"
-              disabled={deleting === example.id}
+              disabled={deleting.has(example.id)}
               onClick={() => {
                 setFailed(false);
-                setDeleting(example.id);
+                setDeleting((current) => new Set(current).add(example.id));
                 request<void>("DELETE", `/api/my-examples/${example.id}/`).then(
                   () => onDeleted(example.id),
                   () => {
                     setFailed(true);
-                    setDeleting(undefined);
+                    setDeleting((current) => {
+                      const next = new Set(current);
+                      next.delete(example.id);
+                      return next;
+                    });
                   },
                 );
               }}

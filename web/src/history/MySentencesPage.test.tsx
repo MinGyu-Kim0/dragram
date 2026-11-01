@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -299,4 +299,37 @@ test("예문이 있는 숨긴 항목은 다시 보이기 전에 예문도 지워
     method: "DELETE",
     body: { kind: "usage", id: 7 },
   });
+});
+
+test("예문을 지우는 동안 그 예문만 다시 누를 수 없고, 다른 예문도 함께 지울 수 있다", async () => {
+  const pending: ((r: Response) => void)[] = [];
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+    json({
+      usages: [
+        {
+          ...USAGES[0],
+          examples: [
+            { id: 31, text: "雨が降っている。" },
+            { id: 32, text: "猫が寝ている。" },
+          ],
+        },
+      ],
+    });
+  for (const id of [31, 32])
+    responses[`DELETE /api/my-examples/${id}/`] = () =>
+      new Promise<Response>((resolve) => pending.push(resolve)) as never;
+  open();
+  const [card] = await cards("추가한 문법");
+  const [first, second] = within(card).getAllByRole("button", {
+    name: "예문 지우기",
+  });
+
+  await userEvent.click(first!);
+  await userEvent.click(second!);
+
+  expect(first).toBeDisabled();
+  expect(second).toBeDisabled();
+  pending.forEach((resolve) => resolve(new Response(null, { status: 204 })));
+  await waitFor(() => expect(screen.queryByText("猫が寝ている。")).toBeNull());
+  expect(screen.queryByText("雨が降っている。")).toBeNull();
 });

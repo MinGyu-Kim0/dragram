@@ -4061,6 +4061,33 @@ describe("내 일본어 항목(#321)", () => {
     ).toBeInTheDocument();
   });
 
+  test("바깥 문법만 숨기면 숨기지 않은 구성 문법은 독립 카드로 남는다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [
+        withParts(
+          { ...grammarItem(2, 6, "바깥 문법", "学生です"), usage_id: 30 },
+          { ...grammarItem(4, 6, "정중 です", "です"), usage_id: 12 },
+        ),
+      ],
+      words: [],
+    });
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 30, state: "hidden" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+
+    expect(
+      await screen.findByRole("heading", { name: "정중 です" }),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("heading", { name: "바깥 문법" })).toBeNull(),
+    );
+    expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
+    expect(screen.getByText("숨긴 카드 1개")).toBeInTheDocument();
+  });
+
   test("지정한 이름 행은 그 사전 뜻을 숨겨도 남는다", async () => {
     respondWithCards();
     vi.mocked(fetchNames).mockResolvedValue([

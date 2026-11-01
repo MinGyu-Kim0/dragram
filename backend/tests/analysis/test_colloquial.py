@@ -508,6 +508,41 @@ def test_base_pattern_events_reach_analyses_of_its_variants(client, fake_llm, ev
     assert SentenceAnalysis.objects.get(translation_ko="전부 봐 버렸다").is_stale
 
 
+def test_unrejected_base_usage_makes_analyses_of_its_variants_stale(client, fake_llm):
+    base, _ = linked(fake_llm)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+    analyze(client, MICHAU)
+    usage = base.usages.get()
+    review.reject_usage(usage)
+    SentenceAnalysis.objects.update(is_stale=False)
+
+    review.unreject_usage(usage)
+
+    assert SentenceAnalysis.objects.get(translation_ko="전부 봐 버렸다").is_stale
+
+
+@pytest.mark.parametrize(
+    ("base_approved", "variant_approved", "shown"),
+    [(False, True, "pending"), (True, False, "pending"), (True, True, "approved")],
+    ids=["원형만 미검수", "회화체만 미검수", "둘 다 승인"],
+)
+def test_variant_span_is_approved_only_when_both_patterns_are_approved(
+    client, fake_llm, base_approved, variant_approved, shown
+):
+    base, variant = linked(fake_llm)
+    review.approve_usage(base.usages.get())
+    if base_approved:
+        approved(base, CASES)
+    if variant_approved:
+        approved(variant, VARIANT_CASES)
+    fake_llm.response = {"translation_ko": "전부 봐 버렸다", "spans": [span_answer(0, "usage", 1)]}
+
+    response = analyze(client, MICHAU)
+
+    [item] = response.json()["grammar"]
+    assert (item["state"], item["review_status"]) == ("decided", shown)
+
+
 def test_unrejecting_the_base_raises_the_version_for_its_variants(fake_llm):
     base, _ = linked(fake_llm)
     # 활성화 근거가 없어 반려 취소 뒤에도 원형은 비활성이다. 회화체는 원형의 용법으로 다시

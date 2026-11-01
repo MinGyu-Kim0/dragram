@@ -701,6 +701,43 @@ function wordItem(
   };
 }
 
+test("같은 단어도 자리마다 고른 뜻의 자동사·타동사 태그를 보이고, 예외 1그룹 동사에 그 태그를 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "날이 밝아 돌아가서 문을 연다.",
+    grammar: [],
+    words: [
+      wordItem(2, 4, "開ける", "あける", { tags: ["intransitive"] }, [
+        "verb",
+        "group2",
+      ]),
+      wordItem(5, 7, "帰る", "かえる", {}, ["verb", "group1_exception"]),
+      wordItem(11, 14, "開ける", "あける", { tags: ["transitive"] }, [
+        "verb",
+        "group2",
+      ]),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "夜が明けて帰るとドアを開ける");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 3" }));
+
+  const rows = within(screen.getByRole("list", { name: "단어" }))
+    .getAllByRole("listitem")
+    .filter((row) => row.classList.contains("word-row"));
+  expect(
+    rows.map((row) =>
+      within(within(row).getByRole("list", { name: "태그" }))
+        .getAllByRole("listitem")
+        .map((tag) => tag.textContent),
+    ),
+  ).toEqual([
+    ["동사", "2그룹", "자동사"],
+    ["동사", "예외 1그룹"],
+    ["동사", "2그룹", "타동사"],
+  ]);
+});
+
 test("탭에 문법과 단어 개수를 보이고, 처음에는 문법 탭을 보인다", async () => {
   respondWith(200, {
     translation_ko: "나는 학생입니다.",

@@ -128,6 +128,11 @@ def new_pattern(
     }
 
 
+def asked_usages(fake_llm):
+    """마지막 LLM 요청이 구간마다 물은 후보 용법 이름."""
+    return [[c["name"] for c in span["candidates"]] for span in fake_llm.requests[-1]["spans"]]
+
+
 def span_answer(span_id, verdict="usage", candidate_id=None, new_usage=None):
     return {
         "span_id": span_id,

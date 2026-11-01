@@ -14,7 +14,7 @@ from analysis.models import (
     SentenceAnalysis,
     SpanMatch,
 )
-from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.helpers import analyze, asked_usages, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -401,6 +401,76 @@ def test_analysis_outdated_while_being_analyzed_is_sent_but_not_saved(client, fa
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     decided.refresh_from_db()
     assert (decided.translation_ko, decided.is_stale) == ("달리고 있다", True)
+
+
+@pytest.mark.parametrize(
+    ("event", "next_spans"),
+    [
+        (lambda pattern, usage: review.reject_pattern(pattern), []),
+        (lambda pattern, usage: review.reject_usage(usage), []),
+        # 승인만 취소된 용법은 다음 요청에서 다시 후보로 묻는다.
+        (lambda pattern, usage: review.unapprove_usage(usage), [span_answer(0, "usage", 1)]),
+    ],
+    ids=["reject_pattern", "reject_usage", "unapprove_usage"],
+)
+def test_analysis_whose_pattern_or_usage_changes_while_analyzing_is_not_saved(
+    client, fake_llm, event, next_spans
+):
+    pattern, usage = approved_teiru(client, fake_llm)
+    analysis = SentenceAnalysis.objects.get()
+    SentenceAnalysis.objects.update(is_stale=True)
+    fake_llm.response = {"translation_ko": "달리는 중이다", "spans": [span_answer(0, "usage", 1)]}
+    fake_llm.before_respond = lambda: event(pattern, usage)
+
+    response = analyze(client, "走っている")
+
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
+    analysis.refresh_from_db()
+    assert (analysis.translation_ko, analysis.is_stale) == ("달리고 있다", True)
+
+    # 다음 요청은 바뀐 상태로 새로 분석한다.
+    fake_llm.before_respond = None
+    calls = len(fake_llm.requests)
+    fake_llm.response = {"translation_ko": "달리는 중이다", "spans": next_spans}
+    analyze(client, "走っている")
+
+    assert len(fake_llm.requests) == calls + 1
+    analysis.refresh_from_db()
+    assert (analysis.translation_ko, analysis.is_stale) == ("달리는 중이다", False)
+
+
+def test_unapproved_usage_analysis_is_made_again_with_translation_and_spans(client, fake_llm):
+    _, usage = approved_teiru(client, fake_llm)
+    analysis = SentenceAnalysis.objects.get()
+    old_spans = list(analysis.span_matches.values_list("pk", flat=True))
+    review.unapprove_usage(usage)
+    calls = len(fake_llm.requests)
+    fake_llm.response = {"translation_ko": "달리는 중이다", "spans": [span_answer(0, "usage", 1)]}
+
+    analyze(client, "走っている")
+
+    assert len(fake_llm.requests) == calls + 1
+    assert asked_usages(fake_llm) == [["진행"]]
+    analysis.refresh_from_db()
+    assert (analysis.translation_ko, analysis.is_stale) == ("달리는 중이다", False)
+    assert not analysis.span_matches.filter(pk__in=old_spans).exists()
+
+
+def test_usage_unrejected_while_its_pattern_is_rejected_stays_out_of_candidates(client, fake_llm):
+    pattern = register_teiru(client, fake_llm)
+    usage = pattern.usages.get()
+    review.reject_usage(usage)
+    review.reject_pattern(pattern)
+
+    review.unreject_usage(usage)
+
+    usage.refresh_from_db()
+    assert usage.status == ReviewStatus.PENDING
+    calls = len(fake_llm.requests)
+    fake_llm.response = {"translation_ko": "비가 오고 있다"}
+    analyze(client, "雨が降っている")
+    assert len(fake_llm.requests) == calls + 1
+    assert fake_llm.requests[-1]["spans"] == []
 
 
 def test_fresh_analysis_is_still_reused_without_llm(client, fake_llm):

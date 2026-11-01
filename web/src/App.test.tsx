@@ -328,6 +328,18 @@ test("푸터에 연락 메일을 보인다", async () => {
   ).toHaveAttribute("href", "mailto:contact@example.com");
 });
 
+test("푸터에 글꼴 라이선스를 밝힌다", async () => {
+  await openLanding();
+
+  expect(screen.getByRole("contentinfo")).toHaveTextContent(
+    "글꼴: Jua, IBM Plex Sans KR, Zen Maru Gothic (SIL OFL 1.1)",
+  );
+  expect(footer().getByRole("link", { name: "SIL OFL 1.1" })).toHaveAttribute(
+    "href",
+    "https://openfontlicense.org/",
+  );
+});
+
 test("푸터 링크로 홈, 개인정보처리방침, 이용약관을 오간다", async () => {
   const user = userEvent.setup();
   await openLanding();

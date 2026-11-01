@@ -1,4 +1,5 @@
 import { saveToken, signOut } from "./auth";
+import { markItemsChanged } from "./my-items";
 
 // 웹 '로그인·확장 연결' 화면의 출처. manifest externally_connectable에도 이 출처만 둔다.
 // 바꾸려면 빌드할 때 WXT_WEB_ORIGIN을 준다.
@@ -22,6 +23,7 @@ function isFromWeb(url: string | undefined): boolean {
 // - {type: "connect", token, account}: 토큰과 연결한 계정 식별자를 저장한다(웹에서 연결).
 //   account는 서버가 준 바뀌지 않는 값이다.
 // - {type: "disconnect"}: 저장한 토큰을 지운다(웹 로그아웃).
+// - {type: "items-changed"}: 웹에서 내 일본어 항목을 바꿨다. 열린 패널이 다시 불러온다.
 // 우리 웹이 아닌 출처의 메시지는 답하지 않고 무시한다(undefined).
 export function handleExternalMessage(
   message: unknown,
@@ -44,6 +46,9 @@ export function handleExternalMessage(
   }
   if (type === "disconnect") {
     return signOut().then(() => ({ ok: true }));
+  }
+  if (type === "items-changed") {
+    return markItemsChanged().then(() => ({ ok: true }));
   }
   return Promise.resolve({ ok: false });
 }

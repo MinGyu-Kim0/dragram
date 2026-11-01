@@ -4030,6 +4030,25 @@ describe("내 일본어 항목(#321)", () => {
     expect(screen.queryByRole("heading", { name: "주제 は" })).toBeNull();
   });
 
+  test("웹에서 항목을 바꿨다고 알리면 패널을 다시 열지 않아도 항목을 다시 불러온다", async () => {
+    respondWithCards();
+    vi.mocked(fetchMyItems).mockResolvedValue([]);
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    await screen.findByRole("heading", { name: "주제 は" });
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 11, state: "hidden" },
+    ]);
+
+    await handleExternalMessage(
+      { type: "items-changed" },
+      `${WEB_ORIGIN}/sentences`,
+    );
+
+    expect(await screen.findByText("숨긴 카드 1개")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "주제 は" })).toBeNull();
+  });
+
   test("숨긴 용법은 다른 카드의 구성 문법에서도 빠지고 숨긴 카드에 모인다", async () => {
     respondWith(200, {
       translation_ko: "나는 학생입니다.",

@@ -11,6 +11,21 @@ export interface MyItem {
   state: ItemState;
 }
 
+// 웹에서 항목을 바꾼 시각. 열린 패널이 이 값의 변경을 보고 항목을 다시 불러온다.
+const CHANGED_KEY = "myItemsChangedAt";
+
+export function markItemsChanged(): Promise<void> {
+  return browser.storage.local.set({ [CHANGED_KEY]: Date.now() });
+}
+
+export function watchItemsChanged(onChanged: () => void): () => void {
+  const listener = (changes: Record<string, unknown>, area: string) => {
+    if (area === "local" && CHANGED_KEY in changes) onChanged();
+  };
+  browser.storage.onChanged.addListener(listener);
+  return () => browser.storage.onChanged.removeListener(listener);
+}
+
 // 화면이 상태를 찾는 열쇠(종류:ID)
 export const itemKey = (kind: ItemKind, id: number) => `${kind}:${id}`;
 

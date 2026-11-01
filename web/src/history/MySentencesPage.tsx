@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { request } from "../connect/auth";
+import { sendToExtension } from "../connect/extension";
 import SiteLayout, { CC_BY_SA_URL, JMDICT_URL } from "../site/SiteLayout";
 import type { ReviewStatus, WordEntry } from "./analysis";
 import { BadgeRow, PendingBadge, WordRow } from "./cards";
@@ -202,12 +203,35 @@ function ItemList<T extends { examples: Example[] }>({
 }) {
   const [load, setLoad] = useState<Load<T>>({ kind: "loading" });
 
+  // 사이드 패널에서 바꾼 상태가 보이게, 이 창으로 돌아오면 다시 불러온다.
+  const [returned, setReturned] = useState(0);
   useEffect(() => {
+    const again = () => {
+      if (document.visibilityState === "visible") setReturned((n) => n + 1);
+    };
+    window.addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
+    return () => {
+      window.removeEventListener("focus", again);
+      document.removeEventListener("visibilitychange", again);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     request<never>("GET", url).then(
-      (body) => setLoad({ kind: "ready", items: select(body) }),
-      () => setLoad({ kind: "failed" }),
+      (body) => active && setLoad({ kind: "ready", items: select(body) }),
+      // 다시 불러오다 실패하면 보이던 목록을 그대로 둔다.
+      () =>
+        active &&
+        setLoad((current) =>
+          current.kind === "ready" ? current : { kind: "failed" },
+        ),
     );
-  }, [url, select]);
+    return () => {
+      active = false;
+    };
+  }, [url, select, returned]);
 
   if (load.kind === "loading") return <p className="muted">불러오는 중…</p>;
   if (load.kind === "failed")
@@ -370,10 +394,17 @@ function ItemActions({
       kind,
       id,
       ...(next && { state: next }),
-    }).then(onChanged, () => {
-      setFailed(true);
-      setBusy(false);
-    });
+    }).then(
+      () => {
+        // 열린 사이드 패널이 바로 다시 불러오게 알린다. 확장이 없으면 그냥 넘어간다.
+        void sendToExtension({ type: "items-changed" });
+        onChanged();
+      },
+      () => {
+        setFailed(true);
+        setBusy(false);
+      },
+    );
   };
   const remove = () => send("DELETE");
   if (confirming)

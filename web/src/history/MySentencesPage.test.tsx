@@ -3,7 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
+import { sendToExtension } from "../connect/extension";
 import MySentencesPage from "./MySentencesPage";
+
+vi.mock("../connect/extension", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../connect/extension")>()),
+  sendToExtension: vi.fn(async () => true),
+}));
 
 type Call = { url: string; method: string; body?: unknown };
 
@@ -145,6 +151,20 @@ test("숨기기를 누르면 서버에 보내고 목록에서 뺀다", async () 
     body: { kind: "usage", id: 3, state: "hidden" },
   });
   expect(screen.queryByText("정중")).toBeNull();
+  // 열린 사이드 패널이 바로 다시 불러오게 확장에 알린다.
+  expect(sendToExtension).toHaveBeenCalledWith({ type: "items-changed" });
+});
+
+test("사이드 패널에서 바꾸고 이 창으로 돌아오면 목록을 다시 불러온다", async () => {
+  open();
+  await cards("추가한 문법");
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+    json({ usages: [USAGES[1]] });
+
+  window.dispatchEvent(new Event("focus"));
+
+  await waitFor(() => expect(screen.queryByText("진행")).toBeNull());
+  expect(screen.getByText("정중")).toBeInTheDocument();
 });
 
 test("예문이 있는 항목은 한 번 확인받고 예문과 함께 뺀다", async () => {

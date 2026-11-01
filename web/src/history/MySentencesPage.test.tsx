@@ -3,7 +3,13 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
+import { sendToExtension } from "../connect/extension";
 import MySentencesPage from "./MySentencesPage";
+
+vi.mock("../connect/extension", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../connect/extension")>()),
+  sendToExtension: vi.fn(async () => true),
+}));
 
 type Call = { url: string; method: string; body?: unknown };
 
@@ -150,6 +156,42 @@ test("숨기기를 누르면 서버에 보내고 목록에서 뺀다", async () 
     body: { kind: "usage", id: 3, state: "hidden" },
   });
   expect(screen.queryByText("정중")).toBeNull();
+  // 열린 사이드 패널이 바로 다시 불러오게 확장에 알린다.
+  expect(sendToExtension).toHaveBeenCalledWith({ type: "items-changed" });
+});
+
+test("사이드 패널에서 바꾸고 이 창으로 돌아오면 목록을 다시 불러온다", async () => {
+  open();
+  await cards("추가한 문법");
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+    json({ usages: [USAGES[1]] });
+
+  window.dispatchEvent(new Event("focus"));
+
+  await waitFor(() => expect(screen.queryByText("진행")).toBeNull());
+  expect(screen.getByText("정중")).toBeInTheDocument();
+});
+
+test("다시 불러오는 사이 숨긴 항목은 늦게 온 이전 응답으로 되살아나지 않는다", async () => {
+  responses["PUT /api/my-items/"] = () =>
+    json({ kind: "usage", id: 3, state: "hidden" });
+  open();
+  const [, second] = await cards("추가한 문법");
+  let finishStale: (r: Response) => void = () => {};
+  responses["GET /api/my-japanese/grammar/?state=added"] = () => {
+    // 첫 재조회는 숨기기 전 목록을 늦게 돌려준다. 그 뒤로는 서버의 새 상태다.
+    responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+      json({ usages: [USAGES[0]] });
+    return new Promise<Response>((resolve) => (finishStale = resolve)) as never;
+  };
+  window.dispatchEvent(new Event("focus"));
+
+  await userEvent.click(within(second).getByRole("button", { name: "숨기기" }));
+  finishStale(json({ usages: USAGES }));
+
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(screen.queryByText("정중")).toBeNull();
+  expect(screen.getByText("진행")).toBeInTheDocument();
 });
 
 test("예문이 있는 항목은 한 번 확인받고 예문과 함께 뺀다", async () => {

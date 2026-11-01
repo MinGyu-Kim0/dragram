@@ -1,7 +1,8 @@
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, expect, test, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import { loadToken, saveToken } from "./auth";
 import { handleExternalMessage, WEB_ORIGIN } from "./external-messages";
+import { watchItemsChanged } from "./my-items";
 
 beforeEach(() => {
   fakeBrowser.reset();
@@ -27,6 +28,20 @@ test("우리 웹의 disconnect 메시지는 저장한 토큰을 지운다", asyn
 
   expect(await reply).toEqual({ ok: true });
   expect(await loadToken()).toBeUndefined();
+});
+
+test("우리 웹의 items-changed 메시지는 열린 패널에 항목이 바뀌었다고 알린다", async () => {
+  const changed = vi.fn();
+  const stop = watchItemsChanged(changed);
+
+  const reply = handleExternalMessage(
+    { type: "items-changed" },
+    `${WEB_ORIGIN}/sentences`,
+  );
+
+  expect(await reply).toEqual({ ok: true });
+  await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+  stop();
 });
 
 test.each([

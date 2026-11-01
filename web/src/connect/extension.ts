@@ -6,7 +6,10 @@ import { logout } from "./auth";
 export type ExtensionMessage =
   // account: 연결한 계정 식별자(서버가 준 바뀌지 않는 값). 확장은 다른 계정이 연결하면
   // 패널이 보던 결과를 비운다.
-  { type: "connect"; token: string; account: string } | { type: "disconnect" };
+  | { type: "connect"; token: string; account: string }
+  | { type: "disconnect" }
+  // 내 일본어 항목을 바꿨다. 열린 사이드 패널이 다시 불러온다.
+  | { type: "items-changed" };
 
 type Runtime = {
   lastError?: { message?: string };

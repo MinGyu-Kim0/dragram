@@ -25,6 +25,7 @@ import {
 } from "@/utils/names";
 import {
   fetchMyItems,
+  watchItemsChanged,
   itemKey,
   removeMyItem,
   saveMyItem,
@@ -73,6 +74,12 @@ function App() {
   // 로그인 세대. 로그아웃(다른 계정으로 바꾼 연결 포함)하면 올라, 목록을 새로 받고 이전 로그인에서
   // 보낸 이름 요청의 늦은 응답은 버린다. 다른 사람의 지정한 이름이 섞이지 않게 한다(PR #167 리뷰).
   const [login, setLogin] = useState(0);
+  // 웹에서 항목을 바꿀 때마다 올라간다. 올라가면 항목을 다시 불러온다.
+  const [itemsChanged, setItemsChanged] = useState(0);
+  useEffect(
+    () => watchItemsChanged(() => setItemsChanged((count) => count + 1)),
+    [],
+  );
   const loginRef = useRef(0);
   // 끝난 저장·해제 수. 목록을 받는 사이 바뀌었으면 그 목록은 옛것이라 다시 받는다.
   const edits = useRef(0);
@@ -157,7 +164,7 @@ function App() {
     return () => {
       active = false;
     };
-  }, [connected, login]);
+  }, [connected, login, itemsChanged]);
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.

@@ -4097,6 +4097,49 @@ describe("내 일본어 항목(#321)", () => {
     expect(screen.queryByRole("heading", { name: "주제 は" })).toBeNull();
   });
 
+  test("구성 문법 하위 박스에서도 추가하고 예문을 저장하지만, 따로 숨기지는 않는다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [
+        withParts(
+          { ...grammarItem(2, 6, "바깥 문법", "学生です"), usage_id: 30 },
+          { ...grammarItem(4, 6, "정중 です", "です"), usage_id: 12 },
+        ),
+      ],
+      words: [],
+    });
+    vi.mocked(fetchMyItems).mockResolvedValue([]);
+    vi.mocked(saveMyItem).mockResolvedValue({
+      kind: "usage",
+      id: 12,
+      state: "added",
+    });
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+
+    const part = within(
+      await screen.findByRole("list", { name: "구성 문법" }),
+    ).getByRole("listitem");
+    expect(
+      within(part).queryByRole("button", { name: "표시 안 함" }),
+    ).toBeNull();
+    fireEvent.click(within(part).getByRole("button", { name: "추가" }));
+    expect(
+      await within(part).findByText("내 일본어에 추가됨"),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(part).getByRole("button", { name: "이 문장을 예문으로 저장" }),
+    );
+
+    await within(part).findByText("예문 저장됨");
+    // 예문에는 하위 박스(です)의 자리를 보낸다.
+    expect(saveMyItem).toHaveBeenLastCalledWith("usage", 12, "added", {
+      text: SENTENCE,
+      start: 4,
+      end: 6,
+    });
+  });
+
   test("숨긴 용법은 다른 카드의 구성 문법에서도 빠지고 숨긴 카드에 모인다", async () => {
     respondWith(200, {
       translation_ko: "나는 학생입니다.",

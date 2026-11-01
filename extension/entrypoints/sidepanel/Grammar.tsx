@@ -315,6 +315,16 @@ function GrammarCard({
               }
             >
               <GrammarBody text={text} item={part} index={index} Heading="h4" />
+              {items && part.usage_id != null && (
+                <ItemActions
+                  key={`${itemKey("usage", part.usage_id)}:${items.states.get(itemKey("usage", part.usage_id)) ?? "none"}`}
+                  kind="usage"
+                  id={part.usage_id}
+                  example={{ text, start: part.start, end: part.end }}
+                  items={items}
+                  hideable={false}
+                />
+              )}
             </li>
           ))}
         </ul>

@@ -88,6 +88,10 @@ function App() {
   const [itemStates, setItemStates] = useState<ReadonlyMap<string, ItemState>>(
     new Map(),
   );
+  // 저장한 예문이 있는 항목의 열쇠. 목록을 받거나 예문을 저장·항목을 빼면 바뀐다.
+  const [itemExamples, setItemExamples] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   const itemEdits = useRef(0);
   const itemQueues = useRef(new Map<string, Promise<unknown>>());
   // 기다리던 요청이 있으면 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
@@ -113,6 +117,7 @@ function App() {
           setPage(undefined);
           setNames([]);
           setItemStates(new Map());
+          setItemExamples(new Set());
           loginRef.current += 1;
           setLogin(loginRef.current);
         },
@@ -150,12 +155,20 @@ function App() {
         (loaded) => {
           if (!active) return;
           if (itemEdits.current !== seen) load();
-          else
+          else {
             setItemStates(
               new Map(
                 loaded.map((item) => [itemKey(item.kind, item.id), item.state]),
               ),
             );
+            setItemExamples(
+              new Set(
+                loaded
+                  .filter((item) => item.has_examples)
+                  .map((item) => itemKey(item.kind, item.id)),
+              ),
+            );
+          }
         },
         // 받지 못하면 숨긴 카드 없이 보인다.
         () => {},
@@ -371,6 +384,7 @@ function App() {
   };
   const myItems: MyItems = {
     states: itemStates,
+    withExamples: itemExamples,
     save: (kind: ItemKind, id: number, state: ItemState, example?: Example) =>
       inOrder(itemKey(kind, id), async () => {
         const started = loginRef.current;
@@ -380,6 +394,10 @@ function App() {
         setItemStates((current) =>
           new Map(current).set(itemKey(saved.kind, saved.id), saved.state),
         );
+        if (example)
+          setItemExamples((current) =>
+            new Set(current).add(itemKey(saved.kind, saved.id)),
+          );
       }),
     remove: (kind: ItemKind, id: number) =>
       inOrder(itemKey(kind, id), async () => {
@@ -389,6 +407,11 @@ function App() {
         itemEdits.current += 1;
         setItemStates((current) => {
           const next = new Map(current);
+          next.delete(itemKey(kind, id));
+          return next;
+        });
+        setItemExamples((current) => {
+          const next = new Set(current);
           next.delete(itemKey(kind, id));
           return next;
         });

@@ -4058,6 +4058,42 @@ describe("내 일본어 항목(#321)", () => {
     expect(removeMyItem).toHaveBeenCalledWith("usage", 12);
   });
 
+  test("예문이 있는 항목은 다시 보이기·빼기 전에 예문 삭제를 한 번 확인받는다", async () => {
+    respondWithCards();
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 11, state: "hidden", has_examples: true },
+      { kind: "usage", id: 12, state: "added", has_examples: true },
+    ]);
+    vi.mocked(removeMyItem).mockResolvedValue();
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    const hidden = within(
+      await screen.findByRole("list", { name: "숨긴 카드" }),
+    );
+
+    fireEvent.click(hidden.getByRole("button", { name: "다시 보이기" }));
+    expect(removeMyItem).not.toHaveBeenCalled();
+    expect(
+      hidden.getByText("저장한 예문도 함께 지워져요. 되돌릴 수 없어요."),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      hidden.getByRole("button", { name: "예문과 함께 다시 보이기" }),
+    );
+    await waitFor(() => expect(removeMyItem).toHaveBeenCalledWith("usage", 11));
+
+    const card = cardOf("정중 です");
+    fireEvent.click(within(card).getByRole("button", { name: "빼기" }));
+    expect(removeMyItem).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(card).getByRole("button", { name: "취소" }));
+    fireEvent.click(within(card).getByRole("button", { name: "빼기" }));
+    fireEvent.click(
+      within(card).getByRole("button", { name: "예문과 함께 빼기" }),
+    );
+    await waitFor(() =>
+      expect(removeMyItem).toHaveBeenLastCalledWith("usage", 12),
+    );
+  });
+
   test("다시 보이기에 실패하면 숨긴 채로 두고 알린다", async () => {
     respondWithCards();
     vi.mocked(fetchMyItems).mockResolvedValue([

@@ -7,6 +7,7 @@
 import hashlib
 
 from django.db import transaction
+from django.db.models import Exists, OuterRef
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
@@ -96,15 +97,22 @@ def _authorized(request):
 @authentication_classes([TokenOrSession])
 @permission_classes([])
 def my_items(request):
-    """GET은 내 항목 상태 목록(만든 순), PUT은 추가·숨김(같은 항목이면 상태만 바뀐다. 추가할 때
-    example과 그 안의 카드 구간 example_start·example_end를 주면 예문으로 저장한다), DELETE는
-    해제(예문도 지운다)다.
+    """GET은 내 항목 상태와 예문 유무 목록(만든 순), PUT은 추가·숨김(같은 항목이면 상태만
+    바뀐다. 추가할 때 example과 그 안의 카드 구간 example_start·example_end를 주면 예문으로
+    저장한다), DELETE는 해제(예문도 지운다)다.
     """
     _authorized(request)
     user = request.user
     if request.method == "GET":
-        rows = MyItem.objects.filter(user=user).order_by("id")
-        return Response({"items": [_item(row) for row in rows]})
+        # 예문이 있는지도 알려, 확장이 빼기·다시 보이기 전에 예문 삭제를 확인받게 한다.
+        rows = (
+            MyItem.objects.filter(user=user)
+            .annotate(has_examples=Exists(MyExample.objects.filter(item=OuterRef("pk"))))
+            .order_by("id")
+        )
+        return Response(
+            {"items": [{**_item(row), "has_examples": row.has_examples} for row in rows]}
+        )
     kind, target = _target(request.data)
     if request.method == "DELETE":
         # 반려된 항목도 지울 수 있어야 그 예문(본인 원문)을 언제든 지운다.

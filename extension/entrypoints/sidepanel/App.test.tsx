@@ -4152,6 +4152,43 @@ describe("내 일본어 항목(#321)", () => {
     );
   });
 
+  test("기다리던 바꾸기 요청은 그사이 로그아웃했으면 보내지 않는다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [],
+      words: [
+        wordItem(0, 1, "私", "わたし", { id: 21 }),
+        wordItem(2, 4, "学生", "がくせい", { id: 21 }),
+      ],
+    });
+    let finishAdd!: () => void;
+    vi.mocked(saveMyItem).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishAdd = () => resolve({ kind: "sense", id: 21, state: "added" });
+        }),
+    );
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+    const [first, second] = screen
+      .getAllByRole("listitem")
+      .filter((li) => li.classList.contains("word-row"));
+    fireEvent.click(within(first!).getByRole("button", { name: "추가" }));
+    fireEvent.click(
+      within(second!).getByRole("button", { name: "표시 안 함" }),
+    );
+
+    await signOut();
+    await waitFor(() =>
+      expect(screen.queryByRole("tab", { name: /^단어/ })).toBeNull(),
+    );
+    finishAdd();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(saveMyItem).toHaveBeenCalledTimes(1);
+  });
+
   test("저장에 실패하면 상태를 바꾸지 않고 알린다", async () => {
     respondWithCards();
     vi.mocked(saveMyItem).mockRejectedValue(new Error("실패"));

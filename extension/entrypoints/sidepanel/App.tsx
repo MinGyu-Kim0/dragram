@@ -349,10 +349,14 @@ function App() {
   };
 
   // 같은 항목의 바꾸기 요청은 앞 요청이 끝난 뒤 보낸다. 같은 뜻이 여러 줄에 있을 때 응답이 뒤바뀌어
-  // 화면이 서버와 어긋나지 않게 한다(PR #327 리뷰).
-  const inOrder = <T,>(key: string, task: () => Promise<T>): Promise<T> => {
+  // 화면이 서버와 어긋나지 않게 한다. 기다리는 사이 로그아웃(계정 변경)했으면 보내지 않는다. 그
+  // 요청이 다음 계정의 토큰으로 나가지 않게 하기 위해서다(PR #327 리뷰).
+  const inOrder = (key: string, task: () => Promise<void>): Promise<void> => {
+    const started = loginRef.current;
     const previous = itemQueues.current.get(key) ?? Promise.resolve();
-    const next = previous.catch(() => {}).then(task);
+    const next = previous
+      .catch(() => {})
+      .then(() => (loginRef.current === started ? task() : undefined));
     itemQueues.current.set(key, next);
     return next;
   };

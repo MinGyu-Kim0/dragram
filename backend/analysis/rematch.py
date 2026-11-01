@@ -17,7 +17,7 @@ from asgiref.sync import sync_to_async
 from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 
-from analysis import jobs, limits, llm, patterns, stream, user_sentences
+from analysis import jobs, limits, llm, patterns, stream
 from analysis.answers import FIRST_VERDICTS, _validate_recheck_answers, reject_quotes
 from analysis.examples import _check_examples
 from analysis.models import GrammarPattern, GrammarUsage, SentenceAnalysis, SpanMatch, UsageLog
@@ -136,7 +136,6 @@ def rematch(presenter, user, grown):
         {"type": "translation", "translation_ko": event["translation_ko"], "ruby": presenter.ruby},
         event,
     ]
-    user_sentences.record(user, presenter.original, s.cached.pk, event["words"])
     return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
 
 
@@ -379,12 +378,6 @@ def start_judge(sentence, usage, may_judge, grown=()):
     return token
 
 
-def rematch_result(presenter, user, new_closed):
-    event = rematch_fallback(presenter, new_closed)
-    user_sentences.record(user, presenter.original, presenter.sentence.cached.pk, event["words"])
-    return event
-
-
 async def rematch_stream(presenter, user, new_closed, new_spans, grown, may_judge):
     """판별 대상 새 구간이나 후보가 늘어난 저장 구간(#176)이 있는 재매칭의 이벤트.
     rematch_early → analysis 순서다.
@@ -414,7 +407,7 @@ async def rematch_stream(presenter, user, new_closed, new_spans, grown, may_judg
         logger.warning("재판정 작업 소식을 받지 못함: analysis_id=%s", s.cached.pk)
     if saved:
         await sync_to_async(usage.succeed)()
-    yield _ndjson(await sync_to_async(rematch_result)(presenter, user, new_closed))
+    yield _ndjson(await sync_to_async(rematch_fallback)(presenter, new_closed))
 
 
 def run_rematch(analysis_id, text, usage_id, version, token, basis=""):

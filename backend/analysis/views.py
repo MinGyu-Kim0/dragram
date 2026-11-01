@@ -3,7 +3,7 @@ from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from accounts.tokens import ExtensionTokenAuthentication
-from analysis import limits, timing, user_sentences
+from analysis import limits, timing
 from analysis.answers import _is_text
 from analysis.models import SentenceAnalysis, UsageLog
 from analysis.normalize import analysis_text
@@ -70,7 +70,6 @@ def _analyze(request):
         # 이미 다 있으니 한 번에 보낸다.
         row, event = presenter.locked_analysis_event(cached.pk)
         events = [presenter.translation_event(row.translation_ko), event]
-        user_sentences.record(user, presenter.original, cached.pk, events[-1]["words"])
         record = request_record(requested, "cache", request_id=usage.id, analysis_id=cached.pk)
         # 두 이벤트를 한 응답으로 함께 보낸다.
         record.mark("translation")

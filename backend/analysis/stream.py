@@ -8,7 +8,7 @@ from asgiref.sync import sync_to_async
 from django.db.models import F
 from django.utils import timezone
 
-from analysis import jobs, timing, user_sentences
+from analysis import jobs, timing
 from analysis.models import SentenceAnalysis, UsageLog
 from analysis.normalize import NORMALIZE_VERSION
 from analysis.sentence import _is_fresh
@@ -110,12 +110,11 @@ def take(sentence, again=False):
     return row, claimed
 
 
-def saved_events(presenter, user, row, translated):
-    """작업이 저장한 행의 이벤트. 번역을 아직 보내지 않았으면 함께 보낸다. 분석 기록도 남긴다."""
+def saved_events(presenter, row, translated):
+    """작업이 저장한 행의 이벤트. 번역을 아직 보내지 않았으면 함께 보낸다."""
     row, event = presenter.locked_analysis_event(row.pk)
     events = [] if translated else [presenter.translation_event(row.translation_ko)]
     events.append(event)
-    user_sentences.record(user, presenter.original, row.pk, events[-1]["words"])
     return events
 
 
@@ -166,7 +165,7 @@ async def _llm_stream(presenter, user, early, record):
             yield _ndjson({"type": "error", "error": e.error_code.code})
             return
         if state == "saved":
-            for event in await sync_to_async(saved_events)(presenter, user, row, False):
+            for event in await sync_to_async(saved_events)(presenter, row, False):
                 record.mark(event["type"])
                 yield _ndjson(event)
             record.end("done")
@@ -207,9 +206,7 @@ async def _llm_stream(presenter, user, early, record):
             if message["type"] == "done":
                 row = await sync_to_async(SentenceAnalysis.objects.get)(pk=row.pk)
                 if row.word_spans is not None:
-                    for event in await sync_to_async(saved_events)(
-                        presenter, user, row, translated
-                    ):
+                    for event in await sync_to_async(saved_events)(presenter, row, translated):
                         record.mark(event["type"])
                         yield _ndjson(event)
                     await sync_to_async(request_usage.succeed)()

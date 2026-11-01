@@ -11,10 +11,18 @@ import { fakeBrowser } from "wxt/testing/fake-browser";
 import { requestAnalysis } from "@/utils/analysis-request";
 import { loadToken, saveToken, signOut } from "@/utils/auth";
 import { handleExternalMessage, WEB_ORIGIN } from "@/utils/external-messages";
+import { fetchMyItems, removeMyItem, saveMyItem } from "@/utils/my-items";
 import { fetchNames, removeName, saveName } from "@/utils/names";
 import App from "./App";
 
 // 지정한 이름 API(#136)는 분석 요청의 fetch 가짜와 섞이지 않게 따로 가짜로 둔다.
+vi.mock("@/utils/my-items", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/utils/my-items")>()),
+  fetchMyItems: vi.fn(),
+  saveMyItem: vi.fn(),
+  removeMyItem: vi.fn(),
+}));
+
 vi.mock("@/utils/names", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/utils/names")>()),
   fetchNames: vi.fn(),
@@ -124,6 +132,9 @@ beforeEach(async () => {
   // 웹에서 연결한 상태로 시작한다(#109).
   await saveToken("extension-token");
   vi.mocked(fetchNames).mockReset().mockResolvedValue([]);
+  vi.mocked(fetchMyItems).mockReset().mockResolvedValue([]);
+  vi.mocked(saveMyItem).mockReset();
+  vi.mocked(removeMyItem).mockReset();
   vi.mocked(saveName).mockReset();
   vi.mocked(removeName).mockReset();
 });
@@ -3866,4 +3877,337 @@ test("먼저 온 단어가 탭에 보이는 동안 탭 바로 밑 한 곳에 분
   });
   stream.end();
   await waitFor(() => expect(loading()).toHaveLength(0));
+});
+
+describe("내 일본어 항목(#321)", () => {
+  const SENTENCE = "私は学生です";
+
+  function respondWithCards() {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [
+        { ...grammarItem(1, 2, "주제 は", "は"), usage_id: 11 },
+        { ...grammarItem(4, 6, "정중 です", "です"), usage_id: 12 },
+      ],
+      words: [wordItem(2, 4, "学生", "がくせい", { id: 21 })],
+    });
+  }
+
+  const highlights = () => document.querySelectorAll("mark.highlight").length;
+
+  test("카드에서 추가하면 '추가됨'과 예문 저장 버튼을 보이고, 예문은 누를 때만 이 문장으로 보낸다", async () => {
+    respondWithCards();
+    vi.mocked(saveMyItem).mockResolvedValue({
+      kind: "usage",
+      id: 11,
+      state: "added",
+    });
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    await screen.findByRole("heading", { name: "주제 は" });
+
+    fireEvent.click(
+      within(cardOf("주제 は")).getByRole("button", { name: "추가" }),
+    );
+
+    expect(
+      await within(cardOf("주제 は")).findByText("내 일본어에 추가됨"),
+    ).toBeInTheDocument();
+    expect(saveMyItem).toHaveBeenCalledWith("usage", 11, "added", undefined);
+    fireEvent.click(
+      within(cardOf("주제 は")).getByRole("button", {
+        name: "이 문장을 예문으로 저장",
+      }),
+    );
+    expect(
+      await within(cardOf("주제 は")).findByText("예문 저장됨"),
+    ).toBeInTheDocument();
+    expect(saveMyItem).toHaveBeenLastCalledWith("usage", 11, "added", SENTENCE);
+    // 다른 카드는 그대로다.
+    expect(
+      within(cardOf("정중 です")).getByRole("button", { name: "추가" }),
+    ).toBeInTheDocument();
+  });
+
+  test("'표시 안 함'은 카드·형광펜·개수에서 빼고 맨 아래에 접어 두며, '다시 보이기'로 돌아온다", async () => {
+    respondWithCards();
+    vi.mocked(saveMyItem).mockResolvedValue({
+      kind: "usage",
+      id: 11,
+      state: "hidden",
+    });
+    vi.mocked(removeMyItem).mockResolvedValue();
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    await screen.findByRole("heading", { name: "주제 は" });
+    expect(highlights()).toBe(2);
+
+    fireEvent.click(
+      within(cardOf("주제 は")).getByRole("button", { name: "표시 안 함" }),
+    );
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "주제 は" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(saveMyItem).toHaveBeenCalledWith("usage", 11, "hidden", undefined);
+    expect(highlights()).toBe(1);
+    expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
+    const hidden = within(screen.getByRole("list", { name: "숨긴 카드" }));
+    expect(screen.getByText("숨긴 카드 1개")).toBeInTheDocument();
+    expect(hidden.getByText("주제 は")).toBeInTheDocument();
+    // 미검수 용법은 숨긴 줄에서도 배지를 단다.
+    expect(hidden.getByText("AI 생성·미검수")).toBeInTheDocument();
+
+    fireEvent.click(hidden.getByRole("button", { name: "다시 보이기" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "주제 は" }),
+    ).toBeInTheDocument();
+    expect(removeMyItem).toHaveBeenCalledWith("usage", 11);
+    expect(highlights()).toBe(2);
+    expect(screen.queryByText(/숨긴 카드/)).not.toBeInTheDocument();
+  });
+
+  test("이미 숨긴 단어는 처음부터 단어 탭에서 빠져 접혀 있다", async () => {
+    respondWithCards();
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "sense", id: 21, state: "hidden" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+
+    fireEvent.click(await screen.findByRole("tab", { name: "단어 0" }));
+
+    expect(screen.queryByRole("heading", { name: "学生" })).toBeNull();
+    expect(screen.getByText("숨긴 카드 1개")).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("list", { name: "숨긴 카드" })).getByText(
+        "学生 뜻",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test("추가한 카드에서 빼기를 누르면 해제하고 다시 '추가'를 보인다", async () => {
+    respondWithCards();
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 12, state: "added" },
+    ]);
+    vi.mocked(removeMyItem).mockResolvedValue();
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    const card = () => cardOf("정중 です");
+    expect(
+      await within(await waitFor(card)).findByText("내 일본어에 추가됨"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(card()).getByRole("button", { name: "빼기" }));
+
+    expect(
+      await within(card()).findByRole("button", { name: "추가" }),
+    ).toBeInTheDocument();
+    expect(removeMyItem).toHaveBeenCalledWith("usage", 12);
+  });
+
+  test("다시 보이기에 실패하면 숨긴 채로 두고 알린다", async () => {
+    respondWithCards();
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 11, state: "hidden" },
+    ]);
+    vi.mocked(removeMyItem).mockRejectedValue(new Error("실패"));
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    const hidden = within(
+      await screen.findByRole("list", { name: "숨긴 카드" }),
+    );
+
+    fireEvent.click(hidden.getByRole("button", { name: "다시 보이기" }));
+
+    expect(
+      await screen.findByText("바꾸지 못했습니다. 다시 시도해 주세요."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "주제 は" })).toBeNull();
+  });
+
+  test("숨긴 용법은 다른 카드의 구성 문법에서도 빠지고 숨긴 카드에 모인다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [
+        withParts(
+          { ...grammarItem(2, 6, "바깥 문법", "学生です"), usage_id: 30 },
+          { ...grammarItem(4, 6, "정중 です", "です"), usage_id: 12 },
+        ),
+      ],
+      words: [],
+    });
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "usage", id: 12, state: "hidden" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+
+    await screen.findByRole("heading", { name: "바깥 문법" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("list", { name: "구성 문법" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole("tab", { name: "문법 1" })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole("list", { name: "숨긴 카드" })).getByText(
+        "정중 です",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  test("지정한 이름 행은 그 사전 뜻을 숨겨도 남는다", async () => {
+    respondWithCards();
+    vi.mocked(fetchNames).mockResolvedValue([
+      { surface: "学生", reading: "がくせい" },
+    ]);
+    vi.mocked(fetchMyItems).mockResolvedValue([
+      { kind: "sense", id: 21, state: "hidden" },
+    ]);
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+
+    expect(await screen.findByText("내가 지정한 이름")).toBeInTheDocument();
+    expect(screen.queryByText(/숨긴 카드/)).not.toBeInTheDocument();
+  });
+
+  test("분석이 실패해 탭 없이 남은 문법에서도 숨긴 카드를 되돌릴 수 있다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        ndjson([
+          {
+            type: "grammar",
+            grammar: [{ ...approvedGrammarItem(3, 6, "진행"), usage_id: 11 }],
+          },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]),
+      ),
+    );
+    vi.mocked(saveMyItem).mockResolvedValue({
+      kind: "usage",
+      id: 11,
+      state: "hidden",
+    });
+    render(<App />);
+    await send(panelWindowId, "彼が来ている");
+    expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
+
+    fireEvent.click(
+      within(cardOf("진행")).getByRole("button", { name: "표시 안 함" }),
+    );
+
+    expect(await screen.findByText("숨긴 카드 1개")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "진행" })).toBeNull();
+  });
+
+  test("같은 뜻이 두 줄에 있어도 바꾸기 요청은 앞 요청이 끝난 뒤 보낸다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [],
+      words: [
+        wordItem(0, 1, "私", "わたし", { id: 21 }),
+        wordItem(2, 4, "学生", "がくせい", { id: 21 }),
+      ],
+    });
+    let finishAdd!: () => void;
+    vi.mocked(saveMyItem)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishAdd = () =>
+              resolve({ kind: "sense", id: 21, state: "added" });
+          }),
+      )
+      .mockResolvedValueOnce({ kind: "sense", id: 21, state: "hidden" });
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+    const [first, second] = screen
+      .getAllByRole("listitem")
+      .filter((li) => li.classList.contains("word-row"));
+
+    fireEvent.click(within(first!).getByRole("button", { name: "추가" }));
+    fireEvent.click(
+      within(second!).getByRole("button", { name: "표시 안 함" }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(saveMyItem).toHaveBeenCalledTimes(1);
+    finishAdd();
+
+    expect(await screen.findByText("숨긴 카드 1개")).toBeInTheDocument();
+    expect(saveMyItem).toHaveBeenCalledTimes(2);
+    expect(saveMyItem).toHaveBeenLastCalledWith(
+      "sense",
+      21,
+      "hidden",
+      undefined,
+    );
+  });
+
+  test("기다리던 바꾸기 요청은 그사이 로그아웃했으면 보내지 않는다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [],
+      words: [
+        wordItem(0, 1, "私", "わたし", { id: 21 }),
+        wordItem(2, 4, "学生", "がくせい", { id: 21 }),
+      ],
+    });
+    let finishAdd!: () => void;
+    vi.mocked(saveMyItem).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishAdd = () => resolve({ kind: "sense", id: 21, state: "added" });
+        }),
+    );
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+    const [first, second] = screen
+      .getAllByRole("listitem")
+      .filter((li) => li.classList.contains("word-row"));
+    fireEvent.click(within(first!).getByRole("button", { name: "추가" }));
+    fireEvent.click(
+      within(second!).getByRole("button", { name: "표시 안 함" }),
+    );
+
+    await signOut();
+    await waitFor(() =>
+      expect(screen.queryByRole("tab", { name: /^단어/ })).toBeNull(),
+    );
+    finishAdd();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(saveMyItem).toHaveBeenCalledTimes(1);
+  });
+
+  test("저장에 실패하면 상태를 바꾸지 않고 알린다", async () => {
+    respondWithCards();
+    vi.mocked(saveMyItem).mockRejectedValue(new Error("실패"));
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    await screen.findByRole("heading", { name: "주제 は" });
+
+    fireEvent.click(
+      within(cardOf("주제 は")).getByRole("button", { name: "표시 안 함" }),
+    );
+
+    expect(
+      await screen.findByText("저장하지 못했습니다. 다시 시도해 주세요."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "주제 は" }),
+    ).toBeInTheDocument();
+    expect(
+      within(cardOf("주제 は")).getByRole("button", { name: "추가" }),
+    ).toBeInTheDocument();
+  });
 });

@@ -775,3 +775,83 @@ h1 {
   font: inherit;
   cursor: pointer;
 }
+
+/* 내 일본어 항목(#321): 카드 아래 추가·표시 안 함 버튼 줄과 숨긴 카드 */
+.item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.item-actions button:not(.text-button) {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.item-actions .item-remove {
+  margin-left: auto;
+}
+
+.item-mark {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-brand);
+}
+
+.hidden-cards {
+  margin-top: 14px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.hidden-cards summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.hidden-cards ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.hidden-cards li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+
+.hidden-cards li button {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hidden-chip {
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+}

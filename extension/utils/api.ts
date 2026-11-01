@@ -44,6 +44,8 @@ export interface GrammarItem {
   end: number;
   // 실제로 매칭된 패턴의 이름. 문장 속 활용 형태와 별도로 칩에 보인다(#228).
   pattern_name: string;
+  // 고른 용법(해석 갈림은 주 용법)의 ID. 내 일본어에 추가·숨길 때 쓴다(#322). 미확정이면 null이다.
+  usage_id?: number | null;
   connection?: PatternConnection;
   // decided는 용법이 정해진 구간, divergent는 해석 갈림(name·explanation_ko는 주 용법),
   // unresolved는 미확정(name은 패턴 이름, 설명 없음)이다.
@@ -121,6 +123,8 @@ export interface WordItem {
 }
 
 export interface WordSense {
+  // 뜻 ID. 내 일본어에 추가·숨길 때 쓴다(#322).
+  id?: number;
   // 뜻마다 다른 태그(자동사·타동사 등) 코드
   tags: string[];
   // JMdict 영어 뜻. 화면에는 보이지 않는다(LLM 입력과 admin에만 쓴다, #97).

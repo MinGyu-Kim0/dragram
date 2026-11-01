@@ -23,6 +23,15 @@ import {
   saveName,
   type DesignatedName,
 } from "@/utils/names";
+import {
+  fetchMyItems,
+  itemKey,
+  removeMyItem,
+  saveMyItem,
+  type ItemKind,
+  type ItemState,
+} from "@/utils/my-items";
+import type { MyItems } from "./MyItems";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 import { ThemeButton } from "./ThemeButton";
 import { usePreference } from "./use-preference";
@@ -66,6 +75,12 @@ function App() {
   const loginRef = useRef(0);
   // 끝난 저장·해제 수. 목록을 받는 사이 바뀌었으면 그 목록은 옛것이라 다시 받는다.
   const edits = useRef(0);
+  // 내 일본어 항목 상태(#321, 종류:ID → 추가·숨김). 지정한 이름처럼 연결되면 받고 로그인 세대로 거른다.
+  const [itemStates, setItemStates] = useState<ReadonlyMap<string, ItemState>>(
+    new Map(),
+  );
+  const itemEdits = useRef(0);
+  const itemQueues = useRef(new Map<string, Promise<unknown>>());
   // 기다리던 요청이 있으면 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
   const resumeAfterLogin = useCallback(() => {
     if (!waitingForLogin.current) return;
@@ -88,6 +103,7 @@ function App() {
           setResults(undefined);
           setPage(undefined);
           setNames([]);
+          setItemStates(new Map());
           loginRef.current += 1;
           setLogin(loginRef.current);
         },
@@ -107,6 +123,32 @@ function App() {
           else setNames(loaded);
         },
         // 받지 못하면 이름 없이 보인다. 401이면 api가 토큰을 지워 로그인 안내가 보인다.
+        () => {},
+      );
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [connected, login]);
+
+  useEffect(() => {
+    if (!connected) return;
+    let active = true;
+    const load = () => {
+      const seen = itemEdits.current;
+      fetchMyItems().then(
+        (loaded) => {
+          if (!active) return;
+          if (itemEdits.current !== seen) load();
+          else
+            setItemStates(
+              new Map(
+                loaded.map((item) => [itemKey(item.kind, item.id), item.state]),
+              ),
+            );
+        },
+        // 받지 못하면 숨긴 카드 없이 보인다.
         () => {},
       );
     };
@@ -306,6 +348,44 @@ function App() {
     setNames((current) => current.filter((name) => name.surface !== surface));
   };
 
+  // 같은 항목의 바꾸기 요청은 앞 요청이 끝난 뒤 보낸다. 같은 뜻이 여러 줄에 있을 때 응답이 뒤바뀌어
+  // 화면이 서버와 어긋나지 않게 한다. 기다리는 사이 로그아웃(계정 변경)했으면 보내지 않는다. 그
+  // 요청이 다음 계정의 토큰으로 나가지 않게 하기 위해서다(PR #327 리뷰).
+  const inOrder = (key: string, task: () => Promise<void>): Promise<void> => {
+    const started = loginRef.current;
+    const previous = itemQueues.current.get(key) ?? Promise.resolve();
+    const next = previous
+      .catch(() => {})
+      .then(() => (loginRef.current === started ? task() : undefined));
+    itemQueues.current.set(key, next);
+    return next;
+  };
+  const myItems: MyItems = {
+    states: itemStates,
+    save: (kind: ItemKind, id: number, state: ItemState, example?: string) =>
+      inOrder(itemKey(kind, id), async () => {
+        const started = loginRef.current;
+        const saved = await saveMyItem(kind, id, state, example);
+        if (loginRef.current !== started) return;
+        itemEdits.current += 1;
+        setItemStates((current) =>
+          new Map(current).set(itemKey(saved.kind, saved.id), saved.state),
+        );
+      }),
+    remove: (kind: ItemKind, id: number) =>
+      inOrder(itemKey(kind, id), async () => {
+        const started = loginRef.current;
+        await removeMyItem(kind, id);
+        if (loginRef.current !== started) return;
+        itemEdits.current += 1;
+        setItemStates((current) => {
+          const next = new Map(current);
+          next.delete(itemKey(kind, id));
+          return next;
+        });
+      }),
+  };
+
   if (connected === false) {
     return (
       <main>
@@ -375,6 +455,7 @@ function App() {
           names={nameMap}
           onSave={onSaveName}
           onRemove={onRemoveName}
+          items={myItems}
         />
       )}
     </main>

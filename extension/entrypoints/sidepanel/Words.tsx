@@ -1,9 +1,12 @@
 import { useState } from "react";
 import type { NameSpan, RubyItem, WordItem, WordSense } from "@/utils/api";
+import { itemKey } from "@/utils/my-items";
 import { isKana, toHiragana } from "@/utils/names";
 import { BadgeRow } from "./BadgeRow";
 import { namedWords, nameTypeLabel, wordKey } from "./named-words";
 import { draggedFirst, type DragRange } from "./drag-range";
+import { ItemActions, type MyItems } from "./MyItems";
+import { senseBadges } from "./sense-badges";
 import { groupWords } from "./word-groups";
 import { TAG_NAMES } from "./tag-names";
 
@@ -16,19 +19,6 @@ function tagNames(word: WordItem) {
   return TAG_ORDER.filter((code) => codes.has(code)).map(
     (code) => TAG_NAMES[code]!,
   );
-}
-
-// 뜻의 배지(배지 줄에 둔다). 서버가 준 출처·검수 상태로 정한다. 승인 전 뜻은 'AI 생성·미검수',
-// 사전 뜻을 옮긴 검수 전 한국어 뜻은 'AI 번역'이다. 관리자가 승인한 LLM 뜻은 한국어 뜻까지 승인한
-// 것이라 배지가 없다. 한국어 뜻이 아직 없으면 없다.
-function senseBadges(sense: WordSense | null) {
-  if (sense?.meaning_ko == null) return { pending: false, translated: false };
-  const pending = sense.status === "pending";
-  return {
-    pending,
-    translated:
-      !pending && sense.origin !== "llm" && sense.meaning_status === "ai",
-  };
 }
 
 // 뜻 한 줄: 한국어 뜻을 보인다. 영어 뜻은 보이지 않는다. 한국어 뜻이 아직 없으면 준비 중, 만들지
@@ -225,6 +215,7 @@ export function WordList({
   onChooseView,
   onSave,
   onRemove,
+  items,
 }: {
   text: string;
   words: WordItem[];
@@ -235,6 +226,8 @@ export function WordList({
   nameSpans: NameSpan[] | null | undefined;
   // 그 자리를 이름 행(true)이나 사전 단어 행(false)으로 보인다.
   onChooseView: (key: string, named: boolean) => void;
+  // 내 일본어 항목(#321). 있으면 뜻을 고른 단어 행에 추가·표시 안 함 버튼을 단다.
+  items?: MyItems;
 } & NameActions) {
   // 읽기 입력을 연 단어 자리
   const [editing, setEditing] = useState<string>();
@@ -347,6 +340,15 @@ export function WordList({
                 )}
               </div>
               {editor}
+              {items && word.sense?.id != null && (
+                <ItemActions
+                  key={`${itemKey("sense", word.sense.id)}:${items.states.get(itemKey("sense", word.sense.id)) ?? "none"}`}
+                  kind="sense"
+                  id={word.sense.id}
+                  text={text}
+                  items={items}
+                />
+              )}
             </li>
           );
         })}

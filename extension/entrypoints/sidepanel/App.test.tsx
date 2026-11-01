@@ -3922,7 +3922,12 @@ describe("내 일본어 항목(#321)", () => {
     expect(
       await within(cardOf("주제 は")).findByText("예문 저장됨"),
     ).toBeInTheDocument();
-    expect(saveMyItem).toHaveBeenLastCalledWith("usage", 11, "added", SENTENCE);
+    // 예문과 함께 이 카드가 가리키는 부분(は)의 위치도 보낸다.
+    expect(saveMyItem).toHaveBeenLastCalledWith("usage", 11, "added", {
+      text: SENTENCE,
+      start: 1,
+      end: 2,
+    });
     // 다른 카드는 그대로다.
     expect(
       within(cardOf("정중 です")).getByRole("button", { name: "추가" }),

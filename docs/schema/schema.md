@@ -103,6 +103,8 @@
 | item_id | 항목 ID | bigint |  | → my_item | 항목을 빼면(해제) 함께 지운다(CASCADE) |
 | original_hash | 원문 해시 | varchar(64) |  |  | 원문의 SHA-256. UNIQUE(item_id, original_hash) |
 | original_text | 원문 | text |  |  | 사용자가 고른 문장 그대로(분석 원문과 같은 1,000자 상한) |
+| highlight_start | 표시 시작 | int | Y |  | 이 예문에서 카드가 가리키는 부분의 시작. 원문 기준 UTF-16 위치이고, 사이드 패널이 받은 카드 위치를 그대로 보낸다. 구간을 저장하기 전 예문(0031 이전)은 NULL |
+| highlight_end | 표시 끝 | int | Y |  | 그 부분의 끝(배타). 0 ≤ 시작 < 끝 ≤ 원문 길이를 서버가 검사한다 |
 | created_at | 저장일시 | timestamptz |  |  |  |
 
 ## usage_log — 사용 기록

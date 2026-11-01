@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { itemKey, type ItemKind, type ItemState } from "@/utils/my-items";
+import {
+  itemKey,
+  type Example,
+  type ItemKind,
+  type ItemState,
+} from "@/utils/my-items";
 import { BadgeRow } from "./BadgeRow";
 
 // 내 일본어 항목(#321): 카드에서 추가하거나 '표시 안 함'으로 숨긴 용법·단어 뜻의 상태와 바꾸는
@@ -10,7 +15,7 @@ export interface MyItems {
     kind: ItemKind,
     id: number,
     state: ItemState,
-    example?: string,
+    example?: Example,
   ) => Promise<void>;
   remove: (kind: ItemKind, id: number) => Promise<void>;
 }
@@ -21,13 +26,13 @@ export interface MyItems {
 export function ItemActions({
   kind,
   id,
-  text,
+  example,
   items,
 }: {
   kind: ItemKind;
   id: number;
-  // 예문으로 저장할 문장(이 페이지의 원문)
-  text: string;
+  // 예문으로 저장할 문장(이 페이지의 원문)과 그 안에서 이 카드가 가리키는 부분
+  example: Example;
   items: MyItems;
 }) {
   const state = items.states.get(itemKey(kind, id));
@@ -55,7 +60,7 @@ export function ItemActions({
                 disabled={busy}
                 onClick={() =>
                   run(
-                    () => items.save(kind, id, "added", text),
+                    () => items.save(kind, id, "added", example),
                     () => setExampleSaved(true),
                   )
                 }

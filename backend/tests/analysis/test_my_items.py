@@ -21,6 +21,8 @@ pytestmark = pytest.mark.django_db
 User = get_user_model()
 ITEMS = "/api/my-items/"
 EXAMPLE = "その日、私は3人で走っていた。"
+# 예문에서 그 카드가 가리키는 부분(ていた). 원문 기준 UTF-16 위치다.
+WITH_EXAMPLE = {"example": EXAMPLE, "example_start": 11, "example_end": 14}
 
 
 @pytest.fixture
@@ -77,12 +79,13 @@ def test_adding_with_an_example_keeps_only_that_sentence(usage):
         response = send(
             extension,
             "put",
-            {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE},
+            {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE},
         )
         assert response.status_code == 200
 
     example = MyExample.objects.get()
     assert (example.item.usage, example.original_text) == (usage, EXAMPLE)
+    assert (example.highlight_start, example.highlight_end) == (11, 14)
     # 예문 없이 다시 추가해도 저장한 예문은 그대로다.
     send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added"})
     assert MyExample.objects.count() == 1
@@ -92,7 +95,7 @@ def test_hiding_does_not_take_an_example(usage):
     response = send(
         connected_client("me"),
         "put",
-        {"kind": "usage", "id": usage.pk, "state": "hidden", "example": EXAMPLE},
+        {"kind": "usage", "id": usage.pk, "state": "hidden", **WITH_EXAMPLE},
     )
 
     assert (response.status_code, response.json()) == (400, {"error": "MY_ITEM:INVALID"})
@@ -101,7 +104,7 @@ def test_hiding_does_not_take_an_example(usage):
 
 def test_removing_an_item_deletes_its_examples(usage):
     extension = connected_client("me")
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
 
     send(extension, "delete", {"kind": "usage", "id": usage.pk})
 
@@ -122,6 +125,13 @@ def test_removing_an_item_deletes_its_examples(usage):
         {"kind": "usage", "state": "added", "example": "あ" * 1001},
         {"kind": "usage", "state": "added", "example": "A\x00B"},
         {"kind": "usage", "state": "added", "example": "\ud800"},
+        {"kind": "usage", "state": "added", "example": EXAMPLE},
+        {**WITH_EXAMPLE, "kind": "usage", "state": "added", "example_start": "11"},
+        {**WITH_EXAMPLE, "kind": "usage", "state": "added", "example_start": True},
+        {**WITH_EXAMPLE, "kind": "usage", "state": "added", "example_start": -1},
+        {**WITH_EXAMPLE, "kind": "usage", "state": "added", "example_start": 14},
+        {**WITH_EXAMPLE, "kind": "usage", "state": "added", "example_end": 16},
+        {"kind": "usage", "state": "added", "example_start": 0, "example_end": 1},
         ["usage"],
     ],
 )
@@ -138,7 +148,7 @@ def test_invalid_requests_are_refused_without_changes(usage, body):
 @pytest.mark.parametrize("rejected", ["usage", "pattern"])
 def test_rejected_usage_cannot_be_added_but_can_be_removed_with_its_examples(usage, rejected):
     extension = connected_client("me")
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
     target = usage if rejected == "usage" else usage.pattern
     target.status = ReviewStatus.REJECTED
     target.save()
@@ -153,7 +163,7 @@ def test_rejected_usage_cannot_be_added_but_can_be_removed_with_its_examples(usa
 
 def test_each_user_sees_and_changes_only_own_items(usage):
     mine, theirs = connected_client("me"), connected_client("other")
-    send(theirs, "put", {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE})
+    send(theirs, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
 
     assert states(mine) == []
     send(mine, "delete", {"kind": "usage", "id": usage.pk})
@@ -181,7 +191,7 @@ def test_needs_login(usage):
 
 def test_items_and_examples_go_with_the_user(usage):
     extension = connected_client("me")
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
 
     User.objects.get(username="me").delete()
 
@@ -192,7 +202,7 @@ def test_items_and_examples_go_with_the_user(usage):
 def test_example_delete_removes_only_my_example(usage):
     mine, theirs = connected_client("me"), connected_client("other")
     for client in (mine, theirs):
-        send(client, "put", {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE})
+        send(client, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
     my_example = MyExample.objects.get(item__user__username="me")
     their_example = MyExample.objects.get(item__user__username="other")
 
@@ -213,7 +223,7 @@ def test_merging_usages_keeps_the_users_item(usage):
         origin=GrammarUsage.Origin.ADMIN,
     )
     extension = connected_client("me")
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
     send(extension, "put", {"kind": "usage", "id": target.pk, "state": "hidden"})
 
     with transaction.atomic():
@@ -228,7 +238,7 @@ def test_example_is_kept_only_in_my_example_and_not_logged(usage, caplog):
     send(
         connected_client("me"),
         "put",
-        {"kind": "usage", "id": usage.pk, "state": "added", "example": EXAMPLE},
+        {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE},
     )
 
     assert EXAMPLE not in caplog.text

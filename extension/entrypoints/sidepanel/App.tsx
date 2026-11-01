@@ -28,6 +28,7 @@ import {
   itemKey,
   removeMyItem,
   saveMyItem,
+  type Example,
   type ItemKind,
   type ItemState,
 } from "@/utils/my-items";
@@ -362,7 +363,7 @@ function App() {
   };
   const myItems: MyItems = {
     states: itemStates,
-    save: (kind: ItemKind, id: number, state: ItemState, example?: string) =>
+    save: (kind: ItemKind, id: number, state: ItemState, example?: Example) =>
       inOrder(itemKey(kind, id), async () => {
         const started = loginRef.current;
         const saved = await saveMyItem(kind, id, state, example);

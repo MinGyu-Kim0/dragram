@@ -324,7 +324,7 @@ function GrammarCard({
           key={`${itemKey("usage", item.usage_id)}:${items.states.get(itemKey("usage", item.usage_id)) ?? "none"}`}
           kind="usage"
           id={item.usage_id}
-          text={text}
+          example={{ text, start: item.start, end: item.end }}
           items={items}
         />
       )}

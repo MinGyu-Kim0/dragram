@@ -26,7 +26,7 @@ const USAGES = [
     korean_equivalent: "~하고 있다",
     korean_equivalent_review_status: "approved",
     review_status: "pending",
-    examples: [{ id: 31, text: "雨が降っている。" }],
+    examples: [{ id: 31, text: "雨が降っている。", start: 4, end: 7 }],
   },
   {
     usage_id: 3,
@@ -58,7 +58,11 @@ const WORDS = [
     },
     examples: [],
   },
-  { sense_id: 12, rejected: true, examples: [{ id: 41, text: "春が来た。" }] },
+  {
+    sense_id: 12,
+    rejected: true,
+    examples: [{ id: 41, text: "春が来た。", start: null, end: null }],
+  },
 ];
 
 beforeEach(() => {
@@ -123,11 +127,12 @@ test("문법 탭이 기본이고 추가한 용법을 미검수 배지·대응 �
   expect(first).toHaveTextContent("~하고 있다");
   expect(within(first).getByText("AI 생성·미검수")).toBeInTheDocument();
   expect(within(second).queryByText("AI 생성·미검수")).toBeNull();
-  expect(
-    within(within(first).getByRole("list", { name: "내 예문" })).getByText(
-      "雨が降っている。",
-    ),
-  ).toBeInTheDocument();
+  const example = within(
+    within(first).getByRole("list", { name: "내 예문" }),
+  ).getByRole("listitem");
+  expect(example).toHaveTextContent("雨が降っている。");
+  // 예문을 저장한 카드가 가리키던 부분을 사이드 패널처럼 표시한다.
+  expect(example.querySelector("mark")).toHaveTextContent(/^ている$/);
   expect(screen.queryByRole("tab", { name: "문장" })).toBeNull();
 });
 
@@ -224,6 +229,8 @@ test("단어 탭은 뜻·AI 번역·출처를 보이고, 검수에서 빠진 뜻
   expect(within(run).getByText("AI 번역")).toBeInTheDocument();
   expect(rejected).toHaveTextContent("검수에서 빠진 단어 뜻이에요");
   expect(rejected).toHaveTextContent("春が来た。");
+  // 위치가 없는 예문은 표시 없이 보인다.
+  expect(rejected.querySelector("mark")).toBeNull();
   expect(within(rejected).queryByRole("button", { name: "숨기기" })).toBeNull();
   expect(
     within(rejected).getByRole("button", { name: "빼기" }),
@@ -309,8 +316,8 @@ test("예문을 지우는 동안 그 예문만 다시 누를 수 없고, 다른 
         {
           ...USAGES[0],
           examples: [
-            { id: 31, text: "雨が降っている。" },
-            { id: 32, text: "猫が寝ている。" },
+            { id: 31, text: "雨が降っている。", start: 4, end: 7 },
+            { id: 32, text: "猫が寝ている。", start: 3, end: 6 },
           ],
         },
       ],

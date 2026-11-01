@@ -345,7 +345,7 @@ export function WordList({
                   key={`${itemKey("sense", word.sense.id)}:${items.states.get(itemKey("sense", word.sense.id)) ?? "none"}`}
                   kind="sense"
                   id={word.sense.id}
-                  text={text}
+                  example={{ text, start: word.start, end: word.end }}
                   items={items}
                 />
               )}

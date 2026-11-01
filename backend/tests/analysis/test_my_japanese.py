@@ -46,10 +46,12 @@ def usages(fake_llm):
     return [SpanMatch.objects.get(pattern__name=name).usage for name in ("人で", "ている")]
 
 
-def put(client, kind, target, state, example=None):
+def put(client, kind, target, state, example=None, mark=None):
+    """example을 주면 그 안의 mark 부분을 카드 구간으로 함께 보낸다."""
     body = {"kind": kind, "id": target.pk, "state": state}
     if example is not None:
-        body["example"] = example
+        start = example.index(mark)
+        body |= {"example": example, "example_start": start, "example_end": start + len(mark)}
     response = client.put("/api/my-items/", json.dumps(body), content_type="application/json")
     assert response.status_code == 200
 
@@ -64,9 +66,9 @@ def listed(user, url, state=None):
 def test_grammar_lists_added_usages_with_examples_most_recent_first(usages, fake_llm):
     人で, ている = usages
     extension = connected_client("me")
-    put(extension, "usage", ている, "added", "雨が降っている。")
+    put(extension, "usage", ている, "added", "雨が降っている。", "ている")
     put(extension, "usage", 人で, "added")
-    put(extension, "usage", ている, "added", "猫が寝ている。")
+    put(extension, "usage", ている, "added", "猫が寝ている。", "ている")
     put(connected_client("other"), "usage", 人で, "hidden")
     me = User.objects.get(username="me")
 
@@ -84,8 +86,8 @@ def test_grammar_lists_added_usages_with_examples_most_recent_first(usages, fake
         "korean_equivalent_review_status": None,
         "review_status": "pending",
         "examples": [
-            {"id": examples[0]["id"], "text": "雨が降っている。"},
-            {"id": examples[1]["id"], "text": "猫が寝ている。"},
+            {"id": examples[0]["id"], "text": "雨が降っている。", "start": 4, "end": 7},
+            {"id": examples[1]["id"], "text": "猫が寝ている。", "start": 3, "end": 6},
         ],
     }
     assert usages_listed[1]["examples"] == []
@@ -105,7 +107,7 @@ def test_hidden_filter_lists_only_hidden_items(usages):
 def test_rejected_usage_shows_only_its_examples_and_approved_has_no_pending_badge(usages):
     人で, ている = usages
     extension = connected_client("me")
-    put(extension, "usage", 人で, "added", "5人で来た。")
+    put(extension, "usage", 人で, "added", "5人で来た。", "人で")
     put(extension, "usage", ている, "added")
     GrammarUsage.objects.filter(pk=人で.pk).update(status=ReviewStatus.REJECTED)
     GrammarUsage.objects.filter(pk=ている.pk).update(status=ReviewStatus.APPROVED)
@@ -119,7 +121,7 @@ def test_rejected_usage_shows_only_its_examples_and_approved_has_no_pending_badg
     assert rejected == {
         "usage_id": 人で.pk,
         "rejected": True,
-        "examples": [{"id": ANY, "text": "5人で来た。"}],
+        "examples": [{"id": ANY, "text": "5人で来た。", "start": 1, "end": 3}],
     }
     assert (approved["name"], approved["review_status"]) == ("진행", "approved")
 
@@ -131,7 +133,7 @@ def test_words_lists_added_senses_with_dictionary_fields(fake_llm):
     sense.save()
     rejected = add_word(2, ["私"], ["わたし"], [(["I"], [], None)]).senses.get()
     extension = connected_client("me")
-    put(extension, "sense", sense, "added", "毎朝走る。")
+    put(extension, "sense", sense, "added", "毎朝走る。", "走る")
     put(extension, "sense", rejected, "added")
     WordSense.objects.filter(pk=rejected.pk).update(sense_status=ReviewStatus.REJECTED)
 
@@ -154,7 +156,7 @@ def test_words_lists_added_senses_with_dictionary_fields(fake_llm):
                 "meaning_ko": "달리다",
                 "meaning_status": "ai",
             },
-            "examples": [{"id": words[0]["examples"][0]["id"], "text": "毎朝走る。"}],
+            "examples": [{"id": words[0]["examples"][0]["id"], "text": "毎朝走る。", "start": 2, "end": 4}],
         }
     ]
 

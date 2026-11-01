@@ -711,6 +711,10 @@ class MyExample(models.Model):
     # 원문의 SHA-256. 같은 항목에 같은 문장을 두 번 두지 않는다.
     original_hash = models.CharField(max_length=64)
     original_text = models.TextField()
+    # 이 예문에서 카드가 가리키는 부분. 원문 기준 UTF-16 위치 [start, end)이고, 사이드 패널이
+    # 서버 분석 결과의 카드 위치를 그대로 보낸다. 구간을 저장하기 전 예문은 NULL이다.
+    highlight_start = models.IntegerField(null=True)
+    highlight_end = models.IntegerField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

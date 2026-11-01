@@ -64,13 +64,19 @@ def _rejected(kind, target):
 
 
 def _example(data):
-    """본문의 예문. 없으면 None이다."""
+    """본문의 예문과 그 안에서 카드가 가리키는 구간(UTF-16 [start, end)). 없으면 None이다."""
     text = data.get("example")
     if text is None:
+        if "example_start" in data or "example_end" in data:
+            raise _invalid("예문 없이 구간을 줌")
         return None
     if not _is_text(text) or len(text) > MAX_TEXT_LENGTH or "\x00" in text:
         raise _invalid("예문이 맞지 않음")
-    return text
+    start, end = data.get("example_start"), data.get("example_end")
+    length = len(text.encode("utf-16-le")) // 2
+    if type(start) is not int or type(end) is not int or not 0 <= start < end <= length:
+        raise _invalid("예문 구간이 맞지 않음")
+    return text, start, end
 
 
 def _item(row):
@@ -91,7 +97,7 @@ def _authorized(request):
 @permission_classes([])
 def my_items(request):
     """GET은 내 항목 상태 목록(만든 순), PUT은 추가·숨김(같은 항목이면 상태만 바뀐다. 추가할 때
-    example을 주면 예문으로 저장한다), DELETE는 해제(예문도 지운다)다.
+    example과 그 안의 카드 구간 example_start·example_end를 주면 예문으로 저장한다), DELETE는 해제(예문도 지운다)다.
     """
     _authorized(request)
     user = request.user
@@ -118,11 +124,18 @@ def my_items(request):
             user=user, **{kind: target}, defaults={"state": state}
         )
         if example is not None:
-            digest = hashlib.sha256(example.encode()).hexdigest()
+            text, start, end = example
+            digest = hashlib.sha256(text.encode()).hexdigest()
             if not row.examples.filter(original_hash=digest).exists():
                 if row.examples.count() >= MAX_EXAMPLES:
                     raise BusinessError(MyItemError.TOO_MANY, "예문 수 상한")
-                MyExample.objects.create(item=row, original_hash=digest, original_text=example)
+                MyExample.objects.create(
+                    item=row,
+                    original_hash=digest,
+                    original_text=text,
+                    highlight_start=start,
+                    highlight_end=end,
+                )
     return Response(_item(row))
 
 

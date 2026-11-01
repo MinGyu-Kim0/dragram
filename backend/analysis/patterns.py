@@ -17,6 +17,7 @@ from analysis.models import (
     GrammarPattern,
     GrammarUsage,
     MatchCorrection,
+    MyItem,
     PatternMorpheme,
     PatternSetVersion,
     ReviewStatus,
@@ -441,7 +442,26 @@ def merge_usage(source, target):
     now = timezone.now()
     MatchCorrection.objects.filter(before_usage=source).update(before_usage=target, updated_at=now)
     MatchCorrection.objects.filter(after_usage=source).update(after_usage=target, updated_at=now)
+    _move_my_items(source, target)
     source.delete()
+
+
+def _move_my_items(source, target):
+    """사용자가 추가·숨긴 source 항목을 target으로 옮긴다(#322, FR-M13 승계). 같은 사용자가 target도
+    두었으면 하나로 합친다: 추가가 숨김보다 앞서고, 예문은 겹치지 않게 옮긴다.
+    """
+    for item in MyItem.objects.filter(usage=source).select_for_update():
+        kept = MyItem.objects.filter(user_id=item.user_id, usage=target).first()
+        if kept is None:
+            item.usage = target
+            item.save(update_fields=["usage", "updated_at"])
+            continue
+        if MyItem.State.ADDED in (item.state, kept.state):
+            kept.state = MyItem.State.ADDED
+            kept.save(update_fields=["state", "updated_at"])
+        taken = set(kept.examples.values_list("original_hash", flat=True))
+        item.examples.exclude(original_hash__in=taken).update(item=kept)
+        item.delete()
 
 
 def _repointed(row, source_id, target_id):

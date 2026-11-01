@@ -7,12 +7,13 @@ from analysis import usage
 
 
 def withdraw(user):
-    """계정과 개인 기록(원문 기록, 지정한 이름, 확장 토큰, 사용량 기록)을 지운다.
+    """계정과 개인 기록(내 일본어 항목·예문, 지정한 이름, 확장 토큰, 사용량 기록)을 지운다.
 
     공용 분석은 남긴다. 사용량 기록은 사용자를 지우면 연결만 비워지므로 먼저 직접 지운다.
     """
     with transaction.atomic():
-        # 사용자 행을 잠가, 진행 중인 분석이 지운 사용자의 기록을 새로 남기지 못하게 한다.
+        # 사용자 행을 잠가, 진행 중인 요청(항목 추가 등)이 지운 사용자의 기록을 새로 남기지 못하게
+        # 한다.
         tokens.lock_user(user.pk)
         usage.forget(user)
         user.delete()

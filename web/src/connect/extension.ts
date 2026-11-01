@@ -1,10 +1,15 @@
+import { logout } from "./auth";
+
 // 웹 → 확장 메시지(#109). 확장 manifest의 externally_connectable에 이 웹 출처가 있어야
 // chrome.runtime.sendMessage로 보낼 수 있다. 확장 ID는 VITE_EXTENSION_ID로 받는다.
 
 export type ExtensionMessage =
   // account: 연결한 계정 식별자(서버가 준 바뀌지 않는 값). 확장은 다른 계정이 연결하면
   // 패널이 보던 결과를 비운다.
-  { type: "connect"; token: string; account: string } | { type: "disconnect" };
+  | { type: "connect"; token: string; account: string }
+  | { type: "disconnect" }
+  // 내 일본어 항목을 바꿨다. 열린 사이드 패널이 다시 불러온다.
+  | { type: "items-changed" };
 
 type Runtime = {
   lastError?: { message?: string };
@@ -44,3 +49,18 @@ export function sendToExtension(message: ExtensionMessage): Promise<boolean> {
     }
   });
 }
+
+// 연결(발급·전달)과 로그아웃은 같은 출처의 모든 탭에서 한 번에 하나만 한다. 다른 탭의 로그아웃이
+// 폐기한 토큰을 늦게 끝난 연결이 확장에 넘기지 않게 한다. Web Locks가 없으면 그냥 실행한다.
+export function oneAtATime<T>(task: () => Promise<T>): Promise<T> {
+  const locks = globalThis.navigator?.locks;
+  return locks ? locks.request("dragram-connect", task) : task();
+}
+
+/** 로그아웃하고 확장에 알린다. 로그아웃이 실패하면 세션이 남아 있으므로 그대로 던진다. */
+export const logoutAndDisconnect = () =>
+  oneAtATime(async () => {
+    await logout();
+    // 서버가 이 세션의 토큰을 폐기했다. 확장이 바로 로그인 안내로 바뀌게 알린다(없어도 된다).
+    await sendToExtension({ type: "disconnect" });
+  });

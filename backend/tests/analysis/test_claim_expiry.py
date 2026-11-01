@@ -31,6 +31,11 @@ def left_processing(seconds_ago, published=None):
     return SentenceAnalysis.objects.get()
 
 
+def _record():
+    """요청의 시간 기록(#216). 이 테스트들은 보지 않는다."""
+    return stream.request_record(0, None)
+
+
 def reclaim(row):
     """다른 요청이 그 행을 다시 선점했다(새 시도)."""
     new_started = timezone.now()
@@ -86,7 +91,7 @@ def test_only_one_of_two_requests_claims_an_expired_row(client, fake_llm, analys
     queued = []
     monkeypatch.setattr(jobs, "enqueue_analysis", lambda *args: queued.append(args))
 
-    states = [stream.claim(Sentence(TEXT), analyst)[0] for _ in range(2)]
+    states = [stream.claim(Sentence(TEXT), analyst, _record())[0] for _ in range(2)]
 
     assert states == ["claimed", "processing"]
     assert len(queued) == 1
@@ -98,7 +103,7 @@ def test_queue_input_carries_the_claimed_attempt(client, fake_llm, analyst, monk
     queued = []
     monkeypatch.setattr(jobs, "enqueue_analysis", lambda *args: queued.append(args))
 
-    stream.claim(Sentence(TEXT), analyst)
+    stream.claim(Sentence(TEXT), analyst, _record())
 
     [(_, text, _, started)] = queued
     assert text == TEXT

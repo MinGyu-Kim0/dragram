@@ -23,7 +23,20 @@ import {
   saveName,
   type DesignatedName,
 } from "@/utils/names";
+import {
+  fetchMyItems,
+  watchItemsChanged,
+  itemKey,
+  removeMyItem,
+  saveMyItem,
+  type Example,
+  type ItemKind,
+  type ItemState,
+} from "@/utils/my-items";
+import type { MyItems } from "./MyItems";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
+import { Logo } from "./Logo";
+import { ThemeButton } from "./ThemeButton";
 import { usePreference } from "./use-preference";
 
 // 서버에 동시에 보내는 문장 분석 요청 수. 문장 수에는 상한이 없어서(#23), 긴 글을 골라도
@@ -62,9 +75,25 @@ function App() {
   // 로그인 세대. 로그아웃(다른 계정으로 바꾼 연결 포함)하면 올라, 목록을 새로 받고 이전 로그인에서
   // 보낸 이름 요청의 늦은 응답은 버린다. 다른 사람의 지정한 이름이 섞이지 않게 한다(PR #167 리뷰).
   const [login, setLogin] = useState(0);
+  // 웹에서 항목을 바꿀 때마다 올라간다. 올라가면 항목을 다시 불러온다.
+  const [itemsChanged, setItemsChanged] = useState(0);
+  useEffect(
+    () => watchItemsChanged(() => setItemsChanged((count) => count + 1)),
+    [],
+  );
   const loginRef = useRef(0);
   // 끝난 저장·해제 수. 목록을 받는 사이 바뀌었으면 그 목록은 옛것이라 다시 받는다.
   const edits = useRef(0);
+  // 내 일본어 항목 상태(#321, 종류:ID → 추가·숨김). 지정한 이름처럼 연결되면 받고 로그인 세대로 거른다.
+  const [itemStates, setItemStates] = useState<ReadonlyMap<string, ItemState>>(
+    new Map(),
+  );
+  // 저장한 예문이 있는 항목의 열쇠. 목록을 받거나 예문을 저장·항목을 빼면 바뀐다.
+  const [itemExamples, setItemExamples] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const itemEdits = useRef(0);
+  const itemQueues = useRef(new Map<string, Promise<unknown>>());
   // 기다리던 요청이 있으면 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
   const resumeAfterLogin = useCallback(() => {
     if (!waitingForLogin.current) return;
@@ -87,6 +116,8 @@ function App() {
           setResults(undefined);
           setPage(undefined);
           setNames([]);
+          setItemStates(new Map());
+          setItemExamples(new Set());
           loginRef.current += 1;
           setLogin(loginRef.current);
         },
@@ -114,6 +145,40 @@ function App() {
       active = false;
     };
   }, [connected, login]);
+
+  useEffect(() => {
+    if (!connected) return;
+    let active = true;
+    const load = () => {
+      const seen = itemEdits.current;
+      fetchMyItems().then(
+        (loaded) => {
+          if (!active) return;
+          if (itemEdits.current !== seen) load();
+          else {
+            setItemStates(
+              new Map(
+                loaded.map((item) => [itemKey(item.kind, item.id), item.state]),
+              ),
+            );
+            setItemExamples(
+              new Set(
+                loaded
+                  .filter((item) => item.has_examples)
+                  .map((item) => itemKey(item.kind, item.id)),
+              ),
+            );
+          }
+        },
+        // 받지 못하면 숨긴 카드 없이 보인다.
+        () => {},
+      );
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, [connected, login, itemsChanged]);
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.
@@ -219,6 +284,17 @@ function App() {
                       },
                 );
               },
+              // 검증 전 번역 앞부분(#303). 실패하면 실패 결과가 이것을 지운다.
+              (partial) => {
+                if (previous) return;
+                saveAll({
+                  status: "translated",
+                  translation: partial,
+                  earlyGrammar,
+                  checking,
+                  earlyWords,
+                });
+              },
             ),
           () => !current,
         )
@@ -294,10 +370,61 @@ function App() {
     setNames((current) => current.filter((name) => name.surface !== surface));
   };
 
+  // 같은 항목의 바꾸기 요청은 앞 요청이 끝난 뒤 보낸다. 같은 뜻이 여러 줄에 있을 때 응답이 뒤바뀌어
+  // 화면이 서버와 어긋나지 않게 한다. 기다리는 사이 로그아웃(계정 변경)했으면 보내지 않는다. 그
+  // 요청이 다음 계정의 토큰으로 나가지 않게 하기 위해서다(PR #327 리뷰).
+  const inOrder = (key: string, task: () => Promise<void>): Promise<void> => {
+    const started = loginRef.current;
+    const previous = itemQueues.current.get(key) ?? Promise.resolve();
+    const next = previous
+      .catch(() => {})
+      .then(() => (loginRef.current === started ? task() : undefined));
+    itemQueues.current.set(key, next);
+    return next;
+  };
+  const myItems: MyItems = {
+    states: itemStates,
+    withExamples: itemExamples,
+    save: (kind: ItemKind, id: number, state: ItemState, example?: Example) =>
+      inOrder(itemKey(kind, id), async () => {
+        const started = loginRef.current;
+        const saved = await saveMyItem(kind, id, state, example);
+        if (loginRef.current !== started) return;
+        itemEdits.current += 1;
+        setItemStates((current) =>
+          new Map(current).set(itemKey(saved.kind, saved.id), saved.state),
+        );
+        if (example)
+          setItemExamples((current) =>
+            new Set(current).add(itemKey(saved.kind, saved.id)),
+          );
+      }),
+    remove: (kind: ItemKind, id: number) =>
+      inOrder(itemKey(kind, id), async () => {
+        const started = loginRef.current;
+        await removeMyItem(kind, id);
+        if (loginRef.current !== started) return;
+        itemEdits.current += 1;
+        setItemStates((current) => {
+          const next = new Map(current);
+          next.delete(itemKey(kind, id));
+          return next;
+        });
+        setItemExamples((current) => {
+          const next = new Set(current);
+          next.delete(itemKey(kind, id));
+          return next;
+        });
+      }),
+  };
+
   if (connected === false) {
     return (
       <main>
-        <h1>Dragram</h1>
+        <header className="panel-header">
+          <Logo />
+          <ThemeButton />
+        </header>
         <LoginPrompt />
       </main>
     );
@@ -306,16 +433,19 @@ function App() {
   return (
     <main>
       <header className="panel-header">
-        <h1>Dragram</h1>
-        {connected && (
-          <button
-            type="button"
-            className="text-button"
-            onClick={() => logoutExtension()}
-          >
-            로그아웃
-          </button>
-        )}
+        <Logo />
+        <div className="header-actions">
+          <ThemeButton />
+          {connected && (
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => logoutExtension()}
+            >
+              로그아웃
+            </button>
+          )}
+        </div>
       </header>
       {request && request.sentences.length > 1 && (
         <nav className="pager" aria-label="문장">
@@ -357,6 +487,7 @@ function App() {
           names={nameMap}
           onSave={onSaveName}
           onRemove={onRemoveName}
+          items={myItems}
         />
       )}
     </main>

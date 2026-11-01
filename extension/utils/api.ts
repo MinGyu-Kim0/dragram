@@ -44,6 +44,8 @@ export interface GrammarItem {
   end: number;
   // 실제로 매칭된 패턴의 이름. 문장 속 활용 형태와 별도로 칩에 보인다(#228).
   pattern_name: string;
+  // 고른 용법(해석 갈림은 주 용법)의 ID. 내 일본어에 추가·숨길 때 쓴다(#322). 미확정이면 null이다.
+  usage_id?: number | null;
   connection?: PatternConnection;
   // decided는 용법이 정해진 구간, divergent는 해석 갈림(name·explanation_ko는 주 용법),
   // unresolved는 미확정(name은 패턴 이름, 설명 없음)이다.
@@ -107,6 +109,8 @@ export interface WordItem {
   // JMdict 표제(사전형)와 이 표기에 맞는 읽기(食べて → 食べる / たべる)
   dictionary_form: string;
   reading: string;
+  // 이 표기로 쓸 수 있는 나머지 읽기(日本 にほん → にっぽん). 화면은 눌러야 펼친다(#341).
+  other_readings?: string[];
   // 단어 전체 태그(품사, 동사 그룹 등) 코드
   tags: string[];
   // 사전(JMdict) 단어인가. 아니면 LLM이 만든 단어 또는 뜻 없이 보충한 이름이다.
@@ -121,6 +125,8 @@ export interface WordItem {
 }
 
 export interface WordSense {
+  // 뜻 ID. 내 일본어에 추가·숨길 때 쓴다(#322).
+  id?: number;
   // 뜻마다 다른 태그(자동사·타동사 등) 코드
   tags: string[];
   // JMdict 영어 뜻. 화면에는 보이지 않는다(LLM 입력과 admin에만 쓴다, #97).
@@ -188,6 +194,8 @@ export class AnalysisFailed extends Error {
 // 새 문장은 analysis 전에 judged(첫 LLM 응답이 판정한 문법을 더한 문법, 남은 판별 대상 구간, LLM이
 // 고른 뜻을 채운 단어)가 올 수 있고, 그때 onJudged를 부른다(#97). 판정은 저장 전이라 실패
 // (AnalysisFailed)에는 싣지 않는다.
+// 새 문장은 translation 전에 translation_partial(검증 전 번역 앞부분과 루비)이 여럿 올 수 있고,
+// 그때마다 onPartialTranslation을 부른다(#303). 검증 전이라 실패(AnalysisFailed)에는 싣지 않는다.
 // grammar가 오면 onEarlyGrammar를, 번역이 오면 onTranslation을 부르고, 다 오면 분석 전체를
 // 돌려준다. analysis의 번역은 문법·단어와 짝인 저장된 번역이라 그것을 쓴다.
 export async function analyzeSentence(
@@ -204,6 +212,7 @@ export async function analyzeSentence(
     checking: CheckingItem[],
     words: WordItem[],
   ) => void,
+  onPartialTranslation?: (translation: Translation) => void,
 ): Promise<Analysis> {
   const token = await loadToken();
   if (!token) throw new LoginRequired();
@@ -247,6 +256,11 @@ export async function analyzeSentence(
         onEarlyGrammar?.(earlyGrammar, event.checking, event.words ?? []);
       } else if (event.type === "judged") {
         onJudged?.(event.grammar, event.checking, event.words);
+      } else if (event.type === "translation_partial") {
+        onPartialTranslation?.({
+          translation_ko: event.translation_ko,
+          ruby: event.ruby,
+        });
       } else if (event.type === "translation") {
         translation = {
           translation_ko: event.translation_ko,
@@ -283,6 +297,7 @@ type StreamEvent =
       words?: WordItem[];
     }
   | ({ type: "translation" } & Translation)
+  | ({ type: "translation_partial" } & Translation)
   | {
       type: "judged";
       grammar: GrammarItem[];

@@ -357,6 +357,7 @@ def test_new_span_of_a_usage_closed_pattern_is_saved_without_llm(client, fake_ll
             "end": 6,
             "state": "decided",
             "connection": ANY,
+            "usage_id": ANY,
             "pattern_name": "ている",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
@@ -423,6 +424,7 @@ def test_new_span_after_a_pattern_is_activated_is_judged_once_and_saved(client, 
             "end": 6,
             "state": "decided",
             "connection": ANY,
+            "usage_id": ANY,
             "pattern_name": "ている",
             "name": "진행",
             "explanation_ko": "동작이 이어지고 있음을 나타낸다",
@@ -439,6 +441,50 @@ def test_new_span_after_a_pattern_is_activated_is_judged_once_and_saved(client, 
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
     assert analysis.matcher_version == version()
     assert not analysis.is_stale
+
+
+def test_cached_sentences_nobody_views_again_are_not_judged(client, fake_llm):
+    fake_llm.response = {"translation_ko": "그녀가 와 있다"}
+    analyze(client, "彼女が来ている")
+    cache_then_register_teiru(client, fake_llm)
+    fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
+
+    analyze(client, KITEIRU)
+
+    # 다시 조회한 문장만 재판정한다.
+    [request] = fake_llm.all_requests()
+    assert request["translation_ko"] == "그가 와 있다"
+    unviewed = SentenceAnalysis.objects.get(translation_ko="그녀가 와 있다")
+    assert not unviewed.span_matches.exists()
+
+
+def test_cached_sentence_is_matched_again_when_an_inactive_pattern_is_activated(client, fake_llm):
+    fake_llm.response = {"translation_ko": "그가 와 있다"}
+    analyze(client, KITEIRU)
+    # 예문이 걸리지 않아 비활성으로 등록된다.
+    register(fake_llm, "走っている", {**TEIRU, "example_ja": "雨が降る"})
+    pattern = GrammarPattern.objects.get()
+    assert not pattern.is_active
+    fake_llm.forget_requests()
+    analyze(client, KITEIRU)
+    assert fake_llm.all_requests() == []
+    before = version()
+
+    review.update_test_cases(
+        pattern,
+        [
+            {"text": "雨が降っている", "should_match": True},
+            {"text": "雨が降る", "should_match": False},
+        ],
+    )
+
+    pattern.refresh_from_db()
+    assert pattern.is_active
+    assert version() == before + 1
+    fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
+    response = analyze(client, KITEIRU)
+    assert len(fake_llm.rematch_requests) == 1
+    assert [item["name"] for item in response.json()["grammar"]] == ["진행"]
 
 
 def test_other_place_of_the_pattern_registered_by_the_sentence_is_judged(client, fake_llm):

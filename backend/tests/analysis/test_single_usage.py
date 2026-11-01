@@ -7,7 +7,7 @@ import pytest
 from analysis import review
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, saved_analyses, span_answer
+from tests.analysis.helpers import add_word, analyze, new_pattern, saved_analyses, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -38,6 +38,35 @@ def closed_teiru(client, fake_llm):
     return pattern
 
 
+def test_usage_closed_sentence_asks_only_translation_proposals_and_word_senses(client, fake_llm):
+    closed_teiru(client, fake_llm)
+    hiraku = add_word(
+        6,
+        ["開く"],
+        ["ひらく"],
+        [(["to open"], ["transitive"], None), (["to bloom"], ["intransitive"], None)],
+        tags=("verb", "group1"),
+    )
+    bloom = hiraku.senses.get(jmdict_sense_index=2).id
+    calls = len(fake_llm.requests)
+    # 토큰: 0 花 / 1 が / 2 開い / 3 て / 4 いる
+    fake_llm.response = {
+        "translation_ko": "꽃이 피어 있다",
+        "words": [{"token_id": 2, "sense_id": bloom}],
+    }
+
+    response = analyze(client, "花が開いている")
+
+    # 용법 판별 없이 한 번의 요청으로 번역·새 구문 제안·단어 뜻 선택을 받는다.
+    assert len(fake_llm.requests) == calls + 1
+    request = fake_llm.requests[-1]
+    assert request["spans"] == []
+    assert [span["name"] for span in request["decided_spans"]] == ["진행"]
+    assert [word["token_id"] for word in request["words"]] == [2]
+    [word] = response.json()["words"]
+    assert word["sense"]["tags"] == ["intransitive"]
+
+
 def test_span_of_a_usage_closed_pattern_is_decided_without_asking_the_llm(client, fake_llm):
     closed_teiru(client, fake_llm)
     fake_llm.response = {"translation_ko": "그가 와 있다"}
@@ -54,6 +83,7 @@ def test_span_of_a_usage_closed_pattern_is_decided_without_asking_the_llm(client
         "end": 6,
         "state": "decided",
         "connection": ANY,
+        "usage_id": ANY,
         "pattern_name": "ている",
         "name": "진행",
         "explanation_ko": "동작이 이어지고 있음을 나타낸다",
@@ -138,6 +168,7 @@ def test_candidate_spans_are_sent_as_checking_before_the_translation(client, fak
                 # 후보가 하나라 판정 전에도 그 용법 칸을 싣는다(#203).
                 "usage": {
                     "connection": ANY,
+                    "usage_id": ANY,
                     "pattern_name": "ている",
                     "name": "진행",
                     "explanation_ko": "동작이 이어지고 있음을 나타낸다",

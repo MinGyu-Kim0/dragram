@@ -6,6 +6,7 @@ import openai
 from django.conf import settings
 from openai import OpenAI, OpenAIError
 
+from analysis import timing
 from analysis.jmdict import SENSE_TAG_NAMES, WHOLE_WORD_TAGS
 from analysis.models import FunctionTag, UsageLog
 from errors import AnalysisError, BusinessError
@@ -341,6 +342,28 @@ class SectionParser:
         self._scanned = len(self._text)
         return found
 
+    def partial(self, key):
+        """맨 위 칸 key의 값이 아직 닫히지 않은 문자열이면 지금까지 받은 앞부분, 아니면 None.
+
+        조각 끝에서 잘린 이스케이프(\\, \\u30 등)와 짝을 기다리는 서로게이트는 빼고 돌려준다.
+        """
+        if not (self._in_string and self._depth == 1) or self._value_start is None:
+            return None
+        if self._key != key:
+            return None
+        raw = self._text[self._value_start :].lstrip()[1:]
+        # 잘린 이스케이프는 길어야 \uXXX(5글자)다.
+        for end in range(len(raw), max(len(raw) - 6, -1), -1):
+            try:
+                text = json.loads(f'"{raw[:end]}"', strict=False)
+            except json.JSONDecodeError:
+                continue
+            if text and "\ud800" <= text[-1] <= "\udbff":
+                text = text[:-1]
+            return text
+        # 앞쪽에 JSON이 허용하지 않는 이스케이프가 있다. 칸이 닫힐 때 실패한다.
+        return None
+
     def _close_string(self, end):
         """맨 위에서 닫힌 문자열이 칸 이름이면 기억하고, 값이면 그 칸을 꺼낸다."""
         if self._value_start is None:
@@ -410,8 +433,9 @@ class OpenAILLMClient:
     """요청 하나가 쓰는 클라이언트. 그 요청의 호출들이 마감 시각 하나를 함께 쓴다.
 
     보낸 호출마다 record(purpose, model, input_tokens, cached_input_tokens, output_tokens,
-    success, attempt)를 한 번 부른다. 보내지 못했거나 응답이 없으면 토큰은 None이다. 마감이
-    지나 보내지 않은 호출은 부르지 않는다.
+    success, attempt, seconds)를 한 번 부른다. 보내지 못했거나 응답이 없으면 토큰은 None이다.
+    seconds는 보내기 시작해 끝나기(실패 포함)까지의 시간이다(#216). 마감이 지나 보내지 않은 호출은
+    부르지 않는다.
     """
 
     def __init__(self, record):
@@ -422,12 +446,14 @@ class OpenAILLMClient:
         )
 
     def analyze_stream(self, sentence, tokens, spans, decided_spans, words, unknown_words):
-        """구조화된 출력을 스트림으로 받는다. 번역이 끝나면 ("translation", 번역)을, 판정 칸이
-        끝나면 ("spans", 검증 전 판정)을, 단어 칸이 끝나면 ("words", 검증 전 고른 뜻)을 먼저 넘기고
-        (#204, #205), 다 받으면 ("result", 검증 전 응답)을 넘긴다. spans는 등록된 패턴에 걸린
-        구간과 그 후보 용법이다. decided_spans는 LLM 없이 확정한 구간이라 답을 받지 않고, 새
-        구문으로 다시 내지 않게 알리기만 한다. words는 JMdict 후보 뜻이 여럿인 토큰과 그
-        후보다(#96). unknown_words는 사전에서 못 찾은 토큰 ID로, 사전형·읽기만 받는다(#134).
+        """구조화된 출력을 스트림으로 받는다. 번역을 쓰는 동안 앞부분이 늘 때마다
+        ("translation_partial", 검증 전 앞부분)을(#303), 번역이 끝나면 ("translation", 번역)을,
+        판정 칸이 끝나면 ("spans", 검증 전 판정)을, 단어 칸이 끝나면 ("words", 검증 전 고른
+        뜻)을 먼저 넘기고(#204, #205), 다 받으면 ("result", 검증 전 응답)을 넘긴다. spans는
+        등록된 패턴에 걸린 구간과 그 후보 용법이다. decided_spans는 LLM 없이 확정한 구간이라
+        답을 받지 않고, 새 구문으로 다시 내지 않게 알리기만 한다. words는 JMdict 후보 뜻이 여럿인
+        토큰과 그 후보다(#96). unknown_words는 사전에서 못 찾은 토큰 ID로, 사전형·읽기만
+        받는다(#134).
 
         SDK 오류(타임아웃·인증·연결 끊김 등), 실패·중단 이벤트, 전체 시간 초과, JSON이 아닌
         응답(거절 등)은 ANALYSIS:FAILED다. 아무것도 받기 전에 일시 오류로 실패했으면 요청 마감
@@ -448,7 +474,8 @@ class OpenAILLMClient:
         now = time.monotonic()
         deadline = min(now + STREAM_DEADLINE_SECONDS, self._deadline)
         # 사이드 패널이 연결을 끊어 중간에 닫혀도 보낸 호출은 기록한다.
-        final, success, received = None, False, False
+        final, success, received, sent = None, False, False, timing.clock()
+        last_prefix = None
         try:
             stream = self._client.responses.create(
                 timeout=min(TIMEOUT_SECONDS, self._deadline - now),
@@ -492,13 +519,18 @@ class OpenAILLMClient:
                         for key, value in parser.feed(event.delta):
                             if key in _EARLY_SECTIONS:
                                 yield _EARLY_SECTIONS[key], value
+                        # 번역은 닫히기 전에도 앞부분이 늘 때마다 넘긴다(#303).
+                        prefix = parser.partial("translation_ko")
+                        if prefix and prefix != last_prefix:
+                            last_prefix = prefix
+                            yield "translation_partial", prefix
             result = parser.result()
             success = True
         except OpenAIError as e:
             failure = _NothingReceived if not received and _transient(e) else BusinessError
             raise failure(AnalysisError.FAILED, "LLM 호출 실패") from e
         finally:
-            self._record_call(UsageLog.Purpose.FIRST_RESPONSE, final, success, attempt)
+            self._record_call(UsageLog.Purpose.FIRST_RESPONSE, final, success, attempt, sent)
         yield "result", result
 
     def judge_spans(self, sentence, tokens, translation_ko, decided_spans, recheck_spans, spans):
@@ -644,7 +676,7 @@ class OpenAILLMClient:
         remaining = self._deadline - time.monotonic()
         if remaining <= 0:
             raise BusinessError(AnalysisError.FAILED, f"LLM {label} 전에 요청 시간 초과")
-        response, success = None, False
+        response, success, sent = None, False, timing.clock()
         try:
             response = self._client.responses.create(
                 timeout=min(TIMEOUT_SECONDS, remaining),
@@ -675,10 +707,12 @@ class OpenAILLMClient:
             failure = _NothingReceived if _transient(e) else BusinessError
             raise failure(AnalysisError.FAILED, f"LLM {label} 호출 실패") from e
         finally:
-            self._record_call(purpose, response, success, attempt)
+            self._record_call(purpose, response, success, attempt, sent)
 
-    def _record_call(self, purpose, response, success, attempt):
-        """보낸 호출 하나를 기록한다. response는 SDK 응답이고 받지 못했으면 None이다."""
+    def _record_call(self, purpose, response, success, attempt, sent):
+        """보낸 호출 하나를 기록한다. response는 SDK 응답이고 받지 못했으면 None이다. sent는 보내기
+        시작한 시각(timing.clock)이다.
+        """
         model, tokens = settings.OPENAI_MODEL, (None, None, None)
         if response is not None:
             model = response.model
@@ -697,6 +731,7 @@ class OpenAILLMClient:
             output_tokens=output_tokens,
             success=success,
             attempt=attempt,
+            seconds=timing.seconds_since(sent),
         )
 
 

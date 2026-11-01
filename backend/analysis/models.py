@@ -300,6 +300,8 @@ class SpanMatch(models.Model):
         # 승인된 판별 규칙으로 LLM 없이 확정(#55)
         RULE = "rule"
         LLM = "llm"
+        # 관리자 정정(match_correction)을 적용했다(#221)
+        ADMIN = "admin"
 
     analysis = models.ForeignKey(
         SentenceAnalysis, on_delete=models.CASCADE, related_name="span_matches"
@@ -361,6 +363,51 @@ class SpanMatch(models.Model):
 
     def __str__(self):
         return f"{self.analysis_id} [{self.start_offset}, {self.end_offset}) {self.state}"
+
+
+class MatchCorrection(models.Model):
+    """관리자 매칭 정정(FR-A21, #221). 위치는 키 텍스트 코드포인트 기준 [start, end)다.
+
+    재분석해도 덮어쓰지 않는다. 분석할 때 활성 정정이 LLM·DB 판정보다 먼저 적용된다.
+    """
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "적용"
+        SUSPENDED = "suspended", "멈춤"
+
+    analysis = models.ForeignKey(
+        SentenceAnalysis, on_delete=models.CASCADE, related_name="corrections"
+    )
+    start_offset = models.IntegerField()
+    end_offset = models.IntegerField()
+    # 정정한 구간에 실제로 매칭된 패턴. 같은 자리에 여러 패턴이 걸리면 이것으로 가른다.
+    pattern = models.ForeignKey(GrammarPattern, on_delete=models.PROTECT, related_name="+")
+    before_usage = models.ForeignKey(
+        GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    # NULL이면 매칭 해제
+    after_usage = models.ForeignKey(
+        GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    status = models.CharField(max_length=30, choices=Status.choices, default=Status.ACTIVE)
+    # 정정한 관리자가 탈퇴해도 정정은 남는다(다른 관리자 칸과 같다).
+    corrected_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "match_correction"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["analysis", "start_offset", "end_offset", "pattern"],
+                name="match_correction_place",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.analysis_id} [{self.start_offset}, {self.end_offset})"
 
 
 class PatternSetVersion(models.Model):
@@ -552,10 +599,8 @@ class WordSense(models.Model):
 
 
 class UserSentence(models.Model):
-    """사용자가 분석한 문장(분석 기록, #93). 개인 원문은 이 테이블에만 둔다.
-
-    본인 user_id로만 조회하고 Django admin에 등록하지 않는다. 응답에 분석 결과가 나갔고 공용
-    분석 행에 저장된 결과가 있을 때만 저장·갱신한다(analysis.user_sentences).
+    """예전 분석 기록(#93). 분석할 때마다 원문을 자동 저장했으나 더는 쓰지 않는다(#322). 남은 행과
+    테이블을 없앨지는 배포할 때 정한다. 본인 user_id로만 조회하고 Django admin에 등록하지 않는다.
     """
 
     user = models.ForeignKey(
@@ -588,7 +633,7 @@ class UserSentence(models.Model):
 class DesignatedName(models.Model):
     """지정한 이름(#136): 사용자가 단어 카드의 표기를 이름으로 지정한 것. 개인 데이터다.
 
-    user_sentence 원문과 같이 본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다.
+    본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다.
     공용 분석·공용 단어·LLM 요청에는 넣지 않는다.
     """
 
@@ -611,6 +656,79 @@ class DesignatedName(models.Model):
     def __str__(self):
         # 표기를 담지 않는다.
         return f"{self.user_id} #{self.pk}"
+
+
+class MyItem(models.Model):
+    """내 일본어 항목(#321, #322): 사용자가 사이드 패널 카드에서 추가하거나 '표시 안 함'으로 숨긴
+    용법 또는 단어 뜻. 개인 데이터다. 원문은 없고 ID만 둔다.
+
+    본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다.
+    """
+
+    class State(models.TextChoices):
+        # 내 일본어에 추가했다. 웹 내 기록에 보인다.
+        ADDED = "added"
+        # 표시 안 함. 사이드 패널에서 이 카드를 접어 둔다.
+        HIDDEN = "hidden"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="my_items"
+    )
+    # 용법을 합치면 합친 쪽으로 옮긴다(patterns.merge_usage). 용법을 지우지 않게 PROTECT다.
+    usage = models.ForeignKey(GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+")
+    sense = models.ForeignKey(WordSense, on_delete=models.CASCADE, null=True, related_name="+")
+    state = models.CharField(max_length=30, choices=State.choices)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "my_item"
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(usage__isnull=False, sense__isnull=True)
+                | models.Q(usage__isnull=True, sense__isnull=False),
+                name="my_item_usage_xor_sense",
+            ),
+            models.UniqueConstraint(
+                fields=["user", "usage"],
+                condition=models.Q(usage__isnull=False),
+                name="my_item_usage_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["user", "sense"],
+                condition=models.Q(sense__isnull=False),
+                name="my_item_sense_unique",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} #{self.pk}"
+
+
+class MyExample(models.Model):
+    """사용자가 카드를 추가하며 예문으로 저장하기로 고른 문장(#322). 개인 원문은 이 테이블에만
+    둔다. 본인 user_id(항목의 사용자)로만 조회하고 Django admin에 등록하지 않는다.
+    """
+
+    item = models.ForeignKey(MyItem, on_delete=models.CASCADE, related_name="examples")
+    # 원문의 SHA-256. 같은 항목에 같은 문장을 두 번 두지 않는다.
+    original_hash = models.CharField(max_length=64)
+    original_text = models.TextField()
+    # 이 예문에서 카드가 가리키는 부분. 원문 기준 UTF-16 위치 [start, end)이고, 사이드 패널이
+    # 서버 분석 결과의 카드 위치를 그대로 보낸다. 구간을 저장하기 전 예문은 NULL이다.
+    highlight_start = models.IntegerField(null=True)
+    highlight_end = models.IntegerField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "my_example"
+        constraints = [
+            models.UniqueConstraint(fields=["item", "original_hash"], name="my_example_unique"),
+        ]
+
+    def __str__(self):
+        # 원문을 담지 않는다.
+        return f"{self.item_id} #{self.pk}"
 
 
 class EvalSentence(models.Model):

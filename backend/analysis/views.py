@@ -3,14 +3,14 @@ from django.http import HttpResponse, StreamingHttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 
 from accounts.tokens import ExtensionTokenAuthentication
-from analysis import limits, user_sentences
+from analysis import limits, timing
 from analysis.answers import _is_text
 from analysis.models import SentenceAnalysis, UsageLog
 from analysis.normalize import analysis_text
 from analysis.presenter import Presenter
 from analysis.rematch import grown_spans, rematch
 from analysis.sentence import Sentence
-from analysis.stream import _NDJSON, _ndjson, llm_stream
+from analysis.stream import _NDJSON, _ndjson, llm_stream, request_record
 from analysis.usage import RequestUsage
 from errors import AnalysisError, BusinessError
 
@@ -54,6 +54,7 @@ def _analyze(request):
     """캐시 분석은 한 번에 보내고, 패턴 세트 버전이 올랐거나 후보가 늘어난 저장 구간이 있으면
     다시 매칭하고(#176), 나머지는 작업자의 LLM 작업을 기다리며 흘려보낸다.
     """
+    requested = timing.clock()
     original = request.data.get("text") if isinstance(request.data, dict) else None
     if not _is_text(original):
         raise BusinessError(AnalysisError.TEXT_REQUIRED, "분석할 문장이 없음")
@@ -65,11 +66,16 @@ def _analyze(request):
     cached = sentence.cached
     grown = grown_spans(sentence) if cached else []
     if cached and cached.matcher_version >= sentence.matcher_version and not grown:
-        RequestUsage.start(UsageLog.Path.CACHE, user, cached.pk, success=True)
+        usage = RequestUsage.start(UsageLog.Path.CACHE, user, cached.pk, success=True)
         # 이미 다 있으니 한 번에 보낸다.
         row, event = presenter.locked_analysis_event(cached.pk)
         events = [presenter.translation_event(row.translation_ko), event]
-        user_sentences.record(user, presenter.original, cached.pk, events[-1]["words"])
+        record = request_record(requested, "cache", request_id=usage.id, analysis_id=cached.pk)
+        # 두 이벤트를 한 응답으로 함께 보낸다.
+        record.mark("translation")
+        record.mark("analysis")
+        record.end("done")
+        record.log()
         return HttpResponse("".join(map(_ndjson, events)), content_type=_NDJSON)
     if cached:
         return rematch(presenter, user, grown)
@@ -80,5 +86,5 @@ def _analyze(request):
     if not joining and limits.over_limit(user):
         raise BusinessError(AnalysisError.USAGE_LIMIT, "하루 토큰 한도를 넘음")
     return StreamingHttpResponse(
-        llm_stream(presenter, user, presenter.early_events()), content_type=_NDJSON
+        llm_stream(presenter, user, presenter.early_events(), requested), content_type=_NDJSON
     )

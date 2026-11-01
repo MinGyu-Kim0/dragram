@@ -29,8 +29,8 @@ export function namedWords(
 }
 
 const NAME_TYPE_NAMES: Record<NameSpan["type"], string> = {
-  person: "사람 이름",
-  place: "장소 이름",
+  person: "인명",
+  place: "지명",
   org: "조직 이름",
   work: "작품 이름",
   other: "기타 이름",

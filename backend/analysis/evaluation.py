@@ -25,7 +25,7 @@ def _surface(text, start, end):
     return text.encode("utf-16-le")[2 * start : 2 * end].decode("utf-16-le")
 
 
-def _flat(grammar):
+def flat_items(grammar):
     """응답 문법 항목과 그 구성 문법(parts)을 원문 순서로 편다."""
     items = []
     for item in grammar:
@@ -95,7 +95,7 @@ def _analyze(result):
     presenter = Presenter(Sentence(text), original, origins)
     grammar, spans = presenter.grammar_spans(row)
     items = []
-    for item in _flat(grammar):
+    for item in flat_items(grammar):
         span = spans[id(item)]
         items.append(
             EvalItem(

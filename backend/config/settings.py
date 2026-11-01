@@ -115,6 +115,15 @@ if OPENAI_REASONING_EFFORT not in {"none", "minimal", "low", "medium", "high", "
         "OPENAI_REASONING_EFFORT must be one of: none, minimal, low, medium, high, xhigh, max."
     )
 
+# 분석 시간 기록(analysis.timing, #216)을 표준 오류로 낸다. 한 줄이 JSON 하나다. 나머지 로거는
+# 기존처럼 경고 이상만 Python 기본 처리기로 나간다.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {"timing": {"class": "logging.StreamHandler"}},
+    "loggers": {"analysis.timing": {"handlers": ["timing"], "level": "INFO"}},
+}
+
 # 분석 작업 큐(RQ)와 작업자 소식(pub/sub)을 함께 쓰는 Redis(ADR 0005).
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 # 테스트 전용. 켜면 분석 작업을 큐에 넣는 자리에서 바로 실행하고, 재매칭 스트림도 요청 스레드에서

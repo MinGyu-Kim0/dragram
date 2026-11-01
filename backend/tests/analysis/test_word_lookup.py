@@ -110,3 +110,40 @@ def test_rejected_sense_is_not_a_candidate():
     word.senses.filter(jmdict_sense_index=2).update(sense_status=ReviewStatus.REJECTED)
 
     assert lookup("開いた") == {0: [(6, 1, "ひらく")]}
+
+
+def test_potential_form_also_offers_its_normalized_verb():
+    # SudachiPy: 行ける는 사전형 行ける, 정규형 行く인 토큰 하나다. 가능형이면 行く의 뜻이 맞아
+    # 두 단어의 뜻을 모두 후보로 둔다(#275).
+    add_word(12, ["行ける"], ["いける"], [(["to be good (at)"], [], None)])
+    add_word(13, ["行く"], ["いく", "ゆく"], [(["to go"], [], None)])
+
+    # 토큰: 0 どこ / 1 まで / 2 も / 3 行ける
+    assert lookup("どこまでも行ける")[3] == [(12, 1, "いける"), (13, 1, "いく")]
+
+
+def test_same_word_by_dictionary_and_normalized_form_is_offered_once():
+    # 사전형과 정규형이 같은 단어로 찾아지면(표기만 다름) 후보가 늘지 않는다.
+    add_word(14, ["行う", "行なう"], ["おこなう"], [(["to perform"], [], None)])
+
+    morphs = morphemes("行なう")
+    assert (morphs[0].dictionary_form, morphs[0].lemma) == ("行なう", "行う")
+    assert lookup("行なう") == {0: [(14, 1, "おこなう")]}
+
+
+def test_word_of_several_readings_shows_the_dictionary_reading_first():
+    # SudachiPy는 日本을 ニッポン으로 읽는다. 뜻은 그 읽기로 찾고, 보일 읽기는 사전 대표 읽기를
+    # 먼저 두고 나머지는 펼쳐 볼 읽기로 둔다(#341).
+    add_word(15, ["日本"], ["にほん", "にっぽん"], [(["Japan"], [], None)])
+
+    morphs = morphemes("日本に行く")
+    assert morphs[0].reading == "ニッポン"
+    [found] = words.lookup("日本に行く", morphs, [0])[0]
+    assert (found.reading, found.other_readings) == ("にほん", ["にっぽん"])
+
+
+def test_kana_written_word_has_no_other_readings():
+    add_word(15, ["日本"], ["にほん", "にっぽん"], [(["Japan"], [], None)])
+
+    [found] = words.lookup("にほん", morphemes("にほん"), [0])[0]
+    assert (found.reading, found.other_readings) == ("にほん", [])

@@ -1,8 +1,14 @@
 """작업자의 분석 실행과 저장(#98, ADR 0005)."""
 
-from django.db import IntegrityError, transaction
+import math
+import os
+import socket
+import time
 
-from analysis import jobs, limits, llm, morphology, patterns, words
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
+from analysis import jobs, limits, llm, morphology, patterns, timing, words
 from analysis.answers import (
     FIRST_VERDICTS,
     RECHECK_VERDICTS,
@@ -25,6 +31,9 @@ from analysis.span_rows import _basis_changed, _is_place_conflict, _PatternTaken
 from analysis.usage import RequestUsage
 from errors import AnalysisError, BusinessError
 from errors.handler import log_business_error
+
+# 번역 앞부분(#303)을 알리는 최소 간격. 조각마다 알리면 Redis 소식과 화면 갱신이 너무 잦다.
+PARTIAL_INTERVAL_SECONDS = 0.1
 
 
 def _new_pattern_conditions(tokens, morphs, overlaps_number):
@@ -114,13 +123,35 @@ def run_analysis(analysis_id, text, usage_id, started):
     정규화는 두 번 적용하면 결과가 달라질 수 있어(공백을 지운 뒤 결합 탁점이 합쳐지는 등) 다시
     하지 않는다. 그러지 않으면 해시가 달라져 요청이 선점한 행을 찾지 못한다.
     """
+    job = _job_record(analysis_id, usage_id, started)
     try:
-        Worker(Sentence(text), started).run(analysis_id, usage_id)
+        Worker(Sentence(text), started, job).run(analysis_id, usage_id)
     except BaseException:
         # 우리 코드의 버그와 작업 시간 초과(RQ가 작업 안에서 올린다)도 실패로 알린 뒤 그대로
         # 올린다. 기다리는 요청이 대기 상한까지 붙잡히거나 행이 처리 중에 남지 않게 한다.
+        job.end("failed", AnalysisError.FAILED.code)
         _fail(analysis_id, started, AnalysisError.FAILED.code)
         raise
+    finally:
+        job.log()
+
+
+def _job_record(analysis_id, usage_id, started):
+    """작업 하나의 시간 기록(#216). 단계 시각은 작업 시작부터 잰다. 큐 대기는 요청이 선점한
+    시각부터 작업 시작까지라 프로세스가 달라 벽시계로 잰다. worker는 실행한 작업자 프로세스다.
+    """
+    return timing.Record(
+        "analysis_job",
+        analysis_id=analysis_id,
+        attempt=_attempt(started),
+        request_id=usage_id,
+        worker=f"{socket.gethostname()}:{os.getpid()}",
+        queue_wait_s=round((timezone.now() - started).total_seconds(), 3) if started else None,
+        translation_s=None,
+        first_response_s=None,
+        result=None,
+        error=None,
+    )
 
 
 class Worker:
@@ -128,12 +159,13 @@ class Worker:
 
     이 작업의 LLM 호출(분석·다시 묻기·예문 다시 쓰기)은 한 클라이언트(client)로 해서 요청 전체
     마감 시각을 함께 쓴다. usage는 선점한 요청의 사용 기록이다. 둘 다 run이 채운다. started는
-    이 작업이 맡은 시도다.
+    이 작업이 맡은 시도, job은 이 작업의 시간 기록이다.
     """
 
-    def __init__(self, sentence, started):
+    def __init__(self, sentence, started, job):
         self.sentence = sentence
         self.started = started
+        self.job = job
         self.client = self.usage = None
 
     def run(self, analysis_id, usage_id):
@@ -152,28 +184,34 @@ class Worker:
             processing_started_at=self.started,
         ).exists():
             # 다시 선점된 뒤 큐에서 늦게 꺼낸 옛 작업이다. 새 시도의 행과 소식을 건드리지 않는다.
+            self.job.end("skipped")
             return
         self.usage = RequestUsage.resume(usage_id, analysis_id)
         if limits.over_limit(self.usage.user):
             # 연결을 끊고 다시 보내기를 되풀이해 쌓인 작업이 하루 한도를 크게 넘기지 않게,
             # 시작할 때 다시 본다(#28, PR #155 리뷰).
-            _fail(analysis_id, self.started, AnalysisError.USAGE_LIMIT.code)
+            self.fail(analysis_id, AnalysisError.USAGE_LIMIT.code)
             return
         self.client = llm.get_client(self.usage.record_llm)
         try:
             self.work()
         except BusinessError as e:
             log_business_error(e)
-            _fail(analysis_id, self.started, e.error_code.code)
+            self.fail(analysis_id, e.error_code.code)
             return
         if SentenceAnalysis.objects.filter(
             pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
         ).exists():
             # 저장하지 못하고 끝났다(다른 쓰기가 같은 구간을 먼저 넣음).
-            _fail(analysis_id, self.started, AnalysisError.FAILED.code)
+            self.fail(analysis_id, AnalysisError.FAILED.code)
             return
         self.usage.succeed()
+        self.job.end("done")
         self.publish({"type": "done"})
+
+    def fail(self, analysis_id, code):
+        self.job.end("failed", code)
+        _fail(analysis_id, self.started, code)
 
     def work(self):
         """LLM 분석을 하고 저장한다. 번역을 검증하자마자 먼저 알리고, 판정 칸·단어 칸이 닫히면 그
@@ -185,10 +223,18 @@ class Worker:
         # 먼저 알린 판정. 알리지 않았으면 None
         span_answers = None
         result = None
+        partial_at = -math.inf
         for kind, value in self.client.analyze_stream(
             s.key_text, s.tokens, s.llm_spans, s.decided_spans, s.llm_words, s.unknown
         ):
-            if kind == "translation":
+            if kind == "translation_partial":
+                # 검증 전 앞부분이라 저장하지 않고 알리기만 한다. 늦게 붙은 요청은 다음 앞부분이나
+                # 저장된 번역을 받는다.
+                now = time.monotonic()
+                if now - partial_at >= PARTIAL_INTERVAL_SECONDS:
+                    partial_at = now
+                    self.publish({"type": "translation_partial", "translation_ko": value})
+            elif kind == "translation":
                 _validate_translation(value, s.numbers)
                 translated = True
                 self.share_translation(value)
@@ -221,6 +267,7 @@ class Worker:
                         }
                     )
             else:
+                self.job.mark("first_response")
                 result = value
         validated = _validate(
             result,
@@ -331,6 +378,7 @@ class Worker:
             status=SentenceAnalysis.Status.PROCESSING,
             processing_started_at=self.started,
         ).update(processing_translation_ko=translation)
+        self.job.mark("translation")
         self.publish({"type": "translation", "translation_ko": translation})
 
     def publish(self, message):

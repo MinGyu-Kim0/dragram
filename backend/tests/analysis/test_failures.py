@@ -2,7 +2,7 @@
 
 import pytest
 
-from analysis.models import UserSentence
+from analysis.models import SentenceAnalysis
 from analysis.views import MAX_TEXT_LENGTH
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, saved_analyses
@@ -77,7 +77,7 @@ def test_missing_text_is_rejected_without_calling_llm(client, fake_llm, body):
     assert fake_llm.requests == []
 
 
-def test_text_over_the_length_limit_is_rejected_before_analysis_or_recording(client, fake_llm):
+def test_text_over_the_length_limit_is_rejected_before_analysis(client, fake_llm):
     # 캐시 요청은 토큰을 쓰지 않아 하루 한도로 막히지 않는다. 길이로 저장량과 분석 비용을 막는다.
     fake_llm.response = {"translation_ko": "고양이"}
     assert analyze(client, "猫" * MAX_TEXT_LENGTH).status_code == 200
@@ -88,4 +88,4 @@ def test_text_over_the_length_limit_is_rejected_before_analysis_or_recording(cli
 
     assert response.status_code == 413
     assert response.json() == {"error": "ANALYSIS:TEXT_TOO_LONG"}
-    assert UserSentence.objects.count() == 1
+    assert SentenceAnalysis.objects.count() == 1

@@ -1,6 +1,7 @@
 """분석 API: 문장 단어를 JMdict에서 찾아 위치별 뜻으로 기록한다(#96)."""
 
 import json
+from unittest.mock import ANY
 
 import pytest
 
@@ -50,9 +51,11 @@ def test_single_sense_word_is_recorded_without_asking_the_llm(client, fake_llm, 
             "end": 4,
             "dictionary_form": "学生",
             "reading": "がくせい",
+            "other_readings": [],
             "tags": ["noun"],
             "in_dictionary": True,
             "sense": {
+                "id": ANY,
                 "tags": [],
                 "gloss_en": ["student"],
                 "origin": "jmdict",
@@ -144,9 +147,12 @@ def test_same_word_twice_keeps_a_sense_for_each_place(client, fake_llm, hiraku):
 
     response = analyze(client, "開いて開いた")
 
-    assert [(w["start"], w["sense"]["gloss_en"]) for w in response.json()["words"]] == [
-        (0, ["to open", "to undo", "to unseal", "to unpack"]),
-        (3, ["to bloom"]),
+    # 같은 단어라도 자리마다 고른 뜻의 태그(타동사 / 자동사)가 따라간다.
+    assert [
+        (w["start"], w["sense"]["gloss_en"], w["sense"]["tags"]) for w in response.json()["words"]
+    ] == [
+        (0, ["to open", "to undo", "to unseal", "to unpack"], ["transitive"]),
+        (3, ["to bloom"], ["intransitive"]),
     ]
     row = SentenceAnalysis.objects.get()
     assert row.word_spans == [
@@ -258,3 +264,43 @@ def test_chosen_senses_are_sent_as_soon_as_the_words_section_closes(
     [judged] = (e for e in response.events if e["type"] == "judged")
     assert judged["words"][0]["sense"]["tags"] == ["intransitive"]
     assert SentenceAnalysis.objects.get().sense_ids == [bloom]
+
+
+@pytest.fixture
+def ikeru():
+    """行ける(いける)와 行く(いく): 가능형 行ける의 후보는 두 단어의 뜻이다(#275)."""
+    return (
+        add_word(12, ["行ける"], ["いける"], [(["to be good (at)", "to go well"], [], None)]),
+        add_word(13, ["行く"], ["いく", "ゆく"], [(["to go", "to move"], [], None)]),
+    )
+
+
+@pytest.mark.parametrize(("chosen", "card"), [(1, ("行く", "いく")), (0, ("行ける", "いける"))])
+def test_potential_form_card_follows_the_chosen_word(client, fake_llm, ikeru, chosen, card):
+    # 토큰: 0 どこ / 1 まで / 2 も / 3 行ける
+    good, go = sense(ikeru[0], 1).id, sense(ikeru[1], 1).id
+    fake_llm.response = {
+        "translation_ko": "어디까지든 갈 수 있어",
+        "words": [word_answer(3, [good, go][chosen])],
+    }
+
+    response = analyze(client, "どこまでも行ける")
+
+    assert fake_llm.requests[0]["words"] == [
+        {
+            "token_id": 3,
+            "candidates": [f"{good}: to be good (at); to go well", f"{go}: to go; to move"],
+        }
+    ]
+    [word] = response.json()["words"]
+    assert (word["start"], word["end"], word["dictionary_form"], word["reading"]) == (5, 8, *card)
+    assert SentenceAnalysis.objects.get().sense_ids == [[good, go][chosen]]
+
+
+def test_saved_word_shows_the_dictionary_reading_and_its_other_readings(client, fake_llm):
+    # 저장된 분석을 다시 보일 때도 대표 읽기를 먼저 두고 나머지를 함께 싣는다(#341).
+    add_word(15, ["日本"], ["にほん", "にっぽん"], [(["Japan"], [], None)])
+    analyze(client, "日本に行く。")
+
+    [word] = analyze(client, "日本に行く。").json()["words"]
+    assert (word["reading"], word["other_readings"]) == ("にほん", ["にっぽん"])

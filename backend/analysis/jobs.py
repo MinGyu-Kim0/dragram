@@ -148,7 +148,8 @@ def release_lock(key, token):
 def publish(sentence_hash, message):
     """작업 소식 하나를 보낸다.
 
-    message는 {"type": "translation" | "judged" | "done" | "failed", ...}이다.
+    message는 {"type": "translation_partial" | "translation" | "judged" | "done" | "failed",
+    ...}이다.
     """
     with _connection() as connection:
         connection.publish(channel(sentence_hash), json.dumps(message, ensure_ascii=False))

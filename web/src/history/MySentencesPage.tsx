@@ -1,166 +1,532 @@
-import { useEffect, useState } from "react";
-import { Link, Navigate } from "react-router";
-import { AuthError, currentUser, request } from "../connect/auth";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { Navigate, useSearchParams } from "react-router";
+import { request } from "../connect/auth";
+import { sendToExtension } from "../connect/extension";
+import SiteLayout, { CC_BY_SA_URL, JMDICT_URL } from "../site/SiteLayout";
+import type { ReviewStatus, WordEntry } from "./analysis";
+import { BadgeRow, PendingBadge, WordRow } from "./cards";
 import "../connect/connect.css";
 import "./history.css";
 
-// 내 기록: 내가 분석한 문장 목록(#195)과 문장별 삭제(#196). 문장을 누르면 저장된 분석을 본다.
+// 내 기록: 사이드 패널 카드에서 추가하거나 '표시 안 함'으로 숨긴 내 일본어(#321, #324). 문법·단어
+// 탭과 추가한·숨긴 항목 필터를 두고, 항목 상태와 사용자가 고른 예문을 여기서 바꾸거나 지운다.
+// 분석한 문장 원문은 저장하지 않으므로 문장 목록은 없다.
 
-type Sentence = { id: number; text: string; analyzed_at: string };
+// 사용자가 고른 예문. start·end는 예문을 저장한 카드가 가리키던 부분(UTF-16 [start, end))이고,
+// 위치를 저장하기 전 예문은 null이다.
+type Example = {
+  id: number;
+  text: string;
+  start: number | null;
+  end: number | null;
+};
 
-type State =
-  | { kind: "loading" }
-  | { kind: "signedOut" }
-  | { kind: "failed" }
-  | { kind: "ready"; sentences: Sentence[] };
+// 반려된 용법·뜻은 내용 없이 예문만 온다. 사용자가 자기 원문을 지울 수 있게 하기 위해서다.
+type Rejected = { rejected: true; examples: Example[] };
 
-const fetchSentences = () =>
-  request<{ sentences: Sentence[] }>("GET", "/api/my-sentences/").then(
-    (body) => body.sentences,
-  );
+type Usage = {
+  usage_id: number;
+  pattern_name: string;
+  name: string;
+  explanation_ko: string;
+  korean_equivalent: string | null;
+  korean_equivalent_review_status: ReviewStatus | null;
+  review_status: ReviewStatus;
+  examples: Example[];
+};
 
-const deleteSentence = (id: number) =>
-  request<void>("DELETE", `/api/my-sentences/${id}/`);
+type Word = WordEntry & { sense_id: number; examples: Example[] };
 
-const analyzedAt = (iso: string) =>
-  new Date(iso).toLocaleString("ko-KR", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
+type UsageEntry = Usage | (Rejected & { usage_id: number });
+type WordListEntry = Word | (Rejected & { sense_id: number });
 
-function MySentencesPage() {
-  const [state, setState] = useState<State>({ kind: "loading" });
+type Kind = "usage" | "sense";
+type ItemState = "added" | "hidden";
 
-  useEffect(() => {
-    currentUser()
-      .then(async (user) => {
-        if (!user) return setState({ kind: "signedOut" });
-        setState({ kind: "ready", sentences: await fetchSentences() });
-      })
-      .catch(() => setState({ kind: "failed" }));
-  }, []);
+const TABS = [
+  { key: "grammar", label: "문법" },
+  { key: "words", label: "단어" },
+] as const;
 
-  if (state.kind === "signedOut") return <Navigate to="/connect" replace />;
+const FILTERS = [
+  { key: "added", label: "추가한 항목" },
+  { key: "hidden", label: "숨긴 항목" },
+] as const;
 
-  const removed = (id: number) =>
-    setState((s) =>
-      s.kind === "ready"
-        ? { ...s, sentences: s.sentences.filter((x) => x.id !== id) }
-        : s,
+type Tab = (typeof TABS)[number]["key"];
+
+const pick = <T extends string>(
+  value: string | null,
+  options: readonly { key: T }[],
+): T => options.find((o) => o.key === value)?.key ?? options[0]!.key;
+
+const usagesOf = (body: { usages: UsageEntry[] }) => body.usages;
+const wordsOf = (body: { words: WordListEntry[] }) => body.words;
+
+/** 로그인한 사용자의 내 기록. 홈(/)과 /sentences가 같이 쓴다. 고른 탭과 필터는 주소(?tab=,
+ * ?state=)에 남긴다.
+ */
+export function MyRecords() {
+  const [params, setParams] = useSearchParams();
+  const tab = pick(params.get("tab"), TABS);
+  const state = pick(params.get("state"), FILTERS);
+  const go = (next: { tab?: Tab; state?: ItemState }) =>
+    setParams(
+      { tab: next.tab ?? tab, state: next.state ?? state },
+      { replace: true },
     );
 
   return (
-    <main className="connect">
+    <div className="connect">
       <section className="card history">
         <h1>내 기록</h1>
-        {state.kind === "loading" && <p className="muted">불러오는 중…</p>}
-        {state.kind === "failed" && (
-          <p role="alert" className="danger">
-            기록을 불러오지 못했어요. 페이지를 새로 고쳐 주세요.
-          </p>
-        )}
-        {state.kind === "ready" &&
-          (state.sentences.length === 0 ? (
-            <p className="secondary">아직 분석한 문장이 없어요.</p>
-          ) : (
-            <ul aria-label="분석한 문장">
-              {state.sentences.map((s) => (
-                <SentenceRow
-                  key={s.id}
-                  sentence={s}
-                  onDeleted={() => removed(s.id)}
-                />
-              ))}
-            </ul>
+        <p className="secondary">
+          사이드 패널의 문법·단어 카드에서 추가한 것이 여기에 모여요. 문장
+          원문은 예문으로 저장하기로 고른 것만 남아요.
+        </p>
+        <div role="tablist" className="tabs">
+          {TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              id={`tab-${key}`}
+              aria-selected={tab === key}
+              aria-controls="tab-panel"
+              onClick={() => go({ tab: key })}
+            >
+              {label}
+            </button>
           ))}
+        </div>
+        <div className="filters" role="group" aria-label="보기">
+          {FILTERS.map(({ key, label }) => (
+            <button
+              key={key}
+              type="button"
+              aria-pressed={state === key}
+              onClick={() => go({ state: key })}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div role="tabpanel" id="tab-panel" aria-labelledby={`tab-${tab}`}>
+          {tab === "grammar" ? (
+            <ItemList<UsageEntry>
+              key={`grammar-${state}`}
+              url={`/api/my-japanese/grammar/?state=${state}`}
+              select={usagesOf}
+              name={state === "added" ? "추가한 문법" : "숨긴 문법"}
+              empty={
+                state === "added"
+                  ? "추가한 문법이 아직 없어요. 사이드 패널의 문법 카드에서 '추가'를 눌러 보세요."
+                  : "숨긴 문법이 없어요."
+              }
+              failed="문법을 불러오지 못했어요. 페이지를 새로 고쳐 주세요."
+              kind="usage"
+              idOf={(u) => u.usage_id}
+              state={state}
+              render={(usage, index) =>
+                "rejected" in usage ? (
+                  <p className="muted">
+                    검수에서 빠진 문법이에요. 저장한 예문을 지우거나 항목을 뺄
+                    수 있어요.
+                  </p>
+                ) : (
+                  <UsageBody usage={usage} index={index} />
+                )
+              }
+            />
+          ) : (
+            <ItemList<WordListEntry>
+              key={`words-${state}`}
+              url={`/api/my-japanese/words/?state=${state}`}
+              select={wordsOf}
+              name={state === "added" ? "추가한 단어" : "숨긴 단어"}
+              empty={
+                state === "added"
+                  ? "추가한 단어가 아직 없어요. 사이드 패널의 단어 카드에서 '추가'를 눌러 보세요."
+                  : "숨긴 단어가 없어요."
+              }
+              failed="단어를 불러오지 못했어요. 페이지를 새로 고쳐 주세요."
+              kind="sense"
+              idOf={(w) => w.sense_id}
+              state={state}
+              render={(word) =>
+                "rejected" in word ? (
+                  <p className="muted">
+                    검수에서 빠진 단어 뜻이에요. 저장한 예문을 지우거나 항목을
+                    뺄 수 있어요.
+                  </p>
+                ) : (
+                  <WordRow word={word} />
+                )
+              }
+              after={(words) =>
+                words.some((w) => !("rejected" in w) && w.in_dictionary) && (
+                  <p className="muted">
+                    단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
+                    <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>).
+                  </p>
+                )
+              }
+            />
+          )}
+        </div>
       </section>
-    </main>
+    </div>
   );
 }
 
-function SentenceRow({
-  sentence,
-  onDeleted,
+type Load<T> =
+  { kind: "loading" } | { kind: "failed" } | { kind: "ready"; items: T[] };
+
+/** 탭 하나의 항목 목록. 항목마다 예문과 상태 버튼을 붙이고, 상태가 바뀌어 이 필터에서 빠진 항목은
+ * 목록에서 뺀다.
+ */
+function ItemList<T extends { examples: Example[] }>({
+  url,
+  select,
+  name,
+  empty,
+  failed,
+  kind,
+  idOf,
+  state,
+  render,
+  after,
 }: {
-  sentence: Sentence;
-  onDeleted: () => void;
+  url: string;
+  select: (body: never) => T[];
+  name: string;
+  empty: string;
+  failed: string;
+  kind: Kind;
+  idOf: (item: T) => number;
+  state: ItemState;
+  render: (item: T, index: number) => ReactNode;
+  after?: (items: T[]) => ReactNode;
 }) {
-  const [confirming, setConfirming] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [load, setLoad] = useState<Load<T>>({ kind: "loading" });
 
-  const remove = async () => {
-    setBusy(true);
-    setFailed(false);
-    try {
-      await deleteSentence(sentence.id);
-    } catch (e) {
-      // 404면 다른 탭에서 이미 지웠다. 목록에서도 뺀다.
-      if (!(e instanceof AuthError && e.status === 404)) {
-        setFailed(true);
-        setBusy(false);
-        return;
-      }
-    }
-    onDeleted();
+  // 사이드 패널에서 바꾼 상태가 보이게, 이 창으로 돌아오면 다시 불러온다.
+  const [returned, setReturned] = useState(0);
+  // 이 화면에서 바꾼 횟수. 요청을 보낸 뒤 바뀌었으면 그 응답은 바꾸기 전 목록이라 버리고 다시 부른다.
+  const edits = useRef(0);
+  useEffect(() => {
+    const again = () => {
+      if (document.visibilityState === "visible") setReturned((n) => n + 1);
+    };
+    window.addEventListener("focus", again);
+    document.addEventListener("visibilitychange", again);
+    return () => {
+      window.removeEventListener("focus", again);
+      document.removeEventListener("visibilitychange", again);
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const seen = edits.current;
+    request<never>("GET", url).then(
+      (body) => {
+        if (!active) return;
+        if (edits.current !== seen) setReturned((n) => n + 1);
+        else setLoad({ kind: "ready", items: select(body) });
+      },
+      // 다시 불러오다 실패하면 보이던 목록을 그대로 둔다.
+      () =>
+        active &&
+        setLoad((current) =>
+          current.kind === "ready" ? current : { kind: "failed" },
+        ),
+    );
+    return () => {
+      active = false;
+    };
+  }, [url, select, returned]);
+
+  if (load.kind === "loading") return <p className="muted">불러오는 중…</p>;
+  if (load.kind === "failed")
+    return (
+      <p role="alert" className="danger">
+        {failed}
+      </p>
+    );
+  if (load.items.length === 0) return <p className="secondary">{empty}</p>;
+  const update = (id: number, change: (item: T) => T | undefined) => {
+    edits.current += 1;
+    setLoad((current) =>
+      current.kind !== "ready"
+        ? current
+        : {
+            ...current,
+            items: current.items.flatMap((item) => {
+              if (idOf(item) !== id) return [item];
+              const next = change(item);
+              return next ? [next] : [];
+            }),
+          },
+    );
   };
-
   return (
-    <li>
-      <p lang="ja" className="sentence">
-        <Link to={`/sentences/${sentence.id}`} className="sentence-link">
-          {sentence.text}
-        </Link>
-      </p>
-      <p className="muted">
-        <time dateTime={sentence.analyzed_at}>
-          {analyzedAt(sentence.analyzed_at)}
-        </time>{" "}
-        분석
-      </p>
-      {failed && (
-        <p role="alert" className="danger">
-          지우지 못했어요. 다시 시도해 주세요.
+    <>
+      <ul aria-label={name}>
+        {load.items.map((item, index) => {
+          const id = idOf(item);
+          return (
+            <li key={id} className="item-card">
+              {render(item, index)}
+              <Examples
+                examples={item.examples}
+                onDeleted={(exampleId) =>
+                  update(id, (it) => ({
+                    ...it,
+                    examples: it.examples.filter((e) => e.id !== exampleId),
+                  }))
+                }
+              />
+              <ItemActions
+                kind={kind}
+                id={id}
+                state={state}
+                rejected={"rejected" in item}
+                hasExamples={item.examples.length > 0}
+                onChanged={() => update(id, () => undefined)}
+              />
+            </li>
+          );
+        })}
+      </ul>
+      {after?.(load.items)}
+    </>
+  );
+}
+
+/** 문법 카드 내용. 미검수 표시는 사이드 패널과 같다. */
+function UsageBody({ usage, index }: { usage: Usage; index: number }) {
+  const pending = usage.review_status === "pending";
+  return (
+    <>
+      <BadgeRow pending={pending} />
+      <div className="grammar-card-head">
+        <span lang="ja" className={`grammar-chip highlight-${index % 4}`}>
+          {usage.pattern_name}
+        </span>
+        <h2>{usage.name}</h2>
+      </div>
+      {usage.korean_equivalent !== null && (
+        <p>
+          {usage.korean_equivalent}
+          {!pending && usage.korean_equivalent_review_status === "pending" && (
+            <PendingBadge />
+          )}
         </p>
       )}
-      {confirming ? (
-        <>
-          <p className="secondary">
-            이 문장을 지울까요? 지운 원문은 되돌릴 수 없어요. 원문 없는 공용
-            분석(번역·문법)은 남아요.
-          </p>
-          <div className="actions">
+      <p className="secondary">{usage.explanation_ko}</p>
+    </>
+  );
+}
+
+/** 사용자가 고른 예문. 하나씩 지울 수 있다. */
+function Examples({
+  examples,
+  onDeleted,
+}: {
+  examples: Example[];
+  onDeleted: (id: number) => void;
+}) {
+  const [failed, setFailed] = useState(false);
+  // 지우는 중인 예문들. 두 번 눌러 두 번째 요청이 404로 실패해 보이지 않게 예문마다 따로 둔다.
+  const [deleting, setDeleting] = useState<ReadonlySet<number>>(new Set());
+  if (examples.length === 0) return null;
+  return (
+    <>
+      <ul className="examples" aria-label="내 예문">
+        {examples.map((example) => (
+          <li key={example.id}>
+            <span lang="ja">
+              {example.start === null || example.end === null ? (
+                example.text
+              ) : (
+                <>
+                  {example.text.slice(0, example.start)}
+                  <mark>{example.text.slice(example.start, example.end)}</mark>
+                  {example.text.slice(example.end)}
+                </>
+              )}
+            </span>
             <button
               type="button"
-              className="danger-button"
-              disabled={busy}
-              onClick={remove}
-            >
-              이 문장 지우기
-            </button>
-            <button
-              type="button"
-              className="secondary-button"
-              disabled={busy}
+              className="text-button"
+              disabled={deleting.has(example.id)}
               onClick={() => {
                 setFailed(false);
-                setConfirming(false);
+                setDeleting((current) => new Set(current).add(example.id));
+                request<void>("DELETE", `/api/my-examples/${example.id}/`).then(
+                  () => onDeleted(example.id),
+                  () => {
+                    setFailed(true);
+                    setDeleting((current) => {
+                      const next = new Set(current);
+                      next.delete(example.id);
+                      return next;
+                    });
+                  },
+                );
               }}
             >
-              취소
+              예문 지우기
             </button>
-          </div>
-        </>
-      ) : (
+          </li>
+        ))}
+      </ul>
+      {failed && (
+        <p role="alert" className="danger">
+          예문을 지우지 못했어요. 다시 시도해 주세요.
+        </p>
+      )}
+    </>
+  );
+}
+
+/** 항목 상태 버튼. 추가한 항목은 숨기기·빼기, 숨긴 항목은 다시 보이기·추가로 바꾸기. 반려된
+ * 항목은 빼기만 있다. 빼기와 다시 보이기는 항목을 해제해 예문도 지우므로, 예문이 있으면 한 번
+ * 확인받는다.
+ */
+function ItemActions({
+  kind,
+  id,
+  state,
+  rejected,
+  hasExamples,
+  onChanged,
+}: {
+  kind: Kind;
+  id: number;
+  state: ItemState;
+  rejected: boolean;
+  hasExamples: boolean;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const send = (method: "PUT" | "DELETE", next?: ItemState) => {
+    setBusy(true);
+    setFailed(false);
+    request<unknown>(method, "/api/my-items/", {
+      kind,
+      id,
+      ...(next && { state: next }),
+    }).then(
+      () => {
+        // 열린 사이드 패널이 바로 다시 불러오게 알린다. 확장이 없으면 그냥 넘어간다.
+        void sendToExtension({ type: "items-changed" });
+        onChanged();
+      },
+      () => {
+        setFailed(true);
+        setBusy(false);
+      },
+    );
+  };
+  const remove = () => send("DELETE");
+  if (confirming)
+    return (
+      <div className="actions">
+        <p className="secondary">
+          저장한 예문도 함께 지워져요. 되돌릴 수 없어요.
+        </p>
+        <button
+          type="button"
+          className="danger-button"
+          disabled={busy}
+          onClick={remove}
+        >
+          {state === "hidden" && !rejected
+            ? "예문과 함께 다시 보이기"
+            : "예문과 함께 빼기"}
+        </button>
         <button
           type="button"
           className="secondary-button"
-          onClick={() => setConfirming(true)}
+          disabled={busy}
+          onClick={() => setConfirming(false)}
         >
-          지우기
+          취소
         </button>
+        {failed && <Failed />}
+      </div>
+    );
+  const removeButton = (
+    <button
+      type="button"
+      className="secondary-button"
+      disabled={busy}
+      onClick={() => (hasExamples ? setConfirming(true) : remove())}
+    >
+      빼기
+    </button>
+  );
+  return (
+    <div className="actions">
+      {rejected ? (
+        removeButton
+      ) : state === "added" ? (
+        <>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => send("PUT", "hidden")}
+          >
+            숨기기
+          </button>
+          {removeButton}
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => (hasExamples ? setConfirming(true) : remove())}
+          >
+            다시 보이기
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => send("PUT", "added")}
+          >
+            추가로 바꾸기
+          </button>
+        </>
       )}
-    </li>
+      {failed && <Failed />}
+    </div>
+  );
+}
+
+function Failed() {
+  return (
+    <p role="alert" className="danger">
+      바꾸지 못했어요. 다시 시도해 주세요.
+    </p>
+  );
+}
+
+function MySentencesPage() {
+  return (
+    <SiteLayout>
+      {/* 로그인 확인이 실패했으면 로그인 화면으로 보내지 않고 목록 요청의 결과(오류)를 보인다. */}
+      {(user, failed) =>
+        user || failed ? <MyRecords /> : <Navigate to="/connect" replace />
+      }
+    </SiteLayout>
   );
 }
 

@@ -10,7 +10,7 @@ export function BadgeRow({
   pending?: boolean;
   translated?: boolean;
   colloquial?: boolean;
-  // 이름 구간의 종류 이름(사람 이름 등, #184). 검수 흐름이 없는 문장 안 판단이라 중립 배지다.
+  // 이름 구간의 종류 이름(인명 등, #184). 검수 흐름이 없는 문장 안 판단이라 중립 배지다.
   nameLabel?: string;
   dragged?: boolean;
 }) {

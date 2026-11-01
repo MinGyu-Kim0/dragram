@@ -146,8 +146,8 @@ def _read_in_thread(response, results):
     return thread
 
 
-def _wait_until(condition):
-    deadline = time.monotonic() + 10
+def _wait_until(condition, seconds=10):
+    deadline = time.monotonic() + seconds
     while not condition():
         assert time.monotonic() < deadline
         time.sleep(0.05)
@@ -167,7 +167,8 @@ def test_same_sentence_at_once_runs_the_llm_once_and_both_requests_get_the_resul
 
     first = _read_in_thread(post(connected_client(), TEXT), results)
     _wait_until(lambda: _requests().count() == 1)
-    second = _read_in_thread(post(connected_client(), TEXT), results)
+    # 다른 사용자가 같은 새 문장을 요청한다.
+    second = _read_in_thread(post(connected_client("other"), TEXT), results)
     _wait_until(lambda: _requests().count() == 2)
     _work_burst()
     first.join(10)

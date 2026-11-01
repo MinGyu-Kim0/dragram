@@ -20,8 +20,8 @@ from errors import BusinessError
 BATCH_SIZE = 20
 
 
-def _record(**call):
-    """사용자 요청이 아니라 user·analysis 없이 llm 행만 남긴다."""
+def _record(seconds=None, **call):
+    """사용자 요청이 아니라 user·analysis 없이 llm 행만 남긴다. 걸린 시간은 남기지 않는다."""
     UsageLog.objects.create(kind=UsageLog.Kind.LLM, **call)
 
 

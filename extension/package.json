@@ -2,7 +2,7 @@
   "name": "dragram-extension",
   "description": "읽고 있는 일본어 문장을 드래그하면 번역과 그 문장에 쓰인 문법·단어를 사이드 패널에 보여줘요.",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "wxt",
@@ -20,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@fontsource/jua": "^5.3.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
   },

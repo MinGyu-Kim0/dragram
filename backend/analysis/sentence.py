@@ -3,7 +3,7 @@
 import hashlib
 
 from analysis import patterns, words
-from analysis.models import ReviewStatus, SentenceAnalysis, UsageRule
+from analysis.models import MatchCorrection, ReviewStatus, SentenceAnalysis, UsageRule
 from analysis.normalize import key_pieces, number_ends, restore_numbers
 from analysis.positions import key_offsets, to_key
 from analysis.rules import condition_matches
@@ -95,6 +95,16 @@ def _llm_spans(spans):
     ]
 
 
+def _corrections(analysis):
+    """그 분석의 활성 정정. {(키 텍스트 start, end, 매칭된 패턴 ID): 정정}(#221)."""
+    if analysis is None:
+        return {}
+    active = analysis.corrections.filter(status=MatchCorrection.Status.ACTIVE).select_related(
+        "before_usage", "after_usage__pattern"
+    )
+    return {(c.start_offset, c.end_offset, c.pattern_id): c for c in active}
+
+
 def _is_fresh(analysis):
     """다시 분석하지 않고 쓸 수 있는 분석인가."""
     return analysis.word_spans is not None and not analysis.is_stale
@@ -148,7 +158,23 @@ class Sentence:
         self.rules = _approved_rules(self.matched)
         # (구간, 후보 ID, 용법, 판별 규칙(용법 완결 확정이면 None))
         self.closed_spans, self.spans = [], []
+        # 관리자 정정은 LLM·DB 판정보다 먼저 적용한다. 해제한 구간은 빼고, 정정한 구간은 확정
+        # 구간으로 둔다. 정정 후 용법이 후보에 없으면(반려 등) 정정을 건너뛴다(#221).
+        corrections = _corrections(existing)
+        # 정정을 적용한 구간의 열쇠(span_key). 저장 때 decided_by = admin이다.
+        self.corrected = set()
         for span in self.matched:
+            start, end = self.key_span(span.start_token, span.end_token)
+            correction = corrections.get((start, end, span.pattern.pk))
+            if correction is not None:
+                if correction.after_usage_id is None:
+                    continue
+                after = correction.after_usage_id
+                corrected = next((c for c in span.candidates if c[1].id == after), None)
+                if corrected is not None:
+                    self.closed_spans.append((span, *corrected, None))
+                    self.corrected.add(self.span_key(span))
+                    continue
             closed = _closed_usage(span)
             if closed is not None:
                 self.closed_spans.append((span, *closed, None))

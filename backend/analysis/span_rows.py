@@ -1,7 +1,7 @@
 """구간 매칭 행 만들기와 저장 검사. 작업자와 재매칭이 함께 쓴다."""
 
 from analysis import patterns
-from analysis.models import GrammarPattern, ReviewStatus, SpanMatch, UsageRule
+from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus, SpanMatch, UsageRule
 from analysis.sentence import _pattern_statuses
 from errors import AnalysisError, BusinessError
 
@@ -14,11 +14,13 @@ def _usage_owner(pattern):
 def _basis_changed(rows, rules):
     """판정 근거로 읽은 상태가 저장 직전에 바뀌어 이 구간들을 저장하면 안 되는가(#63).
 
-    넷을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
+    다섯을 본다. 원형 연결이 분석할 때와 다른 구간이 있거나(_links_changed), LLM 없이 확정한
     구간의 용법 완결이 풀렸거나(이번 저장이 같은 원형에 새 용법을 더해 풀었을 수 있다), 판별
     규칙으로 확정한 근거(규칙·패턴·용법의 승인)가 무너졌거나, 분석할 때 읽은 승인된 판별
-    규칙(rules, _approved_rules)에 없던 규칙이 그 구간들의 패턴에 승인됐다. 그대로
-    저장하면 그 stale 처리가 이 트랜잭션의 구간을 보지 못해 다시 분석될 계기가 없다.
+    규칙(rules, _approved_rules)에 없던 규칙이 그 구간들의 패턴에 승인됐거나, 관리자 정정으로
+    확정한 구간의 용법이 그사이 반려됐다(저장 구간이 아직 정정 전 용법이라 반려의 stale 처리가
+    이 분석을 찾지 못한다, PR #320 리뷰). 그대로 저장하면 그 stale 처리가 이 트랜잭션의 구간을
+    보지 못해 다시 분석될 계기가 없다.
     """
     closed = {row.pattern_id for row in rows if row.decided_by == SpanMatch.DecidedBy.SINGLE_USAGE}
     opened = GrammarPattern.objects.filter(pk__in=closed, usage_closed=False).exists()
@@ -41,7 +43,11 @@ def _basis_changed(rows, rules):
         .exclude(pk__in=read)
         .exists()
     )
-    return opened or unusable or approved or _links_changed(rows)
+    corrected_rejected = GrammarUsage.objects.filter(
+        pk__in={row.usage_id for row in rows if row.decided_by == SpanMatch.DecidedBy.ADMIN},
+        status=ReviewStatus.REJECTED,
+    ).exists()
+    return opened or unusable or approved or corrected_rejected or _links_changed(rows)
 
 
 def _links_changed(rows):
@@ -81,7 +87,9 @@ class _PatternTaken(Exception):  # noqa: N818
 
 
 def closed_rows(sentence, saved, closed):
-    """LLM 없이 확정한 구간(구간, 후보 ID, 용법, 판별 규칙)들의 구간 매칭."""
+    """LLM 없이 확정한 구간(구간, 후보 ID, 용법, 판별 규칙)들의 구간 매칭. 관리자 정정을 적용한
+    구간(sentence.corrected)은 decided_by = admin이다(#221).
+    """
     rows = []
     for span, candidate_id, usage, rule in closed:
         start, end = sentence.key_span(span.start_token, span.end_token)
@@ -93,7 +101,13 @@ def closed_rows(sentence, saved, closed):
                 start_offset=start,
                 end_offset=end,
                 state=SpanMatch.State.DECIDED,
-                decided_by=(SpanMatch.DecidedBy.RULE if rule else SpanMatch.DecidedBy.SINGLE_USAGE),
+                decided_by=(
+                    SpanMatch.DecidedBy.ADMIN
+                    if sentence.span_key(span) in sentence.corrected
+                    else SpanMatch.DecidedBy.RULE
+                    if rule
+                    else SpanMatch.DecidedBy.SINGLE_USAGE
+                ),
                 rule=rule,
                 candidates=[{"candidate_id": candidate_id, "usage_id": usage.id}],
             )

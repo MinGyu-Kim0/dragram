@@ -3,7 +3,7 @@
 원본: `erd.json`(ERDCloud 스냅샷). 이 문서는 그 파일에서 생성했다. 결정 근거는 `../design-decisions.md` 참고.
 
 > 설계 시점 스냅샷이다. 구현을 시작하면 Django 모델과 마이그레이션이 기준이고, 이 문서는 바뀐 부분을 손으로 맞춘다.
-> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명), 51절의 큐·작업자(`sentence_analysis.processing_translation_ko` 칼럼, `status`·`generation` 설명, `usage_log.analysis_id` 설명), #93 트리아지와 구현(`user_sentence.original_hash` 타입과 설명, `analysis_id`·`selected_start`·`selected_end`·`last_analyzed_at` 설명), #136의 이름 지정(`designated_name` 테이블), #152의 대응 표현(`grammar_usage.korean_equivalent`·`korean_equivalent_filled`·`korean_equivalent_status` 칼럼, `usage_log.purpose`의 usage_fill, #151의 기능 태그(`grammar_usage.function_tags`·`function_tags_filled`·`function_tags_status`), #177의 평가 세트(`eval_sentence`·`eval_run`·`eval_result`·`eval_item` 테이블)는 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
+> design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명), 51절의 큐·작업자(`sentence_analysis.processing_translation_ko` 칼럼, `status`·`generation` 설명, `usage_log.analysis_id` 설명), #93 트리아지와 구현(`user_sentence.original_hash` 타입과 설명, `analysis_id`·`selected_start`·`selected_end`·`last_analyzed_at` 설명), #136의 이름 지정(`designated_name` 테이블), #152의 대응 표현(`grammar_usage.korean_equivalent`·`korean_equivalent_filled`·`korean_equivalent_status` 칼럼, `usage_log.purpose`의 usage_fill, #151의 기능 태그(`grammar_usage.function_tags`·`function_tags_filled`·`function_tags_status`), #177의 평가 세트(`eval_sentence`·`eval_run`·`eval_result`·`eval_item` 테이블), #257의 약관 동의(`users.terms_version`·`privacy_version`·`terms_agreed_at`), #221의 매칭 정정(`match_correction` 설명, `span_match.decided_by`의 admin)은 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
 > `grammar_pattern`, `pattern_morpheme`, `grammar_usage`, `span_match`, `pattern_set_version`은 #35에서 그때 쓰는 칼럼만 만들었다. 나머지 칼럼(승인·자동 승인, 판 번호, 규칙, 회화체, 대안 해석, confidence 등)은 그 칼럼을 쓰는 하위 티켓에서 일반 마이그레이션으로 더한다(design-decisions 32절). 회화체 칼럼(`register`·`variant_of`)은 #63에서, `show_parts`는 #65에서, `usage_rule`과 `span_match.rule_id`는 #55에서, `function_tags`·`function_tags_filled`·`function_tags_status`는 #151에서 더했다.
 
 ## users — 사용자
@@ -17,6 +17,9 @@
 | is_staff | 관리자 여부 | boolean |  |  | 패턴·용법 승인 권한(Django admin). 관리자가 admin에서 준다 |
 | is_active | 사용 가능 | boolean |  |  | 거짓이면 로그인(`AUTH:ACCOUNT_DISABLED`)과 분석 API를 거부한다 |
 | date_joined | 가입일시 | timestamptz |  |  | `AbstractUser` 칸 |
+| terms_version | 동의한 이용약관 | date | Y |  | 동의한 이용약관의 시행일. 가입하기를 누를 때 서버가 정한다(웹이 보낸 값을 믿지 않는다). 동의 전 계정은 NULL이다(#257) |
+| privacy_version | 고지한 처리방침 | date | Y |  | 가입 화면에 보여 준 개인정보처리방침의 시행일. 동의가 아니라 고지한 판의 기록이다(design-decisions 68절). 동의 전 계정은 NULL이다 |
+| terms_agreed_at | 약관 동의일시 | timestamptz | Y |  | 가입하기를 누른 시각. 동의 전 계정은 NULL이다 |
 
 `AbstractUser`의 나머지 칸(password, first_name 등)도 있다. Google로 가입한 사용자는 비밀번호를 쓸 수 없다(ADR 0004, design-decisions 49절).
 
@@ -35,6 +38,8 @@
 세션마다 토큰은 많아야 둘이다(쓰던 토큰과 아직 쓰지 않은 새 토큰, design-decisions 49절).
 
 ## user_sentence — 분석 기록
+
+> 사용 중단(2026-11-01, #322, ADR 0006): 분석할 때 원문을 더는 저장하지 않는다. 남은 행은 배포 마이그레이션 0030이 지운다(처리방침 2026-11-02판). 테이블을 없앨지는 따로 정한다. 아래는 예전 설명이다.
 
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
@@ -63,7 +68,7 @@
 
 ## designated_name — 지정한 이름
 
-사용자가 단어 카드의 표기를 이름으로 지정한 것(이름 지정, #136). 개인 데이터라 user_sentence 원문과 같이 본인 user_id로만 조회·수정·삭제하고, Django admin에 등록하지 않고, 로그·usage_log·오류 사유에 표기·읽기를 남기지 않는다. 공용 테이블·공용 캐시·LLM 요청에는 넣지 않는다. 적용은 확장이 단어의 원문 자리로 표층형을 잘라 맞춘다(#136 구현, 확인 필요).
+사용자가 단어 카드의 표기를 이름으로 지정한 것(이름 지정, #136). 개인 데이터라 예문(`my_example`)과 같이 본인 user_id로만 조회·수정·삭제하고, Django admin에 등록하지 않고, 로그·usage_log·오류 사유에 표기·읽기를 남기지 않는다. 공용 테이블·공용 캐시·LLM 요청에는 넣지 않는다. 적용은 확장이 단어의 원문 자리로 표층형을 잘라 맞춘다(#136 구현, 확인 필요).
 
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
@@ -73,6 +78,34 @@
 | reading | 읽기 | varchar(50) | Y |  | 가나만 받아 히라가나로 통일해 저장. 비었으면 NULL(읽기 없음) |
 | created_at | 생성일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |
+
+## my_item — 내 일본어 항목
+
+사용자가 사이드 패널 카드에서 추가하거나 '표시 안 함'으로 숨긴 용법·단어 뜻(#322, ADR 0006). 개인 데이터라 본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다. 원문은 없다. 사용자당 10,000행 상한.
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| user_id | 사용자 ID | bigint |  | → users | 탈퇴 시 삭제(CASCADE) |
+| usage_id | 용법 ID | bigint | Y | → grammar_usage | usage_id와 sense_id 중 하나만 있다(CHECK). UNIQUE(user_id, usage_id). 용법을 합치면 합친 용법으로 옮긴다(추가가 숨김보다 앞섬). 용법을 지우지 못하게 PROTECT |
+| sense_id | 단어 뜻 ID | bigint | Y | → word_sense | UNIQUE(user_id, sense_id). 뜻이 지워지면 함께 지운다(CASCADE) |
+| state | 상태 | varchar(30) |  |  | added(추가, 웹 내 기록에 보임) / hidden(표시 안 함, 사이드 패널에서 접음) |
+| created_at | 등록일시 | timestamptz |  |  |  |
+| updated_at | 변경일시 | timestamptz |  |  | 웹 목록은 최근 바꾼 순 |
+
+## my_example — 예문
+
+사용자가 카드를 추가한 뒤 예문으로 저장하기로 고른 문장(#322). 개인 원문은 이 테이블에만 둔다. 본인 user_id(항목의 사용자)로만 조회하고 Django admin·로그·공용 테이블에 남기지 않는다. 항목당 20개 상한.
+
+| 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
+|---|---|---|---|---|---|
+| id | ID | bigint |  | PK |  |
+| item_id | 항목 ID | bigint |  | → my_item | 항목을 빼면(해제) 함께 지운다(CASCADE) |
+| original_hash | 원문 해시 | varchar(64) |  |  | 원문의 SHA-256. UNIQUE(item_id, original_hash) |
+| original_text | 원문 | text |  |  | 사용자가 고른 문장 그대로(분석 원문과 같은 1,000자 상한) |
+| highlight_start | 표시 시작 | int | Y |  | 이 예문에서 카드가 가리키는 부분의 시작. 원문 기준 UTF-16 위치이고, 사이드 패널이 받은 카드 위치를 그대로 보낸다. 구간을 저장하기 전 예문(0031 이전)은 NULL |
+| highlight_end | 표시 끝 | int | Y |  | 그 부분의 끝(배타). 0 ≤ 시작 < 끝 ≤ 원문 길이를 서버가 검사한다 |
+| created_at | 저장일시 | timestamptz |  |  |  |
 
 ## usage_log — 사용 기록
 
@@ -93,6 +126,8 @@
 | created_at | 기록일시 | timestamptz |  |  |  |
 
 ## admin_action_log — 관리자 작업 이력
+
+아직 만들지 않았다. 매칭 정정의 작업 기록은 이 테이블 대신 Django admin 기록(`django_admin_log`)에 '정정: 전 → 후'와 상태 변경으로 남긴다(2026-11-01 사용자 결정, design-decisions 70절).
 
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
@@ -238,7 +273,7 @@
 | start_offset | 시작 위치 | integer |  |  | 키 텍스트 코드포인트 기준 [start, end). 원문 위치는 서버가 변환 / 0 ≤ start < end (CHECK) |
 | end_offset | 끝 위치 | integer |  |  | 0 ≤ start < end (CHECK) |
 | state | 판정 상태 | varchar(30) |  |  | decided(용법이 하나로 정해짐) / not_applicable(해당 없음, 새 문법 찾지 않음) / divergent(해석 갈림) / unfound(미발견, 새 문법 등록) / unresolved(미확정·지원 범위 밖). 확정·미검수 표시는 저장하지 않고 조회 시 정함: usage_id의 grammar_usage.status, 그 용법이 속한 패턴(grammar_usage.pattern_id, 회화체 구간이면 원형)의 status, pattern_id(실제 매칭된 패턴)의 status, pattern_id가 연결된 원형(variant_of)의 status가 모두 approved면 확정, 하나라도 pending이면 미검수, 하나라도 rejected면 응답에서 뺌. alternatives의 각 usage_id도 주 용법과 같은 네 가지(그 용법, 그 용법의 소속 패턴, pattern_id, pattern_id가 연결된 원형)와 소속(pattern_id나 그 원형)으로 따로 검사(pending이면 그 대안에 배지, rejected면 그 대안만 뺌). 주 용법 쪽이 rejected면 구간째 뺌(대안을 주 용법으로 올리지 않음). unresolved는 pattern_id와 그 원형(연결됐으면)의 status만 봄(이름은 매칭된 패턴 이름, 설명 없음) / 상태별 칸(CHECK): decided면 usage_id 필수, divergent면 usage_id 필수이고 alternatives가 비어 있지 않음, unresolved면 usage_id·alternatives 모두 NULL(candidates·pattern_id는 남김), 그 밖에는 alternatives NULL |
-| decided_by | 판정 근거 | varchar(30) | Y |  | single_usage / rule / llm / admin. 지금 구현은 single_usage(승인된 용법 완결 패턴의 단일 후보, #39), rule(승인된 판별 규칙, #55), llm을 씀 |
+| decided_by | 판정 근거 | varchar(30) | Y |  | single_usage / rule / llm / admin. single_usage(승인된 용법 완결 패턴의 단일 후보, #39), rule(승인된 판별 규칙, #55), llm, admin(활성 관리자 정정을 적용함, #221)을 모두 쓴다 |
 | rule_id | 판별 규칙 ID | bigint | Y | → usage_rule | decided_by가 rule일 때만 있음(CHECK `span_match_rule_iff_decided_by_rule`, decided_by가 NULL이면 rule_id도 NULL). 같은 용법을 가리키는 규칙이 여럿 맞으면 지금 구현은 id가 가장 작은 규칙을 기록(확인 필요) |
 | basis_revision | 근거 판 번호 | integer | Y |  | single_usage면 grammar_pattern.revision. 판 번호를 두기 전까지(지금 구현, #39) 칼럼을 만들지 않고, 다시 판정은 is_stale(design-decisions 35절)에 맡김. 판별 규칙은 승인 뒤 내용을 바꾸지 않아 판 번호가 없음(45절) |
 | usage_revision | 용법 판 번호 | integer | Y |  | 판정 당시 grammar_usage.revision. 바뀌면 재검토 |
@@ -248,16 +283,18 @@
 
 ## match_correction — 매칭 정정
 
+관리자가 평가 결과(eval_result) admin의 항목에서만 만든다. 공용 분석에는 원문이 없어 다른 곳에서는 문장을 고를 수 없기 때문이다(#221, design-decisions 70절). 정정은 자리(위치)로 찾고, 같은 자리의 다른 패턴 구간과는 정정 전·후 용법의 소속 패턴(회화체면 원형)으로 가른다.
+
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | analysis_id | 문장 분석 ID | bigint |  | → sentence_analysis | UNIQUE(analysis_id, start_offset, end_offset). 재분석해도 덮어쓰지 않음 |
 | start_offset | 시작 위치 | integer |  |  | 키 텍스트 코드포인트 기준 |
 | end_offset | 끝 위치 | integer |  |  |  |
-| before_usage_id | 정정 전 용법 ID | bigint | Y | → grammar_usage | 미발견 구간이었으면 null |
+| before_usage_id | 정정 전 용법 ID | bigint | Y | → grammar_usage | 처음 정정할 때의 판정 용법(다시 정정해도 바꾸지 않음). 미확정 구간이었으면 null. 미발견 구간(구간 새로 만들기)의 정정은 하지 않는다(#221) |
 | after_usage_id | 정정 후 용법 ID | bigint | Y | → grammar_usage | null이면 매칭 해제 |
-| status | 적용 상태 | varchar(30) |  |  | active / suspended. active만 우선 적용, 오답으로 확인된 결과는 재분석 중에도 노출 안 함. 관리자가 직접 바꿀 때만 변경. after_usage_id 용법, 그 소속 패턴, 같은 위치 span_match의 실제 매칭 패턴(pattern_id, 회화체면 회화체 패턴), 그 패턴이 연결된 원형 중 하나라도 rejected면 적용할 때 건너뜀(상태는 그대로, 조회 규칙과 같은 네 가지) |
-| corrected_by | 정정자 ID | bigint |  | → users |  |
+| status | 적용 상태 | varchar(30) |  |  | active / suspended. active만 우선 적용, 오답으로 확인된 결과는 재분석 중에도 노출 안 함(저장 구간을 보일 때 정정 구간은 정정 후 용법으로, 해제 구간은 빼고 보인다, #222). 관리자가 정정 목록(admin)의 '멈춤'·'다시 적용' 액션으로 직접 바꿀 때만 변경하고, 바꾸면 분석을 stale로 만들고 세대 번호를 올린다. 목록은 분석 ID·위치·전후 용법·상태·정정자·시각만 보이고 문장은 보이지 않는다(#223). after_usage_id 용법, 그 소속 패턴, 같은 위치 span_match의 실제 매칭 패턴(pattern_id, 회화체면 회화체 패턴), 그 패턴이 연결된 원형 중 하나라도 rejected면 적용할 때 건너뜀(상태는 그대로, 조회 규칙과 같은 네 가지) |
+| corrected_by | 정정자 ID | bigint | Y | → users | 정정한 관리자가 탈퇴하면 NULL(SET_NULL). 다른 관리자 칸과 같고, 관리자 탈퇴가 막히지 않게 한다(#221) |
 | created_at | 정정일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 
@@ -266,7 +303,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| character | 한자 | varchar(4) |  |  | 한자 한 글자(코드포인트 1개). UNIQUE. 단어의 한자는 표기를 글자 단위로 잘라 이 칸으로 조회(연결 테이블 없음). 만난 한자는 사전형이 아니라 user_sentence 원문에서 추출 |
+| character | 한자 | varchar(4) |  |  | 한자 한 글자(코드포인트 1개). UNIQUE. 단어의 한자는 표기를 글자 단위로 잘라 이 칸으로 조회(연결 테이블 없음). 내 일본어의 한자는 아직 정하지 않았다(원문을 저장하지 않아 예전처럼 user_sentence 원문에서 뽑을 수 없다, ADR 0006) |
 | on_readings | 음독 | jsonb | Y |  | KANJIDIC2 음독 목록(가타카나) |
 | kun_readings | 훈독 | jsonb | Y |  | KANJIDIC2 훈독 목록(히라가나, 오쿠리가나 구분점 포함) |
 | korean_readings | 한국 한자음 | jsonb | Y |  | KANJIDIC2 한국어 음(한글). 예: 学→학 |

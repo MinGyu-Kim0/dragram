@@ -13,9 +13,12 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import Exists, F, OuterRef, Prefetch, Q
 from django.utils import timezone
 
+from accounts.tokens import lock_user
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
+    MatchCorrection,
+    MyItem,
     PatternMorpheme,
     PatternSetVersion,
     ReviewStatus,
@@ -436,7 +439,36 @@ def merge_usage(source, target):
     SpanMatch.objects.bulk_update(rows, ["usage", "state", "candidates", "alternatives"])
     # 판별 규칙도 target을 가리킨다. 같은 뜻으로 합친 용법이라 규칙의 뜻은 그대로다(#55).
     UsageRule.objects.filter(usage=source).update(usage=target, updated_at=timezone.now())
+    # 관리자 정정도 target을 가리킨다(#221).
+    now = timezone.now()
+    MatchCorrection.objects.filter(before_usage=source).update(before_usage=target, updated_at=now)
+    MatchCorrection.objects.filter(after_usage=source).update(after_usage=target, updated_at=now)
+    _move_my_items(source, target)
     source.delete()
+
+
+def _move_my_items(source, target):
+    """사용자가 추가·숨긴 source 항목을 target으로 옮긴다(#322, FR-M13 승계). 같은 사용자가 target도
+    두었으면 하나로 합친다: 추가가 숨김보다 앞서고, 예문은 겹치지 않게 옮긴다.
+
+    항목 추가·예문 저장(my_items)과 같은 사용자 잠금을 먼저 잡아, 옮기는 사이 target 항목에 같은
+    예문이 저장되어 합치기 전체가 제약 위반으로 되돌려지지 않게 한다(PR #326 리뷰).
+    """
+    users = MyItem.objects.filter(usage=source).values_list("user_id", flat=True)
+    for user_id in sorted(set(users)):
+        lock_user(user_id)
+    for item in MyItem.objects.filter(usage=source).select_for_update():
+        kept = MyItem.objects.filter(user_id=item.user_id, usage=target).first()
+        if kept is None:
+            item.usage = target
+            item.save(update_fields=["usage", "updated_at"])
+            continue
+        if MyItem.State.ADDED in (item.state, kept.state):
+            kept.state = MyItem.State.ADDED
+            kept.save(update_fields=["state", "updated_at"])
+        taken = set(kept.examples.values_list("original_hash", flat=True))
+        item.examples.exclude(original_hash__in=taken).update(item=kept)
+        item.delete()
 
 
 def _repointed(row, source_id, target_id):

@@ -11,9 +11,10 @@ from analysis.models import (
     SpanMatch,
     WordSense,
 )
+from analysis.normalize import has_only_known_placeholders, settled_prefix
 from analysis.positions import to_analysis, to_original, utf16_offsets
 from analysis.ruby import ruby_pieces
-from analysis.sentence import _pattern_statuses
+from analysis.sentence import _corrections, _pattern_statuses
 
 # 화면에 보이는 구간 판정
 _SHOWN_STATES = (
@@ -28,7 +29,9 @@ def _grammar_response(analysis, offsets, origins, utf16, restore):
     return _with_parts(_grammar_entries(analysis, offsets, origins, utf16, restore))
 
 
-def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), span_of=None):
+def _grammar_entries(
+    analysis, offsets, origins, utf16, restore, excluded=(), span_of=None, released=False
+):
     """용법이 정해진 구간, 해석 갈림, 미확정 구간을 이 요청 원문의 UTF-16 위치로 보인다.
     (항목, 매칭된 패턴의 show_parts) 목록(원문 순서)이다.
 
@@ -38,6 +41,10 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
     'AI 생성·미검수'다. 해석 갈림의 대안도 하나씩 같게 보고, 반려된 대안만 뺀다(주 용법 쪽이
     반려면 구간째 뺀다). 미확정은 매칭된 패턴만 본다. excluded는 뺄 저장 행 ID다(다시 판정하는
     구간, #176). span_of를 주면 {id(항목): 저장 구간}을 채운다.
+
+    활성 정정이 있는 구간은 저장된 판정 대신 정정 후 용법으로 보이고, 해제면 뺀다. 정정 뒤 다시
+    분석하기 전(stale 행의 옛 결과, 재분석 실패로 남은 결과)에도 오답이 보이지 않게 한다(#222).
+    released면 해제한 구간도 저장된 판정으로 남긴다(정정 화면이 그 구간을 다시 고칠 수 있게).
     """
     spans = list(
         analysis.span_matches.filter(state__in=_SHOWN_STATES)
@@ -49,8 +56,11 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
     alternative_usages = GrammarUsage.objects.select_related("pattern").in_bulk(
         [alt["usage_id"] for span in spans for alt in span.alternatives or []]
     )
+    corrections = _corrections(analysis)
     entries = []
     for span in spans:
+        if not apply_correction(span, corrections) and not released:
+            continue
         if span.state == SpanMatch.State.UNRESOLVED:
             item = _unresolved_item(span, offsets, origins, utf16)
         else:
@@ -87,6 +97,24 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
         if span_of is not None:
             span_of[id(item)] = span
     return entries
+
+
+def apply_correction(span, corrections):
+    """활성 정정(corrections: {(키 텍스트 start, end, 패턴 ID): 정정})을 저장 구간에 적용한다.
+    정정이 매칭을 해제했으면 False다.
+
+    정정 후 용법(그 패턴 포함)이 반려됐으면 분석할 때처럼 정정을 건너뛰고 저장된 판정을 둔다.
+    읽어 온 행을 바꾸므로 span_of로 받는 쪽(평가, 정정 화면)도 정정 결과를 본다.
+    """
+    correction = corrections.get((span.start_offset, span.end_offset, span.pattern_id))
+    if correction is None:
+        return True
+    after = correction.after_usage
+    if after is None:
+        return False
+    if _review_status(span.pattern, after) is not None:
+        span.usage, span.state, span.alternatives = after, SpanMatch.State.DECIDED, None
+    return True
 
 
 # 구성 문법의 바깥 카드가 될 수 있는 판정 상태(#65). 미확정은 설명 없는 카드 뒤로 설명을 숨기지
@@ -158,6 +186,8 @@ def _usage_fields(pattern, usage):
     if review_status is None:
         return None
     return {
+        # 사이드 패널이 카드를 내 일본어에 추가·숨길 때 쓰는 ID(#322)
+        "usage_id": usage.pk,
         "pattern_name": pattern.name,
         "name": usage.name,
         "explanation_ko": usage.explanation_ko,
@@ -209,6 +239,7 @@ def _unresolved_item(span, offsets, origins, utf16):
         "start": start,
         "end": end,
         "state": SpanMatch.State.UNRESOLVED,
+        "usage_id": None,
         "pattern_name": span.pattern.name,
         "name": span.pattern.name,
         "explanation_ko": None,
@@ -250,10 +281,19 @@ def _words_response(word_spans, text, token_at, offsets, origins, utf16, before_
         if sense is None or sense.sense_status == ReviewStatus.REJECTED:
             continue
         morph = token_at.get((span["start"], span["end"]))
-        reading = words.reading_for(sense, text, morph)
+        [reading, *others] = words.readings_for(sense, text, morph)
         start, end = to_original(origins, utf16, *to_analysis(offsets, span["start"], span["end"]))
         items.append(
-            words.response_item(start, end, sense.word, reading, sense, before_save, morph=morph)
+            words.response_item(
+                start,
+                end,
+                sense.word,
+                reading,
+                sense,
+                before_save,
+                morph=morph,
+                other_readings=others,
+            )
         )
     return items
 
@@ -298,6 +338,19 @@ class Presenter:
         return {
             "type": "translation",
             "translation_ko": self.sentence.restore(translation),
+            "ruby": self.ruby,
+        }
+
+    def partial_translation_event(self, prefix):
+        """검증 전 번역 앞부분 이벤트(#303). 보낼 만큼 정해진 글이 없으면 None이다. 없는 번호의
+        자리표시자를 쓴 앞부분은 숫자를 되돌릴 수 없어 보내지 않는다(번역 검증에서 실패한다).
+        """
+        settled = settled_prefix(prefix)
+        if not settled or not has_only_known_placeholders(settled, self.sentence.numbers):
+            return None
+        return {
+            "type": "translation_partial",
+            "translation_ko": self.sentence.restore(settled),
             "ruby": self.ruby,
         }
 
@@ -403,11 +456,18 @@ class Presenter:
         s = self.sentence
         return _grammar_entries(analysis, s.offsets, self.origins, self.utf16, s.restore, excluded)
 
-    def grammar_spans(self, analysis):
-        """analysis 이벤트의 문법과, 항목마다 그 저장 구간 {id(항목): 구간}(평가 #177)."""
+    def grammar_spans(self, analysis, released=False):
+        """analysis 이벤트의 문법과, 항목마다 그 저장 구간 {id(항목): 구간}(평가 #177). released면
+        해제한 구간도 남긴다(정정 대상 찾기)."""
         s, spans = self.sentence, {}
         entries = _grammar_entries(
-            analysis, s.offsets, self.origins, self.utf16, s.restore, span_of=spans
+            analysis,
+            s.offsets,
+            self.origins,
+            self.utf16,
+            s.restore,
+            span_of=spans,
+            released=released,
         )
         return _with_parts(entries), spans
 
@@ -489,13 +549,18 @@ class Presenter:
                         only.sense,
                         before_save=True,
                         morph=morphs[token],
+                        other_readings=only.other_readings,
                     )
                 )
                 continue
             item = words.response_item(
                 start, end, cands[0].sense.word, cands[0].reading, None, morph=morphs[token]
             )
-            item["reading"] = "・".join(dict.fromkeys(c.reading for c in cands))
+            shown = list(dict.fromkeys(c.reading for c in cands))
+            item["reading"] = "・".join(shown)
+            item["other_readings"] = list(
+                dict.fromkeys(r for c in cands for r in c.other_readings if r not in shown)
+            )
             item["tags"] = sorted(
                 set.intersection(
                     *(set(words.word_tags(c.sense.word, morphs[token])) for c in cands)

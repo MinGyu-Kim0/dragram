@@ -5,7 +5,7 @@ import httpx2 as httpx
 import openai
 import pytest
 
-from analysis import llm
+from analysis import llm, timing
 from analysis.llm import OpenAILLMClient, SectionParser
 from errors import AnalysisError, BusinessError
 
@@ -21,9 +21,11 @@ def recorder(recorded):
 
 
 @pytest.fixture
-def llm_client(settings, recorded):
+def llm_client(settings, recorded, monkeypatch):
     # 실제 OpenAI는 부르지 않는다. SDK 호출(responses.create)만 바꿔 끼운다.
     settings.OPENAI_API_KEY = "test-key"
+    # 호출 시간을 재는 시계는 멈춰 둔다. 시간을 보는 테스트만 돌린다.
+    monkeypatch.setattr(timing, "clock", lambda: 0.0)
     return OpenAILLMClient(recorder(recorded))
 
 
@@ -73,6 +75,18 @@ def test_stream_gives_translation_first_and_then_the_whole_result(llm_client, mo
         ("spans", []),
         ("words", []),
         ("result", {"translation_ko": "번역", "spans": [], "words": []}),
+    ]
+
+
+def test_stream_gives_the_growing_translation_prefix_before_it_closes(llm_client, monkeypatch):
+    chunks = ['{"translation_ko": "', "나는", "", ' 학생"', ', "spans": []}']
+    stream_with(llm_client, monkeypatch, lambda **kwargs: stream_of(deltas(*chunks)))
+
+    # 앞부분은 늘어났을 때만 넘긴다(빈 앞부분, 그대로인 조각은 넘기지 않는다).
+    assert list(llm_client.analyze_stream("文", [], [], [], [], []))[:3] == [
+        ("translation_partial", "나는"),
+        ("translation", "나는 학생"),
+        ("spans", []),
     ]
 
 
@@ -194,6 +208,43 @@ def test_scalar_and_object_sections_with_newlines_come_out():
         (1, "n", -1.5),
         (1, "obj", {"a": [1]}),
     ]
+
+
+def partials(parser, chunks, key="translation_ko"):
+    """조각을 차례로 넣으며, 조각마다 아직 닫히지 않은 그 칸 문자열의 앞부분을 모은다."""
+    found = []
+    for chunk in chunks:
+        parser.feed(chunk)
+        found.append(parser.partial(key))
+    return found
+
+
+def test_unclosed_translation_comes_out_as_its_prefix_grows():
+    # 번역은 칸이 닫히기 전에도 글자 단위로 보인다(#303). 닫히면 앞부분은 없다.
+    chunks = ['{"transla', 'tion_ko": "', "나는 ", "학생", '입니다."', ', "spans": []}']
+
+    assert partials(SectionParser(), chunks) == [None, "", "나는 ", "나는 학생", None, None]
+
+
+def test_prefix_does_not_end_in_a_cut_escape():
+    # 조각이 이스케이프·\u 가운데, 서로게이트 쌍 사이에서 끊겨도 깨진 글자를 내지 않는다.
+    chunks = ['{"translation_ko": "그는 \\', '"간다\\', '" \\u30', "42 \\ud83d", "\\ude00"]
+
+    assert partials(SectionParser(), chunks) == [
+        "그는 ",
+        '그는 "간다',
+        '그는 "간다" ',
+        '그는 "간다" あ ',
+        '그는 "간다" あ 😀',
+    ]
+
+
+def test_prefix_is_only_for_the_asked_section():
+    parser = SectionParser()
+    parser.feed('{"translation_ko": "번역", "spans": [{"basis": "근거')
+
+    assert parser.partial("translation_ko") is None
+    assert parser.partial("basis") is None
 
 
 def test_result_that_is_not_json_becomes_analysis_failure():
@@ -579,8 +630,34 @@ def test_stream_records_first_response_with_its_model_and_tokens(llm_client, mon
             "output_tokens": 20,
             "success": True,
             "attempt": 1,
+            "seconds": 0.0,
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda c: list(c.analyze_stream("文", [], [], [], [], [])),
+        lambda c: c.judge_spans("は", [], "는", [], [], SPANS),
+    ],
+)
+def test_call_records_how_long_it_took_from_sending_to_the_end(
+    llm_client, monkeypatch, recorded, call
+):
+    # 보내기 시작할 때 10초, 기록할 때 13.5초다(#216).
+    now = iter([10.0, 13.5])
+    monkeypatch.setattr(timing, "clock", lambda: next(now))
+    events = [*deltas('{"translation_ko": "번역"}'), completed_event()]
+    monkeypatch.setattr(
+        llm_client._client.responses,
+        "create",
+        lambda stream=False, **_: stream_of(events) if stream else response_with(),
+    )
+
+    call(llm_client)
+
+    assert [c["seconds"] for c in recorded] == [3.5]
 
 
 def test_failed_stream_records_failure_with_the_tokens_it_used(llm_client, monkeypatch, recorded):
@@ -620,6 +697,7 @@ def test_stream_that_could_not_be_sent_records_failure_without_tokens(
             "output_tokens": None,
             "success": False,
             "attempt": 1,
+            "seconds": 0.0,
         }
     ]
 
@@ -681,6 +759,7 @@ def test_follow_up_call_records_its_purpose_model_and_tokens(
             "output_tokens": 10,
             "success": True,
             "attempt": 1,
+            "seconds": 0.0,
         }
     ]
 

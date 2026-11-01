@@ -11,8 +11,8 @@ from django.utils import timezone
 from accounts import google
 from accounts.models import ExtensionToken
 from analysis import jobs, limits, usage
-from analysis.models import DesignatedName, SentenceAnalysis, UsageLog, UserSentence
-from tests.analysis.helpers import analyze, connected_client
+from analysis.models import DesignatedName, MyExample, MyItem, SentenceAnalysis, UsageLog, Word
+from tests.analysis.helpers import add_word, analyze, connected_client
 
 pytestmark = pytest.mark.django_db
 
@@ -72,17 +72,33 @@ def sign_up_with_google(web):
 
 
 def user_with_records(username, fake_llm):
-    """분석 기록·지정한 이름·확장 토큰·사용량 기록이 있는 사용자와 그 확장 클라이언트"""
+    """내 일본어 항목·예문·지정한 이름·확장 토큰·사용량 기록이 있는 사용자와 그 확장 클라이언트"""
     client = connected_client(username)
     fake_llm.response = {"translation_ko": "학생입니다"}
     analyze(client, f"{username}は学生です。")
     client.put("/api/names/", {"surface": "春", "reading": "はる"}, content_type="application/json")
+    word = Word.objects.filter(jmdict_seq=1).first() or add_word(
+        1, ["学生"], ["がくせい"], [(["student"], [], None)]
+    )
+    client.put(
+        "/api/my-items/",
+        {
+            "kind": "sense",
+            "id": word.senses.get().pk,
+            "state": "added",
+            "example": f"{username}は学生",
+            "example_start": len(username) + 1,
+            "example_end": len(username) + 3,
+        },
+        content_type="application/json",
+    )
     return User.objects.get(username=username), client
 
 
 def records_of(user):
     return {
-        "sentences": UserSentence.objects.filter(user=user).count(),
+        "items": MyItem.objects.filter(user=user).count(),
+        "examples": MyExample.objects.filter(item__user=user).count(),
         "names": DesignatedName.objects.filter(user=user).count(),
         "tokens": ExtensionToken.objects.filter(user=user).count(),
         "usage": UsageLog.objects.filter(user=user).count(),
@@ -103,7 +119,7 @@ def test_withdrawal_deletes_the_account_and_its_personal_records(fake_llm):
 
     assert (response.status_code, response.json()) == (200, {"user": None})
     assert not User.objects.filter(pk=me.pk).exists()
-    assert not UserSentence.objects.filter(original_text__startswith="me").exists()
+    assert not MyExample.objects.filter(original_text__startswith="me").exists()
     assert not ExtensionToken.objects.exclude(user=other).exists()
     # 사용량 행은 연결만 비우지 않고 지운다.
     assert UsageLog.objects.count() == usage_before - mine["usage"]
@@ -178,7 +194,7 @@ def test_withdrawal_during_an_analysis_leaves_no_record_behind(fake_llm, monkeyp
     analyze(extension, "私は学生です。")
 
     assert not User.objects.filter(pk=me.pk).exists()
-    assert not UserSentence.objects.exists()
+    assert not MyItem.objects.exists()
     assert not UsageLog.objects.filter(user_id=me.pk).exists()
     # 탈퇴한 뒤 끝난 LLM 호출도 같은 Google 계정의 그날 사용량에 든다.
     again = google_login(web, monkeypatch, settings, "google-sub-1")
@@ -206,7 +222,7 @@ def test_withdrawal_before_the_worker_starts_still_saves_the_shared_analysis(
     analyze(extension, "私は学生です。")
 
     assert SentenceAnalysis.objects.get().status == SentenceAnalysis.Status.COMPLETE
-    assert not UserSentence.objects.exists()
+    assert not MyItem.objects.exists()
     assert not UsageLog.objects.exclude(user=None).exists()
     again = google_login(web, monkeypatch, settings, "google-sub-1")
     assert limits.today_tokens(again) == 110
@@ -300,7 +316,7 @@ def test_admin_deletion_withdraws_like_the_web(
 
     assert response.status_code == 302
     assert not User.objects.filter(pk=me.pk).exists()
-    assert not UserSentence.objects.filter(original_text__startswith="me").exists()
+    assert not MyExample.objects.filter(original_text__startswith="me").exists()
     assert not DesignatedName.objects.exclude(user=other).exists()
     assert not ExtensionToken.objects.exclude(user=other).exists()
     assert not UsageLog.objects.filter(user__isnull=True, withdrawn_key__isnull=True).exists()

@@ -38,6 +38,7 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
             "end": 2,
             "state": "decided",
             "connection": ANY,
+            "usage_id": ANY,
             "pattern_name": "は",
             "name": "주제 は",
             "explanation_ko": "주제",
@@ -55,6 +56,7 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
             "end": 6,
             "state": "decided",
             "connection": ANY,
+            "usage_id": ANY,
             "pattern_name": "です",
             "name": "정중 です",
             "explanation_ko": "정중",
@@ -144,6 +146,9 @@ def test_sentence_without_grammar_returns_empty_grammar(client, fake_llm):
 
     response = analyze(client, "東京")
 
+    # 번역 요청 한 번이 문법도 확인한다. 후보 구간도 새 구문도 없으면 문법 없음으로 끝난다.
+    assert len(fake_llm.requests) == 1
+    assert fake_llm.requests[0]["spans"] == []
     assert response.json()["grammar"] == []
 
 

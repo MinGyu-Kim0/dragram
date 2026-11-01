@@ -4,6 +4,8 @@ import { BadgeRow } from "./BadgeRow";
 import { ConnectionNote } from "./ConnectionNote";
 import { draggedFirst, type DragRange } from "./drag-range";
 import { groupGrammar, sortGrammar } from "./grammar-groups";
+import { itemKey } from "@/utils/my-items";
+import { ItemActions, type MyItems } from "./MyItems";
 import { TAG_NAMES } from "./tag-names";
 
 // 기능 태그 코드의 화면 이름(#151, 서버 FunctionTag와 같은 이름). 모르는 코드는 보이지 않는다.
@@ -209,11 +211,14 @@ export function GrammarCards({
   grammar,
   checking = [],
   selection,
+  items,
 }: {
   text: string;
   grammar: GrammarItem[];
   checking?: CheckingItem[];
   selection: DragRange;
+  // 내 일본어 항목(#321). 있으면 용법이 정해진 카드에 추가·표시 안 함 버튼을 단다.
+  items?: MyItems;
 }) {
   if (grammar.length === 0 && checking.length === 0) {
     return <p className="no-grammar">문법 요소 없음</p>;
@@ -251,6 +256,7 @@ export function GrammarCards({
             item={card.item}
             index={card.index}
             dragged={dragged}
+            items={items}
           />
         ),
       )}
@@ -276,11 +282,13 @@ function GrammarCard({
   item,
   index,
   dragged,
+  items,
 }: {
   text: string;
   item: GrammarItem;
   index: number;
   dragged: boolean;
+  items?: MyItems;
 }) {
   const classes = [
     "grammar-card",
@@ -307,9 +315,28 @@ function GrammarCard({
               }
             >
               <GrammarBody text={text} item={part} index={index} Heading="h4" />
+              {items && part.usage_id != null && (
+                <ItemActions
+                  key={`${itemKey("usage", part.usage_id)}:${items.states.get(itemKey("usage", part.usage_id)) ?? "none"}`}
+                  kind="usage"
+                  id={part.usage_id}
+                  example={{ text, start: part.start, end: part.end }}
+                  items={items}
+                  hideable={false}
+                />
+              )}
             </li>
           ))}
         </ul>
+      )}
+      {items && item.usage_id != null && (
+        <ItemActions
+          key={`${itemKey("usage", item.usage_id)}:${items.states.get(itemKey("usage", item.usage_id)) ?? "none"}`}
+          kind="usage"
+          id={item.usage_id}
+          example={{ text, start: item.start, end: item.end }}
+          items={items}
+        />
       )}
     </li>
   );

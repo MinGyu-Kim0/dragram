@@ -659,6 +659,7 @@ h1 {
   gap: 8px;
   min-height: 44px;
   color: var(--color-text);
+  font-size: 23px;
   text-decoration: none;
 }
 

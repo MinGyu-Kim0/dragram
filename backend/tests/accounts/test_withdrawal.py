@@ -87,6 +87,8 @@ def user_with_records(username, fake_llm):
             "id": word.senses.get().pk,
             "state": "added",
             "example": f"{username}は学生",
+            "example_start": len(username) + 1,
+            "example_end": len(username) + 3,
         },
         content_type="application/json",
     )

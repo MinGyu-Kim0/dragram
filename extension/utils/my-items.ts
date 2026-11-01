@@ -28,18 +28,29 @@ export async function fetchMyItems(): Promise<MyItem[]> {
   return ((await response.json()) as { items: MyItem[] }).items;
 }
 
+// 예문으로 저장할 문장과, 그 안에서 카드가 가리키는 부분의 원문 기준 UTF-16 위치 [start, end)
+export interface Example {
+  text: string;
+  start: number;
+  end: number;
+}
+
 // 추가하거나 숨긴다. 같은 항목이면 상태만 바뀐다. example을 주면(추가할 때만) 예문으로 저장한다.
 export async function saveMyItem(
   kind: ItemKind,
   id: number,
   state: ItemState,
-  example?: string,
+  example?: Example,
 ): Promise<MyItem> {
   const response = await tokenRequest("/api/my-items/", "PUT", {
     kind,
     id,
     state,
-    ...(example !== undefined && { example }),
+    ...(example !== undefined && {
+      example: example.text,
+      example_start: example.start,
+      example_end: example.end,
+    }),
   });
   return (await response.json()) as MyItem;
 }

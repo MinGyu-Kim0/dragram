@@ -35,7 +35,7 @@ def _my_items(request, kind):
 def _examples(item):
     """사용자가 고른 예문(본인 원문). 저장한 순이다."""
     return [
-        {"id": e.pk, "text": e.original_text}
+        {"id": e.pk, "text": e.original_text, "start": e.highlight_start, "end": e.highlight_end}
         for e in sorted(item.examples.all(), key=lambda e: e.pk)
     ]
 

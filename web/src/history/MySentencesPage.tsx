@@ -11,7 +11,14 @@ import "./history.css";
 // 탭과 추가한·숨긴 항목 필터를 두고, 항목 상태와 사용자가 고른 예문을 여기서 바꾸거나 지운다.
 // 분석한 문장 원문은 저장하지 않으므로 문장 목록은 없다.
 
-type Example = { id: number; text: string };
+// 사용자가 고른 예문. start·end는 예문을 저장한 카드가 가리키던 부분(UTF-16 [start, end))이고,
+// 위치를 저장하기 전 예문은 null이다.
+type Example = {
+  id: number;
+  text: string;
+  start: number | null;
+  end: number | null;
+};
 
 // 반려된 용법·뜻은 내용 없이 예문만 온다. 사용자가 자기 원문을 지울 수 있게 하기 위해서다.
 type Rejected = { rejected: true; examples: Example[] };
@@ -306,7 +313,17 @@ function Examples({
       <ul className="examples" aria-label="내 예문">
         {examples.map((example) => (
           <li key={example.id}>
-            <span lang="ja">{example.text}</span>
+            <span lang="ja">
+              {example.start === null || example.end === null ? (
+                example.text
+              ) : (
+                <>
+                  {example.text.slice(0, example.start)}
+                  <mark>{example.text.slice(example.start, example.end)}</mark>
+                  {example.text.slice(example.end)}
+                </>
+              )}
+            </span>
             <button
               type="button"
               className="text-button"

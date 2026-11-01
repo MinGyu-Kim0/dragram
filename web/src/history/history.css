@@ -192,3 +192,14 @@
   flex: 1 1 auto;
   overflow-wrap: anywhere;
 }
+
+/* 카드가 가리키던 부분. 사이드 패널 첫 하이라이트 색을 쓴다. */
+.history .examples mark {
+  padding: 0 2px;
+  border-radius: 3px 3px 7px 7px;
+  background: linear-gradient(
+    transparent var(--mark-cut),
+    var(--color-highlight-0-mark) var(--mark-cut)
+  );
+  color: inherit;
+}

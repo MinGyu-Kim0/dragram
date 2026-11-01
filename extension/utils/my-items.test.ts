@@ -51,11 +51,22 @@ test("예문은 고를 때만 URL이 아닌 본문으로 보내고, 해제는 �
   });
 
   fetchMock = respond(200, { kind: "sense", id: 3, state: "added" });
-  await saveMyItem("sense", 3, "added", "毎朝走る。");
+  await saveMyItem("sense", 3, "added", {
+    text: "毎朝走る。",
+    start: 2,
+    end: 4,
+  });
   const [url, init] = fetchMock.mock.calls[0]!;
   expect(init.method).toBe("PUT");
   expect(url).not.toContain(encodeURIComponent("毎朝"));
-  expect(JSON.parse(init.body as string).example).toBe("毎朝走る。");
+  expect(JSON.parse(init.body as string)).toEqual({
+    kind: "sense",
+    id: 3,
+    state: "added",
+    example: "毎朝走る。",
+    example_start: 2,
+    example_end: 4,
+  });
 
   fetchMock = respond(204);
   await removeMyItem("usage", 7);

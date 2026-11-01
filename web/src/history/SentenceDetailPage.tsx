@@ -167,12 +167,12 @@ function WithRuby({ text, ruby }: { text: string; ruby: RubyItem[] }) {
   return <>{nodes}</>;
 }
 
-function PendingBadge() {
+export function PendingBadge() {
   return <span className="badge-warn">AI 생성·미검수</span>;
 }
 
 // 배지 줄(DESIGN 3장): 상태 배지가 하나도 없으면 줄째로 뺀다.
-function BadgeRow({
+export function BadgeRow({
   pending = false,
   translated = false,
   colloquial = false,

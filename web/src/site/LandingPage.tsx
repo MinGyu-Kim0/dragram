@@ -1,4 +1,4 @@
-import { SentenceList } from "../history/MySentencesPage";
+import { MyRecords } from "../history/MySentencesPage";
 import SiteLayout from "./SiteLayout";
 
 // 소개·설치(DESIGN WebLanding): 히어로 → 세 단계 카드 → FAQ.
@@ -167,7 +167,7 @@ function Landing() {
 /** /: 로그인했으면 홈, 아니면 소개 페이지. 홈 대시보드를 정하기 전까지 홈은 내 기록 목록이다. */
 function HomePage() {
   return (
-    <SiteLayout>{(user) => (user ? <SentenceList /> : <Landing />)}</SiteLayout>
+    <SiteLayout>{(user) => (user ? <MyRecords /> : <Landing />)}</SiteLayout>
   );
 }
 

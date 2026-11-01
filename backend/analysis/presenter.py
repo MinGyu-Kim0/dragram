@@ -56,15 +56,8 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
     corrections = _corrections(analysis)
     entries = []
     for span in spans:
-        correction = corrections.get((span.start_offset, span.end_offset))
-        if correction is not None and _corrects(correction, span):
-            after = correction.after_usage
-            if after is None:
-                continue
-            # 정정 후 용법(그 패턴 포함)이 반려됐으면 분석할 때처럼 정정을 건너뛰고 저장된 판정을
-            # 보인다. 읽어 온 행을 바꾸므로 span_of로 받는 쪽(평가, 정정 화면)도 정정 결과를 본다.
-            if _review_status(span.pattern, after) is not None:
-                span.usage, span.state, span.alternatives = after, SpanMatch.State.DECIDED, None
+        if not apply_correction(span, corrections):
+            continue
         if span.state == SpanMatch.State.UNRESOLVED:
             item = _unresolved_item(span, offsets, origins, utf16)
         else:
@@ -101,6 +94,24 @@ def _grammar_entries(analysis, offsets, origins, utf16, restore, excluded=(), sp
         if span_of is not None:
             span_of[id(item)] = span
     return entries
+
+
+def apply_correction(span, corrections):
+    """활성 정정(corrections: {키 텍스트 (start, end): 정정})을 저장 구간에 적용한다. 정정이
+    매칭을 해제했으면 False다.
+
+    정정 후 용법(그 패턴 포함)이 반려됐으면 분석할 때처럼 정정을 건너뛰고 저장된 판정을 둔다.
+    읽어 온 행을 바꾸므로 span_of로 받는 쪽(평가, 정정 화면)도 정정 결과를 본다.
+    """
+    correction = corrections.get((span.start_offset, span.end_offset))
+    if correction is None or not _corrects(correction, span):
+        return True
+    after = correction.after_usage
+    if after is None:
+        return False
+    if _review_status(span.pattern, after) is not None:
+        span.usage, span.state, span.alternatives = after, SpanMatch.State.DECIDED, None
+    return True
 
 
 # 구성 문법의 바깥 카드가 될 수 있는 판정 상태(#65). 미확정은 설명 없는 카드 뒤로 설명을 숨기지

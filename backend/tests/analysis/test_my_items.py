@@ -112,6 +112,8 @@ def test_removing_an_item_deletes_its_examples(usage):
     "body",
     [
         {"kind": "pattern", "id": 1, "state": "added"},
+        {"kind": ["usage"], "id": 1, "state": "added"},
+        {"kind": {"usage": 1}, "id": 1, "state": "added"},
         {"kind": "usage", "id": "1", "state": "added"},
         {"kind": "usage", "id": 999999, "state": "added"},
         {"kind": "usage", "id": None, "state": "added"},

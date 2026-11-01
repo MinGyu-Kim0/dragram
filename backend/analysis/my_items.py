@@ -47,7 +47,8 @@ def _target(data):
     if not isinstance(data, dict):
         raise _invalid("본문이 객체가 아님")
     kind, target_id = data.get("kind"), data.get("id")
-    if kind not in _KINDS or type(target_id) is not int:
+    # 목록·객체는 해시할 수 없어 사전 조회가 TypeError가 되므로 문자열인지 먼저 본다.
+    if not isinstance(kind, str) or kind not in _KINDS or type(target_id) is not int:
         raise _invalid("종류나 ID가 맞지 않음")
     target = _KINDS[kind].objects.filter(pk=target_id).first()
     if target is None:

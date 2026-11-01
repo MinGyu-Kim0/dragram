@@ -1,13 +1,13 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { AuthError, request } from "../connect/auth";
-import SiteLayout from "../site/SiteLayout";
-import type { ReviewStatus } from "./analysis";
-import { BadgeRow, PendingBadge } from "./SentenceDetailPage";
+import SiteLayout, { CC_BY_SA_URL, JMDICT_URL } from "../site/SiteLayout";
+import type { ReviewStatus, WordItem } from "./analysis";
+import { BadgeRow, PendingBadge, WordRow } from "./SentenceDetailPage";
 import "../connect/connect.css";
 import "./history.css";
 
-// 내 기록: 내가 분석한 문장 목록(#195)과 문장별 삭제(#196), 내 일본어 문법(#313). 문장을 누르면 저장된
+// 내 기록: 내가 분석한 문장 목록(#195)과 문장별 삭제(#196), 내 일본어 문법(#313)·단어(#314). 문장을 누르면 저장된
 // 분석을 본다.
 
 type Sentence = { id: number; text: string; analyzed_at: string };
@@ -92,9 +92,36 @@ export function MyRecords() {
           {tab === "sentences" && (
             <SentenceTab state={state} onDeleted={removed} />
           )}
-          {tab === "grammar" && <GrammarTab />}
+          {tab === "grammar" && (
+            <MyJapaneseTab<Usage>
+              url="/api/my-japanese/grammar/"
+              field="usages"
+              name="문법"
+              render={(usage, index) => (
+                <UsageCard key={usage.usage_id} usage={usage} index={index} />
+              )}
+            />
+          )}
           {tab === "words" && (
-            <p className="secondary">단어 탭은 준비하고 있어요.</p>
+            <MyJapaneseTab<MyWord>
+              url="/api/my-japanese/words/"
+              field="words"
+              name="단어"
+              render={(word) => (
+                <WordRow key={word.sense_id} word={word}>
+                  <UsedIn sentences={word.sentences} />
+                </WordRow>
+              )}
+              after={(words) =>
+                words.some((w) => w.in_dictionary) && (
+                  <p className="muted">
+                    단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
+                    <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>). 내 문장에서 고른
+                    뜻만 모아 보여 줘요.
+                  </p>
+                )
+              }
+            />
           )}
         </div>
       </section>
@@ -131,6 +158,8 @@ function SentenceTab({
   );
 }
 
+type SentenceLink = { id: number; text: string };
+
 type Usage = {
   usage_id: number;
   pattern_name: string;
@@ -139,73 +168,109 @@ type Usage = {
   korean_equivalent: string | null;
   korean_equivalent_review_status: ReviewStatus | null;
   review_status: ReviewStatus;
-  sentences: { id: number; text: string }[];
+  sentences: SentenceLink[];
 };
 
-type GrammarState =
-  { kind: "loading" } | { kind: "failed" } | { kind: "ready"; usages: Usage[] };
+type MyWord = Omit<WordItem, "start" | "end"> & {
+  sense_id: number;
+  sentences: SentenceLink[];
+};
 
-/** 내 일본어 중 용법(FR-M10). 탭을 열 때 불러온다. 미검수 표시는 문장 분석 화면과 같다. */
-function GrammarTab() {
-  const [state, setState] = useState<GrammarState>({ kind: "loading" });
+type Load<T> =
+  { kind: "loading" } | { kind: "failed" } | { kind: "ready"; items: T[] };
+
+/** 내 일본어 탭 하나(FR-M10). 탭을 열 때 불러오고, 불러오는 중·실패·빈 목록을 보인다. */
+function MyJapaneseTab<T>({
+  url,
+  field,
+  name,
+  render,
+  after,
+}: {
+  url: string;
+  field: string;
+  name: string;
+  render: (item: T, index: number) => ReactNode;
+  after?: (items: T[]) => ReactNode;
+}) {
+  const [state, setState] = useState<Load<T>>({ kind: "loading" });
 
   useEffect(() => {
-    request<{ usages: Usage[] }>("GET", "/api/my-japanese/grammar/").then(
-      (body) => setState({ kind: "ready", usages: body.usages }),
+    request<Record<string, T[]>>("GET", url).then(
+      (body) => setState({ kind: "ready", items: body[field] }),
       () => setState({ kind: "failed" }),
     );
-  }, []);
+  }, [url, field]);
 
   if (state.kind === "loading") return <p className="muted">불러오는 중…</p>;
   if (state.kind === "failed")
     return (
       <p role="alert" className="danger">
-        문법을 불러오지 못했어요. 페이지를 새로 고쳐 주세요.
+        {name}
+        {particle(name, "을", "를")} 불러오지 못했어요. 페이지를 새로 고쳐
+        주세요.
       </p>
     );
-  if (state.usages.length === 0)
-    return <p className="secondary">분석한 문장에 나온 문법이 아직 없어요.</p>;
+  if (state.items.length === 0)
+    return (
+      <p className="secondary">
+        분석한 문장에 나온 {name}
+        {particle(name, "이", "가")} 아직 없어요.
+      </p>
+    );
   return (
-    <ul aria-label="내 문법">
-      {state.usages.map((usage, index) => {
-        const pending = usage.review_status === "pending";
-        return (
-          <li key={usage.usage_id} className="grammar-card">
-            <BadgeRow pending={pending} />
-            <div className="grammar-card-head">
-              <span lang="ja" className={`grammar-chip highlight-${index % 4}`}>
-                {usage.pattern_name}
-              </span>
-              <h2>{usage.name}</h2>
-            </div>
-            {usage.korean_equivalent !== null && (
-              <p>
-                {usage.korean_equivalent}
-                {!pending &&
-                  usage.korean_equivalent_review_status === "pending" && (
-                    <PendingBadge />
-                  )}
-              </p>
-            )}
-            <p className="secondary">{usage.explanation_ko}</p>
-            <details>
-              <summary className="muted">
-                문장 {usage.sentences.length}개
-              </summary>
-              <ul className="usage-sentences">
-                {usage.sentences.map((s) => (
-                  <li key={s.id} lang="ja">
-                    <Link to={`/sentences/${s.id}`} className="sentence-link">
-                      {s.text}
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            </details>
+    <>
+      <ul aria-label={`내 ${name}`}>{state.items.map(render)}</ul>
+      {after?.(state.items)}
+    </>
+  );
+}
+
+// 받침이 있으면 앞 조사, 없으면 뒤 조사
+const particle = (word: string, final: string, open: string) =>
+  (word.charCodeAt(word.length - 1) - 0xac00) % 28 === 0 ? open : final;
+
+/** 그 항목이 나온 내 문장 링크(접어 둔다) */
+function UsedIn({ sentences }: { sentences: SentenceLink[] }) {
+  return (
+    <details>
+      <summary className="muted">문장 {sentences.length}개</summary>
+      <ul className="usage-sentences">
+        {sentences.map((s) => (
+          <li key={s.id} lang="ja">
+            <Link to={`/sentences/${s.id}`} className="sentence-link">
+              {s.text}
+            </Link>
           </li>
-        );
-      })}
-    </ul>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** 문법 카드. 미검수 표시는 문장 분석 화면과 같다. */
+function UsageCard({ usage, index }: { usage: Usage; index: number }) {
+  const pending = usage.review_status === "pending";
+  return (
+    <li className="grammar-card">
+      <BadgeRow pending={pending} />
+      <div className="grammar-card-head">
+        <span lang="ja" className={`grammar-chip highlight-${index % 4}`}>
+          {usage.pattern_name}
+        </span>
+        <h2>{usage.name}</h2>
+      </div>
+      {usage.korean_equivalent !== null && (
+        <p>
+          {usage.korean_equivalent}
+          {!pending && usage.korean_equivalent_review_status === "pending" && (
+            <PendingBadge />
+          )}
+        </p>
+      )}
+      <p className="secondary">{usage.explanation_ko}</p>
+      <UsedIn sentences={usage.sentences} />
+    </li>
   );
 }
 

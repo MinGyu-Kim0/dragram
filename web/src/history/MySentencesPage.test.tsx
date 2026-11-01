@@ -2,9 +2,10 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import App from "../App";
 import MySentencesPage from "./MySentencesPage";
 
-type Call = { url: string; method: string; headers: Record<string, string> };
+type Call = { url: string; method: string; body?: unknown };
 
 let calls: Call[];
 let responses: Record<string, () => Response>;
@@ -16,143 +17,7 @@ function json(body: unknown, status = 200) {
   });
 }
 
-const SENTENCES = [
-  { id: 2, text: "猫が好きです。", analyzed_at: "2026-10-28T03:00:00Z" },
-  { id: 1, text: "私は学生です。", analyzed_at: "2026-10-27T03:00:00Z" },
-];
-
-beforeEach(() => {
-  calls = [];
-  document.cookie = "csrftoken=csrf-value";
-  responses = {
-    "GET /api/auth/me/": () =>
-      json({ user: { email: "me@example.com", account: "42" } }),
-    "GET /api/my-sentences/": () => json({ sentences: SENTENCES }),
-  };
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, init: RequestInit = {}) => {
-      const method = init.method ?? "GET";
-      calls.push({
-        url,
-        method,
-        headers: (init.headers ?? {}) as Record<string, string>,
-      });
-      return responses[`${method} ${url}`]();
-    }),
-  );
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-function open() {
-  render(
-    <MemoryRouter initialEntries={["/sentences"]}>
-      <Routes>
-        <Route path="/sentences" element={<MySentencesPage />} />
-        <Route path="/connect" element={<p>로그인 화면</p>} />
-      </Routes>
-    </MemoryRouter>,
-  );
-}
-
-const items = async () =>
-  within(await screen.findByRole("list", { name: "분석한 문장" })).getAllByRole(
-    "listitem",
-  );
-
-test("내가 분석한 문장을 원문과 분석 시각으로 보인다", async () => {
-  open();
-
-  const rows = await items();
-  expect(rows.map((r) => r.querySelector('[lang="ja"]')?.textContent)).toEqual([
-    "猫が好きです。",
-    "私は学生です。",
-  ]);
-  expect(rows[0].querySelector("time")).toHaveAttribute(
-    "datetime",
-    "2026-10-28T03:00:00Z",
-  );
-});
-
-test("로그인하지 않았으면 로그인 화면으로 간다", async () => {
-  responses["GET /api/auth/me/"] = () => json({ user: null });
-  open();
-
-  expect(await screen.findByText("로그인 화면")).toBeInTheDocument();
-  expect(calls.map((c) => c.url)).not.toContain("/api/my-sentences/");
-});
-
-test("분석한 문장이 없으면 안내한다", async () => {
-  responses["GET /api/my-sentences/"] = () => json({ sentences: [] });
-  open();
-
-  expect(
-    await screen.findByText("아직 분석한 문장이 없어요."),
-  ).toBeInTheDocument();
-});
-
-test("한 번 확인받고 지우면 목록에서 사라진다", async () => {
-  responses["DELETE /api/my-sentences/1/"] = () =>
-    new Response(null, { status: 204 });
-  open();
-  const [, second] = await items();
-
-  await userEvent.click(within(second).getByRole("button", { name: "지우기" }));
-  expect(calls.some((c) => c.method === "DELETE")).toBe(false);
-  await userEvent.click(
-    within(second).getByRole("button", { name: "이 문장 지우기" }),
-  );
-
-  const deleted = calls.find((c) => c.method === "DELETE")!;
-  expect(deleted.url).toBe("/api/my-sentences/1/");
-  expect(deleted.headers["X-CSRFToken"]).toBe("csrf-value");
-  expect(screen.queryByText("私は学生です。")).not.toBeInTheDocument();
-  expect(screen.getByText("猫が好きです。")).toBeInTheDocument();
-});
-
-test("확인에서 취소하면 지우지 않는다", async () => {
-  open();
-  const [first] = await items();
-
-  await userEvent.click(within(first).getByRole("button", { name: "지우기" }));
-  await userEvent.click(within(first).getByRole("button", { name: "취소" }));
-
-  expect(calls.some((c) => c.method === "DELETE")).toBe(false);
-  expect(
-    within(first).getByRole("button", { name: "지우기" }),
-  ).toBeInTheDocument();
-});
-
-test("지우지 못하면 문장을 남기고 알린다", async () => {
-  responses["DELETE /api/my-sentences/2/"] = () =>
-    json({ error: "AUTH:CSRF_FAILED" }, 403);
-  open();
-  const [first] = await items();
-
-  await userEvent.click(within(first).getByRole("button", { name: "지우기" }));
-  await userEvent.click(
-    within(first).getByRole("button", { name: "이 문장 지우기" }),
-  );
-
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "지우지 못했어요. 다시 시도해 주세요.",
-  );
-  expect(screen.getByText("猫が好きです。")).toBeInTheDocument();
-});
-
-test("문장을 누르면 저장된 분석 화면으로 간다", async () => {
-  open();
-  const [first] = await items();
-
-  expect(
-    within(first).getByRole("link", { name: "猫が好きです。" }),
-  ).toHaveAttribute("href", "/sentences/2");
-});
-
-const GRAMMAR = [
+const USAGES = [
   {
     usage_id: 7,
     pattern_name: "ている",
@@ -161,10 +26,7 @@ const GRAMMAR = [
     korean_equivalent: "~하고 있다",
     korean_equivalent_review_status: "approved",
     review_status: "pending",
-    sentences: [
-      { id: 2, text: "猫が好きです。" },
-      { id: 1, text: "私は学生です。" },
-    ],
+    examples: [{ id: 31, text: "雨が降っている。" }],
   },
   {
     usage_id: 3,
@@ -174,90 +36,9 @@ const GRAMMAR = [
     korean_equivalent: null,
     korean_equivalent_review_status: null,
     review_status: "approved",
-    sentences: [{ id: 1, text: "私は学生です。" }],
+    examples: [],
   },
 ];
-
-// 카드 안의 문장 목록 항목은 빼고 카드만 고른다.
-const grammarCards = async () => {
-  const list = await screen.findByRole("list", { name: "내 문법" });
-  return within(list)
-    .getAllByRole("listitem")
-    .filter((li) => li.parentElement === list);
-};
-
-test("문장 탭이 기본이고 문법 탭은 열 때 불러온다", async () => {
-  responses["GET /api/my-japanese/grammar/"] = () => json({ usages: GRAMMAR });
-  open();
-
-  expect(
-    await screen.findByRole("tab", { name: "문장 2", selected: true }),
-  ).toBeInTheDocument();
-  await items();
-  expect(calls.map((c) => c.url)).not.toContain("/api/my-japanese/grammar/");
-
-  await userEvent.click(screen.getByRole("tab", { name: "문법" }));
-
-  expect(
-    screen.getByRole("tab", { name: "문법", selected: true }),
-  ).toBeVisible();
-  const [first, second] = await grammarCards();
-  expect(first).toHaveTextContent("ている");
-  expect(first).toHaveTextContent("진행");
-  expect(first).toHaveTextContent("~하고 있다");
-  expect(first).toHaveTextContent("동작이 이어지고 있음을 나타낸다");
-  expect(within(first).getByText("AI 생성·미검수")).toBeInTheDocument();
-  expect(within(second).queryByText("AI 생성·미검수")).not.toBeInTheDocument();
-  expect(screen.queryByRole("list", { name: "분석한 문장" })).toBeNull();
-});
-
-test("문법 카드에서 그 용법이 나온 내 문장으로 간다", async () => {
-  responses["GET /api/my-japanese/grammar/"] = () => json({ usages: GRAMMAR });
-  open();
-  await userEvent.click(await screen.findByRole("tab", { name: "문법" }));
-  const [first] = await grammarCards();
-
-  expect(within(first).getByText("문장 2개")).toBeInTheDocument();
-  expect(
-    within(first).getByRole("link", { name: "私は学生です。" }),
-  ).toHaveAttribute("href", "/sentences/1");
-});
-
-test("문법이 없으면 안내한다", async () => {
-  responses["GET /api/my-japanese/grammar/"] = () => json({ usages: [] });
-  open();
-  await userEvent.click(await screen.findByRole("tab", { name: "문법" }));
-
-  expect(
-    await screen.findByText("분석한 문장에 나온 문법이 아직 없어요."),
-  ).toBeInTheDocument();
-});
-
-test("문법을 불러오지 못하면 알린다", async () => {
-  responses["GET /api/my-japanese/grammar/"] = () => json({}, 500);
-  open();
-  await userEvent.click(await screen.findByRole("tab", { name: "문법" }));
-
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "문법을 불러오지 못했어요.",
-  );
-});
-
-test("탭은 주소에 남아 뒤로 오면 그 탭을 다시 연다", async () => {
-  responses["GET /api/my-japanese/grammar/"] = () => json({ usages: GRAMMAR });
-  render(
-    <MemoryRouter initialEntries={["/sentences?tab=grammar"]}>
-      <Routes>
-        <Route path="/sentences" element={<MySentencesPage />} />
-      </Routes>
-    </MemoryRouter>,
-  );
-
-  expect(
-    await screen.findByRole("tab", { name: "문법", selected: true }),
-  ).toBeInTheDocument();
-  expect(await grammarCards()).toHaveLength(2);
-});
 
 const WORDS = [
   {
@@ -267,6 +48,7 @@ const WORDS = [
     tags: ["verb", "group1"],
     in_dictionary: true,
     sense: {
+      id: 11,
       tags: [],
       gloss_en: ["to run"],
       origin: "jmdict",
@@ -274,73 +56,224 @@ const WORDS = [
       meaning_ko: "달리다",
       meaning_status: "ai",
     },
-    sentences: [
-      { id: 2, text: "猫が好きです。" },
-      { id: 1, text: "私は学生です。" },
-    ],
+    examples: [],
   },
-  {
-    sense_id: 12,
-    dictionary_form: "猫",
-    reading: "ねこ",
-    tags: ["noun"],
-    in_dictionary: true,
-    sense: {
-      tags: [],
-      gloss_en: ["cat"],
-      origin: "jmdict",
-      status: "approved",
-      meaning_ko: "고양이",
-      meaning_status: "reviewed",
-    },
-    sentences: [{ id: 2, text: "猫が好きです。" }],
-  },
+  { sense_id: 12, rejected: true, examples: [{ id: 41, text: "春が来た。" }] },
 ];
 
-const wordRows = async () => {
-  const list = await screen.findByRole("list", { name: "내 단어" });
+beforeEach(() => {
+  calls = [];
+  document.cookie = "csrftoken=csrf-value";
+  responses = {
+    "GET /api/auth/me/": () =>
+      json({ user: { email: "me@example.com", account: "42" } }),
+    "GET /api/my-japanese/grammar/?state=added": () => json({ usages: USAGES }),
+    "GET /api/my-japanese/words/?state=added": () => json({ words: WORDS }),
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      const method = init.method ?? "GET";
+      calls.push({
+        url,
+        method,
+        body: init.body ? JSON.parse(init.body as string) : undefined,
+      });
+      const respond = responses[`${method} ${url}`];
+      if (!respond) throw new Error(`응답 없음: ${method} ${url}`);
+      return respond();
+    }),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+function open(path = "/sentences") {
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/sentences" element={<MySentencesPage />} />
+        <Route path="/connect" element={<p>로그인 화면</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+// 카드 안의 예문 목록 항목은 빼고 카드만 고른다.
+async function cards(name: string) {
+  const list = await screen.findByRole("list", { name });
   return within(list)
     .getAllByRole("listitem")
     .filter((li) => li.parentElement === list);
-};
+}
 
-test("단어 탭은 열 때 불러와 뜻·태그·AI 번역 표시와 나온 문장을 보인다", async () => {
-  responses["GET /api/my-japanese/words/"] = () => json({ words: WORDS });
+test("문법 탭이 기본이고 추가한 용법을 미검수 배지·대응 표현·예문과 함께 보인다", async () => {
   open();
-  await items();
-  expect(calls.map((c) => c.url)).not.toContain("/api/my-japanese/words/");
 
-  await userEvent.click(screen.getByRole("tab", { name: "단어" }));
-
-  const [run, cat] = await wordRows();
-  expect(within(run).getByRole("heading", { name: "走る" })).toBeVisible();
-  expect(run).toHaveTextContent("はしる");
-  expect(run).toHaveTextContent("달리다");
-  expect(within(run).getByText("1그룹")).toBeInTheDocument();
-  expect(within(run).getByText("AI 번역")).toBeInTheDocument();
-  expect(within(cat).queryByText("AI 번역")).not.toBeInTheDocument();
-  expect(within(run).getByText("문장 2개")).toBeInTheDocument();
   expect(
-    within(run).getByRole("link", { name: "私は学生です。" }),
-  ).toHaveAttribute("href", "/sentences/1");
-  const credit = screen.getByText(/내 문장에서 고른 뜻만/);
-  expect(within(credit).getByRole("link", { name: "JMdict" })).toBeVisible();
+    await screen.findByRole("tab", { name: "문법", selected: true }),
+  ).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "추가한 항목", pressed: true }),
+  ).toBeInTheDocument();
+  const [first, second] = await cards("추가한 문법");
+  expect(first).toHaveTextContent("ている");
+  expect(first).toHaveTextContent("~하고 있다");
+  expect(within(first).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(within(second).queryByText("AI 생성·미검수")).toBeNull();
+  expect(
+    within(within(first).getByRole("list", { name: "내 예문" })).getByText(
+      "雨が降っている。",
+    ),
+  ).toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: "문장" })).toBeNull();
 });
 
-test("단어가 없으면 안내한다", async () => {
-  responses["GET /api/my-japanese/words/"] = () => json({ words: [] });
+test("숨기기를 누르면 서버에 보내고 목록에서 뺀다", async () => {
+  responses["PUT /api/my-items/"] = () =>
+    json({ kind: "usage", id: 3, state: "hidden" });
   open();
-  await userEvent.click(await screen.findByRole("tab", { name: "단어" }));
+  const [, second] = await cards("추가한 문법");
+
+  await userEvent.click(within(second).getByRole("button", { name: "숨기기" }));
+
+  expect(calls.at(-1)).toEqual({
+    url: "/api/my-items/",
+    method: "PUT",
+    body: { kind: "usage", id: 3, state: "hidden" },
+  });
+  expect(screen.queryByText("정중")).toBeNull();
+});
+
+test("예문이 있는 항목은 한 번 확인받고 예문과 함께 뺀다", async () => {
+  responses["DELETE /api/my-items/"] = () =>
+    new Response(null, { status: 204 });
+  open();
+  const [first] = await cards("추가한 문법");
+
+  await userEvent.click(within(first).getByRole("button", { name: "빼기" }));
+  expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  await userEvent.click(
+    within(first).getByRole("button", { name: "예문과 함께 빼기" }),
+  );
+
+  expect(calls.at(-1)).toEqual({
+    url: "/api/my-items/",
+    method: "DELETE",
+    body: { kind: "usage", id: 7 },
+  });
+  expect(screen.queryByText("진행")).toBeNull();
+});
+
+test("예문을 하나씩 지울 수 있다", async () => {
+  responses["DELETE /api/my-examples/31/"] = () =>
+    new Response(null, { status: 204 });
+  open();
+  const [first] = await cards("추가한 문법");
+
+  await userEvent.click(
+    within(first).getByRole("button", { name: "예문 지우기" }),
+  );
+
+  expect(screen.queryByText("雨が降っている。")).toBeNull();
+  expect(screen.getByText("진행")).toBeInTheDocument();
+});
+
+test("숨긴 항목 필터에서 다시 보이게 하거나 추가로 바꾼다", async () => {
+  responses["GET /api/my-japanese/grammar/?state=hidden"] = () =>
+    json({ usages: [USAGES[1], { ...USAGES[0], examples: [] }] });
+  responses["DELETE /api/my-items/"] = () =>
+    new Response(null, { status: 204 });
+  responses["PUT /api/my-items/"] = () =>
+    json({ kind: "usage", id: 7, state: "added" });
+  open();
+  await cards("추가한 문법");
+
+  await userEvent.click(screen.getByRole("button", { name: "숨긴 항목" }));
+  const [shown, added] = await cards("숨긴 문법");
+  await userEvent.click(
+    within(shown).getByRole("button", { name: "다시 보이기" }),
+  );
+  await userEvent.click(
+    within(added).getByRole("button", { name: "추가로 바꾸기" }),
+  );
+
+  expect(calls.slice(-2)).toEqual([
+    {
+      url: "/api/my-items/",
+      method: "DELETE",
+      body: { kind: "usage", id: 3 },
+    },
+    {
+      url: "/api/my-items/",
+      method: "PUT",
+      body: { kind: "usage", id: 7, state: "added" },
+    },
+  ]);
+  expect(await screen.findByText("숨긴 문법이 없어요.")).toBeInTheDocument();
+});
+
+test("단어 탭은 뜻·AI 번역·출처를 보이고, 검수에서 빠진 뜻은 예문과 빼기만 보인다", async () => {
+  open("/sentences?tab=words");
+
+  const [run, rejected] = await cards("추가한 단어");
+  expect(within(run).getByRole("heading", { name: "走る" })).toBeVisible();
+  expect(run).toHaveTextContent("달리다");
+  expect(within(run).getByText("AI 번역")).toBeInTheDocument();
+  expect(rejected).toHaveTextContent("검수에서 빠진 단어 뜻이에요");
+  expect(rejected).toHaveTextContent("春が来た。");
+  expect(within(rejected).queryByRole("button", { name: "숨기기" })).toBeNull();
   expect(
-    await screen.findByText("분석한 문장에 나온 단어가 아직 없어요."),
+    within(rejected).getByRole("button", { name: "빼기" }),
+  ).toBeInTheDocument();
+  const panel = within(screen.getByRole("tabpanel"));
+  expect(panel.getByRole("link", { name: "CC BY-SA 4.0" })).toBeVisible();
+});
+
+test("바꾸지 못하면 항목을 남기고 알린다", async () => {
+  responses["PUT /api/my-items/"] = () =>
+    json({ error: "AUTH:CSRF_FAILED" }, 403);
+  open();
+  const [, second] = await cards("추가한 문법");
+
+  await userEvent.click(within(second).getByRole("button", { name: "숨기기" }));
+
+  expect(await within(second).findByRole("alert")).toHaveTextContent(
+    "바꾸지 못했어요",
+  );
+  expect(screen.getByText("정중")).toBeInTheDocument();
+});
+
+test("비어 있으면 사이드 패널에서 추가하라고 안내한다", async () => {
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+    json({ usages: [] });
+  open();
+
+  expect(
+    await screen.findByText(/사이드 패널의 문법 카드에서 '추가'를 눌러 보세요/),
   ).toBeInTheDocument();
 });
 
-test("단어를 불러오지 못하면 알린다", async () => {
-  responses["GET /api/my-japanese/words/"] = () => json({}, 500);
+test("로그인하지 않았으면 로그인 화면으로 간다", async () => {
+  responses["GET /api/auth/me/"] = () => json({ user: null });
   open();
-  await userEvent.click(await screen.findByRole("tab", { name: "단어" }));
-  expect(await screen.findByRole("alert")).toHaveTextContent(
-    "단어를 불러오지 못했어요.",
+
+  expect(await screen.findByText("로그인 화면")).toBeInTheDocument();
+  expect(calls.map((c) => c.url)).not.toContain(
+    "/api/my-japanese/grammar/?state=added",
   );
+});
+
+test("옛 문장 분석 주소는 내 기록으로 보낸다", async () => {
+  render(
+    <MemoryRouter initialEntries={["/sentences/5"]}>
+      <App />
+    </MemoryRouter>,
+  );
+
+  expect(
+    await screen.findByRole("heading", { level: 1, name: "내 기록" }),
+  ).toBeInTheDocument();
 });

@@ -118,17 +118,26 @@ test("테마 버튼을 누르면 반대 테마로 바뀌고 다시 열어도 유
 
 test("로그인했으면 /에서 소개 페이지 대신 내 기록 목록을 보인다", async () => {
   responses["GET /api/auth/me/"] = () => json({ user: ME });
-  responses["GET /api/my-sentences/"] = () =>
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
     json({
-      sentences: [
-        { id: 1, text: "猫が好きです。", analyzed_at: "2026-10-28T03:00:00Z" },
+      usages: [
+        {
+          usage_id: 1,
+          pattern_name: "ている",
+          name: "진행",
+          explanation_ko: "동작이 이어진다",
+          korean_equivalent: null,
+          korean_equivalent_review_status: null,
+          review_status: "approved",
+          examples: [],
+        },
       ],
     });
   open("/");
 
   expect(
-    await screen.findByRole("list", { name: "분석한 문장" }),
-  ).toHaveTextContent("猫が好きです。");
+    await screen.findByRole("list", { name: "추가한 문법" }),
+  ).toHaveTextContent("진행");
   expect(
     screen.queryByRole("list", { name: "시작하는 방법" }),
   ).not.toBeInTheDocument();
@@ -149,7 +158,8 @@ test("로그인 확인 전에는 헤더만 보이고 소개 페이지도 홈도 
 test("로그인 후 헤더에 내 기록과 계정 메뉴가 있고, 로그아웃하면 소개 페이지로 돌아간다", async () => {
   const user = userEvent.setup();
   responses["GET /api/auth/me/"] = () => json({ user: ME });
-  responses["GET /api/my-sentences/"] = () => json({ sentences: [] });
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+    json({ usages: [] });
   responses["POST /api/auth/logout/"] = () => json({ user: null });
   open("/");
   const header = within(screen.getByRole("banner"));
@@ -177,7 +187,8 @@ test("로그인 후 헤더에 내 기록과 계정 메뉴가 있고, 로그아�
 test("계정 메뉴는 Escape로 닫히고 포커스가 메뉴 단추로 돌아온다", async () => {
   const user = userEvent.setup();
   responses["GET /api/auth/me/"] = () => json({ user: ME });
-  responses["GET /api/my-sentences/"] = () => json({ sentences: [] });
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+    json({ usages: [] });
   open("/");
   const header = within(screen.getByRole("banner"));
   const toggle = (await header.findByText("계정 메뉴")).closest("summary")!;
@@ -193,11 +204,11 @@ test("계정 메뉴는 Escape로 닫히고 포커스가 메뉴 단추로 돌아�
 
 test("로그인 확인이 서버 오류로 실패해도 /sentences는 로그인 화면으로 보내지 않고 기록 오류를 보인다", async () => {
   responses["GET /api/auth/me/"] = () => json({}, 500);
-  responses["GET /api/my-sentences/"] = () => json({}, 500);
+  responses["GET /api/my-japanese/grammar/?state=added"] = () => json({}, 500);
   open("/sentences");
 
   expect(await screen.findByRole("alert")).toHaveTextContent(
-    "기록을 불러오지 못했어요",
+    "문법을 불러오지 못했어요",
   );
   expect(
     within(screen.getByRole("banner")).queryByRole("link", { name: "로그인" }),
@@ -207,7 +218,8 @@ test("로그인 확인이 서버 오류로 실패해도 /sentences는 로그인 
 test("로그아웃에 실패하면 로그인한 헤더를 그대로 두고 알린다", async () => {
   const user = userEvent.setup();
   responses["GET /api/auth/me/"] = () => json({ user: ME });
-  responses["GET /api/my-sentences/"] = () => json({ sentences: [] });
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+    json({ usages: [] });
   responses["POST /api/auth/logout/"] = () => json({}, 500);
   open("/");
   const header = within(screen.getByRole("banner"));

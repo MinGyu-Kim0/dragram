@@ -206,3 +206,52 @@
   padding: 0;
   border: 0;
 }
+
+.history .filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.history .filters button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.history .filters button[aria-pressed="true"] {
+  border-color: var(--color-brand);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.history .item-card {
+  background: var(--color-surface);
+  border-radius: 20px;
+}
+
+.history .examples {
+  gap: 4px;
+}
+
+.history .examples li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--color-surface-inset);
+}
+
+.history .examples li span {
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}

@@ -1,7 +1,6 @@
-import { Route, Routes } from "react-router";
+import { Navigate, Route, Routes } from "react-router";
 import ConnectPage from "./connect/ConnectPage";
 import MySentencesPage from "./history/MySentencesPage";
-import SentenceDetailPage from "./history/SentenceDetailPage";
 import HomePage from "./site/LandingPage";
 import PrivacyPage from "./site/PrivacyPage";
 import TermsPage from "./site/TermsPage";
@@ -16,7 +15,11 @@ function App() {
       <Route path="/terms/:version" element={<TermsPage />} />
       <Route path="/connect" element={<ConnectPage />} />
       <Route path="/sentences" element={<MySentencesPage />} />
-      <Route path="/sentences/:id" element={<SentenceDetailPage />} />
+      {/* 문장 원문을 저장하지 않아 문장별 분석 보기는 없어졌다(#324). 옛 주소는 내 기록으로 보낸다. */}
+      <Route
+        path="/sentences/:id"
+        element={<Navigate to="/sentences" replace />}
+      />
     </Routes>
   );
 }

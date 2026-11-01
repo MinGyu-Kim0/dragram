@@ -13,6 +13,7 @@ from django.db import IntegrityError, connection, transaction
 from django.db.models import Exists, F, OuterRef, Prefetch, Q
 from django.utils import timezone
 
+from accounts.tokens import lock_user
 from analysis.models import (
     GrammarPattern,
     GrammarUsage,
@@ -449,7 +450,13 @@ def merge_usage(source, target):
 def _move_my_items(source, target):
     """사용자가 추가·숨긴 source 항목을 target으로 옮긴다(#322, FR-M13 승계). 같은 사용자가 target도
     두었으면 하나로 합친다: 추가가 숨김보다 앞서고, 예문은 겹치지 않게 옮긴다.
+
+    항목 추가·예문 저장(my_items)과 같은 사용자 잠금을 먼저 잡아, 옮기는 사이 target 항목에 같은
+    예문이 저장되어 합치기 전체가 제약 위반으로 되돌려지지 않게 한다(PR #326 리뷰).
     """
+    users = MyItem.objects.filter(usage=source).values_list("user_id", flat=True)
+    for user_id in sorted(set(users)):
+        lock_user(user_id)
     for item in MyItem.objects.filter(usage=source).select_for_update():
         kept = MyItem.objects.filter(user_id=item.user_id, usage=target).first()
         if kept is None:

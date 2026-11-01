@@ -11,21 +11,15 @@ export function PendingBadge() {
 export function BadgeRow({
   pending = false,
   translated = false,
-  colloquial = false,
-  nameLabel,
 }: {
   pending?: boolean;
   translated?: boolean;
-  colloquial?: boolean;
-  nameLabel?: string;
 }) {
-  if (!pending && !translated && !colloquial && !nameLabel) return null;
+  if (!pending && !translated) return null;
   return (
     <div className="card-badges">
       {pending && <PendingBadge />}
       {translated && <span className="badge-warn">AI 번역</span>}
-      {colloquial && <span className="badge-neutral">회화체</span>}
-      {nameLabel && <span className="badge-neutral">{nameLabel}</span>}
     </div>
   );
 }
@@ -42,7 +36,7 @@ function senseBadges(sense: WordSense | null) {
   };
 }
 
-// 단어 행: 표제·읽기, 태그, 고른 뜻. children(버튼, 예문)은 맨 아래에 붙인다.
+// 단어 카드 내용: 표제·읽기, 태그, 고른 뜻. 카드(li)는 목록이 감싼다.
 export function WordRow({
   word,
   children,
@@ -56,7 +50,7 @@ export function WordRow({
     .map((code) => TAG_NAMES[code]!);
   const sense = word.sense;
   return (
-    <li className="word-row">
+    <>
       <BadgeRow {...senseBadges(sense)} />
       <div className="word-head">
         <h3 lang="ja">{word.dictionary_form}</h3>
@@ -79,6 +73,6 @@ export function WordRow({
         <p className="muted">뜻을 아직 고르지 않았어요</p>
       )}
       {children}
-    </li>
+    </>
   );
 }

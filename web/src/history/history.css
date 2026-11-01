@@ -18,11 +18,6 @@
   border-radius: 14px;
 }
 
-.history .sentence {
-  font-size: 16px;
-  overflow-wrap: anywhere;
-}
-
 .history .actions {
   display: flex;
   flex-wrap: wrap;
@@ -40,51 +35,13 @@
   font-size: 16px;
 }
 
-.history .back-link {
-  color: var(--color-text-secondary);
-  font-size: 14px;
-}
-
-.history .sentence-title {
-  font-size: 22px;
-  line-height: 1.9;
-  font-weight: 500;
-  overflow-wrap: anywhere;
-}
-
-.history .sentence-link {
-  color: inherit;
-  text-decoration: none;
-}
-
-.history .sentence-link:hover {
-  text-decoration: underline;
-}
-
-.history .translation {
-  color: var(--color-text-secondary);
-}
-
-.history .grammar-card,
-.history .word-row {
+.history .item-card {
   background: var(--color-surface);
   border-radius: 20px;
 }
 
-.history .grammar-card.divergent {
-  border: 1.5px dashed var(--color-warn-border);
-}
-
-.history .grammar-parts li {
-  padding: 12px;
-  border: 0;
-  border-radius: 14px;
-  background: var(--color-surface-inset);
-}
-
 .history .grammar-card-head,
-.history .word-head,
-.history .tag-row {
+.history .word-head {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -161,11 +118,6 @@
   color: var(--color-text-secondary);
 }
 
-.history ul.alternatives li {
-  padding: 0;
-  border: 0;
-}
-
 .history .tabs {
   display: flex;
   gap: 4px;
@@ -193,18 +145,8 @@
   font-weight: 600;
 }
 
-.history .grammar-card h2 {
+.history .item-card h2 {
   margin: 0;
-}
-
-.history .usage-sentences {
-  margin-top: 8px;
-  gap: 4px;
-}
-
-.history .usage-sentences li {
-  padding: 0;
-  border: 0;
 }
 
 .history .filters {
@@ -214,7 +156,7 @@
 }
 
 .history .filters button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 14px;
   border: 1px solid var(--color-border-control);
   border-radius: 999px;
@@ -229,11 +171,6 @@
   border-color: var(--color-brand);
   color: var(--color-text);
   font-weight: 600;
-}
-
-.history .item-card {
-  background: var(--color-surface);
-  border-radius: 20px;
 }
 
 .history .examples {

@@ -298,6 +298,8 @@ function Examples({
   onDeleted: (id: number) => void;
 }) {
   const [failed, setFailed] = useState(false);
+  // 지우는 중인 예문. 두 번 눌러 두 번째 요청이 404로 실패해 보이지 않게 한다.
+  const [deleting, setDeleting] = useState<number>();
   if (examples.length === 0) return null;
   return (
     <>
@@ -308,11 +310,16 @@ function Examples({
             <button
               type="button"
               className="text-button"
+              disabled={deleting === example.id}
               onClick={() => {
                 setFailed(false);
+                setDeleting(example.id);
                 request<void>("DELETE", `/api/my-examples/${example.id}/`).then(
                   () => onDeleted(example.id),
-                  () => setFailed(true),
+                  () => {
+                    setFailed(true);
+                    setDeleting(undefined);
+                  },
                 );
               }}
             >
@@ -331,7 +338,8 @@ function Examples({
 }
 
 /** 항목 상태 버튼. 추가한 항목은 숨기기·빼기, 숨긴 항목은 다시 보이기·추가로 바꾸기. 반려된
- * 항목은 빼기만 있다. 빼면 예문도 지워지므로 예문이 있으면 한 번 확인받는다.
+ * 항목은 빼기만 있다. 빼기와 다시 보이기는 항목을 해제해 예문도 지우므로, 예문이 있으면 한 번
+ * 확인받는다.
  */
 function ItemActions({
   kind,
@@ -368,7 +376,7 @@ function ItemActions({
     return (
       <div className="actions">
         <p className="secondary">
-          빼면 저장한 예문도 함께 지워져요. 되돌릴 수 없어요.
+          저장한 예문도 함께 지워져요. 되돌릴 수 없어요.
         </p>
         <button
           type="button"
@@ -376,7 +384,9 @@ function ItemActions({
           disabled={busy}
           onClick={remove}
         >
-          예문과 함께 빼기
+          {state === "hidden" && !rejected
+            ? "예문과 함께 다시 보이기"
+            : "예문과 함께 빼기"}
         </button>
         <button
           type="button"
@@ -421,7 +431,7 @@ function ItemActions({
             type="button"
             className="secondary-button"
             disabled={busy}
-            onClick={remove}
+            onClick={() => (hasExamples ? setConfirming(true) : remove())}
           >
             다시 보이기
           </button>

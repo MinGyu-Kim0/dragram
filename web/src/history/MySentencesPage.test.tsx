@@ -277,3 +277,26 @@ test("옛 문장 분석 주소는 내 기록으로 보낸다", async () => {
     await screen.findByRole("heading", { level: 1, name: "내 기록" }),
   ).toBeInTheDocument();
 });
+
+test("예문이 있는 숨긴 항목은 다시 보이기 전에 예문도 지워진다고 확인받는다", async () => {
+  responses["GET /api/my-japanese/grammar/?state=hidden"] = () =>
+    json({ usages: [USAGES[0]] });
+  responses["DELETE /api/my-items/"] = () =>
+    new Response(null, { status: 204 });
+  open("/sentences?state=hidden");
+  const [card] = await cards("숨긴 문법");
+
+  await userEvent.click(
+    within(card).getByRole("button", { name: "다시 보이기" }),
+  );
+  expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  await userEvent.click(
+    within(card).getByRole("button", { name: "예문과 함께 다시 보이기" }),
+  );
+
+  expect(calls.at(-1)).toEqual({
+    url: "/api/my-items/",
+    method: "DELETE",
+    body: { kind: "usage", id: 7 },
+  });
+});

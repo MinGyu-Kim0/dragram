@@ -9,7 +9,6 @@ import "./site.css";
 
 export const JMDICT_URL = "https://www.edrdg.org/jmdict/j_jmdict.html";
 export const CC_BY_SA_URL = "https://creativecommons.org/licenses/by-sa/4.0/";
-const OFL_URL = "https://openfontlicense.org/";
 
 /** 연락 메일. 정해지기 전에는 빈 메일 링크 대신 '연락처 준비 중'을 보인다. */
 export function ContactEmail() {
@@ -260,10 +259,6 @@ function SiteLayout({
             <li>
               단어 정보: <a href={JMDICT_URL}>JMdict</a> (EDRDG,{" "}
               <a href={CC_BY_SA_URL}>CC BY-SA 4.0</a>)
-            </li>
-            <li>
-              글꼴: Jua, IBM Plex Sans KR, Zen Maru Gothic (
-              <a href={OFL_URL}>SIL OFL 1.1</a>)
             </li>
           </ul>
         </div>

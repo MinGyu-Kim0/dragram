@@ -278,17 +278,22 @@ export function SentenceView({
           </p>
         )}
       </section>
-      {!tabbed && grammar.length + checking.length > 0 && (
-        <div className="below-card">
-          <GrammarCards
-            text={text}
-            grammar={grammar}
-            checking={checking}
-            selection={selection}
-            items={items}
-          />
-        </div>
-      )}
+      {!tabbed &&
+        grammar.length + checking.length + hiddenGrammar.length > 0 && (
+          <div className="below-card">
+            {grammar.length + checking.length > 0 && (
+              <GrammarCards
+                text={text}
+                grammar={grammar}
+                checking={checking}
+                selection={selection}
+                items={items}
+              />
+            )}
+            {/* 탭 없이 먼저 온 문법만 남은 화면(번역 뒤 실패 등)에서도 숨긴 카드를 되돌릴 수 있게 한다. */}
+            {items && <HiddenCards cards={hiddenGrammar} items={items} />}
+          </div>
+        )}
       {result?.status === "translated" && !tabbed && (
         <AnalyzingStatus className="below-card" />
       )}

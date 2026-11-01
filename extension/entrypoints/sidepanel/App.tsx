@@ -80,6 +80,7 @@ function App() {
     new Map(),
   );
   const itemEdits = useRef(0);
+  const itemQueues = useRef(new Map<string, Promise<unknown>>());
   // 기다리던 요청이 있으면 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
   const resumeAfterLogin = useCallback(() => {
     if (!waitingForLogin.current) return;
@@ -347,33 +348,38 @@ function App() {
     setNames((current) => current.filter((name) => name.surface !== surface));
   };
 
+  // 같은 항목의 바꾸기 요청은 앞 요청이 끝난 뒤 보낸다. 같은 뜻이 여러 줄에 있을 때 응답이 뒤바뀌어
+  // 화면이 서버와 어긋나지 않게 한다(PR #327 리뷰).
+  const inOrder = <T,>(key: string, task: () => Promise<T>): Promise<T> => {
+    const previous = itemQueues.current.get(key) ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(task);
+    itemQueues.current.set(key, next);
+    return next;
+  };
   const myItems: MyItems = {
     states: itemStates,
-    save: async (
-      kind: ItemKind,
-      id: number,
-      state: ItemState,
-      example?: string,
-    ) => {
-      const started = loginRef.current;
-      const saved = await saveMyItem(kind, id, state, example);
-      if (loginRef.current !== started) return;
-      itemEdits.current += 1;
-      setItemStates((current) =>
-        new Map(current).set(itemKey(saved.kind, saved.id), saved.state),
-      );
-    },
-    remove: async (kind: ItemKind, id: number) => {
-      const started = loginRef.current;
-      await removeMyItem(kind, id);
-      if (loginRef.current !== started) return;
-      itemEdits.current += 1;
-      setItemStates((current) => {
-        const next = new Map(current);
-        next.delete(itemKey(kind, id));
-        return next;
-      });
-    },
+    save: (kind: ItemKind, id: number, state: ItemState, example?: string) =>
+      inOrder(itemKey(kind, id), async () => {
+        const started = loginRef.current;
+        const saved = await saveMyItem(kind, id, state, example);
+        if (loginRef.current !== started) return;
+        itemEdits.current += 1;
+        setItemStates((current) =>
+          new Map(current).set(itemKey(saved.kind, saved.id), saved.state),
+        );
+      }),
+    remove: (kind: ItemKind, id: number) =>
+      inOrder(itemKey(kind, id), async () => {
+        const started = loginRef.current;
+        await removeMyItem(kind, id);
+        if (loginRef.current !== started) return;
+        itemEdits.current += 1;
+        setItemStates((current) => {
+          const next = new Map(current);
+          next.delete(itemKey(kind, id));
+          return next;
+        });
+      }),
   };
 
   if (connected === false) {

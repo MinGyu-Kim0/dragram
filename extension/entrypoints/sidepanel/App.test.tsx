@@ -4078,6 +4078,80 @@ describe("내 일본어 항목(#321)", () => {
     expect(screen.queryByText(/숨긴 카드/)).not.toBeInTheDocument();
   });
 
+  test("분석이 실패해 탭 없이 남은 문법에서도 숨긴 카드를 되돌릴 수 있다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        ndjson([
+          {
+            type: "grammar",
+            grammar: [{ ...approvedGrammarItem(3, 6, "진행"), usage_id: 11 }],
+          },
+          { type: "error", error: "ANALYSIS:FAILED" },
+        ]),
+      ),
+    );
+    vi.mocked(saveMyItem).mockResolvedValue({
+      kind: "usage",
+      id: 11,
+      state: "hidden",
+    });
+    render(<App />);
+    await send(panelWindowId, "彼が来ている");
+    expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
+
+    fireEvent.click(
+      within(cardOf("진행")).getByRole("button", { name: "표시 안 함" }),
+    );
+
+    expect(await screen.findByText("숨긴 카드 1개")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "진행" })).toBeNull();
+  });
+
+  test("같은 뜻이 두 줄에 있어도 바꾸기 요청은 앞 요청이 끝난 뒤 보낸다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [],
+      words: [
+        wordItem(0, 1, "私", "わたし", { id: 21 }),
+        wordItem(2, 4, "学生", "がくせい", { id: 21 }),
+      ],
+    });
+    let finishAdd!: () => void;
+    vi.mocked(saveMyItem)
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishAdd = () =>
+              resolve({ kind: "sense", id: 21, state: "added" });
+          }),
+      )
+      .mockResolvedValueOnce({ kind: "sense", id: 21, state: "hidden" });
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    fireEvent.click(await screen.findByRole("tab", { name: /^단어/ }));
+    const [first, second] = screen
+      .getAllByRole("listitem")
+      .filter((li) => li.classList.contains("word-row"));
+
+    fireEvent.click(within(first!).getByRole("button", { name: "추가" }));
+    fireEvent.click(
+      within(second!).getByRole("button", { name: "표시 안 함" }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(saveMyItem).toHaveBeenCalledTimes(1);
+    finishAdd();
+
+    expect(await screen.findByText("숨긴 카드 1개")).toBeInTheDocument();
+    expect(saveMyItem).toHaveBeenCalledTimes(2);
+    expect(saveMyItem).toHaveBeenLastCalledWith(
+      "sense",
+      21,
+      "hidden",
+      undefined,
+    );
+  });
+
   test("저장에 실패하면 상태를 바꾸지 않고 알린다", async () => {
     respondWithCards();
     vi.mocked(saveMyItem).mockRejectedValue(new Error("실패"));

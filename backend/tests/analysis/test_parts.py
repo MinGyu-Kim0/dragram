@@ -1,13 +1,11 @@
 """긴 패턴 안의 구성 문법 표시(#65)."""
 
-from unittest.mock import ANY
-
 import pytest
 
 from analysis import patterns, review
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, connected_client, new_pattern, span_answer
+from tests.analysis.helpers import analyze, connected_client, grammar_item, new_pattern, span_answer
 
 pytestmark = pytest.mark.django_db
 
@@ -66,44 +64,24 @@ def test_grammar_inside_a_longer_grammar_is_shown_in_its_parts(client, fake_llm)
     response = analyze_with(client, fake_llm, TESHIMAU, TE)
 
     assert response.json()["grammar"] == [
-        {
-            "start": 2,
-            "end": 6,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "てしまう",
-            "name": "완료",
-            "explanation_ko": "동작을 끝까지 해 버린다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-            "parts": [
-                {
-                    "start": 2,
-                    "end": 3,
-                    "state": "decided",
-                    "connection": ANY,
-                    "usage_id": ANY,
-                    "pattern_name": "て",
-                    "name": "연결",
-                    "explanation_ko": "앞뒤 동작을 잇는다",
-                    "korean_equivalent": None,
-                    "korean_equivalent_review_status": None,
-                    "pos_tags": ["particle"],
-                    "function_tags": [],
-                    "function_tags_review_status": None,
-                    "review_status": "pending",
-                    "register": "standard",
-                    "variant_of": None,
-                }
+        grammar_item(
+            start=2,
+            end=6,
+            pattern_name="てしまう",
+            name="완료",
+            explanation_ko="동작을 끝까지 해 버린다",
+            pos_tags=["particle", "verb"],
+            parts=[
+                grammar_item(
+                    start=2,
+                    end=3,
+                    pattern_name="て",
+                    name="연결",
+                    explanation_ko="앞뒤 동작을 잇는다",
+                    pos_tags=["particle"],
+                )
             ],
-        }
+        )
     ]
 
 

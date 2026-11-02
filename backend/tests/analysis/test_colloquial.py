@@ -2,7 +2,6 @@
 
 import html
 import threading
-from unittest.mock import ANY
 
 import pytest
 from django.contrib.auth.models import Permission
@@ -21,9 +20,11 @@ from analysis.models import (
 from tests.analysis.helpers import (
     analyze,
     connected_client,
+    grammar_item,
     new_pattern,
     new_usage,
     pattern_form,
+    register,
     span_answer,
     wait_until_blocked,
 )
@@ -48,15 +49,6 @@ CHAU = new_pattern(
     explanation_ko="てしまう의 회화체",
     example_ja="宿題を忘れちゃった",
 )
-
-
-def register(fake_llm, sentence, proposal, translation="번역"):
-    """다른 문장을 분석해 새 패턴을 등록·활성화한다."""
-    mine = fake_llm.response
-    fake_llm.response = {"translation_ko": translation, "new_patterns": [proposal]}
-    analyze(connected_client(), sentence)
-    fake_llm.response = mine
-    return GrammarPattern.objects.get(name=proposal["pattern_name"])
 
 
 def version():
@@ -262,24 +254,16 @@ def linked(fake_llm):
 
 # 토큰: 0 全部 / 1 見 / 2 ちゃっ / 3 た
 MICHAU = "全部見ちゃった"
-CHAU_ITEM = {
-    "start": 3,
-    "end": 6,
-    "state": "decided",
-    "connection": ANY,
-    "usage_id": ANY,
-    "pattern_name": "ちゃう",
-    "name": "완료",
-    "explanation_ko": "동작이 끝나 버렸음을 나타낸다",
-    "korean_equivalent": None,
-    "korean_equivalent_review_status": None,
-    "pos_tags": ["auxiliary_verb"],
-    "function_tags": [],
-    "function_tags_review_status": None,
-    "review_status": "pending",
-    "register": "colloquial",
-    "variant_of": "てしまう",
-}
+CHAU_ITEM = grammar_item(
+    start=3,
+    end=6,
+    pattern_name="ちゃう",
+    name="완료",
+    explanation_ko="동작이 끝나 버렸음을 나타낸다",
+    pos_tags=["auxiliary_verb"],
+    register="colloquial",
+    variant_of="てしまう",
+)
 
 
 def test_linked_variant_span_uses_the_base_usage_and_shows_colloquial(client, fake_llm):

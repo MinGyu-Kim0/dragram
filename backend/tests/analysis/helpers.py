@@ -3,6 +3,7 @@
 import json
 import time
 import uuid
+from unittest.mock import ANY
 
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
@@ -11,7 +12,7 @@ from django.test import Client
 
 from accounts import tokens
 from analysis.jmdict import to_hiragana
-from analysis.models import ReviewStatus, SentenceAnalysis, Word, WordSense
+from analysis.models import GrammarPattern, ReviewStatus, SentenceAnalysis, Word, WordSense
 
 
 class Analyzed:
@@ -125,6 +126,32 @@ def new_pattern(
         "usage_name": usage_name,
         "explanation_ko": explanation_ko,
         "example_ja": example_ja,
+    }
+
+
+def register(fake_llm, sentence, proposal, translation="번역"):
+    """다른 문장을 분석해 새 패턴을 등록·활성화한다(패턴 세트 버전이 1 오른다)."""
+    mine = fake_llm.response
+    fake_llm.response = {"translation_ko": translation, "new_patterns": [proposal]}
+    analyze(connected_client(), sentence)
+    fake_llm.response = mine
+    return GrammarPattern.objects.get(name=proposal["pattern_name"])
+
+
+def grammar_item(**fields):
+    """응답의 문법 항목. 대부분 같은 기본값은 두고 다른 칸만 넘긴다."""
+    return {
+        "state": "decided",
+        "connection": ANY,
+        "usage_id": ANY,
+        "korean_equivalent": None,
+        "korean_equivalent_review_status": None,
+        "function_tags": [],
+        "function_tags_review_status": None,
+        "review_status": "pending",
+        "register": "standard",
+        "variant_of": None,
+        **fields,
     }
 
 

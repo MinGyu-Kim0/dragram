@@ -1,14 +1,21 @@
 """stale 분석의 옛 결과를 먼저 보내기(재분석 중, #60)."""
 
 import json
-from unittest.mock import ANY
 
 import pytest
 
 from analysis import review
 from analysis.models import GrammarPattern, SentenceAnalysis
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import add_word, analyze, new_pattern, post, read_body, span_answer
+from tests.analysis.helpers import (
+    add_word,
+    analyze,
+    grammar_item,
+    new_pattern,
+    post,
+    read_body,
+    span_answer,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -44,24 +51,14 @@ def test_stale_analysis_sends_its_previous_result_before_calling_the_llm(client,
     assert first["ruby"] == [{"start": 0, "end": 1, "reading": "はし"}]
     # 미검수 패턴·용법으로 정한 구간은 미검수로 실린다.
     assert first["grammar"] == [
-        {
-            "start": 2,
-            "end": 5,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ている",
-            "name": "진행",
-            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=2,
+            end=5,
+            pattern_name="ている",
+            name="진행",
+            explanation_ko="동작이 이어지고 있음을 나타낸다",
+            pos_tags=["particle", "verb"],
+        )
     ]
     assert [(w["dictionary_form"], w["sense"]["gloss_en"]) for w in first["words"]] == [
         ("走る", ["to run"])

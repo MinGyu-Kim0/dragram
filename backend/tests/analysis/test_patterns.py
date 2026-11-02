@@ -1,7 +1,6 @@
 """분석 API: 문법 패턴 등록과 매칭 재사용(#35)."""
 
 import threading
-from unittest.mock import ANY
 
 import pytest
 from django.db import connection
@@ -21,6 +20,7 @@ from tests.analysis.helpers import (
     analyze,
     asked_usages,
     connected_client,
+    grammar_item,
     new_pattern,
     new_usage,
     saved_analyses,
@@ -39,24 +39,14 @@ def test_new_grammar_is_registered_as_unreviewed_and_shown(client, fake_llm):
     response = analyze(client, "走っている")
 
     assert response.json()["grammar"] == [
-        {
-            "start": 2,
-            "end": 5,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ている",
-            "name": "진행",
-            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=2,
+            end=5,
+            pattern_name="ている",
+            name="진행",
+            explanation_ko="동작이 이어지고 있음을 나타낸다",
+            pos_tags=["particle", "verb"],
+        )
     ]
 
 
@@ -91,24 +81,14 @@ def test_same_grammar_in_another_sentence_is_offered_as_candidate_and_reused(cli
     ]
     # LLM은 설명을 쓰지 않고 ID만 골랐다. 첫 문장의 용법 설명이 그대로 보인다.
     assert response.json()["grammar"] == [
-        {
-            "start": 3,
-            "end": 6,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ている",
-            "name": "진행",
-            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=3,
+            end=6,
+            pattern_name="ている",
+            name="진행",
+            explanation_ko="동작이 이어지고 있음을 나타낸다",
+            pos_tags=["particle", "verb"],
+        )
     ]
     assert GrammarUsage.objects.count() == 1
     assert GrammarPattern.objects.count() == 1
@@ -857,24 +837,14 @@ def test_unfound_span_adds_new_usage_under_the_same_pattern(client, fake_llm):
     response = analyze(client, "知っていながら")
 
     assert response.json()["grammar"] == [
-        {
-            "start": 4,
-            "end": 7,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ながら",
-            "name": "역접",
-            "explanation_ko": "앞 내용과 반대되는 뒤 내용을 잇는다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=4,
+            end=7,
+            pattern_name="ながら",
+            name="역접",
+            explanation_ko="앞 내용과 반대되는 뒤 내용을 잇는다",
+            pos_tags=["particle"],
+        )
     ]
     assert GrammarPattern.objects.count() == 1
     usage = GrammarUsage.objects.get(name="역접")

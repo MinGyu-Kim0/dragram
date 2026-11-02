@@ -400,6 +400,8 @@ def test_admin_adds_a_pending_rule(admin_client, admin_user, client, fake_llm):
         {"test_cases": json.dumps([{"text": "大阪で働く"}])},
         {"test_cases": json.dumps([{"text": "大阪で働く", "should_apply": "yes"}])},
         {"test_cases": json.dumps([{"text": "大阪で⟨N1⟩回働く", "should_apply": True}])},
+        # DB에 저장할 수 없는 글자(짝 없는 서로게이트)
+        {"condition": '[{"position": -1, "lemma": "\\ud800"}]'},
     ],
 )
 def test_malformed_rule_is_not_saved(admin_client, client, fake_llm, changes):
@@ -685,15 +687,3 @@ def test_approving_a_rule_of_a_usage_closed_pattern_leaves_its_analyses_alone(cl
     review.approve_rule(usage_rule)
 
     assert not SentenceAnalysis.objects.filter(is_stale=True).exists()
-
-
-def test_rule_with_text_that_cannot_be_stored_is_refused_by_the_form(
-    admin_client, client, fake_llm
-):
-    pattern = register_de(client, fake_llm, "장소")
-    form = {**rule_form(pattern), "condition": '[{"position": -1, "lemma": "\\ud800"}]'}
-
-    response = admin_client.post(f"{RULES}add/", form)
-
-    assert response.status_code == 200
-    assert not UsageRule.objects.exists()

@@ -80,25 +80,20 @@ def test_reanalysis_after_the_previous_result_makes_the_same_llm_calls(client, f
     assert len(fake_llm.requests) == calls + 1
 
 
-def test_previous_result_leaves_out_spans_of_a_rejected_usage(client, fake_llm):
+@pytest.mark.parametrize(
+    "reject",
+    [
+        # 진행 용법이 반려돼 ている 패턴에는 후보가 없다.
+        lambda: review.reject_usage(GrammarPattern.objects.get().usages.get()),
+        # 반려된 패턴은 매칭되지 않는다.
+        lambda: review.reject_pattern(GrammarPattern.objects.get()),
+    ],
+    ids=["용법", "패턴"],
+)
+def test_previous_result_leaves_out_spans_of_a_rejected_usage_or_pattern(client, fake_llm, reject):
     stale_teiru(client, fake_llm)
     SentenceAnalysis.objects.update(is_stale=False)
-    review.reject_usage(GrammarPattern.objects.get().usages.get())
-    # 진행 용법이 반려돼 ている 패턴에는 후보가 없다.
-    fake_llm.response = {"translation_ko": "달리는 중이다"}
-
-    response = analyze(client, "走っている")
-
-    assert response.events[0]["type"] == "previous"
-    assert response.events[0]["grammar"] == []
-    assert response.types()[-1] == "analysis"
-
-
-def test_previous_result_leaves_out_spans_of_a_rejected_pattern(client, fake_llm):
-    stale_teiru(client, fake_llm)
-    SentenceAnalysis.objects.update(is_stale=False)
-    review.reject_pattern(GrammarPattern.objects.get())
-    # 반려된 패턴은 매칭되지 않는다.
+    reject()
     fake_llm.response = {"translation_ko": "달리는 중이다"}
 
     response = analyze(client, "走っている")

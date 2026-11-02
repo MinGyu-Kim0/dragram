@@ -3715,9 +3715,9 @@ describe("이름 종류 배지(#184)", () => {
       render(<App />);
       await send(panelWindowId, "東京へ行った");
 
-      await wordRows();
-
-      expect(screen.queryByText(/ 이름$/)).not.toBeInTheDocument();
+      for (const row of await wordRows()) {
+        expect(row.querySelector(".badge-neutral")).toBeNull();
+      }
     },
   );
 

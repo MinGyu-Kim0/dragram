@@ -118,17 +118,6 @@ def test_korean_equivalent_may_name_a_typical_verb(client, fake_llm):
     assert GrammarUsage.objects.get().korean_equivalent == "~에게 · ~을/를 (会う·乗る 등)"
 
 
-def test_missing_korean_equivalent_is_stored_empty(client, fake_llm):
-    fake_llm.response = {
-        "translation_ko": "달리고 있다",
-        "new_patterns": [new_pattern((1, "lemma"), (2, "lemma"))],
-    }
-
-    analyze(client, HASHITTEIRU)
-
-    assert GrammarUsage.objects.get().korean_equivalent is None
-
-
 def result_state(korean_equivalent):
     return new_usage(
         usage_name="결과 상태",

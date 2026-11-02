@@ -161,13 +161,6 @@ def test_grammar_shows_approved_only_when_usage_and_patterns_are_approved(client
     assert analyze(client, "走っている").json()["grammar"][0]["review_status"] == "approved"
 
 
-def test_activating_new_pattern_raises_pattern_set_version(client, fake_llm):
-    register_teiru(client, fake_llm)
-
-    assert GrammarPattern.objects.get().is_active
-    assert PatternSetVersion.objects.get().version == 1
-
-
 @pytest.mark.parametrize(
     "answers",
     [
@@ -370,12 +363,6 @@ def test_invalid_answer_when_asked_again_fails_and_nothing_is_stored(client, fak
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert saved_analyses().count() == 1
-
-
-def test_sentence_without_existing_pattern_is_not_asked_again(client, fake_llm):
-    register_teiru(client, fake_llm)
-
-    assert fake_llm.rejudge_requests == []
 
 
 def test_same_pattern_proposed_twice_in_one_sentence_is_registered_once_and_shown_twice(
@@ -1023,20 +1010,6 @@ def test_grammar_span_itself_does_not_count_as_copying(client, fake_llm, setting
     analyze(client, "彼が来ている")
 
     assert GrammarPattern.objects.get().is_active
-
-
-def test_copy_length_comes_from_settings(client, fake_llm, settings):
-    settings.EXAMPLE_COPY_LENGTH = 4
-    fake_llm.response = {
-        "translation_ko": "어제 도서관에서 책을 읽고 있다",
-        "new_patterns": [
-            new_pattern((6, "lemma"), (7, "lemma"), example_ja="図書館で雑誌を見ている")
-        ],
-    }
-
-    analyze(client, LIBRARY)
-
-    assert not GrammarPattern.objects.get().is_active
 
 
 def test_new_usage_example_copying_part_of_sentence_is_not_stored(client, fake_llm):

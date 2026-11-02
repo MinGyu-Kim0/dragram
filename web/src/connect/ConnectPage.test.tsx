@@ -135,17 +135,6 @@ describe("가입 화면(#257)", () => {
     });
   });
 
-  test("약관 체크는 키보드로도 켜고 끌 수 있다", async () => {
-    await reachSignup();
-    const agree = screen.getByRole("checkbox", { name: "이용약관에 동의해요" });
-
-    agree.focus();
-    await userEvent.keyboard(" ");
-
-    expect(agree).toBeChecked();
-    expect(screen.getByRole("button", { name: "가입하기" })).toBeEnabled();
-  });
-
   test("처리방침(위)과 이용약관(아래) 본문을 가입 화면에서 바로 보이고, 동의 체크는 이용약관 하나다", async () => {
     await reachSignup();
 

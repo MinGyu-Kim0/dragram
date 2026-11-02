@@ -5,7 +5,6 @@ import json
 import pytest
 
 from analysis import worker
-from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, new_pattern, post, saved_analyses
 
 pytestmark = pytest.mark.django_db
@@ -116,15 +115,6 @@ def test_failure_before_translation_is_an_error_event(client, fake_llm):
     assert response.status_code == 200
     assert response.events == [{"type": "error", "error": "ANALYSIS:FAILED"}]
     assert saved_analyses().count() == 0
-
-
-def test_llm_error_before_translation_is_an_error_event(client, fake_llm):
-    fake_llm.error = BusinessError(AnalysisError.FAILED, "LLM 호출 실패")
-
-    response = analyze(client, "私は学生です。")
-
-    assert response.status_code == 200
-    assert response.events == [{"type": "error", "error": "ANALYSIS:FAILED"}]
 
 
 def test_grammar_that_fails_validation_keeps_the_sent_translation_and_saves_nothing(

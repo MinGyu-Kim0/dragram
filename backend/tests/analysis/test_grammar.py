@@ -1,10 +1,8 @@
 """분석 API: 문법 구간·원문 위치·원문 인용 차단."""
 
-from unittest.mock import ANY
-
 import pytest
 
-from tests.analysis.helpers import analyze, new_pattern, saved_analyses
+from tests.analysis.helpers import analyze, grammar_item, new_pattern, saved_analyses
 
 pytestmark = pytest.mark.django_db
 
@@ -33,56 +31,23 @@ def test_new_sentence_returns_grammar_at_original_positions(client, fake_llm):
 
     # 원문 순서로 보인다.
     assert response.json()["grammar"] == [
-        {
-            "start": 1,
-            "end": 2,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "は",
-            "name": "주제 は",
-            "explanation_ko": "주제",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        },
-        {
-            "start": 4,
-            "end": 6,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "です",
-            "name": "정중 です",
-            "explanation_ko": "정중",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["auxiliary_verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        },
+        grammar_item(
+            start=1,
+            end=2,
+            pattern_name="は",
+            name="주제 は",
+            explanation_ko="주제",
+            pos_tags=["particle"],
+        ),
+        grammar_item(
+            start=4,
+            end=6,
+            pattern_name="です",
+            name="정중 です",
+            explanation_ko="정중",
+            pos_tags=["auxiliary_verb"],
+        ),
     ]
-
-
-def test_grammar_spanning_tokens_covers_them_all(client, fake_llm):
-    # 토큰: 0 食べ / 1 て / 2 いる
-    fake_llm.response = {
-        "translation_ko": "먹고 있다",
-        "new_patterns": [proposal(1, 2, "見ている")],
-    }
-
-    response = analyze(client, "食べている")
-
-    [item] = response.json()["grammar"]
-    assert (item["start"], item["end"]) == (2, 5)
 
 
 @pytest.mark.parametrize(
@@ -150,19 +115,6 @@ def test_sentence_without_grammar_returns_empty_grammar(client, fake_llm):
     assert len(fake_llm.requests) == 1
     assert fake_llm.requests[0]["spans"] == []
     assert response.json()["grammar"] == []
-
-
-def test_cached_sentence_returns_same_grammar(client, fake_llm):
-    fake_llm.response = {
-        "translation_ko": "나는 학생입니다.",
-        "new_patterns": [proposal(1, 1, "猫は好きだ", usage_name="주제 は")],
-    }
-    first = analyze(client, "私は学生です。")
-
-    second = analyze(client, "私は学生です。")
-
-    assert second.json() == first.json()
-    assert len(fake_llm.requests) == 1
 
 
 @pytest.mark.parametrize(

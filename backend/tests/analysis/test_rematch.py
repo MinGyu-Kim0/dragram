@@ -1,7 +1,6 @@
 """패턴 세트 버전이 오른 뒤 캐시 문장을 다시 매칭하기(#41)."""
 
 import threading
-from unittest.mock import ANY
 
 import pytest
 from django.db import IntegrityError, connection, transaction
@@ -20,8 +19,10 @@ from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import (
     analyze,
     connected_client,
+    grammar_item,
     new_pattern,
     new_usage,
+    register,
     span_answer,
     wait_until_blocked,
 )
@@ -40,14 +41,6 @@ GA = new_pattern(
     explanation_ko="동작이나 상태의 주체를 나타낸다",
     example_ja="猫が鳴く",
 )
-
-
-def register(fake_llm, sentence, proposal, translation="번역"):
-    """다른 문장을 분석해 새 패턴을 등록·활성화한다(패턴 세트 버전이 1 오른다)."""
-    mine = fake_llm.response
-    fake_llm.response = {"translation_ko": translation, "new_patterns": [proposal]}
-    analyze(connected_client(), sentence)
-    fake_llm.response = mine
 
 
 def version():
@@ -352,24 +345,15 @@ def test_new_span_of_a_usage_closed_pattern_is_saved_without_llm(client, fake_ll
     assert fake_llm.all_requests() == []
     assert response.types() == ["translation", "analysis"]
     assert response.json()["grammar"] == [
-        {
-            "start": 3,
-            "end": 6,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ている",
-            "name": "진행",
-            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "approved",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=3,
+            end=6,
+            pattern_name="ている",
+            name="진행",
+            explanation_ko="동작이 이어지고 있음을 나타낸다",
+            pos_tags=["particle", "verb"],
+            review_status="approved",
+        )
     ]
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
     span = analysis.span_matches.get()
@@ -419,24 +403,14 @@ def test_new_span_after_a_pattern_is_activated_is_judged_once_and_saved(client, 
     assert fake_llm.all_requests() == [request]
     assert response.json()["translation_ko"] == "그가 와 있다"
     assert response.json()["grammar"] == [
-        {
-            "start": 3,
-            "end": 6,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ている",
-            "name": "진행",
-            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=3,
+            end=6,
+            pattern_name="ている",
+            name="진행",
+            explanation_ko="동작이 이어지고 있음을 나타낸다",
+            pos_tags=["particle", "verb"],
+        )
     ]
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
     assert analysis.matcher_version == version()

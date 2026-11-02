@@ -4,8 +4,7 @@ import pytest
 
 from analysis.models import SentenceAnalysis
 from analysis.views import MAX_TEXT_LENGTH
-from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, saved_analyses
+from tests.analysis.helpers import analyze
 
 pytestmark = pytest.mark.django_db
 
@@ -26,16 +25,6 @@ def test_invalid_llm_response_fails_the_sentence(client, fake_llm, llm_response)
     response = analyze(client, "私は学生です。")
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
-
-
-def test_llm_error_fails_the_sentence(client, fake_llm):
-    # LLM 클라이언트는 타임아웃 등 외부 실패를 ANALYSIS:FAILED로 알린다(test_llm_client).
-    fake_llm.error = BusinessError(AnalysisError.FAILED, "LLM 호출 실패")
-
-    response = analyze(client, "私は学生です。")
-
-    assert response.json() == {"error": "ANALYSIS:FAILED"}
-    assert saved_analyses().count() == 0
 
 
 def test_unexpected_error_is_not_hidden_as_analysis_failure(client, fake_llm):

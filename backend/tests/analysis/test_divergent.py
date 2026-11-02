@@ -1,7 +1,6 @@
 """해석 갈림·미확정 구간(#40)."""
 
 import threading
-from unittest.mock import ANY
 
 import pytest
 from django.db import connection, transaction
@@ -13,6 +12,7 @@ from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import (
     analyze,
     connected_client,
+    grammar_item,
     new_pattern,
     new_usage,
     saved_analyses,
@@ -88,24 +88,15 @@ def test_divergent_span_is_asked_again_once_and_saved_with_its_alternatives(clie
     assert span.usage == progress
     assert span.alternatives == [{"usage_id": result.id, "translation_ko": "그가 와 있는 상태다"}]
     assert response.json()["grammar"] == [
-        {
-            "start": 3,
-            "end": 6,
-            "state": "divergent",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ている",
-            "name": "진행",
-            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-            "alternatives": [
+        grammar_item(
+            start=3,
+            end=6,
+            state="divergent",
+            pattern_name="ている",
+            name="진행",
+            explanation_ko="동작이 이어지고 있음을 나타낸다",
+            pos_tags=["particle", "verb"],
+            alternatives=[
                 {
                     "name": "결과 상태",
                     "translation_ko": "그가 와 있는 상태다",
@@ -116,7 +107,7 @@ def test_divergent_span_is_asked_again_once_and_saved_with_its_alternatives(clie
                     "review_status": "pending",
                 }
             ],
-        }
+        )
     ]
 
 
@@ -185,24 +176,15 @@ def test_divergent_span_whose_alternatives_have_no_basis_is_saved_as_unresolved(
     assert (span.state, span.usage, span.alternatives) == ("unresolved", None, None)
     assert span.analysis.status == SentenceAnalysis.Status.COMPLETE
     assert response.json()["grammar"] == [
-        {
-            "start": 3,
-            "end": 6,
-            "state": "unresolved",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ている",
-            "name": "ている",
-            "explanation_ko": None,
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=3,
+            end=6,
+            state="unresolved",
+            pattern_name="ている",
+            name="ている",
+            explanation_ko=None,
+            pos_tags=["particle", "verb"],
+        )
     ]
 
 

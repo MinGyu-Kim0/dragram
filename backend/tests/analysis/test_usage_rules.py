@@ -1,7 +1,6 @@
 """승인된 판별 규칙으로 구간을 LLM 없이 확정(#55, 구간 판정 절차 3단계)."""
 
 import json
-from unittest.mock import ANY
 
 import pytest
 from django.db import IntegrityError, transaction
@@ -15,7 +14,7 @@ from analysis.models import (
     SpanMatch,
     UsageRule,
 )
-from tests.analysis.helpers import analyze, new_pattern, span_answer
+from tests.analysis.helpers import analyze, asked_usages, grammar_item, new_pattern, span_answer
 from tests.analysis.test_colloquial import CHAU, MICHAU, TESHIMAU, linked, register
 
 pytestmark = pytest.mark.django_db
@@ -71,36 +70,20 @@ def test_span_decided_by_an_approved_rule_is_not_asked_and_shown_first(client, f
     assert request["decided_spans"] == [{"start_token_id": 1, "end_token_id": 1, "name": "장소"}]
     assert response.types()[0] == "grammar"
     assert response.events[0]["grammar"] == [
-        {
-            "start": 2,
-            "end": 3,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "で",
-            "name": "장소",
-            "explanation_ko": "장소을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "approved",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=2,
+            end=3,
+            pattern_name="で",
+            name="장소",
+            explanation_ko="장소을 나타낸다",
+            pos_tags=["particle"],
+            review_status="approved",
+        )
     ]
     assert response.events[0]["checking"] == []
     span = SpanMatch.objects.get(analysis=SentenceAnalysis.objects.latest("id"))
     assert (span.state, span.decided_by, span.rule) == ("decided", "rule", place)
     assert response.json()["grammar"] == response.events[0]["grammar"]
-
-
-def asked_spans(fake_llm):
-    return [
-        [candidate["name"] for candidate in span["candidates"]]
-        for span in fake_llm.requests[-1]["spans"]
-    ]
 
 
 def unapprove(model, name):
@@ -134,7 +117,7 @@ def test_unusable_rules_leave_the_span_to_the_llm(client, fake_llm, spoil, expec
 
     analyze(client, TOKYO_DE)
 
-    assert asked_spans(fake_llm) == expected
+    assert asked_usages(fake_llm) == expected
     assert not SpanMatch.objects.filter(decided_by="rule").exists()
 
 
@@ -164,7 +147,7 @@ def test_rule_of_another_pattern_is_not_used(client, fake_llm):
 
     analyze(client, TOKYO_DE)
 
-    assert asked_spans(fake_llm) == BOTH
+    assert asked_usages(fake_llm) == BOTH
 
 
 def test_rules_pointing_at_different_usages_leave_the_span_to_the_llm(client, fake_llm):
@@ -175,7 +158,7 @@ def test_rules_pointing_at_different_usages_leave_the_span_to_the_llm(client, fa
 
     analyze(client, TOKYO_DE)
 
-    assert asked_spans(fake_llm) == BOTH
+    assert asked_usages(fake_llm) == BOTH
 
 
 def test_several_rules_for_the_same_usage_record_the_smallest_id(client, fake_llm):
@@ -186,7 +169,7 @@ def test_several_rules_for_the_same_usage_record_the_smallest_id(client, fake_ll
 
     analyze(client, TOKYO_DE)
 
-    assert asked_spans(fake_llm) == []
+    assert asked_usages(fake_llm) == []
     assert SpanMatch.objects.get(decided_by="rule").rule == first
 
 
@@ -198,7 +181,7 @@ def test_rule_whose_condition_does_not_hold_leaves_the_span_to_the_llm(client, f
     # タクシー는 지명이 아니다.
     analyze(client, "タクシーで行く")
 
-    assert asked_spans(fake_llm) == BOTH
+    assert asked_usages(fake_llm) == BOTH
 
 
 def test_rule_decides_a_single_candidate_and_ignores_other_pending_usages(client, fake_llm):
@@ -207,7 +190,7 @@ def test_rule_decides_a_single_candidate_and_ignores_other_pending_usages(client
     fake_llm.response = {"translation_ko": "도쿄에서 만난다"}
 
     analyze(client, TOKYO_DE)
-    assert asked_spans(fake_llm) == []
+    assert asked_usages(fake_llm) == []
 
     # 미검수 용법이 더해져 후보가 둘이어도, 승인된 용법을 가리키는 규칙만 맞으면 확정한다.
     with transaction.atomic():
@@ -216,7 +199,7 @@ def test_rule_decides_a_single_candidate_and_ignores_other_pending_usages(client
 
     analyze(client, "バスで会う")
 
-    assert asked_spans(fake_llm) == []
+    assert asked_usages(fake_llm) == []
     assert SpanMatch.objects.filter(decided_by="rule").count() == 2
 
 
@@ -400,6 +383,8 @@ def test_admin_adds_a_pending_rule(admin_client, admin_user, client, fake_llm):
         {"test_cases": json.dumps([{"text": "大阪で働く"}])},
         {"test_cases": json.dumps([{"text": "大阪で働く", "should_apply": "yes"}])},
         {"test_cases": json.dumps([{"text": "大阪で⟨N1⟩回働く", "should_apply": True}])},
+        # DB에 저장할 수 없는 글자(짝 없는 서로게이트)
+        {"condition": '[{"position": -1, "lemma": "\\ud800"}]'},
     ],
 )
 def test_malformed_rule_is_not_saved(admin_client, client, fake_llm, changes):
@@ -497,7 +482,7 @@ def test_rule_of_a_linked_colloquial_pattern_points_at_a_base_usage(client, fake
     analyze(client, MICHAU)
 
     decided = base_status == ReviewStatus.APPROVED
-    assert (asked_spans(fake_llm) == []) is decided
+    assert (asked_usages(fake_llm) == []) is decided
     assert SpanMatch.objects.filter(decided_by="rule").exists() is decided
 
 
@@ -685,15 +670,3 @@ def test_approving_a_rule_of_a_usage_closed_pattern_leaves_its_analyses_alone(cl
     review.approve_rule(usage_rule)
 
     assert not SentenceAnalysis.objects.filter(is_stale=True).exists()
-
-
-def test_rule_with_text_that_cannot_be_stored_is_refused_by_the_form(
-    admin_client, client, fake_llm
-):
-    pattern = register_de(client, fake_llm, "장소")
-    form = {**rule_form(pattern), "condition": '[{"position": -1, "lemma": "\\ud800"}]'}
-
-    response = admin_client.post(f"{RULES}add/", form)
-
-    assert response.status_code == 200
-    assert not UsageRule.objects.exists()

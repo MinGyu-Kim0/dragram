@@ -19,28 +19,6 @@ from tests.analysis.helpers import analyze, connected_client, new_pattern
 pytestmark = pytest.mark.django_db
 
 
-def test_new_sentence_returns_translation(client, fake_llm):
-    fake_llm.response = {"translation_ko": "나는 학생입니다."}
-
-    response = analyze(client, "私は学生です。")
-
-    assert response.status_code == 200
-    assert response.json()["translation_ko"] == "나는 학생입니다."
-
-
-def test_same_sentence_is_reused_without_llm(client, fake_llm):
-    fake_llm.response = {"translation_ko": "나는 학생입니다."}
-    analyze(client, "私は学生です。")
-
-    fake_llm.forget_requests()
-
-    response = analyze(client, "私は学生です。")
-
-    assert response.status_code == 200
-    assert response.json()["translation_ko"] == "나는 학생입니다."
-    assert fake_llm.all_requests() == []
-
-
 def test_cached_response_reads_translation_with_the_grammar_after_a_concurrent_save(
     client, fake_llm, monkeypatch
 ):

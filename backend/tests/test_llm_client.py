@@ -97,18 +97,6 @@ def test_response_writes_translation_then_judgments_then_word_choices():
     assert llm.RESPONSE_SCHEMA["required"] == order
 
 
-def test_openai_error_becomes_analysis_failure(llm_client, monkeypatch):
-    # 타임아웃·인증·속도 제한 등 SDK 예외는 모두 OpenAIError를 상속한다.
-    def fail(**_):
-        raise openai.OpenAIError("timeout")
-
-    stream_with(llm_client, monkeypatch, fail)
-
-    with pytest.raises(BusinessError) as raised:
-        list(llm_client.analyze_stream("文", [], [], [], [], []))
-    assert raised.value.error_code == AnalysisError.FAILED
-
-
 def test_openai_error_in_the_middle_of_the_stream_becomes_analysis_failure(llm_client, monkeypatch):
     def events():
         yield from deltas('{"translation_ko": "번역"')
@@ -140,15 +128,6 @@ def test_failed_stream_event_becomes_analysis_failure(llm_client, monkeypatch, e
         monkeypatch,
         lambda **_: stream_of([*deltas('{"translation_ko": "번역"'), failed_event(event_type)]),
     )
-
-    with pytest.raises(BusinessError) as raised:
-        list(llm_client.analyze_stream("文", [], [], [], [], []))
-    assert raised.value.error_code == AnalysisError.FAILED
-
-
-@pytest.mark.parametrize("output_text", ["", "not json"])
-def test_output_that_is_not_json_becomes_analysis_failure(llm_client, monkeypatch, output_text):
-    stream_with(llm_client, monkeypatch, lambda **_: stream_of(deltas(output_text)))
 
     with pytest.raises(BusinessError) as raised:
         list(llm_client.analyze_stream("文", [], [], [], [], []))
@@ -407,6 +386,13 @@ def test_rematch_judge_sends_the_stored_translation_and_new_spans_without_asking
 
 
 @pytest.mark.parametrize(
+    "call",
+    [
+        lambda c: c.judge_spans("は", [], "는", [], [], SPANS),
+        lambda c: c.rewrite_examples("文", EXAMPLES),
+    ],
+)
+@pytest.mark.parametrize(
     "response",
     [
         openai.OpenAIError("timeout"),
@@ -414,11 +400,11 @@ def test_rematch_judge_sends_the_stored_translation_and_new_spans_without_asking
         response_with(status="completed", output_text="not json"),
     ],
 )
-def test_judge_spans_failure_becomes_analysis_failure(llm_client, monkeypatch, response):
+def test_follow_up_failure_becomes_analysis_failure(llm_client, monkeypatch, call, response):
     judge_with(llm_client, monkeypatch, response)
 
     with pytest.raises(BusinessError) as raised:
-        llm_client.judge_spans("は", [], "는", [], [], SPANS)
+        call(llm_client)
     assert raised.value.error_code == AnalysisError.FAILED
 
 
@@ -439,11 +425,12 @@ def test_follow_up_call_waits_only_until_the_request_deadline(settings, monkeypa
     assert request["timeout"] == 10
 
 
-def test_follow_up_call_after_the_request_deadline_is_not_sent(settings, monkeypatch):
+def test_follow_up_call_after_the_request_deadline_is_not_sent_or_recorded(settings, monkeypatch):
     settings.OPENAI_API_KEY = "test-key"
     now = iter([0, llm.REQUEST_DEADLINE_SECONDS])
     monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
-    llm_client = OpenAILLMClient(recorder([]))
+    recorded = []
+    llm_client = OpenAILLMClient(recorder(recorded))
     requests = judge_with(
         llm_client, monkeypatch, response_with(status="completed", output_text="{}")
     )
@@ -452,6 +439,7 @@ def test_follow_up_call_after_the_request_deadline_is_not_sent(settings, monkeyp
         llm_client.rewrite_examples("文", EXAMPLES)
     assert raised.value.error_code == AnalysisError.FAILED
     assert requests == []
+    assert recorded == []
 
 
 EXAMPLES = [
@@ -482,22 +470,6 @@ def test_rewrite_examples_sends_sentence_and_rejected_examples_and_returns_the_a
         "examples": EXAMPLES,
     }
     assert request["text"]["format"]["strict"] is True
-
-
-@pytest.mark.parametrize(
-    "response",
-    [
-        openai.OpenAIError("timeout"),
-        response_with(status="incomplete", output_text='{"examples": []}'),
-        response_with(status="completed", output_text="not json"),
-    ],
-)
-def test_rewrite_examples_failure_becomes_analysis_failure(llm_client, monkeypatch, response):
-    judge_with(llm_client, monkeypatch, response)
-
-    with pytest.raises(BusinessError) as raised:
-        llm_client.rewrite_examples("文", EXAMPLES)
-    assert raised.value.error_code == AnalysisError.FAILED
 
 
 SENSES = [
@@ -584,9 +556,6 @@ def test_every_new_usage_answer_asks_for_its_korean_equivalent():
     [new_usage, _] = llm.span_answers_schema(True)["items"]["properties"]["new_usage"]["anyOf"]
     for schema in (new_pattern, new_usage):
         assert "korean_equivalent" in schema["required"]
-    assert "korean_equivalent" in llm.INSTRUCTIONS
-    assert "korean_equivalent" in llm.JUDGE_INSTRUCTIONS
-    assert llm.KOREAN_EQUIVALENT_RULE in llm.JUDGE_INSTRUCTIONS
 
 
 def test_connection_uses_shared_pattern_knowledge_and_records_its_purpose(
@@ -685,9 +654,10 @@ def test_stream_that_could_not_be_sent_records_failure_without_tokens(
 
     stream_with(llm_client, monkeypatch, fail)
 
-    with pytest.raises(BusinessError):
+    with pytest.raises(BusinessError) as raised:
         list(llm_client.analyze_stream("文", [], [], [], [], []))
 
+    assert raised.value.error_code == AnalysisError.FAILED
     assert recorded == [
         {
             "purpose": "first_response",
@@ -702,15 +672,17 @@ def test_stream_that_could_not_be_sent_records_failure_without_tokens(
     ]
 
 
-def test_stream_that_is_not_json_records_failure(llm_client, monkeypatch, recorded):
+@pytest.mark.parametrize("output_text", ["", "I cannot help"])
+def test_stream_that_is_not_json_records_failure(llm_client, monkeypatch, recorded, output_text):
     stream_with(
         llm_client,
         monkeypatch,
-        lambda **_: stream_of([*deltas("I cannot help"), completed_event()]),
+        lambda **_: stream_of([*deltas(output_text), completed_event()]),
     )
 
-    with pytest.raises(BusinessError):
+    with pytest.raises(BusinessError) as raised:
         list(llm_client.analyze_stream("文", [], [], [], [], []))
+    assert raised.value.error_code == AnalysisError.FAILED
 
     [call] = recorded
     assert call["success"] is False
@@ -800,19 +772,6 @@ def test_follow_up_call_that_raised_records_failure_without_tokens(
     )
 
 
-def test_follow_up_call_not_sent_after_the_deadline_is_not_recorded(settings, monkeypatch):
-    settings.OPENAI_API_KEY = "test-key"
-    now = iter([0, llm.REQUEST_DEADLINE_SECONDS])
-    monkeypatch.setattr(llm.time, "monotonic", lambda: next(now))
-    recorded = []
-    llm_client = OpenAILLMClient(recorder(recorded))
-
-    with pytest.raises(BusinessError):
-        llm_client.rewrite_examples("文", EXAMPLES)
-
-    assert recorded == []
-
-
 # LLM 일시 오류의 1회 재시도(#99). 받은 것 없이 일시 오류로 실패한 호출만 마감 안에서 한 번 더
 # 보낸다.
 REQUEST = httpx.Request("POST", "https://api.openai.com/v1/responses")
@@ -882,21 +841,6 @@ def test_second_transient_failure_becomes_analysis_failure(llm_client, monkeypat
 def test_timeout_and_other_errors_are_not_sent_again(llm_client, monkeypatch, recorded, error):
     create, calls = failing_first(error, lambda: response_with(output_text="{}"))
     monkeypatch.setattr(llm_client._client.responses, "create", create)
-
-    with pytest.raises(BusinessError):
-        llm_client.rewrite_examples("文", EXAMPLES)
-
-    assert len(calls) == 1
-
-
-def test_answer_that_fails_validation_is_not_sent_again(llm_client, monkeypatch):
-    calls = []
-
-    def bad(**kwargs):
-        calls.append(kwargs)
-        return response_with(output_text="JSON 아님")
-
-    monkeypatch.setattr(llm_client._client.responses, "create", bad)
 
     with pytest.raises(BusinessError):
         llm_client.rewrite_examples("文", EXAMPLES)

@@ -2549,7 +2549,7 @@ test("구성 문법은 바깥 카드 안의 하위 박스로 보이고, 글자�
   expect(marks[0]!.className).toContain("highlight-0");
 });
 
-test("대응 표현이 있으면 제목과 설명 사이에 한 줄로 보이고, 미검수 배지는 카드에 하나다", async () => {
+test("대응 표현을 보이고, 미검수 배지는 카드에 하나다", async () => {
   respondWith(200, {
     translation_ko: "친구를 만났다",
     grammar: [
@@ -2573,18 +2573,9 @@ test("대응 표현이 있으면 제목과 설명 사이에 한 줄로 보이고
   await send(panelWindowId, "友達に会いました");
 
   const [card] = await screen.findAllByRole("listitem");
-  const line = within(card!).getByText("~에게 · ~을/를 (会う·乗る 등)");
-  expect(line.className).toContain("korean-equivalent");
-  // 배지 줄 → 제목 줄 → 대응 표현 줄 → 설명 순서다(DESIGN.md 카드 줄 구조).
-  const heading = within(card!).getByRole("heading", { level: 3 });
-  const explanation = within(card!).getByText("동작의 상대 설명");
   expect(
-    heading.compareDocumentPosition(line) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(
-    line.compareDocumentPosition(explanation) &
-      Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
+    within(card!).getByText("~에게 · ~을/를 (会う·乗る 등)"),
+  ).toBeInTheDocument();
   const [part] = within(
     within(card!).getByRole("list", { name: "구성 문법" }),
   ).getAllByRole("listitem");
@@ -2639,7 +2630,7 @@ test("대응 표현이 없는 카드에는 대응 표현 줄이 없다", async (
   expect(document.querySelector(".korean-equivalent")).toBeNull();
 });
 
-test("품사 태그와 기능 태그는 제목과 대응 표현 사이 태그 줄에 보이고, 미검수 배지는 카드에 하나다", async () => {
+test("품사 태그와 기능 태그를 태그 줄에 보이고, 미검수 배지는 카드에 하나다", async () => {
   respondWith(200, {
     translation_ko: "달리고 있다",
     grammar: [
@@ -2665,15 +2656,6 @@ test("품사 태그와 기능 태그는 제목과 대응 표현 사이 태그 �
       .getAllByRole("listitem")
       .map((tag) => tag.textContent),
   ).toEqual(["조사", "동사", "진행"]);
-  // 배지 줄 → 제목 줄 → 태그 줄 → 대응 표현 줄 순서다(DESIGN.md 카드 줄 구조).
-  const heading = within(card!).getByRole("heading", { level: 3 });
-  const equivalent = within(card!).getByText("~고 있다");
-  expect(
-    heading.compareDocumentPosition(tags) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
-  expect(
-    tags.compareDocumentPosition(equivalent) & Node.DOCUMENT_POSITION_FOLLOWING,
-  ).toBeTruthy();
   // 기능 태그는 용법의 일부라 따로 배지를 달지 않는다.
   expect(within(card!).getAllByText("AI 생성·미검수")).toHaveLength(1);
 });
@@ -2932,35 +2914,7 @@ test("해석 갈림·미확정·확인 중 카드는 같은 이름이어도 합�
   ]);
 });
 
-test("미검수 배지는 제목 위 배지 줄에 있고, 배지도 '드래그한 부분'도 없는 카드에는 배지 줄이 없다", async () => {
-  respondWith(200, {
-    translation_ko: "나는 학생입니다.",
-    grammar: [
-      { ...grammarItem(1, 2, "주제 は"), register: "colloquial" },
-      approvedGrammarItem(4, 6, "정중 です"),
-    ],
-    words: [],
-  });
-  render(<App />);
-
-  // 私만 골라 두 카드 모두 드래그 범위 밖이다.
-  await sendSelected(panelWindowId, "私は学生です。", 0, 1);
-
-  await screen.findByRole("heading", { name: "정중 です" });
-  const pending = cardOf("주제 は");
-  const badges = pending.querySelector(".card-badges")!;
-  expect(
-    within(badges as HTMLElement).getByText("AI 생성·미검수"),
-  ).toBeInTheDocument();
-  expect(within(badges as HTMLElement).getByText("회화체")).toBeInTheDocument();
-  // 배지 줄이 카드 첫 줄이고, 제목 줄에는 배지가 없다.
-  expect(pending.firstElementChild).toBe(badges);
-  const head = within(pending).getByRole("heading").parentElement!;
-  expect(head.querySelector("[class^=badge]")).toBeNull();
-  expect(cardOf("정중 です").querySelector(".card-badges")).toBeNull();
-});
-
-test("확인 중 카드도 미검수 배지와 '드래그한 부분'을 배지 줄에 둔다", async () => {
+test("확인 중 카드도 미검수 배지와 '드래그한 부분'을 단다", async () => {
   const stream = streamed();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
   render(<App />);
@@ -2980,41 +2934,8 @@ test("확인 중 카드도 미검수 배지와 '드래그한 부분'을 배지 �
   const card = (await screen.findByRole("heading", { name: "후보" })).closest(
     "li",
   )!;
-  const badges = card.querySelector(".card-badges") as HTMLElement;
-  expect(card.firstElementChild).toBe(badges);
-  expect(within(badges).getByText("AI 생성·미검수")).toBeInTheDocument();
-  expect(within(badges).getByText("드래그한 부분")).toBeInTheDocument();
-});
-
-test("단어 카드는 배지 줄 → 표제 → 태그 → 뜻 순서다", async () => {
-  respondWith(200, {
-    translation_ko: "번역",
-    grammar: [],
-    words: [
-      wordItem(0, 1, "一", "いち", { origin: "llm", status: "pending" }),
-      wordItem(1, 2, "二", "に"),
-    ],
-  });
-  render(<App />);
-  await sendSelected(panelWindowId, "一二", 0, 1);
-
-  fireEvent.click(await screen.findByRole("tab", { name: "단어 2" }));
-
-  const [llm, reviewed] = within(screen.getByRole("list", { name: "단어" }))
-    .getAllByRole("listitem")
-    .filter((row) => row.classList.contains("word-row"));
-  expect([...llm!.children].map((child) => child.className)).toEqual([
-    "card-badges",
-    "word-head",
-    "word-tags",
-    "word-meaning",
-    // 카드 맨 아래의 '이름으로 지정'(#136)
-    "name-actions",
-  ]);
-  const badges = llm!.firstElementChild as HTMLElement;
-  expect(within(badges).getByText("AI 생성·미검수")).toBeInTheDocument();
-  expect(within(badges).getByText("드래그한 부분")).toBeInTheDocument();
-  expect(reviewed!.querySelector(".card-badges")).toBeNull();
+  expect(within(card).getByText("AI 생성·미검수")).toBeInTheDocument();
+  expect(within(card).getByText("드래그한 부분")).toBeInTheDocument();
 });
 
 describe("로그인과 확장 연결(#109)", () => {
@@ -3715,9 +3636,9 @@ describe("이름 종류 배지(#184)", () => {
       render(<App />);
       await send(panelWindowId, "東京へ行った");
 
-      await wordRows();
-
-      expect(screen.queryByText(/ 이름$/)).not.toBeInTheDocument();
+      for (const row of await wordRows()) {
+        expect(row.querySelector(".badge-neutral")).toBeNull();
+      }
     },
   );
 

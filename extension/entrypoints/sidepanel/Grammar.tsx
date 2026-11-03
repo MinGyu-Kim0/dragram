@@ -410,6 +410,7 @@ function GrammarBody({
       )}
       {item.korean_equivalent !== null && (
         <p className="korean-equivalent">
+          <span className="line-label">뜻</span>
           {item.korean_equivalent}
           {/* 미검수 용법이면 배지 줄의 배지 하나로 함께 보이고, 승인된 용법에 나중에 채운
               미검수 대응 표현만 이 줄에 배지를 단다(#152). */}
@@ -425,7 +426,10 @@ function GrammarBody({
       {item.state === "unresolved" ? (
         <p className="grammar-explanation unresolved-note">판단하지 못함</p>
       ) : (
-        <p className="grammar-explanation">{item.explanation_ko}</p>
+        <p className="grammar-explanation">
+          <span className="line-label">설명</span>
+          {item.explanation_ko}
+        </p>
       )}
       {alternatives.length > 0 && (
         <ul className="alternatives" aria-label="다른 해석">

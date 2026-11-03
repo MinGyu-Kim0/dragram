@@ -142,6 +142,25 @@ test("문법 탭이 기본이고 추가한 용법을 미검수 배지·대응 �
   expect(screen.queryByRole("tab", { name: "문장" })).toBeNull();
 });
 
+test("문법 카드의 대응 표현 앞에 '뜻', 설명 앞에 '설명' 라벨을 단다", async () => {
+  open();
+
+  const [first, second] = await cards("추가한 문법");
+  expect(
+    within(within(first).getByText("~하고 있다")).getByText("뜻"),
+  ).toBeVisible();
+  expect(
+    within(
+      within(first).getByText("동작이 이어지고 있음을 나타낸다"),
+    ).getByText("설명"),
+  ).toBeVisible();
+  // 대응 표현이 없으면 '뜻' 라벨도 없다.
+  expect(within(second).queryByText("뜻")).toBeNull();
+  expect(
+    within(within(second).getByText("정중하게 단정한다")).getByText("설명"),
+  ).toBeVisible();
+});
+
 test("숨기기를 누르면 서버에 보내고 목록에서 뺀다", async () => {
   responses["PUT /api/my-items/"] = () =>
     json({ kind: "usage", id: 3, state: "hidden" });
@@ -268,6 +287,7 @@ test("단어 탭은 뜻·AI 번역·출처를 보이고, 검수에서 빠진 뜻
   const [run, rejected] = await cards("추가한 단어");
   expect(within(run).getByRole("heading", { name: "走る" })).toBeVisible();
   expect(run).toHaveTextContent("달리다");
+  expect(within(within(run).getByText("달리다")).getByText("뜻")).toBeVisible();
   expect(within(run).getByText("AI 번역")).toBeInTheDocument();
   expect(rejected).toHaveTextContent("검수에서 빠진 단어 뜻이에요");
   expect(rejected).toHaveTextContent("春が来た。");

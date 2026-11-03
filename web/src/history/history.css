@@ -110,6 +110,19 @@
   gap: 6px;
 }
 
+/* 대응 표현·설명·뜻 줄 앞 라벨(#358). 사이드 패널과 같고, 회색 알약인 태그와 구분되게 옅은 초록 네모다. */
+.history .line-label {
+  display: inline-block;
+  margin-right: 6px;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  vertical-align: 1px;
+  background: var(--color-brand-soft);
+  color: var(--color-brand-strong);
+}
+
 .history ul.tags li {
   padding: 2px 10px;
   border: 1px solid var(--color-border-control);

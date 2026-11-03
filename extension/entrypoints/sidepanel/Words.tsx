@@ -30,7 +30,15 @@ function Meaning({ sense }: { sense: WordSense }) {
       <Preparing />
     );
   }
-  return <p className="word-meaning">{sense.meaning_ko}</p>;
+  return (
+    <p className="word-meaning">
+      {/* 뜻 줄은 flex라 라벨과 뜻을 한 항목으로 묶어 줄바꿈돼도 라벨이 맨 앞에 남게 한다. */}
+      <span>
+        <span className="line-label">뜻</span>
+        {sense.meaning_ko}
+      </span>
+    </p>
+  );
 }
 
 function Preparing() {

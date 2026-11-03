@@ -9,7 +9,7 @@ import type {
 import { GrammarCards, HighlightedText, SelectedGrammarCard } from "./Grammar";
 import { cardAt, grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
-import { isHidden } from "@/utils/my-items";
+import { isHidden, itemKey } from "@/utils/my-items";
 import type { HighlightStyle } from "@/utils/preferences";
 import { HiddenCards, type HiddenCard, type MyItems } from "./MyItems";
 import { senseBadges } from "./sense-badges";
@@ -244,6 +244,7 @@ export function SentenceView({
       name: item.name,
       pending: item.review_status === "pending",
       translated: false,
+      added: !!items?.states.get(itemKey("usage", item.usage_id!))?.added,
     }),
   );
   const hiddenWords = hiddenCards(allWords.filter(hiddenWord), (word) => ({
@@ -252,6 +253,7 @@ export function SentenceView({
     chip: word.dictionary_form,
     name: word.sense!.meaning_ko ?? "",
     ...senseBadges(word.sense),
+    added: !!items?.states.get(itemKey("sense", word.sense!.id!))?.added,
   }));
   // 단어 개수도 보이는 행 수다(합친 행은 한 행, #211).
   const wordCount = tabbed

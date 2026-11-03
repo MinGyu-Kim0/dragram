@@ -27,7 +27,6 @@ import {
   fetchMyItems,
   watchItemsChanged,
   itemKey,
-  removeMyItem,
   saveMyItem,
   type Example,
   type ItemKind,
@@ -158,7 +157,10 @@ function App() {
           else {
             setItemStates(
               new Map(
-                loaded.map((item) => [itemKey(item.kind, item.id), item.state]),
+                loaded.map((item) => [
+                  itemKey(item.kind, item.id),
+                  { added: item.added, hidden: item.hidden },
+                ]),
               ),
             );
             setItemExamples(
@@ -385,34 +387,29 @@ function App() {
   const myItems: MyItems = {
     states: itemStates,
     withExamples: itemExamples,
-    save: (kind: ItemKind, id: number, state: ItemState, example?: Example) =>
+    save: (
+      kind: ItemKind,
+      id: number,
+      changes: Partial<ItemState>,
+      example?: Example,
+    ) =>
       inOrder(itemKey(kind, id), async () => {
         const started = loginRef.current;
-        const saved = await saveMyItem(kind, id, state, example);
+        const { added, hidden } = await saveMyItem(kind, id, changes, example);
         if (loginRef.current !== started) return;
         itemEdits.current += 1;
-        setItemStates((current) =>
-          new Map(current).set(itemKey(saved.kind, saved.id), saved.state),
-        );
-        if (example)
-          setItemExamples((current) =>
-            new Set(current).add(itemKey(saved.kind, saved.id)),
-          );
-      }),
-    remove: (kind: ItemKind, id: number) =>
-      inOrder(itemKey(kind, id), async () => {
-        const started = loginRef.current;
-        await removeMyItem(kind, id);
-        if (loginRef.current !== started) return;
-        itemEdits.current += 1;
+        const key = itemKey(kind, id);
+        // 두 축이 모두 꺼지면 항목이 없어지고, 제외하면 예문도 지워진다.
         setItemStates((current) => {
           const next = new Map(current);
-          next.delete(itemKey(kind, id));
+          if (added || hidden) next.set(key, { added, hidden });
+          else next.delete(key);
           return next;
         });
         setItemExamples((current) => {
           const next = new Set(current);
-          next.delete(itemKey(kind, id));
+          if (!added) next.delete(key);
+          else if (example) next.add(key);
           return next;
         });
       }),

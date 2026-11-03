@@ -631,6 +631,61 @@ test("합친 카드의 어느 자리나 구성 문법 글자를 눌러도 그 �
   ).toBe("연결");
 });
 
+test("보통 카드끼리 겹친 글자를 누르면 먼저 시작한 문법의 카드를 연다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [grammarItem(1, 4, "앞 문법"), grammarItem(2, 5, "뒤 문법")],
+    words: [],
+  });
+  render(<App />);
+  await send(panelWindowId, "一二三四五六");
+  await screen.findByRole("tab", { name: "문법 2" });
+
+  fireEvent.click(screen.getByRole("button", { name: "三四" }));
+  expect(within(selectedBox()!).getByRole("heading").textContent).toBe(
+    "앞 문법",
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "五" }));
+  expect(within(selectedBox()!).getByRole("heading").textContent).toBe(
+    "뒤 문법",
+  );
+});
+
+test("먼저 온 문법 형광펜도 누를 수 있고, 분석 결과에서 그 카드가 사라지면 닫는다", async () => {
+  const stream = streamed();
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(stream.response));
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  stream.push({
+    type: "grammar",
+    grammar: [
+      approvedGrammarItem(1, 2, "주제 は"),
+      approvedGrammarItem(4, 6, "정중 です"),
+    ],
+  });
+  fireEvent.click(await screen.findByRole("button", { name: "は" }));
+  expect(within(selectedBox()!).getByRole("heading").textContent).toBe(
+    "주제 は",
+  );
+
+  stream.push({
+    type: "translation",
+    translation_ko: "나는 학생입니다.",
+    ruby: [],
+  });
+  stream.push({
+    type: "analysis",
+    translation_ko: "나는 학생입니다.",
+    grammar: [approvedGrammarItem(4, 6, "정중 です")],
+    words: [],
+  });
+  stream.end();
+
+  await screen.findByRole("tab", { name: "문법 1" });
+  expect(selectedBox()).toBeNull();
+});
+
 test("다른 문장 페이지로 넘기면 '선택한 카드'를 닫는다", async () => {
   respondWith(200, {
     translation_ko: "번역",

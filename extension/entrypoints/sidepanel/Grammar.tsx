@@ -224,7 +224,6 @@ export function GrammarCards({
     return <p className="no-grammar">문법 요소 없음</p>;
   }
   const cards: Card[] = [
-    // 칩 색 번호는 문법 카드끼리 원문 순서로 미리 매긴다.
     ...groupGrammar(grammar).map((items, index): Card => ({
       kind: "grammar",
       item: items[0]!,
@@ -270,8 +269,8 @@ function span(item: { start: number; end: number }) {
   return { start: item.start, end: item.end };
 }
 
-// 구성 문법(parts)은 카드 안 하위 박스로 넣는다. 하위 박스는 색 번호를 따로 받지 않고 바깥 카드
-// 색을 쓴다(DESIGN.md 3장). 합친 카드는 첫 자리의 칩 글자와 구성 문법을 보인다.
+// 구성 문법(parts)은 카드 안 하위 박스로 넣는다(DESIGN.md 3장). 합친 카드는 첫 자리의 칩 글자와
+// 구성 문법을 보인다.
 function GrammarCard({
   text,
   item,
@@ -427,11 +426,10 @@ function PendingBadge() {
 // 여럿이면 아직 용법을 고르지 않아 후보 이름만 잇는다. 후보 이름도 LLM이 만든 지식이라 미검수
 // 후보가 하나라도 있으면 'AI 생성·미검수' 배지를 단다(PR #61 리뷰).
 function CheckingCard({ text, item }: { text: string; item: CheckingItem }) {
-  const className = "grammar-card checking";
   const surface = text.slice(item.start, item.end);
   if (item.usage) {
     return (
-      <li className={className}>
+      <li className="grammar-card checking">
         <GrammarBody
           text={text}
           item={{
@@ -447,7 +445,7 @@ function CheckingCard({ text, item }: { text: string; item: CheckingItem }) {
     );
   }
   return (
-    <li className={className}>
+    <li className="grammar-card checking">
       <BadgeRow
         pending={item.candidates.some(
           (candidate) => candidate.review_status === "pending",

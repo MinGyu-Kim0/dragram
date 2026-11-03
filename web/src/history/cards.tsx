@@ -66,7 +66,10 @@ export function WordRow({
         </ul>
       )}
       {sense?.meaning_ko != null ? (
-        <p>{sense.meaning_ko}</p>
+        <p>
+          <span className="line-label">뜻</span>
+          {sense.meaning_ko}
+        </p>
       ) : sense?.meaning_status === "failed" ? (
         <p className="muted">뜻을 만들지 못했어요</p>
       ) : (

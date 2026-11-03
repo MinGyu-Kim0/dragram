@@ -318,13 +318,17 @@ function UsageBody({ usage, index }: { usage: Usage; index: number }) {
       </div>
       {usage.korean_equivalent !== null && (
         <p>
+          <span className="line-label">뜻</span>
           {usage.korean_equivalent}
           {!pending && usage.korean_equivalent_review_status === "pending" && (
             <PendingBadge />
           )}
         </p>
       )}
-      <p className="secondary">{usage.explanation_ko}</p>
+      <p className="secondary">
+        <span className="line-label">설명</span>
+        {usage.explanation_ko}
+      </p>
     </>
   );
 }

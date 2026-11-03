@@ -1,5 +1,6 @@
 import { requestAnalysis } from "@/utils/analysis-request";
 import { handleExternalMessage } from "@/utils/external-messages";
+import { openGuideOnInstall } from "@/utils/guide";
 import { latestPerKey } from "@/utils/latest";
 import { sentencesFromPage } from "@/utils/page-sentences";
 
@@ -24,12 +25,13 @@ export default defineBackground(() => {
     },
   );
 
-  browser.runtime.onInstalled.addListener(() => {
+  browser.runtime.onInstalled.addListener(({ reason }) => {
     browser.contextMenus.create({
       id: ANALYZE_MENU_ID,
       title: "Dragram으로 분석",
       contexts: ["selection"],
     });
+    openGuideOnInstall(reason);
   });
 
   browser.contextMenus.onClicked.addListener((info, tab) => {

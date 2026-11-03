@@ -130,6 +130,7 @@ export function SentenceView({
   onSave,
   onRemove,
   items,
+  initialSelected,
 }: {
   text: string;
   showRuby: boolean;
@@ -145,13 +146,15 @@ export function SentenceView({
   names: ReadonlyMap<string, string | null>;
   // 내 일본어 항목(#321). '숨김'으로 숨긴 카드는 목록·형광펜·개수에서 빼고 맨 아래에 접어 둔다.
   items?: MyItems;
+  // 처음부터 고른 글자의 위치. 가이드(#370) 장면이 '선택한 카드'를 열어 보일 때만 쓴다.
+  initialSelected?: number;
 } & NameActions) {
   // '사전 단어 보기' 토글로 고른 보기(자리 → 이름 행인가). 화면 상태라 저장하지 않는다.
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
   const chooseView = (key: string, named: boolean) =>
     setChosen((current) => new Map(current).set(key, named));
   // 원문을 눌러 고른 글자의 위치(#354). 화면 상태라 저장하지 않고 페이지마다 새로 시작한다.
-  const [selected, setSelected] = useState<number>();
+  const [selected, setSelected] = useState<number | undefined>(initialSelected);
   const hiddenUsage = (item: GrammarItem) =>
     !!items && isHidden(items.states, "usage", item.usage_id);
   // 숨긴 용법은 바깥 카드에서도, 다른 카드의 구성 문법(parts)에서도 뺀다(PR #327 리뷰). 바깥을

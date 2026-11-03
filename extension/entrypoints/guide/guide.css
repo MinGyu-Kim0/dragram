@@ -1,0 +1,198 @@
+/* 가이드(#370): 화면 가득 그린 장면 위에 어두운 덮개, 밝힌 자리, 화살표, 설명 상자를 겹친다. */
+.guide {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+}
+
+/* 장면: 단순하게 그린 브라우저 창 */
+.guide-scene {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  height: 100vh;
+  background: var(--color-bg);
+}
+
+.browser-tabs {
+  display: flex;
+  padding: 8px 12px 0;
+  background: var(--color-border);
+}
+
+.browser-tab {
+  padding: 8px 16px;
+  border-radius: 10px 10px 0 0;
+  background: var(--color-surface);
+  font-size: 13px;
+}
+
+.browser-bar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.browser-address {
+  display: block;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: var(--color-bg);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.browser-body {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  min-height: 0;
+}
+
+.fake-page {
+  position: relative;
+  padding: 48px 64px;
+  background: var(--color-surface);
+  font-size: 18px;
+  line-height: 2;
+}
+
+.fake-page h2 {
+  margin: 0 0 16px;
+}
+
+/* 브라우저의 선택 표시를 흉내 낸 색 */
+.fake-selection {
+  background: light-dark(#a8c7fa, #2f4f86);
+  color: var(--color-text);
+}
+
+.fake-menu-anchor {
+  position: relative;
+}
+
+.fake-menu {
+  position: absolute;
+  top: 1.6em;
+  left: -40px;
+  z-index: 1;
+  min-width: 220px;
+  padding: 6px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 20%);
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.fake-menu > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 24px 4px 16px;
+}
+
+.fake-menu-item {
+  background: var(--color-surface-inset);
+}
+
+.fake-panel {
+  overflow-y: auto;
+  padding: 0 16px 16px;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+
+/* 밝힌 자리: 큰 그림자로 나머지를 어둡게 덮는다. */
+.guide-spot {
+  position: fixed;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 3px var(--color-brand),
+    0 0 0 100vmax var(--color-scrim);
+  pointer-events: none;
+  transition: all 0.25s ease;
+}
+
+.guide-arrow {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+}
+
+.guide-arrow marker path {
+  fill: #fff;
+  stroke: none;
+}
+
+.guide-box {
+  position: fixed;
+  display: grid;
+  gap: 8px;
+  padding: 20px;
+  border-radius: 20px;
+  background: var(--color-surface);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 30%);
+  transition:
+    top 0.25s ease,
+    left 0.25s ease;
+}
+
+.guide-box h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.guide-box p {
+  margin: 0;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.guide-box .guide-progress {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.guide-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.guide-actions .text-button {
+  margin-right: auto;
+}
+
+.guide-actions .primary-button,
+.guide-actions .secondary-button {
+  padding: 0 20px;
+}
+
+.secondary-button {
+  min-height: 44px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.secondary-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-spot,
+  .guide-box {
+    transition: none;
+  }
+}

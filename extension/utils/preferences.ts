@@ -38,13 +38,3 @@ export async function loadTheme(): Promise<Theme | null> {
 export async function saveTheme(theme: Theme): Promise<void> {
   await browser.storage.local.set({ theme });
 }
-
-// 도움말(#365)을 한 번 닫았는가. 닫은 적이 없으면 로그인한 패널에서 한 번 저절로 연다.
-export async function loadHelpSeen(): Promise<boolean> {
-  const { helpSeen } = await browser.storage.local.get("helpSeen");
-  return helpSeen === true;
-}
-
-export async function saveHelpSeen(): Promise<void> {
-  await browser.storage.local.set({ helpSeen: true });
-}

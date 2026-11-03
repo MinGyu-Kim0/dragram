@@ -13,7 +13,7 @@ from django.db.models.functions import Coalesce
 
 from analysis import jobs
 from analysis.models import UsageLog
-from analysis.usage import today_start, withdrawn_key
+from analysis.usage import counted_since, withdrawn_key
 from errors import AnalysisError, BusinessError
 
 logger = logging.getLogger(__name__)
@@ -25,12 +25,15 @@ ACTIVE_SECONDS = 150
 def today_tokens(user):
     """오늘(Asia/Seoul 자정부터) 그 사용자의 llm 행 입력+출력 토큰 합. NULL은 0이다.
 
-    같은 Google 계정이 오늘 탈퇴하기 전에 쓴 행도 더한다(PR #244).
+    같은 Google 계정이 오늘 탈퇴하기 전에 쓴 행도 더한다(PR #244). 관리자가 초기화했으면 그
+    뒤의 행만 센다.
     """
     tokens = Coalesce("input_tokens", 0) + Coalesce("output_tokens", 0)
     key = withdrawn_key(user)
     owner = Q(user=user) | Q(withdrawn_key=key) if key else Q(user=user)
-    rows = UsageLog.objects.filter(owner, kind=UsageLog.Kind.LLM, created_at__gte=today_start())
+    rows = UsageLog.objects.filter(
+        owner, kind=UsageLog.Kind.LLM, created_at__gte=counted_since(user)
+    )
     return rows.aggregate(total=Coalesce(Sum(tokens), 0))["total"]
 
 
@@ -38,6 +41,9 @@ def over_limit(user):
     """LLM을 새로 부르면 안 되는가. 이미 큐에 들어간 작업은 막지 않아 한도를 조금 넘을 수 있다."""
     if user is None:
         # 하루 한도는 사용자별이다. 관리 명령(평가 #177)은 사용자 없이 부른다.
+        return False
+    if user.is_staff:
+        # 관리자는 하루 한도가 없다. 동시 요청 제한은 받는다.
         return False
     return today_tokens(user) >= settings.ANALYSIS_DAILY_TOKEN_LIMIT
 

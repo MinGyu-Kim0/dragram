@@ -53,6 +53,47 @@ def test_today_tokens_sums_only_todays_llm_rows_of_that_user(analyst):
     assert limits.today_tokens(analyst) == 127
 
 
+def test_today_tokens_counts_only_rows_after_the_admin_reset(analyst):
+    spend(analyst, 500, 500)
+    analyst.usage_reset_at = timezone.now()
+    analyst.save()
+    spend(analyst, 3, 4)
+
+    assert limits.today_tokens(analyst) == 7
+    # 초기화 전 기록은 지우지 않는다.
+    assert UsageLog.objects.filter(user=analyst).count() == 2
+
+
+def test_reset_from_yesterday_does_not_bring_back_yesterdays_rows(analyst):
+    midnight = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+    analyst.usage_reset_at = midnight - timedelta(hours=2)
+    analyst.save()
+    spend(analyst, 1000, 1000, created_at=midnight - timedelta(hours=1))
+    spend(analyst, 5, 5)
+
+    assert limits.today_tokens(analyst) == 10
+
+
+def test_reset_user_over_the_limit_is_analyzed_again(client, fake_llm, analyst, limited):
+    analyst.usage_reset_at = timezone.now()
+    analyst.save()
+
+    response = analyze(client, TEXT)
+
+    assert response.status_code == 200
+    assert len(fake_llm.requests) == 1
+
+
+def test_staff_has_no_daily_limit(client, fake_llm, analyst, limited):
+    analyst.is_staff = True
+    analyst.save()
+
+    response = analyze(client, TEXT)
+
+    assert response.status_code == 200
+    assert len(fake_llm.requests) == 1
+
+
 def test_new_sentence_within_the_limit_is_analyzed(settings, client, fake_llm, analyst):
     settings.ANALYSIS_DAILY_TOKEN_LIMIT = 100
     spend(analyst, 60, 39)

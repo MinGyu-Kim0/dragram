@@ -4,7 +4,6 @@ import { itemKey } from "@/utils/my-items";
 import { isKana, toHiragana } from "@/utils/names";
 import { BadgeRow } from "./BadgeRow";
 import { namedWords, nameTypeLabel, wordKey } from "./named-words";
-import { draggedFirst, type DragRange } from "./drag-range";
 import { ItemActions, type MyItems } from "./MyItems";
 import { senseBadges } from "./sense-badges";
 import { groupWords } from "./word-groups";
@@ -149,14 +148,12 @@ function NameEditor({
 function NameRow({
   surface,
   reading,
-  dragged,
   onShowWord,
   onEdit,
   onRemove,
 }: {
   surface: string;
   reading: string | null;
-  dragged: boolean;
   onShowWord: () => void;
   onEdit: () => void;
   onRemove: () => Promise<void>;
@@ -164,7 +161,6 @@ function NameRow({
   const [error, setError] = useState<string>();
   return (
     <>
-      <BadgeRow dragged={dragged} />
       <div className="word-head">
         <h3 lang="ja">{surface}</h3>
         {reading && (
@@ -199,8 +195,7 @@ function NameRow({
 }
 
 // 단어 행: 배지 줄, 사전형(표제)·읽기, 태그, 이 문장에서 고른 뜻. 같은 단어·같은 뜻은 한 행으로
-// 합치고(화면에서만, #211), 합친 자리 중 하나라도 드래그 범위와 겹친 행을 먼저 두며, 각 묶음 안은
-// 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
+// 합치고(화면에서만, #211), 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
 // 사전(JMdict) 단어가 있으면 목록 아래에 출처 각주를 단다. LLM이 만든 단어만 있으면 달지 않는다(#134).
 // 지정한 이름과 표층형이 같은 단어는 공용 이름 구간이 고른 기본 보기로 보인다(#136, #140).
 // '사전 단어 보기'(chosen)로 그 자리만 반대 보기로 바꿔 볼 수 있다.
@@ -208,7 +203,6 @@ export function WordList({
   text,
   words,
   ruby,
-  selection,
   names,
   chosen,
   nameSpans,
@@ -220,7 +214,6 @@ export function WordList({
   text: string;
   words: WordItem[];
   ruby: RubyItem[];
-  selection: DragRange;
   names: ReadonlyMap<string, string | null>;
   chosen: ReadonlyMap<string, boolean>;
   nameSpans: NameSpan[] | null | undefined;
@@ -236,11 +229,7 @@ export function WordList({
   if (words.length === 0) {
     return <p className="no-words">단어 없음</p>;
   }
-  const rows = groupWords(text, words, names, nameSpans).map((group) => ({
-    start: group[0]!.start,
-    end: group[0]!.end,
-    spans: group,
-  }));
+  const rows = groupWords(text, words, names, nameSpans);
   const named = new Set(
     namedWords(text, words, names, chosen, nameSpans).map(({ word }) =>
       wordKey(word),
@@ -252,8 +241,8 @@ export function WordList({
   return (
     <>
       <ul className="word-list" aria-label="단어">
-        {draggedFirst(rows, selection).map(({ item: row, dragged }) => {
-          const word = row.spans[0]!;
+        {rows.map((row) => {
+          const word = row[0]!;
           const key = wordKey(word);
           const surface = text.slice(word.start, word.end);
           const designated = names.has(surface);
@@ -274,14 +263,10 @@ export function WordList({
           );
           if (named.has(key)) {
             return (
-              <li
-                key={key}
-                className={dragged ? "word-row dragged" : "word-row"}
-              >
+              <li key={key} className="word-row">
                 <NameRow
                   surface={surface}
                   reading={names.get(surface)!}
-                  dragged={dragged}
                   onShowWord={() => onChooseView(key, false)}
                   onEdit={() => setEditing(key)}
                   onRemove={() => onRemove(surface)}
@@ -293,11 +278,10 @@ export function WordList({
           const tags = tagNames(word);
           const others = word.other_readings ?? [];
           return (
-            <li key={key} className={dragged ? "word-row dragged" : "word-row"}>
+            <li key={key} className="word-row">
               <BadgeRow
                 {...senseBadges(word.sense)}
                 nameLabel={nameTypeLabel(word, nameSpans)}
-                dragged={dragged}
               />
               <div className="word-head">
                 <h3 lang="ja">{word.dictionary_form}</h3>

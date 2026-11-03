@@ -37,7 +37,7 @@ import type { MyItems } from "./MyItems";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 import { Logo } from "./Logo";
 import { ThemeButton } from "./ThemeButton";
-import { usePreference } from "./use-preference";
+import { useHighlightStyle, usePreference } from "./use-preference";
 
 // 서버에 동시에 보내는 문장 분석 요청 수. 문장 수에는 상한이 없어서(#23), 긴 글을 골라도
 // 서버에 한꺼번에 몰리지 않게 한다. 회차가 바뀌어도 이전 회차의 진행 중인 요청까지 센다.
@@ -60,8 +60,8 @@ function App() {
   const [results, setResults] = useState<Results>();
   const [page, setPage] = useState<Page>();
   const [tab, setTab] = useState<ResultTab>("grammar");
-  const [showHandles, toggleHandles] = usePreference("showDragHandles");
   const [showRuby, toggleRuby] = usePreference("showRuby");
+  const [highlightStyle, setHighlightStyle] = useHighlightStyle();
   // 패널 하나에서 모든 회차가 함께 쓰는 동시 요청 한도
   const [limiter] = useState(() => createLimiter(MAX_CONCURRENT_REQUESTS));
   // 지금 회차에서 실패한 문장을 다시 분석한다(문장 번호). 회차마다 새로 정한다.
@@ -475,11 +475,10 @@ function App() {
           // '사전 단어 보기'는 그 페이지의 화면 상태라 페이지마다 새로 시작한다.
           key={`${request!.id}-${pageIndex}`}
           text={sentence.text}
-          selection={sentence.selection}
-          showHandles={showHandles}
-          onToggleHandles={toggleHandles}
           showRuby={showRuby}
           onToggleRuby={toggleRuby}
+          highlightStyle={highlightStyle}
+          onHighlightStyleChange={setHighlightStyle}
           result={result}
           tab={tab}
           onTabChange={setTab}

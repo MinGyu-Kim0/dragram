@@ -24,23 +24,15 @@
   /* 세그먼트 탭·페이지 넘김 트랙: border-subtle, 다크는 surface(DESIGN §3 세그먼트 탭) */
   --color-track: light-dark(#e1ece5, #1b283a);
   --color-border-control: light-dark(#cfddd4, #3a4d68);
-  /* 선택 링(다크는 brand), 드래그 핸들(라이트 brand-strong, 다크 text) */
+  /* 선택 링(다크는 brand) */
   --color-ring: light-dark(#17302a, #a2bc4e);
-  --color-handle: light-dark(#0f5e44, #eef2f7);
-  /* 형광펜 4색: 칩 배경 / 칩 글자 / 본문 형광펜. 라이트 본문 형광펜은 칩 배경과 같고,
-     다크는 더 진한 반투명이다. */
-  --color-highlight-0: light-dark(#ddf27a, rgba(162, 188, 78, 0.2));
-  --color-highlight-0-text: light-dark(#3d4a00, #c8da8e);
-  --color-highlight-0-mark: light-dark(#ddf27a, rgba(162, 188, 78, 0.42));
-  --color-highlight-1: light-dark(#bde3ff, rgba(110, 180, 255, 0.18));
-  --color-highlight-1-text: light-dark(#0f4a78, #a9d3ff);
-  --color-highlight-1-mark: light-dark(#bde3ff, rgba(110, 180, 255, 0.38));
-  --color-highlight-2: light-dark(#ffd6a8, rgba(255, 160, 90, 0.18));
-  --color-highlight-2-text: light-dark(#7a3e00, #ffc598);
-  --color-highlight-2-mark: light-dark(#ffd6a8, rgba(255, 160, 90, 0.38));
-  --color-highlight-3: light-dark(#f7c8e0, rgba(240, 120, 180, 0.18));
-  --color-highlight-3-text: light-dark(#7a1f4f, #f6b3d3);
-  --color-highlight-3-mark: light-dark(#f7c8e0, rgba(240, 120, 180, 0.38));
+  /* 형광펜(라임 한 색, #354): 칩 배경 / 칩 글자 / 본문 형광펜. 라이트 본문 형광펜은 칩 배경과
+     같고, 다크는 더 진한 반투명이다. */
+  --color-highlight: light-dark(#ddf27a, rgba(162, 188, 78, 0.2));
+  --color-highlight-text: light-dark(#3d4a00, #c8da8e);
+  --color-highlight-mark: light-dark(#ddf27a, rgba(162, 188, 78, 0.42));
+  /* 밑줄 모양의 선: 바탕과 3:1 이상(라이트 3.25, 다크 6.97) */
+  --color-highlight-line: light-dark(#7a9a1e, #a2bc4e);
   /* 본문 형광펜은 아래쪽만 칠한다. 다크는 조금 더 높이 칠한다. */
   --mark-cut: 46%;
 }
@@ -91,7 +83,7 @@ h1 {
   padding: 20px;
 }
 
-/* 원문 위 오른쪽의 표시 켜고 끄기(루비, 드래그 핸들). 원문을 가리지 않게 따로 한 줄을
+/* 원문 위 오른쪽의 표시 켜고 끄기(루비). 원문을 가리지 않게 따로 한 줄을
    쓴다. 꺼지면 흐리게 보인다. */
 .display-toggles {
   display: flex;
@@ -114,6 +106,16 @@ h1 {
   background: transparent;
   color: var(--color-text-muted);
   text-decoration: line-through;
+}
+
+/* 형광펜 모양 고르기(#354). 둘 중 하나라 고르지 않은 쪽은 흐리게만 하고 줄을 긋지 않는다. */
+.style-choice {
+  display: flex;
+  gap: 4px;
+}
+
+.display-toggles .style-choice button[aria-pressed="false"] {
+  text-decoration: none;
 }
 
 .original {
@@ -237,61 +239,47 @@ h1 {
   color: inherit;
   background: linear-gradient(
     transparent var(--mark-cut),
-    var(--highlight-mark) var(--mark-cut)
+    var(--color-highlight-mark) var(--mark-cut)
   );
   border-radius: 3px 3px 7px 7px;
   padding: 0 2px;
 }
 
-/* 드래그 범위: 형광펜 위에 따로 얹는 층. 시작·끝에 텍스트 선택 핸들(원 + 막대)을 붙인다.
-   시작 핸들은 원이 위, 끝 핸들은 원이 아래다. */
-.drag-handle-start,
-.drag-handle-end {
-  display: inline-block;
-  width: 8px;
-  height: 1.4em;
-  margin: 0 -3px;
-  vertical-align: -0.3em;
-  background:
-    radial-gradient(
-      circle 4px at 50% var(--handle-y),
-      var(--color-handle) 95%,
-      transparent
-    ),
-    linear-gradient(var(--color-handle), var(--color-handle)) center / 2px 100%
-      no-repeat;
+/* 문법·단어가 있는 원문 조각은 눌러서 '선택한 카드'를 연다(#354). */
+.original .piece {
+  cursor: pointer;
+  border-radius: 3px;
 }
 
-.drag-handle-start {
-  --handle-y: 4px;
+.original .piece:hover {
+  background: var(--color-surface-inset);
 }
 
-.drag-handle-end {
-  --handle-y: calc(100% - 4px);
+.original .piece:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
 }
 
-.highlight-0 {
-  --highlight: var(--color-highlight-0);
-  --highlight-text: var(--color-highlight-0-text);
-  --highlight-mark: var(--color-highlight-0-mark);
+/* 문법이 없는 단어를 골랐으면 그 조각에 선택 링을 두른다(문법이면 형광펜 전체에 두른다). */
+.original :not(mark.selected) > .piece[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--color-ring);
 }
 
-.highlight-1 {
-  --highlight: var(--color-highlight-1);
-  --highlight-text: var(--color-highlight-1-text);
-  --highlight-mark: var(--color-highlight-1-mark);
+/* 밑줄 모양(#354): 칠하지 않고 글자 아래에 선을 긋는다. 이웃한 구간의 선이 이어지지 않게
+   조각 사이를 조금 띄운다. */
+.original.underline mark.highlight {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  margin: 0 1px;
+  text-decoration: underline 3px var(--color-highlight-line);
+  text-underline-offset: 5px;
+  text-decoration-skip-ink: none;
 }
 
-.highlight-2 {
-  --highlight: var(--color-highlight-2);
-  --highlight-text: var(--color-highlight-2-text);
-  --highlight-mark: var(--color-highlight-2-mark);
-}
-
-.highlight-3 {
-  --highlight: var(--color-highlight-3);
-  --highlight-text: var(--color-highlight-3-text);
-  --highlight-mark: var(--color-highlight-3-mark);
+/* 고른 카드의 형광펜: 선택 링 */
+.original mark.selected {
+  box-shadow: 0 0 0 2px var(--color-ring);
 }
 
 /* 판별을 기다리는 구간(확인 중): 형광펜 대신 점선 밑줄 */
@@ -302,6 +290,25 @@ h1 {
   padding: 0;
   text-decoration: underline dashed var(--color-border-control) 2px;
   text-underline-offset: 4px;
+}
+
+/* 번역 아래 '선택한 카드' 박스(#354). 카드에 선택 링을 둘러 원문 카드 바탕과 나눈다. */
+.selected-card {
+  margin-top: 14px;
+}
+
+.selected-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.selected-card .grammar-cards {
+  margin-top: 0;
+}
+
+.selected-card .grammar-card {
+  box-shadow: inset 0 0 0 2px var(--color-ring);
 }
 
 .grammar-cards {
@@ -388,13 +395,7 @@ h1 {
   margin-top: 8px;
 }
 
-/* 드래그한 부분의 문법 카드·단어 행: 선택 링 */
-.grammar-card.dragged,
-.word-row.dragged {
-  box-shadow: inset 0 0 0 2px var(--color-ring);
-}
-
-/* 카드 첫 줄: 왼쪽 상태 배지, 오른쪽 "드래그한 부분"(DESIGN.md 3장) */
+/* 카드 첫 줄: 상태 배지(DESIGN.md 3장) */
 .card-badges {
   display: flex;
   align-items: center;
@@ -415,8 +416,8 @@ h1 {
   padding: 3px 12px;
   font-size: 15px;
   font-weight: 700;
-  background: var(--highlight);
-  color: var(--highlight-text);
+  background: var(--color-highlight);
+  color: var(--color-highlight-text);
 }
 
 .grammar-card h3 {

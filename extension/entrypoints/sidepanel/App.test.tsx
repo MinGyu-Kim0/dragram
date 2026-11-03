@@ -1477,7 +1477,7 @@ test("원문 한자 위에 루비를 기본으로 보인다", async () => {
     ["私", "わたし"],
     ["学生", "がくせい"],
   ]);
-  expect(screen.getByRole("button", { name: "루비" })).toHaveAttribute(
+  expect(screen.getByRole("button", { name: "후리가나" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -1485,7 +1485,7 @@ test("원문 한자 위에 루비를 기본으로 보인다", async () => {
   expect(document.querySelector(".original mark ruby")).not.toBeNull();
 });
 
-test("루비 버튼을 끄면 루비가 사라지고, 끈 값은 패널을 다시 열어도 유지된다", async () => {
+test("후리가나 버튼을 끄면 루비가 사라지고, 끈 값은 패널을 다시 열어도 유지된다", async () => {
   respondWith(200, {
     translation_ko: "나는 학생입니다.",
     grammar: [],
@@ -1496,7 +1496,7 @@ test("루비 버튼을 끄면 루비가 사라지고, 끈 값은 패널을 다�
   await send(panelWindowId, "私は学生です。");
   await screen.findByText("나는 학생입니다.");
 
-  fireEvent.click(screen.getByRole("button", { name: "루비" }));
+  fireEvent.click(screen.getByRole("button", { name: "후리가나" }));
 
   expect(rubies()).toEqual([]);
   expect(document.querySelector(".original")!.textContent).toBe(

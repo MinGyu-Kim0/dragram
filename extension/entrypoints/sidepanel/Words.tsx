@@ -227,7 +227,7 @@ export function WordList({
   nameSpans: NameSpan[] | null | undefined;
   // 그 자리를 이름 행(true)이나 사전 단어 행(false)으로 보인다.
   onChooseView: (key: string, named: boolean) => void;
-  // 내 일본어 항목(#321). 있으면 뜻을 고른 단어 행에 추가·표시 안 함 버튼을 단다.
+  // 내 일본어 항목(#321). 있으면 뜻을 고른 단어 행에 추가·숨김 버튼을 단다.
   items?: MyItems;
 } & NameActions) {
   // 읽기 입력을 연 단어 자리
@@ -389,7 +389,7 @@ export function WordList({
           >
             CC BY-SA 4.0
           </a>
-          ). 이 문장에 맞는 뜻만 골라 보여 줘요.
+          )
         </p>
       )}
     </>

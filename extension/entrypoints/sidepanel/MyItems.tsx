@@ -7,11 +7,11 @@ import {
 } from "@/utils/my-items";
 import { BadgeRow } from "./BadgeRow";
 
-// 내 일본어 항목(#321): 카드에서 추가하거나 '표시 안 함'으로 숨긴 용법·단어 뜻의 상태와 바꾸는
+// 내 일본어 항목(#321): 카드에서 추가하거나 '숨김'으로 숨긴 용법·단어 뜻의 상태와 바꾸는
 // 동작. 바꾸는 동작은 실패하면 거부되고, 화면은 성공했을 때만 바뀐다.
 export interface MyItems {
   states: ReadonlyMap<string, ItemState>;
-  // 저장한 예문이 있는 항목의 열쇠. 빼기·다시 보이기는 예문도 지우므로 한 번 확인받는다.
+  // 저장한 예문이 있는 항목의 열쇠. 빼기·복원은 예문도 지우므로 한 번 확인받는다.
   withExamples: ReadonlySet<string>;
   save: (
     kind: ItemKind,
@@ -23,8 +23,9 @@ export interface MyItems {
 }
 
 // 카드 아래 버튼 줄. 부르는 쪽이 key에 상태를 넣어, 같은 항목을 다른 줄에서 빼면 이 줄의
-// '예문 저장됨'도 함께 초기화된다(PR #327 리뷰). 추가 전: 추가 · 표시 안 함. 추가한 뒤: 추가됨 표시, 이 문장을 예문으로 저장,
-// 빼기(예문도 지운다). 예문은 사용자가 누를 때만 원문 그대로 보낸다.
+// '예문 저장됨'도 함께 초기화된다(PR #327 리뷰). 추가 전: 추가 · 숨김. 추가한 뒤: 추가됨 표시, 이 문장을 예문으로 저장,
+// 숨김(숨긴 카드로 보내고 예문은 둔다). 숨길 수 없는 구성 문법 하위 박스는 숨김 대신 빼기(예문도
+// 지운다). 예문은 사용자가 누를 때만 원문 그대로 보낸다.
 export function ItemActions({
   kind,
   id,
@@ -37,7 +38,7 @@ export function ItemActions({
   // 예문으로 저장할 문장(이 페이지의 원문)과 그 안에서 이 카드가 가리키는 부분
   example: Example;
   items: MyItems;
-  // 구성 문법 하위 박스는 바깥 카드와 함께 보이고 숨으므로 '표시 안 함'을 두지 않는다.
+  // 구성 문법 하위 박스는 바깥 카드와 함께 보이고 숨으므로 '숨김'을 두지 않는다.
   hideable?: boolean;
 }) {
   const state = items.states.get(itemKey(kind, id));
@@ -73,19 +74,30 @@ export function ItemActions({
                 이 문장을 예문으로 저장
               </button>
             )}
-            <RemoveButton
-              label="빼기"
-              confirmLabel="예문과 함께 빼기"
-              className="text-button item-remove"
-              confirm={items.withExamples.has(itemKey(kind, id))}
-              busy={busy}
-              onRemove={() =>
-                run(
-                  () => items.remove(kind, id),
-                  () => setExampleSaved(false),
-                )
-              }
-            />
+            {hideable ? (
+              <button
+                type="button"
+                className="text-button item-remove"
+                disabled={busy}
+                onClick={() => run(() => items.save(kind, id, "hidden"))}
+              >
+                숨김
+              </button>
+            ) : (
+              <RemoveButton
+                label="빼기"
+                confirmLabel="예문과 함께 빼기"
+                className="text-button item-remove"
+                confirm={items.withExamples.has(itemKey(kind, id))}
+                busy={busy}
+                onRemove={() =>
+                  run(
+                    () => items.remove(kind, id),
+                    () => setExampleSaved(false),
+                  )
+                }
+              />
+            )}
           </>
         ) : (
           <>
@@ -103,7 +115,7 @@ export function ItemActions({
                 disabled={busy}
                 onClick={() => run(() => items.save(kind, id, "hidden"))}
               >
-                표시 안 함
+                숨김
               </button>
             )}
           </>
@@ -128,7 +140,7 @@ export interface HiddenCard {
   translated: boolean;
 }
 
-// '표시 안 함'으로 숨긴 카드. 접어 두고, 펼치면 칩과 이름, '다시 보이기'만 보인다. 형광펜은 칠하지
+// '숨김'으로 숨긴 카드. 접어 두고, 펼치면 칩과 이름, '복원'만 보인다. 형광펜은 칠하지
 // 않는다(원문 형광펜과 카드 칩 색을 맞추기 위해 숨긴 문법은 처음부터 뺀다).
 export function HiddenCards({
   cards,
@@ -161,8 +173,8 @@ function HiddenRow({ card, items }: { card: HiddenCard; items: MyItems }) {
       </span>
       <span>{card.name}</span>
       <RemoveButton
-        label="다시 보이기"
-        confirmLabel="예문과 함께 다시 보이기"
+        label="복원"
+        confirmLabel="예문과 함께 복원"
         confirm={items.withExamples.has(itemKey(card.kind, card.id))}
         busy={busy}
         onRemove={() => {

@@ -1,6 +1,6 @@
 import { tokenRequest } from "./token-request";
 
-// 내 일본어 항목(#321): 사용자가 카드에서 추가하거나 '표시 안 함'으로 숨긴 용법·단어 뜻. 본인만
+// 내 일본어 항목(#321): 사용자가 카드에서 추가하거나 '숨김'으로 숨긴 용법·단어 뜻. 본인만
 // 보는 개인 데이터다. 예문(원문)은 사용자가 고를 때만 본문으로 보낸다.
 export type ItemKind = "usage" | "sense";
 export type ItemState = "added" | "hidden";
@@ -31,7 +31,7 @@ export function watchItemsChanged(onChanged: () => void): () => void {
 // 화면이 상태를 찾는 열쇠(종류:ID)
 export const itemKey = (kind: ItemKind, id: number) => `${kind}:${id}`;
 
-// '표시 안 함'으로 숨긴 항목인가. ID가 없으면(미확정 문법, 뜻을 고르지 않은 단어) 숨길 수 없다.
+// '숨김'으로 숨긴 항목인가. ID가 없으면(미확정 문법, 뜻을 고르지 않은 단어) 숨길 수 없다.
 export function isHidden(
   states: ReadonlyMap<string, ItemState>,
   kind: ItemKind,

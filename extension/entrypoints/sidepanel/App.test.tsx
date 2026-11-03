@@ -1372,6 +1372,86 @@ test("문장이 길이 상한을 넘으면 나눠서 드래그하라고 안내�
   expect(screen.queryByText("분석하지 못했습니다")).not.toBeInTheDocument();
 });
 
+describe("확장 업데이트가 필요하면(#349)", () => {
+  // requestUpdateCheck는 콜백 겹지정(void)이 있어 spyOn의 타입이 맞지 않는다. 직접 바꾼다.
+  function updateCheck(result: () => Promise<unknown>) {
+    const check = vi.fn(result);
+    fakeBrowser.runtime.requestUpdateCheck = check as never;
+    return check;
+  }
+
+  function refuseOldExtension() {
+    respondPerSentence({
+      "私は学生です。": () => json(426, { error: "EXTENSION:UPDATE_REQUIRED" }),
+    });
+  }
+
+  test("업데이트 안내를 보이고 확장 연결은 지우지 않는다", async () => {
+    refuseOldExtension();
+    render(<App />);
+
+    await send(panelWindowId, "私は学生です。");
+
+    expect(
+      await screen.findByRole("heading", { name: "업데이트가 필요해요" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "지금 업데이트" }),
+    ).toBeInTheDocument();
+    expect(await loadToken()).toBe("extension-token");
+    expect(screen.queryByText("분석하지 못했습니다")).not.toBeInTheDocument();
+  });
+
+  test("지금 업데이트를 누르면 업데이트를 받아 확장을 다시 띄운다", async () => {
+    refuseOldExtension();
+    const check = updateCheck(async () => ({
+      status: "update_available",
+      version: "0.4.0",
+    }));
+    const reload = vi
+      .spyOn(fakeBrowser.runtime, "reload")
+      .mockImplementation(() => {});
+    render(<App />);
+    await send(panelWindowId, "私は学生です。");
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "지금 업데이트" }),
+    );
+
+    await waitFor(() => expect(reload).toHaveBeenCalled());
+    expect(check).toHaveBeenCalled();
+  });
+
+  test.each([
+    { status: "no_update" },
+    { status: "throttled" },
+    new Error("확인 실패"),
+  ])(
+    "업데이트를 받을 수 없으면(%o) 잠시 뒤 다시 해 보라고 한다",
+    async (result) => {
+      refuseOldExtension();
+      updateCheck(async () => {
+        if (result instanceof Error) throw result;
+        return result;
+      });
+      const reload = vi.spyOn(fakeBrowser.runtime, "reload");
+      render(<App />);
+      await send(panelWindowId, "私は学生です。");
+
+      fireEvent.click(
+        await screen.findByRole("button", { name: "지금 업데이트" }),
+      );
+
+      expect(
+        await screen.findByText(
+          "아직 받을 수 있는 업데이트가 없어요. 잠시 뒤 다시 해 주세요.",
+        ),
+      ).toBeInTheDocument();
+      expect(reload).not.toHaveBeenCalled();
+    },
+  );
+});
+
 test("작업이 시작할 때 하루 한도에 걸린 스트림 오류도 그 문구를 보인다", async () => {
   respondPerSentence({
     "私は学生です。": () =>

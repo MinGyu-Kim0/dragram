@@ -1,4 +1,4 @@
-import { API_BASE_URL, LoginRequired } from "./api";
+import { apiFetch, LoginRequired } from "./api";
 import { clearTokenIfStill, loadToken } from "./auth";
 
 // 확장 토큰으로 로그인한 요청을 보낸다. 401이면 토큰을 지우고 LoginRequired, 그 밖의 실패는
@@ -10,7 +10,7 @@ export async function tokenRequest(
 ): Promise<Response> {
   const token = await loadToken();
   if (!token) throw new LoginRequired();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await apiFetch(path, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,

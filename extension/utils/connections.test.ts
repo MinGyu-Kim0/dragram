@@ -32,7 +32,10 @@ test("패턴 ID와 확장 토큰으로만 요청하고 저장된 접속 정보�
     expect.stringMatching(/\/api\/grammar-patterns\/42\/connection\/$/),
     {
       method: "POST",
-      headers: { Authorization: "Bearer extension-token" },
+      headers: {
+        Authorization: "Bearer extension-token",
+        "X-Dragram-Version": "0.3.0",
+      },
     },
   );
 });

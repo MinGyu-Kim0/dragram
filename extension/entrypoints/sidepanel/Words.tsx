@@ -285,6 +285,13 @@ export function WordList({
           }
           const tags = tagNames(word);
           const others = word.other_readings ?? [];
+          const readings = expanded.has(key)
+            ? [word.reading, ...others].join("・")
+            : word.reading;
+          // 고른 뜻이 '보통 가나로 씀'이면 읽기를 표제로, 한자 사전형을 회색 글자로 보인다(#367).
+          const kanaFirst =
+            !!word.sense?.tags.includes("uk") &&
+            /\p{sc=Han}/u.test(word.dictionary_form);
           return (
             <li key={key} className="word-row">
               <BadgeRow
@@ -292,12 +299,21 @@ export function WordList({
                 nameLabel={nameTypeLabel(word, nameSpans)}
               />
               <div className="word-head">
-                <h3 lang="ja">{word.dictionary_form}</h3>
-                <span lang="ja" className="word-reading">
-                  {expanded.has(key)
-                    ? [word.reading, ...others].join("・")
-                    : word.reading}
-                </span>
+                {kanaFirst ? (
+                  <>
+                    <h3 lang="ja">{readings}</h3>
+                    <span lang="ja" className="word-reading">
+                      {word.dictionary_form}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <h3 lang="ja">{word.dictionary_form}</h3>
+                    <span lang="ja" className="word-reading">
+                      {readings}
+                    </span>
+                  </>
+                )}
                 {others.length > 0 && (
                   <button
                     type="button"

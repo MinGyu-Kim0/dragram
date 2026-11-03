@@ -115,7 +115,7 @@ cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:curre
    ```bash
    curl -sS --resolve dragram.app:443:127.0.0.1 https://dragram.app/api/health/
    ```
-4. 고정 IP를 옮기기 전에, 스냅샷 시각 뒤에 처리한 탈퇴·삭제를 다시 적용한다(처리방침 8절). 먼저 하지 않으면 지운 개인정보가 다시 서비스되고, 옮긴 뒤 새로 생긴 행까지 아래 비교에 걸린다. 옛 DB를 읽을 수 있으면 복구한 DB에만 있는 계정(`accounts_user`)·`my_item`·`my_example`·`designated_name` 행을 지운다. 읽을 수 없으면 그 사이 문의 메일로 받은 탈퇴·삭제 요청을 다시 처리한다.
+4. 고정 IP를 옮기기 전에, 스냅샷 시각 뒤에 처리한 탈퇴·삭제를 다시 적용한다(처리방침 8절). 먼저 하지 않으면 지운 개인정보가 다시 서비스되고, 옮긴 뒤 새로 생긴 행까지 아래 비교에 걸린다. 옛 DB를 읽을 수 있으면 복구한 DB에만 있는 계정(`accounts_user`)·`my_item`·`my_example`·`designated_name` 행을 지운다. 읽을 수 없으면 그 사이 문의 메일로 받은 탈퇴·삭제 요청을 다시 처리한다. 다만 화면에서 직접 한 탈퇴·삭제는 DB 밖에 기록이 없어 다시 적용할 수 없다. 이 경우 처리방침 8절의 약속을 다 지킨 것이 아니므로, 고정 IP를 옮길지는 #388의 결정을 따른다.
    이어서 복원된 웹 세션과 확장 토큰을 모두 무효화한다. 스냅샷 뒤에 로그아웃·연결 해제로 폐기한 것이 되살아났을 수 있기 때문이다. 사용자는 다시 로그인하고 확장을 다시 연결한다.
    ```bash
    cd ~/dragram && docker compose exec -T backend python manage.py shell -c "from django.contrib.sessions.models import Session; from django.utils import timezone; from accounts.models import ExtensionToken; Session.objects.all().delete(); ExtensionToken.objects.filter(revoked_at=None).update(revoked_at=timezone.now())"

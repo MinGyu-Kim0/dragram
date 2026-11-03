@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  isAdded,
   itemKey,
   type Example,
   type ItemKind,
@@ -39,7 +40,7 @@ export function ItemActions({
   example: Example;
   items: MyItems;
 }) {
-  const added = items.states.get(itemKey(kind, id))?.added === true;
+  const added = isAdded(items.states, kind, id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const [exampleSaved, setExampleSaved] = useState(false);
@@ -54,15 +55,10 @@ export function ItemActions({
     <>
       <div className="item-actions">
         {added ? (
-          <RemoveButton
-            label="추가됨"
-            confirmLabel="예문과 함께 제외"
-            className="item-toggle"
-            pressed
-            title="다시 누르면 내 일본어에서 제외해요"
+          <AddedToggle
             confirm={items.withExamples.has(itemKey(kind, id))}
             busy={busy}
-            onRemove={() =>
+            onExclude={() =>
               run(
                 () => items.save(kind, id, { added: false }),
                 () => setExampleSaved(false),
@@ -180,26 +176,16 @@ function HiddenRow({ card, items }: { card: HiddenCard; items: MyItems }) {
   );
 }
 
-// 항목을 제외하는 버튼. 저장한 예문이 있으면(confirm) 예문도 함께 지워짐을 한 번 확인받는다(웹과
-// 같다, PR #320 리뷰). 추가됨 토글로 쓰면 pressed다.
-function RemoveButton({
-  label,
-  confirmLabel,
-  className,
-  pressed,
-  title,
+// '추가됨' 토글(#362). 누르면 제외하고, 저장한 예문이 있으면(confirm) 예문도 함께 지워짐을 한 번
+// 확인받는다(웹과 같다, PR #320 리뷰).
+function AddedToggle({
   confirm,
   busy,
-  onRemove,
+  onExclude,
 }: {
-  label: string;
-  confirmLabel: string;
-  className?: string;
-  pressed?: boolean;
-  title?: string;
   confirm: boolean;
   busy: boolean;
-  onRemove: () => void;
+  onExclude: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   if (confirming)
@@ -211,10 +197,10 @@ function RemoveButton({
           disabled={busy}
           onClick={() => {
             setConfirming(false);
-            onRemove();
+            onExclude();
           }}
         >
-          {confirmLabel}
+          예문과 함께 제외
         </button>
         <button
           type="button"
@@ -228,13 +214,13 @@ function RemoveButton({
   return (
     <button
       type="button"
-      className={className}
-      aria-pressed={pressed}
-      title={title}
+      className="item-toggle"
+      aria-pressed
+      title="다시 누르면 내 일본어에서 제외해요"
       disabled={busy}
-      onClick={() => (confirm ? setConfirming(true) : onRemove())}
+      onClick={() => (confirm ? setConfirming(true) : onExclude())}
     >
-      {label}
+      추가됨
     </button>
   );
 }

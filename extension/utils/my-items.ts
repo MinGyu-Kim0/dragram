@@ -43,6 +43,15 @@ export function isHidden(
   return id != null && states.get(itemKey(kind, id))?.hidden === true;
 }
 
+// 내 일본어에 추가한 항목인가.
+export function isAdded(
+  states: ReadonlyMap<string, ItemState>,
+  kind: ItemKind,
+  id: number | null | undefined,
+) {
+  return id != null && states.get(itemKey(kind, id))?.added === true;
+}
+
 // 버튼 줄 key에 넣는 상태 글자. 다른 줄에서 상태가 바뀌면 그 줄의 화면 상태도 새로 시작한다.
 export const stateTag = (state: ItemState | undefined) =>
   state ? `${state.added}:${state.hidden}` : "none";

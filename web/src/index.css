@@ -14,6 +14,8 @@
   --color-border-subtle: light-dark(#e1ece5, #23344b);
   /* 세그먼트 탭·페이지 넘김 트랙: border-subtle, 다크는 surface(DESIGN §3 세그먼트 탭) */
   --color-track: light-dark(#e1ece5, #1b283a);
+  /* surface 카드 안의 트랙: 다크 track은 surface와 같아 묻히므로 bg를 쓴다(#355) */
+  --color-track-on-surface: light-dark(#e1ece5, #111a26);
   --color-danger-text: light-dark(#9f1d1d, #ffb4b4);
   --color-warn-bg: light-dark(#fff1d0, rgba(255, 196, 80, 0.16));
   --color-warn-text: light-dark(#6b4100, #ffd27a);

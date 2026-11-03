@@ -800,6 +800,38 @@ function wordItem(
   };
 }
 
+test("고른 뜻이 '보통 가나로 씀'이고 사전형에 한자가 있으면 읽기를 표제로, 사전형을 회색 글자로 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "많은 책과 종이가 있다.",
+    grammar: [],
+    words: [
+      wordItem(0, 2, "沢山", "たくさん", { tags: ["uk"] }),
+      wordItem(3, 4, "本", "ほん"),
+      wordItem(5, 6, "紙", "かみ", null),
+      wordItem(7, 9, "ある", "ある", { tags: ["uk"] }, ["verb"]),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "沢山の本と紙がある");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 4" }));
+
+  const rows = within(screen.getByRole("list", { name: "단어" }))
+    .getAllByRole("listitem")
+    .filter((row) => row.classList.contains("word-row"));
+  expect(
+    rows.map((row) => [
+      within(row).getByRole("heading").textContent,
+      row.querySelector(".word-reading")!.textContent,
+    ]),
+  ).toEqual([
+    ["たくさん", "沢山"],
+    ["本", "ほん"],
+    ["紙", "かみ"],
+    ["ある", "ある"],
+  ]);
+});
+
 test("같은 단어도 자리마다 고른 뜻의 자동사·타동사 태그를 보이고, 예외 1그룹 동사에 그 태그를 보인다", async () => {
   respondWith(200, {
     translation_ko: "날이 밝아 돌아가서 문을 연다.",

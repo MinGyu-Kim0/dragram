@@ -298,6 +298,40 @@ test("단어 탭은 뜻·AI 번역·출처를 보이고, 검수에서 빠진 뜻
   expect(panel.getByRole("link", { name: "CC BY-SA 4.0" })).toBeVisible();
 });
 
+test("'보통 가나로 씀' 뜻은 읽기를 표제로, 한자 사전형을 회색 글자로 보인다", async () => {
+  const uk = (id: number, form: string, reading: string) => ({
+    ...WORDS[0],
+    sense_id: id,
+    dictionary_form: form,
+    reading,
+    tags: ["noun"],
+    sense: { ...WORDS[0]!.sense, id, tags: ["uk"] },
+  });
+  responses["GET /api/my-japanese/words/?state=added"] = () =>
+    json({
+      words: [
+        uk(21, "沢山", "たくさん"),
+        uk(22, "ある", "ある"),
+        WORDS[0],
+        { ...uk(23, "紙", "かみ"), sense: null },
+      ],
+    });
+  open("/sentences?tab=words");
+
+  const rows = await cards("추가한 단어");
+  expect(
+    rows.map((row) => [
+      within(row).getByRole("heading").textContent,
+      row.querySelector(".word-head .muted")!.textContent,
+    ]),
+  ).toEqual([
+    ["たくさん", "沢山"],
+    ["ある", "ある"],
+    ["走る", "はしる"],
+    ["紙", "かみ"],
+  ]);
+});
+
 test("바꾸지 못하면 항목을 남기고 알린다", async () => {
   responses["PUT /api/my-items/"] = () =>
     json({ error: "AUTH:CSRF_FAILED" }, 403);

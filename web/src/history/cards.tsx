@@ -49,13 +49,19 @@ export function WordRow({
     .filter((code) => codes.has(code))
     .map((code) => TAG_NAMES[code]!);
   const sense = word.sense;
+  // 고른 뜻이 '보통 가나로 씀'이면 읽기를 표제로, 한자 사전형을 회색 글자로 보인다(#367).
+  const kanaFirst =
+    !!sense?.tags.includes("uk") && /\p{sc=Han}/u.test(word.dictionary_form);
+  const [head, sub] = kanaFirst
+    ? [word.reading, word.dictionary_form]
+    : [word.dictionary_form, word.reading];
   return (
     <>
       <BadgeRow {...senseBadges(sense)} />
       <div className="word-head">
-        <h3 lang="ja">{word.dictionary_form}</h3>
+        <h3 lang="ja">{head}</h3>
         <span lang="ja" className="muted">
-          {word.reading}
+          {sub}
         </span>
       </div>
       {tags.length > 0 && (

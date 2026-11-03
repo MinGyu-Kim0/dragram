@@ -6,13 +6,8 @@ import type {
   Translation,
   WordItem,
 } from "@/utils/api";
-import {
-  GrammarCards,
-  HighlightedText,
-  SelectedCard,
-  selectedCard,
-} from "./Grammar";
-import { grammarCardCount } from "./grammar-groups";
+import { GrammarCards, HighlightedText, SelectedCard } from "./Grammar";
+import { grammarCardCount, selectedCard } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
 import { isHidden } from "@/utils/my-items";
 import { HiddenCards, type HiddenCard, type MyItems } from "./MyItems";

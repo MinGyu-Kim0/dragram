@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from "react";
 import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
 import { BadgeRow } from "./BadgeRow";
 import { ConnectionNote } from "./ConnectionNote";
-import { groupGrammar, sortGrammar } from "./grammar-groups";
+import { cardKey, groupGrammar, sortGrammar } from "./grammar-groups";
 import { itemKey } from "@/utils/my-items";
 import { ItemActions, type MyItems } from "./MyItems";
 import { TAG_NAMES } from "./tag-names";
@@ -49,21 +49,6 @@ function grammarTags(item: GrammarItem): string[] {
     ...item.pos_tags.map((code) => TAG_NAMES[code]),
     ...item.function_tags.map((code) => FUNCTION_TAG_NAMES[code]),
   ].filter((name): name is string => name !== undefined);
-}
-
-// 문법 카드 하나(합친 카드는 첫 자리)를 가리키는 값. 분석 결과가 새로 와도 같은 카드면 같다.
-export function cardKey(item: GrammarItem): string {
-  return `${item.start}:${item.end}:${item.pattern_name}:${item.name}`;
-}
-
-// '선택한 카드'로 고른 카드(합친 카드는 첫 자리). 보이는 문법에 없으면 undefined다.
-export function selectedCard(
-  grammar: GrammarItem[],
-  selected: string,
-): GrammarItem | undefined {
-  return groupGrammar(grammar)
-    .map(([head]) => head!)
-    .find((head) => cardKey(head) === selected);
 }
 
 // 원문에 문법 구간을 형광펜으로 칠한다. 색은 한 가지다(DESIGN.md 형광펜, #354).

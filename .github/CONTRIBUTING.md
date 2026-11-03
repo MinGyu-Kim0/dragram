@@ -116,7 +116,7 @@ PR을 열거나 새 커밋을 push하면 CI의 AI 리뷰가 자동으로 댓글�
 - 완료 기준은 확인할 수 있는 동작이나 검사 결과로 쓴다.
 - 최종 명세가 본문이면 그대로 기준으로 삼는다. 브리프가 댓글에 있거나 여러 개라면 본문에 `최종 명세: <선택한 브리프 링크>`와 `대체된 브리프: <이전 링크>`를 적어 선택을 명시한다. 명세 본문은 한 곳에만 둔다.
 - 별도로 넘긴 일은 본문에 `후속 범위: <이슈 링크와 넘긴 내용>`으로 연결한다. PR의 "관련 이슈"에도 최종 브리프와 후속 이슈를 연결해 범위를 찾을 수 있게 한다.
-- 동작 계약을 바꾸면 해당하는 현재 문서(`docs/requirements.md`, `docs/schema/schema.md` 등)를 함께 갱신한다. 결정 이유와 바뀌기 전 맥락은 `docs/design-decisions.md`나 `docs/adr/`에 남긴다.
+- 동작 계약을 바꾸면 해당하는 현재 문서(`docs/requirements.md`, `docs/schema/schema.md` 등)를 함께 갱신한다. 결정 이유는 `docs/decisions.md`의 해당 항목을 고쳐 남기고, 큰 결정이나 바뀌기 전 맥락은 `docs/adr/`에 남긴다. `docs/design-decisions.md`는 동결한 이력이라 새 절을 붙이지 않는다.
 
 예: [#55의 최종 브리프](https://github.com/MinGyu-Kim0/dragram/issues/55#issuecomment-6337538025)는 [앞 브리프](https://github.com/MinGyu-Kim0/dragram/issues/55#issuecomment-6337516871)를 대체한다. [PR #88의 범위 설명](https://github.com/MinGyu-Kim0/dragram/pull/88#discussion_r4357949067)은 판별 규칙 참조 이전의 문서 반영을 [#85](https://github.com/MinGyu-Kim0/dragram/issues/85)에서 다룬다고 연결한다. 이 관례는 새로 작성하거나 수정하는 이슈에 적용한다.
 

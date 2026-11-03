@@ -100,7 +100,7 @@ SIGNUP_SALT = "accounts.signup"
 SIGNUP_WAIT_SECONDS = 10 * 60
 # 가입할 때 기록하는 판. 웹 TermsPage·PrivacyPage의 최신 시행일과 맞춘다.
 TERMS_VERSION = date(2026, 11, 2)
-PRIVACY_VERSION = date(2026, 11, 2)
+PRIVACY_VERSION = date(2026, 11, 4)
 
 
 @api_view(["POST"])

@@ -108,7 +108,7 @@ cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:curre
 복원(서버를 통째로 바꾼다. 스냅샷 시각 뒤에 생긴 데이터는 잃는다):
 1. Snapshots 탭의 자동 스냅샷에서 새 인스턴스를 만든다(서울, 같은 플랜 이상).
 2. 새 인스턴스의 방화벽은 22만, 지금 내 IP로만 연다(IPv4·IPv6). 80·443은 4번 정리를 마칠 때까지 닫아 둔다. 열어 두면 임시 IP를 찾은 사람이 정리 전 데이터와 폐기 전 세션·토큰으로 접근할 수 있다.
-3. 새 인스턴스의 임시 공개 IP로 SSH 접속한다. 컨테이너는 `restart: unless-stopped`라 부팅하면 올라온다. health는 서버 안에서만 확인한다. 스냅샷 뒤에 `~/.ssh/authorized_keys`에서 지운 키(유출된 키, 바꾼 `dragram-deploy` 키)가 있었다면 디스크와 함께 되살아났으니 먼저 다시 지운다.
+3. 새 인스턴스의 임시 공개 IP로 SSH 접속한다. 컨테이너는 `restart: unless-stopped`라 부팅하면 올라온다. health는 서버 안에서만 확인한다. 스냅샷 뒤에 바꾼 비밀값·권한은 디스크와 함께 되돌아갔으니, 다음 단계 전에 모두 다시 적용한다. `~/.ssh/authorized_keys`에서 지운 키(유출된 키, 바꾼 `dragram-deploy` 키), 관리자 비밀번호와 `is_staff`·`is_superuser`·`is_active`, `~/dragram/.env`의 비밀값(바꿨다면 `docker compose up -d --force-recreate`)이 그렇다.
    ```bash
    cd ~/dragram && docker compose ps
    ```

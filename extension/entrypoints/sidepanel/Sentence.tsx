@@ -143,7 +143,7 @@ export function SentenceView({
   onRetry: () => void;
   // 지정한 이름(표기 → 읽기, #136)
   names: ReadonlyMap<string, string | null>;
-  // 내 일본어 항목(#321). '표시 안 함'으로 숨긴 카드는 목록·형광펜·개수에서 빼고 맨 아래에 접어 둔다.
+  // 내 일본어 항목(#321). '숨김'으로 숨긴 카드는 목록·형광펜·개수에서 빼고 맨 아래에 접어 둔다.
   items?: MyItems;
 } & NameActions) {
   // '사전 단어 보기' 토글로 고른 보기(자리 → 이름 행인가). 화면 상태라 저장하지 않는다.

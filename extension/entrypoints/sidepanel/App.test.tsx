@@ -3972,7 +3972,7 @@ describe("내 일본어 항목(#321)", () => {
     ).toBeInTheDocument();
   });
 
-  test("'선택한 카드'에서도 추가할 수 있고, '표시 안 함'을 누르면 형광펜과 함께 박스가 닫힌다", async () => {
+  test("'선택한 카드'에서도 추가할 수 있고, '숨김'을 누르면 형광펜과 함께 박스가 닫힌다", async () => {
     respondWithCards();
     vi.mocked(saveMyItem)
       .mockResolvedValueOnce({ kind: "usage", id: 11, state: "added" })
@@ -3991,7 +3991,7 @@ describe("내 일본어 항목(#321)", () => {
     expect(saveMyItem).toHaveBeenCalledWith("usage", 11, "added", undefined);
 
     fireEvent.click(screen.getByRole("button", { name: "です" }));
-    fireEvent.click(within(box()).getByRole("button", { name: "표시 안 함" }));
+    fireEvent.click(within(box()).getByRole("button", { name: "숨김" }));
 
     await waitFor(() =>
       expect(
@@ -4016,7 +4016,7 @@ describe("내 일본어 항목(#321)", () => {
     ).toBeInTheDocument();
   });
 
-  test("'표시 안 함'은 카드·형광펜·개수에서 빼고 맨 아래에 접어 두며, '복원'으로 돌아온다", async () => {
+  test("'숨김'은 카드·형광펜·개수에서 빼고 맨 아래에 접어 두며, '복원'으로 돌아온다", async () => {
     respondWithCards();
     vi.mocked(saveMyItem).mockResolvedValue({
       kind: "usage",
@@ -4030,7 +4030,7 @@ describe("내 일본어 항목(#321)", () => {
     expect(highlights()).toBe(2);
 
     fireEvent.click(
-      within(cardOf("주제 は")).getByRole("button", { name: "표시 안 함" }),
+      within(cardOf("주제 は")).getByRole("button", { name: "숨김" }),
     );
 
     await waitFor(() =>
@@ -4197,9 +4197,7 @@ describe("내 일본어 항목(#321)", () => {
     const part = within(
       await screen.findByRole("list", { name: "구성 문법" }),
     ).getByRole("listitem");
-    expect(
-      within(part).queryByRole("button", { name: "표시 안 함" }),
-    ).toBeNull();
+    expect(within(part).queryByRole("button", { name: "숨김" })).toBeNull();
     fireEvent.click(within(part).getByRole("button", { name: "추가" }));
     expect(
       await within(part).findByText("내 일본어에 추가됨"),
@@ -4311,7 +4309,7 @@ describe("내 일본어 항목(#321)", () => {
     expect(await screen.findByText("분석하지 못했습니다")).toBeInTheDocument();
 
     fireEvent.click(
-      within(cardOf("진행")).getByRole("button", { name: "표시 안 함" }),
+      within(cardOf("진행")).getByRole("button", { name: "숨김" }),
     );
 
     expect(await screen.findByText("숨긴 카드 1개")).toBeInTheDocument();
@@ -4345,9 +4343,7 @@ describe("내 일본어 항목(#321)", () => {
       .filter((li) => li.classList.contains("word-row"));
 
     fireEvent.click(within(first!).getByRole("button", { name: "추가" }));
-    fireEvent.click(
-      within(second!).getByRole("button", { name: "표시 안 함" }),
-    );
+    fireEvent.click(within(second!).getByRole("button", { name: "숨김" }));
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(saveMyItem).toHaveBeenCalledTimes(1);
     finishAdd();
@@ -4385,9 +4381,7 @@ describe("내 일본어 항목(#321)", () => {
       .getAllByRole("listitem")
       .filter((li) => li.classList.contains("word-row"));
     fireEvent.click(within(first!).getByRole("button", { name: "추가" }));
-    fireEvent.click(
-      within(second!).getByRole("button", { name: "표시 안 함" }),
-    );
+    fireEvent.click(within(second!).getByRole("button", { name: "숨김" }));
 
     await signOut();
     await waitFor(() =>
@@ -4407,7 +4401,7 @@ describe("내 일본어 항목(#321)", () => {
     await screen.findByRole("heading", { name: "주제 は" });
 
     fireEvent.click(
-      within(cardOf("주제 は")).getByRole("button", { name: "표시 안 함" }),
+      within(cardOf("주제 は")).getByRole("button", { name: "숨김" }),
     );
 
     expect(

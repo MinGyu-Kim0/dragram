@@ -190,7 +190,7 @@ function Piece({
   );
 }
 
-// '선택한 카드' 박스(#354)의 문법 카드. 목록과 같은 카드라 추가·표시 안 함 버튼도 같다.
+// '선택한 카드' 박스(#354)의 문법 카드. 목록과 같은 카드라 추가·숨김 버튼도 같다.
 export function SelectedGrammarCard({
   text,
   item,
@@ -242,7 +242,7 @@ export function GrammarCards({
   text: string;
   grammar: GrammarItem[];
   checking?: CheckingItem[];
-  // 내 일본어 항목(#321). 있으면 용법이 정해진 카드에 추가·표시 안 함 버튼을 단다.
+  // 내 일본어 항목(#321). 있으면 용법이 정해진 카드에 추가·숨김 버튼을 단다.
   items?: MyItems;
 }) {
   if (grammar.length === 0 && checking.length === 0) {

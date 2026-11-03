@@ -18,7 +18,5 @@ export async function sentencesFromPage(
   } catch {
     // 아래의 고른 글자로 대신한다.
   }
-  return [
-    { text: selectionText, selection: { start: 0, end: selectionText.length } },
-  ];
+  return [{ text: selectionText }];
 }

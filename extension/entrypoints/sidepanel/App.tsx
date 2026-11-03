@@ -60,7 +60,6 @@ function App() {
   const [results, setResults] = useState<Results>();
   const [page, setPage] = useState<Page>();
   const [tab, setTab] = useState<ResultTab>("grammar");
-  const [showHandles, toggleHandles] = usePreference("showDragHandles");
   const [showRuby, toggleRuby] = usePreference("showRuby");
   // 패널 하나에서 모든 회차가 함께 쓰는 동시 요청 한도
   const [limiter] = useState(() => createLimiter(MAX_CONCURRENT_REQUESTS));
@@ -475,9 +474,6 @@ function App() {
           // '사전 단어 보기'는 그 페이지의 화면 상태라 페이지마다 새로 시작한다.
           key={`${request!.id}-${pageIndex}`}
           text={sentence.text}
-          selection={sentence.selection}
-          showHandles={showHandles}
-          onToggleHandles={toggleHandles}
           showRuby={showRuby}
           onToggleRuby={toggleRuby}
           result={result}

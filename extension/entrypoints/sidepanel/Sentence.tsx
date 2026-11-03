@@ -6,7 +6,6 @@ import type {
   Translation,
   WordItem,
 } from "@/utils/api";
-import type { DragRange } from "./drag-range";
 import { GrammarCards, HighlightedText } from "./Grammar";
 import { grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
@@ -113,9 +112,6 @@ function RetryButton({ onRetry }: { onRetry: () => void }) {
 // 문장 한 페이지: 원문 카드(원문, 번역) → 문법·단어 탭 → 탭 내용
 export function SentenceView({
   text,
-  selection,
-  showHandles,
-  onToggleHandles,
   showRuby,
   onToggleRuby,
   result,
@@ -128,9 +124,6 @@ export function SentenceView({
   items,
 }: {
   text: string;
-  selection: DragRange;
-  showHandles: boolean;
-  onToggleHandles: () => void;
   showRuby: boolean;
   onToggleRuby: () => void;
   result: SentenceResult | undefined;
@@ -239,13 +232,6 @@ export function SentenceView({
           <button type="button" aria-pressed={showRuby} onClick={onToggleRuby}>
             루비
           </button>
-          <button
-            type="button"
-            aria-pressed={showHandles}
-            onClick={onToggleHandles}
-          >
-            드래그 표시
-          </button>
         </div>
         <p lang="ja" className="original">
           <HighlightedText
@@ -253,7 +239,6 @@ export function SentenceView({
             grammar={grammar}
             checking={checking}
             ruby={showRuby ? shownRuby : []}
-            dragHandles={showHandles ? selection : undefined}
           />
         </p>
         <hr />
@@ -285,7 +270,6 @@ export function SentenceView({
                 text={text}
                 grammar={grammar}
                 checking={checking}
-                selection={selection}
                 items={items}
               />
             )}
@@ -335,7 +319,6 @@ export function SentenceView({
                   text={text}
                   grammar={tabbed.grammar}
                   checking={tabbed.checking}
-                  selection={selection}
                   items={items}
                 />
                 {items && <HiddenCards cards={hiddenGrammar} items={items} />}
@@ -346,7 +329,6 @@ export function SentenceView({
                   text={text}
                   words={tabbed.words}
                   ruby={ruby}
-                  selection={selection}
                   names={names}
                   chosen={chosen}
                   nameSpans={analysis?.name_spans}

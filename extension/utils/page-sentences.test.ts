@@ -10,10 +10,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const extracted = [
-  { text: "私は学生です。", selection: { start: 2, end: 4 } },
-  { text: "猫です。", selection: { start: 0, end: 1 } },
-];
+const extracted = [{ text: "私は学生です。" }, { text: "猫です。" }];
 
 test("고른 글이 있던 탭·프레임에 추출 스크립트를 주입해 문장 목록을 받는다", async () => {
   const executeScript = vi
@@ -38,9 +35,7 @@ test("주입할 수 없는 페이지면 고른 글자를 문장 하나로 보낸
     new Error("Cannot access contents of the page"),
   );
 
-  expect(await sentencesFromPage(7, 0, "学生")).toEqual([
-    { text: "学生", selection: { start: 0, end: 2 } },
-  ]);
+  expect(await sentencesFromPage(7, 0, "学生")).toEqual([{ text: "学生" }]);
 });
 
 test("문장을 찾지 못하면 고른 글자를 문장 하나로 보낸다", async () => {
@@ -48,7 +43,5 @@ test("문장을 찾지 못하면 고른 글자를 문장 하나로 보낸다", a
     { frameId: 0, documentId: "d", result: [] },
   ] as never);
 
-  expect(await sentencesFromPage(7, 0, "学生")).toEqual([
-    { text: "学生", selection: { start: 0, end: 2 } },
-  ]);
+  expect(await sentencesFromPage(7, 0, "学生")).toEqual([{ text: "学生" }]);
 });

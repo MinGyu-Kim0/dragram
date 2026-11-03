@@ -4,8 +4,6 @@
 export interface ExtractedSentence {
   // 루비 읽기(rt·rp)를 뺀 문장 원문
   text: string;
-  // 이 문장 안에서 실제로 드래그한 범위. UTF-16 기준 반열린 구간 [start, end)
-  selection: { start: number; end: number };
 }
 
 // 블록 경계·줄바꿈 자리에 넣는 표시. 이 글자에서는 문장이 반드시 끊긴다.
@@ -63,13 +61,7 @@ export function extractSentences(range: Range): ExtractedSentence[] {
     const overlaps =
       from === to ? start <= from && from < end : start < to && from < end;
     if (!overlaps) continue;
-    sentences.push({
-      text: text.slice(start, end),
-      selection: {
-        start: Math.max(from, start) - start,
-        end: Math.min(to, end) - start,
-      },
-    });
+    sentences.push({ text: text.slice(start, end) });
   }
   return sentences;
 }

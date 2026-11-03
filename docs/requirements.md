@@ -34,7 +34,7 @@ Dragram은 웹페이지의 일본어 문장을 드래그하면 형태소 단위�
 | 해당 없음 | 패턴에는 걸렸지만 그 자리에 배울 문법이 없는 구간(이름 속 の 등). 새 문법을 찾지 않는다 |
 | 문맥 키 | 판정 통계를 모으는 단위. 조사 패턴은 (패턴, 앞 내용어 원형, 뒤 첫 동사·형용사 원형) |
 | 문장 분석 | 한 문장에 대한 번역과 구간별 용법 매칭의 묶음. 함께 저장되고 함께 무효화되며, 처리 중 / 완료 / 실패 상태를 가진다 |
-| stale | 다시 만들어야 하는 문장 분석. 판정에 영향을 주는 사건(반려·승인 취소, 용법 완결 변경, 회화체 연결·병합, 판별 규칙 승인·폐기, 매칭 정정 등)이 같은 트랜잭션에서 영향 범위 분석에 stale 표시(`is_stale`)를 붙이고 세대 번호를 올린다. 판 번호는 아직 두지 않는다. 패턴 세트 버전만 오른 분석은 stale로 만들지 않고 조회할 때 다시 매칭해 새 구간만 더한다(FR-A24) |
+| stale | 다시 만들어야 하는 문장 분석. 판정에 영향을 주는 사건(반려·반려 취소·승인 취소, 용법 완결 변경, 회화체 연결·병합, 판별 규칙 승인·폐기, 매칭 정정 등)이 같은 트랜잭션에서 영향 범위 분석에 stale 표시(`is_stale`)를 붙이고 세대 번호를 올린다. 판 번호는 아직 두지 않는다. 패턴 세트 버전만 오른 분석은 stale로 만들지 않고 조회할 때 다시 매칭해 새 구간만 더한다(FR-A24) |
 | 패턴 승인 | LLM이 만든 패턴(형태소 조건)과 용법(설명)을 각각 `pending` → `approved` / `rejected`로 검토하는 절차. LLM이 만든 패턴·용법은 pending(미검수)으로만 등록된다 |
 | 분석 텍스트 | 숫자를 그대로 둔 정규화 문장. SudachiPy 입력으로만 쓴다 |
 | 키 텍스트 | 정규화 문장의 아라비아 숫자를 ⟨N1⟩, ⟨N2⟩ 자리표시자로 바꾼 것. 해시, LLM 입력, 번역 저장, 구간 위치의 기준이다 |
@@ -174,7 +174,7 @@ LLM 추론 강도는 기본 `low`다(2026-10-28 사용자 결정, #217). 서버 
 
 ### 정규화 규칙
 
-캐시 키는 아래 규칙을 순서대로 적용한 키 텍스트의 SHA-256이다. 규칙 버전을 기록하고, 규칙이 바뀌면 마이그레이션으로 해시를 다시 계산한다. 다만 공용 분석에도 개인 기록에도 원문이 없어(ADR 0006) 지금은 해시를 다시 계산할 입력이 없다. 규칙을 바꿀 때의 방식은 그때 정한다(`decisions.md` '보류: 정규화 규칙을 바꿀 때').
+캐시 키는 아래 규칙을 순서대로 적용한 키 텍스트의 SHA-256이다. 규칙 버전을 기록한다. 공용 분석에도 개인 기록에도 원문이 없어(ADR 0006) 규칙이 바뀌어도 지금은 해시를 다시 계산할 입력이 없다. 규칙을 바꿀 때의 방식은 그때 정한다(`decisions.md` '보류: 정규화 규칙을 바꿀 때').
 
 | 순서 | 규칙 | 예 |
 | --- | --- | --- |
@@ -458,7 +458,7 @@ Phase 1 분석을 먼저 완성하고, Phase 2의 사용량 집계가 Phase 3 �
 | 항목 | 결정 | 비고 |
 | --- | --- | --- |
 | 백엔드 | Django |  |
-| DB | PostgreSQL | 타입은 PostgreSQL 기준(bigint, integer, smallint, text, timestamptz, boolean, jsonb, text\[\]/bigint\[\]). user\_sentence.analysis\_id → sentence\_analysis.id(PK) FK, 해시는 조인으로 조회. 검증 규칙(저장 트랜잭션에서 검사): 0 ≤ start < end, 0 ≤ confidence ≤ 1, 판정 상태별 필수 FK, variant\_of 체인 금지(회화체 패턴은 원형이 될 수 없음), 원형에 연결된 회화체는 반려되지 않은 자기 용법 없음, 구간 용법은 그 패턴 또는 원형 소속. 인덱스: word.forms·readings·tags GIN, sentence\_analysis.sense\_ids GIN, user\_sentence(analysis\_id), span\_match(analysis\_id·pattern\_id·usage\_id), grammar\_pattern(variant\_of), word\_sense(word\_id) |
+| DB | PostgreSQL | 타입은 PostgreSQL 기준(bigint, integer, smallint, text, timestamptz, boolean, jsonb, text\[\]/bigint\[\]). 검증 규칙(저장 트랜잭션에서 검사): 0 ≤ start < end, 판정 상태별 필수 FK, variant\_of 체인 금지(회화체 패턴은 원형이 될 수 없음), 원형에 연결된 회화체는 반려되지 않은 자기 용법 없음, 구간 용법은 그 패턴 또는 원형 소속. 인덱스: word.forms·readings·tags GIN, sentence\_analysis.sense\_ids GIN, user\_sentence(analysis\_id), span\_match(analysis\_id·pattern\_id·usage\_id), grammar\_pattern(variant\_of), word\_sense(word\_id) |
 | 형태소 분석 | SudachiPy | core 사전, 분할 모드 C. full 사전 전환은 OOV 비율과 실제 분할·품사 오류를 보고 결정 |
 | LLM | OpenAI | 모델 `gpt-6-luna`(환경 변수 `OPENAI_MODEL`) |
 | LLM 출력 | 구조화된 출력으로 번역(`translation_ko`), 구간별 후보 ID(`spans`), 단어 뜻 ID(`words`), 새 구문(`new_patterns`), 새 단어(`new_words`), 이름 구간(`name_spans`)을 이 순서로 받는다(design-decisions 60절 4). 구간 위치는 서버가 계산하고 confidence는 받지 않는다 | 설명 텍스트는 DB에서 조회. 문법 설명은 용법 단위로 한 번만 쓰고 문장 기준 해설은 쓰지 않는다. 테스트 단계에서 문장마다 받던 문법 설명은 패턴·용법 구조로 옮긴다(#33) |

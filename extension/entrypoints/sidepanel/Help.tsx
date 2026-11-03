@@ -44,8 +44,8 @@ const base = {
 
 const CHAU: GrammarItem = {
   ...base,
-  start: 8,
-  end: 11,
+  start: 9,
+  end: 12,
   pattern_name: "ちゃう",
   usage_id: 1,
   state: "decided",
@@ -61,8 +61,8 @@ const CHAU: GrammarItem = {
 
 const NODE: GrammarItem = {
   ...base,
-  start: 12,
-  end: 14,
+  start: 13,
+  end: 15,
   pattern_name: "ので",
   usage_id: 2,
   state: "decided",
@@ -75,8 +75,8 @@ const NODE: GrammarItem = {
 
 const RARERU: GrammarItem = {
   ...base,
-  start: 18,
-  end: 20,
+  start: 19,
+  end: 21,
   pattern_name: "られる",
   usage_id: 3,
   state: "divergent",
@@ -110,8 +110,8 @@ const RARERU_UNRESOLVED: GrammarItem = {
 };
 
 const RARERU_CHECKING: CheckingItem = {
-  start: 18,
-  end: 20,
+  start: 19,
+  end: 21,
   pattern_name: "られる",
   candidates: [
     { name: "가능", review_status: "approved" },
@@ -172,8 +172,8 @@ const ANALYSIS: Analysis = {
       },
     },
     {
-      start: 4,
-      end: 5,
+      start: 5,
+      end: 6,
       dictionary_form: "雨",
       reading: "あめ",
       tags: ["noun"],
@@ -189,8 +189,8 @@ const ANALYSIS: Analysis = {
       },
     },
     {
-      start: 15,
-      end: 18,
+      start: 16,
+      end: 19,
       dictionary_form: "出かける",
       reading: "でかける",
       tags: ["verb", "group2"],
@@ -208,9 +208,9 @@ const ANALYSIS: Analysis = {
   ],
   ruby: [
     { start: 0, end: 2, reading: "たなか" },
-    { start: 4, end: 5, reading: "あめ" },
-    { start: 6, end: 7, reading: "ふ" },
-    { start: 15, end: 16, reading: "で" },
+    { start: 5, end: 6, reading: "あめ" },
+    { start: 7, end: 8, reading: "ふ" },
+    { start: 16, end: 17, reading: "で" },
   ],
   name_spans: [{ start: 0, end: 2, type: "person" }],
 };
@@ -320,6 +320,7 @@ export function Help({ onClose }: { onClose: () => void }) {
           <dt>AI 생성·미검수</dt>
           <dd>
             AI가 만들었고 아직 사람이 확인하지 않은 설명이에요. 틀릴 수 있어요.
+            배지가 없으면 검수를 마친 내용이에요.
           </dd>
           <dt>회화체</dt>
           <dd>
@@ -329,7 +330,7 @@ export function Help({ onClose }: { onClose: () => void }) {
           <dt>태그 · 뜻 · 설명</dt>
           <dd>
             회색 태그는 품사·기능, <strong>뜻</strong>은 주로 옮겨지는 한국어
-            표현, <strong>설명</strong>은 쓰임새예요.
+            표현, <strong>설명</strong>은 용법 설명이에요.
           </dd>
         </dl>
         <h3 className="help-subtitle">이런 카드도 있어요</h3>
@@ -433,7 +434,8 @@ export function Help({ onClose }: { onClose: () => void }) {
           </dd>
           <dt>숨긴 카드 N개</dt>
           <dd>
-            탭 맨 아래에서 펼쳐 <strong>복원</strong>하면 다시 보여요.
+            탭 맨 아래에서 펼쳐 <strong>복원</strong>하면 숨기기 전으로
+            돌아와요.
           </dd>
         </dl>
       </Topic>

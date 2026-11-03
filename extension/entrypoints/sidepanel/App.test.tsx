@@ -4709,6 +4709,19 @@ describe("도움말(#365)", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  test("예시 카드의 문장 속 형태는 예시 원문의 그 구간과 같다", async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "도움말" }));
+    const forms = Array.from(
+      help()!.querySelectorAll(".grammar-form"),
+      (line) => line.textContent,
+    );
+
+    expect(forms).toEqual(
+      expect.arrayContaining(["문장 속 형태: ちゃっ", "문장 속 형태: られ"]),
+    );
+  });
+
   test("로그인 전 화면에도 도움말 버튼이 있지만 저절로 열지 않는다", async () => {
     await fakeBrowser.storage.local.clear();
     render(<App />);

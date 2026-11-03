@@ -107,8 +107,8 @@ cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:curre
 
 복원(서버를 통째로 바꾼다. 스냅샷 시각 뒤에 생긴 데이터는 잃는다):
 1. Snapshots 탭의 자동 스냅샷에서 새 인스턴스를 만든다(서울, 같은 플랜 이상).
-2. 새 인스턴스의 방화벽을 22·80·443만 열린 상태(IPv4·IPv6)로 맞춘다.
-3. 새 인스턴스의 임시 공개 IP로 접속한다. 컨테이너는 `restart: unless-stopped`라 부팅하면 올라온다. 아직 고정 IP가 없어 사용자 요청은 들어오지 않는다.
+2. 새 인스턴스의 방화벽은 22만 연다(IPv4·IPv6). 80·443은 4번 정리를 마칠 때까지 닫아 둔다. 열어 두면 임시 IP를 찾은 사람이 정리 전 데이터와 폐기 전 세션·토큰으로 접근할 수 있다.
+3. 새 인스턴스의 임시 공개 IP로 SSH 접속한다. 컨테이너는 `restart: unless-stopped`라 부팅하면 올라온다. health는 서버 안에서만 확인한다.
    ```bash
    cd ~/dragram && docker compose ps
    ```
@@ -120,7 +120,7 @@ cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:curre
    ```bash
    cd ~/dragram && docker compose exec -T backend python manage.py shell -c "from django.contrib.sessions.models import Session; from django.utils import timezone; from accounts.models import ExtensionToken; Session.objects.all().delete(); ExtensionToken.objects.filter(revoked_at=None).update(revoked_at=timezone.now())"
    ```
-5. Networking 탭에서 고정 IP를 옛 인스턴스에서 떼어 새 인스턴스에 붙인다. IP가 같아 DNS는 그대로다. 밖에서 health를 확인한다.
+5. 방화벽에서 80·443을 연다(IPv4·IPv6). Networking 탭에서 고정 IP를 옛 인스턴스에서 떼어 새 인스턴스에 붙인다. IP가 같아 DNS는 그대로다. 밖에서 health를 확인한다.
    ```bash
    curl -sS https://dragram.app/api/health/
    ```

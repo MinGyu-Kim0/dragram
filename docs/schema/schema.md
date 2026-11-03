@@ -48,7 +48,7 @@
 | original_hash | 원문 해시 | varchar(64) |  |  | 요청으로 받은 원문(정규화 전) 그대로의 SHA-256. UNIQUE(user_id, original_hash). 같은 사용자·같은 원문은 한 문장 upsert로 갱신해 동시 요청도 유일성 위반 없이 끝난다. 숫자만 다른 원문(1人/2人)도 따로 보관 |
 | analysis_id | 공용 분석 ID | bigint |  | → sentence_analysis | sentence_analysis.id 참조(FK). 공용 분석 행을 지우지 못하게 막는다(PROTECT). 지금 공용 분석을 지우는 코드는 없고, 지우게 되면 개인 기록을 어떻게 할지 그때 정한다(#93 구현, 확인 필요). 여러 사용자·숫자만 다른 원문이 같은 공용 분석을 가리킴. 해시는 조인해서 조회. 인덱스 있음(내 일본어 조회용). 정규화 규칙 변경 시 원문별로 새 키를 계산해 해당 분석이 준비되면 analysis_id를 재연결 |
 | original_text | 원문 | text |  |  | 정규화 전 원문. 개인 테이블에만 저장, 카드 예문 표시용 / 개인 원문, 본인만 조회, Django admin 미노출 |
-| name_readings | 이름 읽기 | jsonb |  |  | 기본값 `[]`. 보충한 이름 카드의 `{start, end, reading, reading_ko}` 목록. 위치는 original_text의 UTF-16 반열린 구간, reading은 가나, reading_ko는 한글 읽기다. 변환할 수 없는 이름은 제외한다. 개인 기록에만 저장하며 캐시 재조회·재분석·재매칭 때 해당 결과로 교체한다. 기존 기록은 다음 조회 때 채운다(0024 마이그레이션, design-decisions 63절). erd.json에는 미반영 |
+| name_readings | 이름 읽기 | jsonb |  |  | 지금은 쓰지 않는다. 한글 읽기는 응답할 때마다 계산하고 저장하지 않는다(requirements '이름의 한글 읽기', ADR 0006). 예전 설명: 기본값 `[]`. 보충한 이름 카드의 `{start, end, reading, reading_ko}` 목록. 위치는 original_text의 UTF-16 반열린 구간, reading은 가나, reading_ko는 한글 읽기다. 변환할 수 없는 이름은 제외한다. 개인 기록에만 저장하며 캐시 재조회·재분석·재매칭 때 해당 결과로 교체한다. 기존 기록은 다음 조회 때 채운다(0024 마이그레이션, design-decisions 63절). erd.json에는 미반영 |
 | selected_start | 드래그 시작 위치 | integer |  |  | original_text 코드포인트 기준. 실제로 드래그한 범위(문장 끝까지 자동 확장과 별도로 강조 표시). 읽는 곳이 없어 #93에서는 넣지 않는다. FR-M12처럼 필요해지면 별도 이슈로 더한다(2026-10-25 #93 트리아지) |
 | selected_end | 드래그 끝 위치 | integer |  |  | 반열린 구간 [start, end). selected_start와 같이 #93에서는 넣지 않는다 |
 | created_at | 처음 분석일시 | timestamptz |  |  |  |
@@ -247,7 +247,7 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | sentence_hash | 문장 해시 | char(64) |  |  | 키 텍스트(정규화+숫자 자리표시자) SHA-256. UNIQUE(sentence_hash). 공용 테이블에 원문 미저장 |
-| normalize_version | 정규화 버전 | smallint |  |  | 기록용. 정규화 규칙이 바뀌면 마이그레이션으로 해시 재계산 |
+| normalize_version | 정규화 버전 | smallint |  |  | 기록용. 원문을 저장하지 않아(ADR 0006) 정규화 규칙을 바꿀 때 해시를 다시 계산하는 방식은 미정 |
 | pipeline_version | 파이프라인 버전 | varchar(30) |  |  | SudachiPy·사전·판별 로직 버전 |
 | matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전(pattern_set_version.version). 첫 분석·stale 교체·재매칭이 매칭 직전에 읽은 값을 기록하고, 값은 낮추지 않음. 기존 행은 0. 현재 값보다 낮으면 조회 시 그 요청의 원문으로 로컬 매칭을 다시 돌려 저장된 구간에 없는 새 구간만 더함(일괄 재처리 없음, stale로 만들지 않음). DB만으로 정할 수 없는 새 구간은 같은 요청 안에서 LLM 재판정(rematch_judge)으로 정함. 재판정이 실패하면 이 값도 그대로 둬 다음 조회가 다시 시도(design-decisions 41절) |
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
@@ -259,7 +259,7 @@
 | processing_translation_ko | 처리 중 번역 | text | Y |  | 처리 중 작업이 검증한 번역을 먼저 저장하는 곳(자리표시자 포함 형태). stale 재분석 중에도 translation_ko(옛 결과)를 덮지 않음. 작업이 끝나면 비움(design-decisions 51절) |
 | name_spans | 이름 구간 | jsonb | Y |  | [{start, end, type: person/place/org/work/other}]. 키 텍스트 코드포인트 기준 [start, end)(word_spans와 같음)와 종류만 둔다. 새 문장 첫 LLM 요청이 토큰 ID 묶음으로 판단하고 서버가 위치를 계산한다. 형태소·문법 후보는 보존하고 주석만. NULL은 판단하지 않은 분석(이 칸이 생기기 전에 저장된 행, 또는 LLM 답이 목록이 아니었던 행)이고 이름 구간만 얻으려고 다시 분석하지 않는다. []는 이름이 없다는 판단(design-decisions 58절) |
 | word_spans | 단어 구간 | jsonb | Y |  | [{start, end, sense_id}]. 키 텍스트 코드포인트 기준 [start, end)와 고른 뜻(word_sense) ID만 둔다(공용 테이블에 원문 미저장). 같은 단어가 두 번 나오면 위치마다 하나씩. 사전에서 못 찾았거나 뜻을 정하지 못한 단어는 넣지 않는다. NULL은 이 칸이 생기기 전에 저장된 행이라 다시 분석(design-decisions 50절) |
-| sense_ids | 단어 뜻 ID 목록 | bigint[] | Y |  | 문장에 나온 단어 뜻(word_sense) ID 목록. word_spans의 sense_id를 중복 없이 모은 값이고 word_spans와 함께 씀. 단어는 sense에서 유도. 내 일본어 계산용. 단어·뜻 병합·삭제 시 갱신 필요(word_spans도) |
+| sense_ids | 단어 뜻 ID 목록 | bigint[] | Y |  | 문장에 나온 단어 뜻(word_sense) ID 목록. word_spans의 sense_id를 중복 없이 모은 값이고 word_spans와 함께 씀. 단어는 sense에서 유도. 저장만 하고 지금 읽는 곳은 없다(내 일본어 계산용이던 ADR 0002는 ADR 0006으로 대체). 단어·뜻 병합·삭제 시 갱신 필요(word_spans도) |
 | created_at | 생성일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 

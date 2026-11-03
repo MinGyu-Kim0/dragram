@@ -34,6 +34,7 @@
 | created_at | 발급일시 | timestamptz |  |  |  |
 | last_used_at | 마지막 사용 일시 | timestamptz | Y |  | 한 번도 쓰지 않았으면 NULL. 처음 쓸 때 채우고, 그 뒤에는 날짜가 바뀔 때만 갱신한다. 이 날짜(없으면 발급 날짜)부터 90일째 날까지 쓰고 그 뒤 만료 |
 | revoked_at | 폐기일시 | timestamptz | Y |  | 확장 로그아웃, 웹 로그아웃, 같은 세션의 다른 사용자 로그인 때 채운다 |
+| extension_version | 마지막 확장 버전 | varchar(23) | Y |  | 이 토큰으로 마지막에 요청한 확장 버전(`X-Dragram-Version`, 점으로 나눈 숫자 1~4개). 받은 값이 다를 때만 갱신한다. NULL은 헤더를 보내지 않은 확장(0.2.0 이하)이거나 형식이 틀린 값이다(#349) |
 
 세션마다 토큰은 많아야 둘이다(쓰던 토큰과 아직 쓰지 않은 새 토큰, design-decisions 49절).
 

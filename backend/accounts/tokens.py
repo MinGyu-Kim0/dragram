@@ -1,9 +1,11 @@
 """확장 토큰 발급과 Bearer 인증(#109)."""
 
 import hashlib
+import re
 import secrets
 from datetime import timedelta
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
@@ -11,10 +13,14 @@ from rest_framework.authentication import BaseAuthentication
 from accounts.models import ExtensionToken
 from errors.auth import AuthError
 from errors.base import BusinessError
+from errors.extension import ExtensionError
 
 # 마지막 사용 후 이 기간이 지나면 쓸 수 없다. 재발급·갱신은 없다. 마지막 사용 시각은 하루에
 # 한 번만 바꾸므로 날짜로 센다(그날 늦게 또 썼을 수 있다).
 EXPIRES_AFTER = timedelta(days=90)
+
+# 확장 버전(manifest 버전)의 형식: 점으로 나눈 숫자 1~4개. Chrome은 자리마다 0~65535만 받는다.
+_EXTENSION_VERSION = re.compile(r"\d{1,5}(\.\d{1,5}){0,3}")
 
 
 def lock_user(user_id):
@@ -85,14 +91,37 @@ def _usable_row(request, *, allow_inactive=False):
     return row
 
 
+def _extension_version(value):
+    """형식에 맞는 확장 버전이면 그대로, 아니면(헤더 없음 포함) None"""
+    return value if value and _EXTENSION_VERSION.fullmatch(value) else None
+
+
+def _parts(version):
+    # 자리마다 숫자로 비교한다(0.10.0 > 0.9.0). 빈 자리는 0이다(0.3 == 0.3.0).
+    parts = [int(part) for part in version.split(".")]
+    return parts + [0] * (4 - len(parts))
+
+
+def _needs_update(version):
+    # 최소 확장 버전의 형식은 설정을 읽을 때 검사했다.
+    minimum = settings.MIN_EXTENSION_VERSION
+    return bool(minimum) and (version is None or _parts(version) < _parts(minimum))
+
+
 class ExtensionTokenAuthentication(BaseAuthentication):
     """Authorization: Bearer <토큰>. 토큰이 없거나 쓸 수 없으면 AUTH:LOGIN_REQUIRED다.
 
     이 인증을 쓰는 API는 로그인이 필수라, 토큰이 없을 때도 다음 인증으로 넘기지 않고 거부한다.
+    토큰이 쓸 수 있으면 X-Dragram-Version(확장 버전)을 토큰에 남기고, 최소 확장 버전보다 낮으면
+    EXTENSION:UPDATE_REQUIRED다(#349). 토큰은 그대로 둔다.
     """
 
     def authenticate(self, request):
         row = _usable_row(request)
+        version = _extension_version(request.headers.get("X-Dragram-Version"))
+        # 요청마다 쓰지 않게 바뀔 때만 남긴다.
+        if version != row.extension_version:
+            ExtensionToken.objects.filter(pk=row.pk).update(extension_version=version)
         now = timezone.now()
         if row.last_used_at is None:
             # 처음 쓰였다. 같은 세션의 다른(예전) 토큰을 지운다. 재발급과 겹치면 방금 발급한
@@ -113,6 +142,8 @@ class ExtensionTokenAuthentication(BaseAuthentication):
         # 마지막 사용 시각은 하루에 한 번만 바꾼다.
         elif timezone.localdate(row.last_used_at) != timezone.localdate(now):
             ExtensionToken.objects.filter(pk=row.pk).update(last_used_at=now)
+        if _needs_update(version):
+            raise BusinessError(ExtensionError.UPDATE_REQUIRED, "낮은 확장 버전")
         return (row.user, row)
 
     def authenticate_header(self, request):

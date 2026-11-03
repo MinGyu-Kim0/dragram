@@ -13,6 +13,7 @@ import {
   type GrammarItem,
   type Translation,
   type WordItem,
+  watchUpdateRequired,
 } from "@/utils/api";
 import { loadToken, watchConnection } from "@/utils/auth";
 import { WEB_ORIGIN } from "@/utils/external-messages";
@@ -69,6 +70,9 @@ function App() {
   const retry = useRef<(index: number) => void>(undefined);
   // 확장 토큰이 있는지(웹에서 연결했는지). 처음 읽기 전에는 undefined다(#109).
   const [connected, setConnected] = useState<boolean>();
+  // 서버가 이 확장 버전을 거부했다(#349). 업데이트하면 확장이 다시 뜨므로 되돌리지 않는다.
+  const [updateRequired, setUpdateRequired] = useState(false);
+  useEffect(() => watchUpdateRequired(() => setUpdateRequired(true)), []);
   // 로그인이 필요해 분석하지 못한 요청이 있다. 연결되면 다시 분석한다.
   const waitingForLogin = useRef(false);
   // 지정한 이름(#136). 연결되면 한 번 받고, 지정·해제하면 열린 모든 문장 페이지에 바로 쓴다.
@@ -432,6 +436,29 @@ function App() {
     );
   }
 
+  if (updateRequired) {
+    return (
+      <main>
+        <header className="panel-header">
+          <Logo />
+          <div className="header-actions">
+            <GuideButton />
+            <ThemeButton />
+            {/* 옛 확장이어도 연결은 끊을 수 있다. */}
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => logoutExtension()}
+            >
+              로그아웃
+            </button>
+          </div>
+        </header>
+        <UpdatePrompt />
+      </main>
+    );
+  }
+
   return (
     <main>
       <header className="panel-header">
@@ -495,6 +522,41 @@ function LoginPrompt() {
       <p className="muted">
         분석할 문장은 Dragram 서버로 보내 분석하고, 분석에는 OpenAI를 써요.
       </p>
+    </section>
+  );
+}
+
+// 서버가 이 확장 버전을 더는 받지 않는다(#349). Chrome에 업데이트 확인을 요청하고, 받을 업데이트가
+// 있으면 확장을 다시 띄워 적용한다. 없거나 확인이 제한되면(throttled) 잠시 뒤 다시 하라고 한다.
+function UpdatePrompt() {
+  const [notReady, setNotReady] = useState(false);
+  const update = async () => {
+    try {
+      const { status } = await browser.runtime.requestUpdateCheck();
+      if (status === "update_available") {
+        browser.runtime.reload();
+        return;
+      }
+    } catch {
+      // 확인하지 못한 것도 받을 업데이트가 없는 것과 같이 안내한다.
+    }
+    setNotReady(true);
+  };
+  return (
+    <section className="login-prompt">
+      <h2>업데이트가 필요해요</h2>
+      <p>
+        이 버전의 확장 프로그램으로는 더 분석할 수 없어요. 확장 프로그램을
+        업데이트해 주세요.
+      </p>
+      <button type="button" className="primary-button" onClick={update}>
+        지금 업데이트
+      </button>
+      {notReady && (
+        <p className="error" role="alert">
+          아직 받을 수 있는 업데이트가 없어요. 잠시 뒤 다시 해 주세요.
+        </p>
+      )}
     </section>
   );
 }

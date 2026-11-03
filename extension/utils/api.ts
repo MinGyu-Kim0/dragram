@@ -6,6 +6,33 @@ export const API_BASE_URL = (
   import.meta.env.WXT_API_BASE_URL ?? "http://localhost:8000"
 ).replace(/\/+$/, "");
 
+// 서버 API를 부른다. 모든 요청에 확장 버전(manifest 버전)을 붙이고, 서버가 이 확장 버전을
+// 거부하면(426 EXTENSION:UPDATE_REQUIRED) 업데이트가 필요하다고 알린다(#349). 응답 처리는
+// 부르는 쪽이 한다. 토큰은 지우지 않는다(업데이트한 뒤 다시 연결하지 않아도 된다).
+export async function apiFetch(
+  path: string,
+  init: RequestInit & { headers?: Record<string, string> },
+): Promise<Response> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers: {
+      ...init.headers,
+      "X-Dragram-Version": browser.runtime.getManifest().version,
+    },
+  });
+  if (response.status === 426)
+    updateListeners.forEach((listener) => listener());
+  return response;
+}
+
+const updateListeners = new Set<() => void>();
+
+// 서버가 업데이트를 요구하면 onUpdateRequired를 부른다. 돌려준 함수로 멈춘다.
+export function watchUpdateRequired(onUpdateRequired: () => void): () => void {
+  updateListeners.add(onUpdateRequired);
+  return () => updateListeners.delete(onUpdateRequired);
+}
+
 // 확장 토큰이 없거나 서버가 AUTH:LOGIN_REQUIRED(401)로 거부했다. 저장한 토큰은 지운다.
 export class LoginRequired extends Error {
   constructor() {
@@ -21,7 +48,7 @@ export async function logoutExtension(): Promise<void> {
   // 그사이 웹에서 다시 연결해 새 토큰이 왔으면 그것은 지우지 않는다.
   await signOutIfStill(token);
   try {
-    await fetch(`${API_BASE_URL}/api/auth/extension-tokens/revoke/`, {
+    await apiFetch("/api/auth/extension-tokens/revoke/", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}` },
     });
@@ -216,7 +243,7 @@ export async function analyzeSentence(
 ): Promise<Analysis> {
   const token = await loadToken();
   if (!token) throw new LoginRequired();
-  const response = await fetch(`${API_BASE_URL}/api/analyses/`, {
+  const response = await apiFetch("/api/analyses/", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

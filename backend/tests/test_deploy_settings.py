@@ -80,3 +80,19 @@ def test_health_answers_over_plain_http_when_https_redirect_is_on(client):
     # 컨테이너 상태 확인은 Caddy를 거치지 않고 http로 직접 부른다.
     assert client.get("/api/health/").status_code == 200
     assert client.get("/api/names/").status_code == 301
+
+
+@pytest.mark.parametrize(("configured", "ok"), [("", True), ("0.3.0", True), ("v0.3", False)])
+def test_malformed_minimum_extension_version_stops_the_server_from_starting(configured, ok):
+    # 요청마다 500을 내는 대신 뜰 때 실패한다(#349).
+    env = {**os.environ, **PRODUCTION_ENV, "MIN_EXTENSION_VERSION": configured}
+
+    result = subprocess.run(
+        [sys.executable, "-c", "import django; django.setup()"],
+        cwd=BACKEND_DIR,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+
+    assert (result.returncode == 0) == ok, result.stderr

@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
@@ -133,6 +134,14 @@ ANALYSIS_INLINE = False
 ANALYSIS_DAILY_TOKEN_LIMIT = int(os.environ.get("ANALYSIS_DAILY_TOKEN_LIMIT", "200000"))
 
 ANALYSIS_MAX_CONCURRENT = int(os.environ.get("ANALYSIS_MAX_CONCURRENT", "10"))
+
+# 최소 확장 버전(예: "0.3.0", #349). 확장 토큰 API는 이보다 낮거나 버전을 보내지 않은 확장을
+# EXTENSION:UPDATE_REQUIRED로 거부한다. 비우면 검사하지 않는다. 하위 호환이 정말 불가능할 때만
+# 올린다.
+MIN_EXTENSION_VERSION = os.environ.get("MIN_EXTENSION_VERSION", "").strip()
+# 형식(점으로 나눈 숫자 1~4개, accounts.tokens와 같다)이 틀리면 요청마다 500 대신 뜰 때 실패한다.
+if MIN_EXTENSION_VERSION and not re.fullmatch(r"\d{1,5}(\.\d{1,5}){0,3}", MIN_EXTENSION_VERSION):
+    raise ImproperlyConfigured(f"MIN_EXTENSION_VERSION 형식이 틀림: {MIN_EXTENSION_VERSION!r}")
 
 
 def _price(name):

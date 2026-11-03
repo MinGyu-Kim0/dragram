@@ -86,11 +86,11 @@ crontab -e
 crontab -l
 ```
 
-DB 덤프 같은 다른 매일 작업(#198)도 여기에 함께 둔다.
+DB 백업은 crontab이 아니라 Lightsail 자동 스냅샷이다(아래 '백업과 복원').
 
 ## 되돌리기 (서버)
 
-서버에 남아 있는 이전 이미지로 가리키고 다시 띄운다. 마이그레이션은 되돌리지 않으니, 스키마가 바뀐 배포는 DB 백업부터 확인한다.
+서버에 남아 있는 이전 이미지로 가리키고 다시 띄운다. 마이그레이션은 되돌리지 않으니, 스키마가 바뀐 배포는 최근 스냅샷이 있는지부터 확인한다(아래 '백업과 복원').
 ```bash
 docker images dragram-backend
 ```
@@ -98,6 +98,41 @@ docker images dragram-backend
 cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:current && docker compose up -d
 ```
 웹과 admin 정적 파일은 서버에 이전 버전을 남기지 않는다. 웹도 되돌려야 하면 개발 PC에서 이전 커밋을 체크아웃해 `infra/deploy.sh`로 다시 올린다.
+
+## 백업과 복원 (Lightsail 콘솔)
+
+백업은 Lightsail 자동 스냅샷뿐이다. 서버 디스크 전체(DB, `.env`, Caddy 인증서, crontab, 이미지)를 하루 한 번 찍고 최근 7개만 남긴다. 매일 DB 덤프는 두지 않는다(`docs/decisions.md` '백업은 Lightsail 자동 스냅샷만'). 처리방침 7·8절이 이 설정(하루 한 번, 최근 7개, 서울 리전, 최대 7일 뒤 삭제)을 약속하므로 바꾸면 처리방침도 고친다.
+
+확인: 인스턴스 → Snapshots 탭에서 Automatic snapshots가 켜져 있고, 실행 시각과 최근 스냅샷 날짜가 맞는지 본다.
+
+복원(서버를 통째로 바꾼다. 스냅샷 시각 뒤에 생긴 데이터는 잃는다):
+1. Snapshots 탭의 자동 스냅샷에서 새 인스턴스를 만든다(서울, 같은 플랜 이상).
+2. 새 인스턴스의 방화벽은 22만, 지금 내 IP로만 연다(IPv4·IPv6). 80·443은 4번 정리를 마칠 때까지 닫아 둔다. 열어 두면 임시 IP를 찾은 사람이 정리 전 데이터와 폐기 전 세션·토큰으로 접근할 수 있다.
+3. 새 인스턴스의 임시 공개 IP로 SSH 접속한다. 컨테이너는 `restart: unless-stopped`라 부팅하면 올라온다. health는 서버 안에서만 확인한다. 스냅샷 뒤에 바꾼 비밀값·권한은 디스크와 함께 되돌아갔으니, 다음 단계 전에 모두 다시 적용한다. `~/.ssh/authorized_keys`에서 지운 키(유출된 키, 바꾼 `dragram-deploy` 키), 관리자 비밀번호와 `is_staff`·`is_superuser`·`is_active`, `~/dragram/.env`의 비밀값(바꿨다면 `docker compose up -d --force-recreate`)이 그렇다.
+   ```bash
+   cd ~/dragram && docker compose ps
+   ```
+   ```bash
+   curl -sS --resolve dragram.app:443:127.0.0.1 https://dragram.app/api/health/
+   ```
+4. 옛 인스턴스가 살아 있으면 그 방화벽에서 80·443을 닫아(IPv4·IPv6) 쓰기를 멈춘다. 이때부터 서비스가 멈춘다. 고정 IP를 떼어도 옛 IPv6 주소는 남으므로 닫아 두어야 무효화하지 않은 옛 세션·토큰으로도 접근하지 못한다. 옛 서버에서 꺼낼 것은 SSH로만 꺼낸다.
+   그다음 고정 IP를 옮기기 전에, 스냅샷 시각 뒤에 처리한 탈퇴·삭제를 다시 적용한다(처리방침 8절). 먼저 하지 않으면 지운 개인정보가 다시 서비스되고, 옮긴 뒤 새로 생긴 행까지 아래 비교에 걸린다. 옛 DB를 읽을 수 있으면 복구한 DB에만 있는 계정(`accounts_user`)·`my_item`·`my_example`·`designated_name` 행을 지운다. 읽을 수 없으면 그 사이 문의 메일로 받은 탈퇴·삭제 요청을 다시 처리한다. 다만 화면에서 직접 한 탈퇴·삭제는 DB 밖에 기록이 없어 다시 적용할 수 없다. 이 경우 처리방침 8절의 약속을 다 지킨 것이 아니므로, 고정 IP를 옮길지는 #388의 결정을 따른다.
+   이어서 복원된 웹 세션과 확장 토큰을 모두 무효화한다. 스냅샷 뒤에 로그아웃·연결 해제로 폐기한 것이 되살아났을 수 있기 때문이다. 사용자는 다시 로그인하고 확장을 다시 연결한다.
+   ```bash
+   cd ~/dragram && docker compose exec -T backend python manage.py shell -c "from django.contrib.sessions.models import Session; from django.utils import timezone; from accounts.models import ExtensionToken; Session.objects.all().delete(); ExtensionToken.objects.filter(revoked_at=None).update(revoked_at=timezone.now())"
+   ```
+5. 새 인스턴스의 방화벽에서 80·443을 모두에게 연다(IPv4·IPv6). Networking 탭에서 고정 IP를 옛 인스턴스에서 떼어 새 인스턴스에 붙인다. IP가 같아 DNS는 그대로다. 밖에서 health를 확인한다.
+   ```bash
+   curl -sS https://dragram.app/api/health/
+   ```
+6. 옛 인스턴스는 필요한 것을 다 꺼낸 뒤 지운다.
+
+복원 연습: 고정 IP를 옮기지 않고 1~3번만 한 뒤, 운영 서버와 같은 명령으로 행 수를 비교한다(스냅샷 뒤에 생긴 행만큼은 다를 수 있다). 확인이 끝나면 연습 인스턴스를 지운다.
+```bash
+cd ~/dragram && docker compose exec -T db psql -U dragram -d dragram -c "select (select count(*) from accounts_user) users, (select count(*) from my_item) my_item, (select count(*) from my_example) my_example, (select count(*) from word) word, (select count(*) from sentence_analysis) analysis"
+```
+
+서버를 다른 곳으로 옮길 때는 스냅샷이 아니라 그날 한 번 `pg_dump`로 꺼내 새 서버에서 `pg_restore`한다.
 
 ## 상태 보기 (서버)
 

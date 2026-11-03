@@ -14,7 +14,8 @@ def migrate(targets):
     return executor.loader.project_state(targets).apps
 
 
-@pytest.mark.django_db(transaction=True)
+# 테이블을 비우는 트랜잭션 테스트라, 뒤 테스트가 쓰는 기본 행(콘텐츠 타입 등)을 되돌려 둔다.
+@pytest.mark.django_db(transaction=True, serialized_rollback=True)
 def test_hidden_items_with_examples_become_added_and_hidden():
     old_apps = migrate(BEFORE)
     User = old_apps.get_model("accounts", "User")

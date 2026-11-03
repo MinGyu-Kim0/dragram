@@ -51,16 +51,7 @@ function grammarTags(item: GrammarItem): string[] {
   ].filter((name): name is string => name !== undefined);
 }
 
-// 형광펜은 4색을 돌아가며 쓴다(DESIGN.md 형광펜). 원문 형광펜과 카드 칩이 같은 색이다.
-const HIGHLIGHT_COLORS = 4;
-
-function highlightClass(index: number): string {
-  return `highlight-${index % HIGHLIGHT_COLORS}`;
-}
-
-// 원문에 문법 구간을 형광펜으로 칠한다. 구간이 겹치는 글자는 먼저 시작하는 문법의 색을 쓴다.
-// 합친 카드의 자리는 모두 그 카드 색이다.
-// 구성 문법(parts)은 받지 않으므로 그 글자는 바깥 카드 색이 된다(DESIGN.md 형광펜).
+// 원문에 문법 구간을 형광펜으로 칠한다. 색은 한 가지다(DESIGN.md 형광펜, #354).
 // 루비는 형광펜 안에 단다(끄면 빈 목록).
 // 판별 대상 구간(checking, 확인 중)은 형광펜 대신 점선 밑줄로 표시하고, 문법 구간과 겹치면 형광펜을
 // 쓴다. 판별 대상 구간의 경계가 문법 구간 안에 있으면 형광펜이 쪼개지지 않게 그 경계는 쓰지 않는다.
@@ -76,11 +67,6 @@ export function HighlightedText({
   ruby: RubyItem[];
 }) {
   const sorted = sortGrammar(grammar);
-  const colors = new Map(
-    groupGrammar(grammar).flatMap((group, color) =>
-      group.map((item) => [item, color] as const),
-    ),
-  );
   const sortedRuby = [...ruby].sort((a, b) => a.start - b.start);
   const insideGrammar = (at: number) =>
     sorted.some((item) => item.start < at && at < item.end);
@@ -113,10 +99,7 @@ export function HighlightedText({
           );
         }
         return (
-          <mark
-            key={start}
-            className={`highlight ${highlightClass(colors.get(sorted[index]!)!)}`}
-          >
+          <mark key={start} className="highlight">
             {segment}
           </mark>
         );
@@ -195,7 +178,6 @@ export function GrammarCards({
             key={`grammar-${card.index}`}
             text={text}
             item={card.item}
-            index={card.index}
             items={items}
           />
         ),
@@ -204,7 +186,7 @@ export function GrammarCards({
   );
 }
 
-// 문법 카드 목록의 한 장. index는 같은 종류 안의 원문 순서다(문법 카드는 칩 색 번호로 쓴다).
+// 문법 카드 목록의 한 장. index는 같은 종류 안의 원문 순서다(목록 key로 쓴다).
 type Card = { start: number; end: number; index: number } & (
   | { kind: "grammar"; item: GrammarItem }
   | { kind: "checking"; item: CheckingItem }
@@ -219,12 +201,10 @@ function span(item: { start: number; end: number }) {
 function GrammarCard({
   text,
   item,
-  index,
   items,
 }: {
   text: string;
   item: GrammarItem;
-  index: number;
   items?: MyItems;
 }) {
   const parts = item.parts ?? [];
@@ -232,7 +212,7 @@ function GrammarCard({
     <li
       className={isDivergent(item) ? "grammar-card divergent" : "grammar-card"}
     >
-      <GrammarBody text={text} item={item} index={index} Heading="h3" />
+      <GrammarBody text={text} item={item} Heading="h3" />
       {parts.length > 0 && (
         <ul className="grammar-parts" aria-label="구성 문법">
           {parts.map((part, i) => (
@@ -242,7 +222,7 @@ function GrammarCard({
                 isDivergent(part) ? "grammar-part divergent" : "grammar-part"
               }
             >
-              <GrammarBody text={text} item={part} index={index} Heading="h4" />
+              <GrammarBody text={text} item={part} Heading="h4" />
               {items && part.usage_id != null && (
                 <ItemActions
                   key={`${itemKey("usage", part.usage_id)}:${items.states.get(itemKey("usage", part.usage_id)) ?? "none"}`}
@@ -281,13 +261,11 @@ function isDivergent(item: GrammarItem): boolean {
 function GrammarBody({
   text,
   item,
-  index,
   Heading,
   checking = false,
 }: {
   text: string;
   item: GrammarItem;
-  index: number;
   Heading: "h3" | "h4";
   checking?: boolean;
 }) {
@@ -303,7 +281,7 @@ function GrammarBody({
       <div className="grammar-card-head">
         <span
           lang="ja"
-          className={`grammar-chip ${checking ? "checking-chip" : highlightClass(index)}`}
+          className={checking ? "grammar-chip checking-chip" : "grammar-chip"}
         >
           {item.pattern_name}
         </span>
@@ -388,7 +366,6 @@ function CheckingCard({ text, item }: { text: string; item: CheckingItem }) {
             end: item.end,
             state: "decided",
           }}
-          index={0}
           Heading="h3"
           checking
         />

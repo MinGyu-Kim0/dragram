@@ -500,10 +500,9 @@ test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 패턴 �
   );
   const chips = document.querySelectorAll(".grammar-chip");
   expect([...chips].map((chip) => chip.textContent)).toEqual(["は", "です"]);
-  // 형광펜과 칩은 같은 색을 쓴다.
-  expect(marks[0]!.className).toContain("highlight-0");
-  expect(chips[0]!.className).toContain("highlight-0");
-  expect(marks[1]!.className).toContain("highlight-1");
+  // 색은 한 가지라 구간·카드마다 바꾸지 않는다(#354).
+  expect(marks[1]!.className).toBe(marks[0]!.className);
+  expect(chips[1]!.className).toBe(chips[0]!.className);
 });
 
 test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인다", async () => {
@@ -2291,7 +2290,7 @@ function cardHeading(card: HTMLElement) {
   return within(card).getByRole("heading", { level: 3 }).textContent;
 }
 
-test("구성 문법은 바깥 카드 안의 하위 박스로 보이고, 글자와 칩은 바깥 카드 색을 쓴다", async () => {
+test("구성 문법은 바깥 카드 안의 하위 박스로 보인다", async () => {
   respondWith(200, {
     translation_ko: "먹어 버렸다",
     grammar: [
@@ -2319,15 +2318,14 @@ test("구성 문법은 바깥 카드 안의 하위 박스로 보이고, 글자�
   );
   expect(within(part!).getByText("연결 설명")).toBeInTheDocument();
   expect(within(part!).getByText("AI 생성·미검수")).toBeInTheDocument();
-  // 색 번호는 바깥 카드에만 원문 순서로 매기고, 구성 문법은 바깥 카드 색이다.
-  expect(within(part!).getByText("て").className).toContain("highlight-0");
-  expect(within(past!).getByText("た").className).toContain("highlight-1");
+  expect(within(part!).getByText("て").className).toBe(
+    within(past!).getByText("た").className,
+  );
   const marks = document.querySelectorAll(".original mark");
   expect([...marks].map((mark) => mark.textContent)).toEqual([
     "てしまっ",
     "た",
   ]);
-  expect(marks[0]!.className).toContain("highlight-0");
 });
 
 test("대응 표현을 보이고, 미검수 배지는 카드에 하나다", async () => {
@@ -2556,7 +2554,7 @@ test("먼저 온 확정 문법은 평평하게 보이고, 분석이 오면 하�
   ).toBe("연결");
 });
 
-test("같은 용법이 두 자리에 걸리면 문법 카드는 한 장이고, 두 자리 형광펜은 카드 칩과 같은 색이다", async () => {
+test("같은 용법이 두 자리에 걸리면 문법 카드는 한 장이다", async () => {
   respondWith(200, {
     translation_ko: "고양이가 개를 좋아한다",
     grammar: [
@@ -2575,12 +2573,6 @@ test("같은 용법이 두 자리에 걸리면 문법 카드는 한 장이고, �
   expect(grammarCards().map(cardHeading)).toEqual(["주어 が", "형용동사"]);
   const marks = [...document.querySelectorAll(".original mark")];
   expect(marks.map((mark) => mark.textContent)).toEqual(["が", "が", "好き"]);
-  expect(marks[0]!.className).toContain("highlight-0");
-  expect(marks[1]!.className).toContain("highlight-0");
-  expect(marks[2]!.className).toContain("highlight-1");
-  expect(within(cardOf("주어 が")).getByText("が").className).toContain(
-    "highlight-0",
-  );
 });
 
 test("구성 문법의 판정이나 대안이 다르면 같은 용법 카드도 합치지 않는다", async () => {

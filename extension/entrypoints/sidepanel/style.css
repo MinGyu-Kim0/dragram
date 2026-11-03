@@ -26,20 +26,11 @@
   --color-border-control: light-dark(#cfddd4, #3a4d68);
   /* 선택 링(다크는 brand) */
   --color-ring: light-dark(#17302a, #a2bc4e);
-  /* 형광펜 4색: 칩 배경 / 칩 글자 / 본문 형광펜. 라이트 본문 형광펜은 칩 배경과 같고,
-     다크는 더 진한 반투명이다. */
-  --color-highlight-0: light-dark(#ddf27a, rgba(162, 188, 78, 0.2));
-  --color-highlight-0-text: light-dark(#3d4a00, #c8da8e);
-  --color-highlight-0-mark: light-dark(#ddf27a, rgba(162, 188, 78, 0.42));
-  --color-highlight-1: light-dark(#bde3ff, rgba(110, 180, 255, 0.18));
-  --color-highlight-1-text: light-dark(#0f4a78, #a9d3ff);
-  --color-highlight-1-mark: light-dark(#bde3ff, rgba(110, 180, 255, 0.38));
-  --color-highlight-2: light-dark(#ffd6a8, rgba(255, 160, 90, 0.18));
-  --color-highlight-2-text: light-dark(#7a3e00, #ffc598);
-  --color-highlight-2-mark: light-dark(#ffd6a8, rgba(255, 160, 90, 0.38));
-  --color-highlight-3: light-dark(#f7c8e0, rgba(240, 120, 180, 0.18));
-  --color-highlight-3-text: light-dark(#7a1f4f, #f6b3d3);
-  --color-highlight-3-mark: light-dark(#f7c8e0, rgba(240, 120, 180, 0.38));
+  /* 형광펜(라임 한 색, #354): 칩 배경 / 칩 글자 / 본문 형광펜. 라이트 본문 형광펜은 칩 배경과
+     같고, 다크는 더 진한 반투명이다. */
+  --color-highlight: light-dark(#ddf27a, rgba(162, 188, 78, 0.2));
+  --color-highlight-text: light-dark(#3d4a00, #c8da8e);
+  --color-highlight-mark: light-dark(#ddf27a, rgba(162, 188, 78, 0.42));
   /* 본문 형광펜은 아래쪽만 칠한다. 다크는 조금 더 높이 칠한다. */
   --mark-cut: 46%;
 }
@@ -236,34 +227,10 @@ h1 {
   color: inherit;
   background: linear-gradient(
     transparent var(--mark-cut),
-    var(--highlight-mark) var(--mark-cut)
+    var(--color-highlight-mark) var(--mark-cut)
   );
   border-radius: 3px 3px 7px 7px;
   padding: 0 2px;
-}
-
-.highlight-0 {
-  --highlight: var(--color-highlight-0);
-  --highlight-text: var(--color-highlight-0-text);
-  --highlight-mark: var(--color-highlight-0-mark);
-}
-
-.highlight-1 {
-  --highlight: var(--color-highlight-1);
-  --highlight-text: var(--color-highlight-1-text);
-  --highlight-mark: var(--color-highlight-1-mark);
-}
-
-.highlight-2 {
-  --highlight: var(--color-highlight-2);
-  --highlight-text: var(--color-highlight-2-text);
-  --highlight-mark: var(--color-highlight-2-mark);
-}
-
-.highlight-3 {
-  --highlight: var(--color-highlight-3);
-  --highlight-text: var(--color-highlight-3-text);
-  --highlight-mark: var(--color-highlight-3-mark);
 }
 
 /* 판별을 기다리는 구간(확인 중): 형광펜 대신 점선 밑줄 */
@@ -381,8 +348,8 @@ h1 {
   padding: 3px 12px;
   font-size: 15px;
   font-weight: 700;
-  background: var(--highlight);
-  color: var(--highlight-text);
+  background: var(--color-highlight);
+  color: var(--color-highlight-text);
 }
 
 .grammar-card h3 {

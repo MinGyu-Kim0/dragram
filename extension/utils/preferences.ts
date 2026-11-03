@@ -15,6 +15,18 @@ export async function savePreference(
   await browser.storage.local.set({ [key]: value });
 }
 
+// 원문 형광펜 모양(#354). 고른 적이 없으면 형광펜이다.
+export type HighlightStyle = "marker" | "underline";
+
+export async function loadHighlightStyle(): Promise<HighlightStyle> {
+  const { highlightStyle } = await browser.storage.local.get("highlightStyle");
+  return highlightStyle === "underline" ? "underline" : "marker";
+}
+
+export async function saveHighlightStyle(style: HighlightStyle): Promise<void> {
+  await browser.storage.local.set({ highlightStyle: style });
+}
+
 // 테마(#296). 고른 적이 없으면 null이고 브라우저 설정을 따른다.
 export type Theme = "light" | "dark";
 

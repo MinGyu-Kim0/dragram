@@ -31,6 +31,8 @@
   --color-highlight: light-dark(#ddf27a, rgba(162, 188, 78, 0.2));
   --color-highlight-text: light-dark(#3d4a00, #c8da8e);
   --color-highlight-mark: light-dark(#ddf27a, rgba(162, 188, 78, 0.42));
+  /* 밑줄 모양의 선: 바탕과 3:1 이상(라이트 3.25, 다크 6.97) */
+  --color-highlight-line: light-dark(#7a9a1e, #a2bc4e);
   /* 본문 형광펜은 아래쪽만 칠한다. 다크는 조금 더 높이 칠한다. */
   --mark-cut: 46%;
 }
@@ -104,6 +106,16 @@ h1 {
   background: transparent;
   color: var(--color-text-muted);
   text-decoration: line-through;
+}
+
+/* 형광펜 모양 고르기(#354). 둘 중 하나라 고르지 않은 쪽은 흐리게만 하고 줄을 긋지 않는다. */
+.style-choice {
+  display: flex;
+  gap: 4px;
+}
+
+.display-toggles .style-choice button[aria-pressed="false"] {
+  text-decoration: none;
 }
 
 .original {
@@ -233,22 +245,24 @@ h1 {
   padding: 0 2px;
 }
 
-/* 형광펜은 눌러서 '선택한 카드'를 연다(#354). 안의 버튼은 글자처럼 보인다. */
-.original mark.highlight button {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font: inherit;
-  line-height: inherit;
+/* 형광펜은 눌러서 '선택한 카드'를 연다(#354). */
+.original mark.highlight {
   cursor: pointer;
 }
 
-.original mark.highlight button:focus-visible {
+.original mark.highlight:focus-visible {
   outline: 2px solid var(--color-ring);
   outline-offset: 2px;
-  border-radius: 3px;
+}
+
+/* 밑줄 모양(#354): 칠하지 않고 글자 아래에 선을 긋는다. */
+.original.underline mark.highlight {
+  background: none;
+  border-radius: 0;
+  padding: 0;
+  text-decoration: underline 3px var(--color-highlight-line);
+  text-underline-offset: 5px;
+  text-decoration-skip-ink: none;
 }
 
 /* 고른 카드의 형광펜: 선택 링 */

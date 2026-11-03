@@ -569,6 +569,25 @@ test("다른 형광펜을 누르면 그 카드로 바꾸고, 같은 형광펜이
   expect(selectedBox()).toBeNull();
 });
 
+test("형광펜은 키보드로 가서 Enter·Space로 누를 수 있다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は", "は")],
+    words: [],
+  });
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  await screen.findByRole("tab", { name: "문법 1" });
+  const mark = screen.getByRole("button", { name: "は" });
+  expect(mark).toHaveAttribute("tabindex", "0");
+
+  fireEvent.keyDown(mark, { key: "Enter" });
+  expect(selectedBox()).not.toBeNull();
+
+  fireEvent.keyDown(mark, { key: " " });
+  expect(selectedBox()).toBeNull();
+});
+
 test("합친 카드의 어느 자리나 구성 문법 글자를 눌러도 그 카드 한 장을 연다", async () => {
   respondWith(200, {
     translation_ko: "번역",
@@ -1353,6 +1372,52 @@ test("루비 버튼을 끄면 루비가 사라지고, 끈 값은 패널을 다�
   await send(panelWindowId, "私は学生です。");
   await screen.findByText("나는 학생입니다.");
   await waitFor(() => expect(rubies()).toEqual([]));
+});
+
+test("형광펜 모양을 '형광펜'과 '밑줄' 중에서 고르고, 고른 값은 패널을 다시 열어도 유지된다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は", "は")],
+    words: [],
+  });
+  const { unmount } = render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  await screen.findByText("나는 학생입니다.");
+  const style = () =>
+    within(screen.getByRole("group", { name: "형광펜 모양" }));
+  const original = () => document.querySelector(".original")!;
+  // 기본은 형광펜이고, 드래그 표시 버튼은 없다(#354).
+  expect(style().getByRole("button", { name: "형광펜" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(original()).not.toHaveClass("underline");
+  expect(
+    screen.queryByRole("button", { name: "드래그 표시" }),
+  ).not.toBeInTheDocument();
+
+  fireEvent.click(style().getByRole("button", { name: "밑줄" }));
+
+  expect(style().getByRole("button", { name: "밑줄" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(style().getByRole("button", { name: "형광펜" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+  expect(original()).toHaveClass("underline");
+
+  unmount();
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [grammarItem(1, 2, "주제 は", "は")],
+    words: [],
+  });
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  await screen.findByText("나는 학생입니다.");
+  await waitFor(() => expect(original()).toHaveClass("underline"));
 });
 
 test("번역이 오면 먼저 보이고, 문법·단어 탭은 이어서 채운다", async () => {

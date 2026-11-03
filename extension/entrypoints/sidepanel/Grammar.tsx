@@ -125,7 +125,7 @@ export function HighlightedText({
   );
 }
 
-// 누를 수 있는 형광펜 한 조각. 키보드로도 누를 수 있게 버튼을 넣는다.
+// 누를 수 있는 형광펜 한 조각. <button>은 줄을 넘겨 감기지 않아 mark에 버튼 역할을 준다.
 function HighlightMark({
   card,
   selected,
@@ -138,14 +138,19 @@ function HighlightMark({
   children: ReactNode;
 }) {
   return (
-    <mark className={card === selected ? "highlight selected" : "highlight"}>
-      <button
-        type="button"
-        aria-pressed={card === selected}
-        onClick={() => onSelect(card)}
-      >
-        {children}
-      </button>
+    <mark
+      className={card === selected ? "highlight selected" : "highlight"}
+      role="button"
+      tabIndex={0}
+      aria-pressed={card === selected}
+      onClick={() => onSelect(card)}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        onSelect(card);
+      }}
+    >
+      {children}
     </mark>
   );
 }

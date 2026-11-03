@@ -10,6 +10,7 @@ import { GrammarCards, HighlightedText, SelectedCard } from "./Grammar";
 import { grammarCardCount, selectedCard } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
 import { isHidden } from "@/utils/my-items";
+import type { HighlightStyle } from "@/utils/preferences";
 import { HiddenCards, type HiddenCard, type MyItems } from "./MyItems";
 import { senseBadges } from "./sense-badges";
 import { WordList, type NameActions } from "./Words";
@@ -100,6 +101,11 @@ function translationOf(result: SentenceResult | undefined) {
 
 export type ResultTab = "grammar" | "words";
 
+const HIGHLIGHT_STYLES: [HighlightStyle, string][] = [
+  ["marker", "형광펜"],
+  ["underline", "밑줄"],
+];
+
 // 실패 문구 바로 옆에 두는 다시 시도 버튼
 function RetryButton({ onRetry }: { onRetry: () => void }) {
   return (
@@ -114,6 +120,8 @@ export function SentenceView({
   text,
   showRuby,
   onToggleRuby,
+  highlightStyle,
+  onHighlightStyleChange,
   result,
   tab,
   onTabChange,
@@ -126,6 +134,8 @@ export function SentenceView({
   text: string;
   showRuby: boolean;
   onToggleRuby: () => void;
+  highlightStyle: HighlightStyle;
+  onHighlightStyleChange: (style: HighlightStyle) => void;
   result: SentenceResult | undefined;
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
@@ -237,8 +247,25 @@ export function SentenceView({
           <button type="button" aria-pressed={showRuby} onClick={onToggleRuby}>
             루비
           </button>
+          <div role="group" aria-label="형광펜 모양" className="style-choice">
+            {HIGHLIGHT_STYLES.map(([style, label]) => (
+              <button
+                key={style}
+                type="button"
+                aria-pressed={highlightStyle === style}
+                onClick={() => onHighlightStyleChange(style)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <p lang="ja" className="original">
+        <p
+          lang="ja"
+          className={
+            highlightStyle === "underline" ? "original underline" : "original"
+          }
+        >
           <HighlightedText
             text={text}
             grammar={grammar}

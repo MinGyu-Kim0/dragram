@@ -108,18 +108,21 @@ cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:curre
 복원(서버를 통째로 바꾼다. 스냅샷 시각 뒤에 생긴 데이터는 잃는다):
 1. Snapshots 탭의 자동 스냅샷에서 새 인스턴스를 만든다(서울, 같은 플랜 이상).
 2. 새 인스턴스의 방화벽을 22·80·443만 열린 상태(IPv4·IPv6)로 맞춘다.
-3. Networking 탭에서 고정 IP를 옛 인스턴스에서 떼어 새 인스턴스에 붙인다. IP가 같아 DNS는 그대로다.
-4. 컨테이너는 `restart: unless-stopped`라 부팅하면 올라온다. 서버에서 상태를 보고, 밖에서 health를 확인한다.
+3. 새 인스턴스의 임시 공개 IP로 접속한다. 컨테이너는 `restart: unless-stopped`라 부팅하면 올라온다. 아직 고정 IP가 없어 사용자 요청은 들어오지 않는다.
    ```bash
    cd ~/dragram && docker compose ps
    ```
    ```bash
+   curl -sS --resolve dragram.app:443:127.0.0.1 https://dragram.app/api/health/
+   ```
+4. 고정 IP를 옮기기 전에, 스냅샷 시각 뒤에 처리한 탈퇴·삭제를 다시 적용한다(처리방침 8절). 먼저 하지 않으면 지운 개인정보가 다시 서비스되고, 옮긴 뒤 새로 생긴 행까지 아래 비교에 걸린다. 옛 DB를 읽을 수 있으면 복구한 DB에만 있는 계정(`accounts_user`)·`my_item`·`my_example`·`designated_name` 행을 지운다. 읽을 수 없으면 그 사이 문의 메일로 받은 탈퇴·삭제 요청을 다시 처리한다.
+5. Networking 탭에서 고정 IP를 옛 인스턴스에서 떼어 새 인스턴스에 붙인다. IP가 같아 DNS는 그대로다. 밖에서 health를 확인한다.
+   ```bash
    curl -sS https://dragram.app/api/health/
    ```
-5. 스냅샷 시각 뒤에 처리한 탈퇴·삭제를 다시 적용한다(처리방침 8절). 옛 DB를 읽을 수 있으면 복구한 DB에만 있는 계정(`accounts_user`)·`my_item`·`my_example`·`designated_name` 행을 지운다. 읽을 수 없으면 그 사이 문의 메일로 받은 탈퇴·삭제 요청을 다시 처리한다.
 6. 옛 인스턴스는 필요한 것을 다 꺼낸 뒤 지운다.
 
-복원 연습: 고정 IP를 옮기지 않고 1번만 해서 새 인스턴스의 임시 공개 IP로 접속한 뒤, 운영 서버와 같은 명령으로 행 수를 비교한다(스냅샷 뒤에 생긴 행만큼은 다를 수 있다). 확인이 끝나면 연습 인스턴스를 지운다.
+복원 연습: 고정 IP를 옮기지 않고 1~3번만 한 뒤, 운영 서버와 같은 명령으로 행 수를 비교한다(스냅샷 뒤에 생긴 행만큼은 다를 수 있다). 확인이 끝나면 연습 인스턴스를 지운다.
 ```bash
 cd ~/dragram && docker compose exec -T db psql -U dragram -d dragram -c "select (select count(*) from accounts_user) users, (select count(*) from my_item) my_item, (select count(*) from my_example) my_example, (select count(*) from word) word, (select count(*) from sentence_analysis) analysis"
 ```

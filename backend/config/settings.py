@@ -134,6 +134,11 @@ ANALYSIS_DAILY_TOKEN_LIMIT = int(os.environ.get("ANALYSIS_DAILY_TOKEN_LIMIT", "2
 
 ANALYSIS_MAX_CONCURRENT = int(os.environ.get("ANALYSIS_MAX_CONCURRENT", "10"))
 
+# 최소 확장 버전(예: "0.3.0", #349). 확장 토큰 API는 이보다 낮거나 버전을 보내지 않은 확장을
+# EXTENSION:UPDATE_REQUIRED로 거부한다. 비우면 검사하지 않는다. 하위 호환이 정말 불가능할 때만
+# 올린다.
+MIN_EXTENSION_VERSION = os.environ.get("MIN_EXTENSION_VERSION", "").strip()
+
 
 def _price(name):
     value = os.environ.get(name)

@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 
 from accounts import withdrawal
-from accounts.models import User
+from accounts.models import ExtensionToken, User
 
 
 @admin.register(User)
@@ -21,3 +21,19 @@ class AccountAdmin(UserAdmin):
     def delete_queryset(self, request, queryset):
         for user in queryset:
             withdrawal.withdraw(user)
+
+
+@admin.register(ExtensionToken)
+class ExtensionTokenAdmin(admin.ModelAdmin):
+    """확장 버전별로 옛 확장이 아직 쓰이는지 본다(#349). 보기만 한다. 토큰 해시는 보이지 않는다."""
+
+    list_display = ("pk", "user", "extension_version", "last_used_at", "created_at", "revoked_at")
+    list_filter = ("extension_version",)
+    fields = list_display[1:]
+    readonly_fields = fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False

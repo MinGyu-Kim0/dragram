@@ -277,6 +277,27 @@ def test_usage_reset_by_an_admin_stays_reset_after_signing_up_again(
     assert limits.today_tokens(again) == 0
 
 
+def test_usage_reset_also_covers_usage_carried_from_an_earlier_withdrawal(
+    fake_llm, monkeypatch, settings
+):
+    # 탈퇴·재가입 → 초기화 → 다시 탈퇴·재가입해도 첫 탈퇴 때 남은 사용량이 돌아오지 않는다.
+    me, _ = user_with_records("me", fake_llm)
+    User.objects.filter(pk=me.pk).update(google_sub="google-sub-1")
+    web, headers = web_session(me)
+    withdraw(web, headers, me)
+    again = google_login(web, monkeypatch, settings, "google-sub-1")
+    assert limits.today_tokens(again) > 0
+    User.objects.filter(pk=again.pk).update(usage_reset_at=timezone.now())
+    again.refresh_from_db()
+    assert limits.today_tokens(again) == 0
+    web, headers = web_session(again)
+    withdraw(web, headers, again)
+
+    third = google_login(web, monkeypatch, settings, "google-sub-1")
+
+    assert limits.today_tokens(third) == 0
+
+
 def test_another_google_account_does_not_get_the_withdrawn_usage(fake_llm, monkeypatch, settings):
     me, _ = user_with_records("me", fake_llm)
     User.objects.filter(pk=me.pk).update(google_sub="google-sub-1")

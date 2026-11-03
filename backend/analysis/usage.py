@@ -44,9 +44,12 @@ def forget(user):
     """
     key = withdrawn_key(user)
     if key:
-        UsageLog.objects.filter(user=user, created_at__gte=counted_since(user)).update(
+        since = counted_since(user)
+        UsageLog.objects.filter(user=user, created_at__gte=since).update(
             user=None, withdrawn_key=key, **_BLANK_AFTER_WITHDRAWAL
         )
+        # 앞선 탈퇴에서 이어받은 행도 초기화 전 것은 지워, 다음 가입에 되살아나지 않게 한다.
+        UsageLog.objects.filter(withdrawn_key=key, created_at__lt=since).delete()
     UsageLog.objects.filter(user=user).delete()
     purge_withdrawn()
 

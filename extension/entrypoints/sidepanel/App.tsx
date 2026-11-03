@@ -34,10 +34,9 @@ import {
 } from "@/utils/my-items";
 import type { MyItems } from "./MyItems";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
-import { Help, HelpButton } from "./Help";
+import { GuideButton } from "./GuideButton";
 import { Logo } from "./Logo";
 import { ThemeButton } from "./ThemeButton";
-import { useHelp } from "./use-help";
 import { useHighlightStyle, usePreference } from "./use-preference";
 
 // 서버에 동시에 보내는 문장 분석 요청 수. 문장 수에는 상한이 없어서(#23), 긴 글을 골라도
@@ -69,9 +68,6 @@ function App() {
   const retry = useRef<(index: number) => void>(undefined);
   // 확장 토큰이 있는지(웹에서 연결했는지). 처음 읽기 전에는 undefined다(#109).
   const [connected, setConnected] = useState<boolean>();
-  // 도움말(#365). 열린 동안 본문만 가리고 회차·페이지·탭은 그대로 둔다.
-  const helpButton = useRef<HTMLButtonElement>(null);
-  const help = useHelp(!!connected && !request, helpButton);
   // 로그인이 필요해 분석하지 못한 요청이 있다. 연결되면 다시 분석한다.
   const waitingForLogin = useRef(false);
   // 지정한 이름(#136). 연결되면 한 번 받고, 지정·해제하면 열린 모든 문장 페이지에 바로 쓴다.
@@ -426,15 +422,11 @@ function App() {
         <header className="panel-header">
           <Logo />
           <div className="header-actions">
-            <HelpButton
-              ref={helpButton}
-              open={help.open}
-              onToggle={help.toggle}
-            />
+            <GuideButton />
             <ThemeButton />
           </div>
         </header>
-        {help.open ? <Help onClose={help.close} /> : <LoginPrompt />}
+        <LoginPrompt />
       </main>
     );
   }
@@ -444,11 +436,7 @@ function App() {
       <header className="panel-header">
         <Logo />
         <div className="header-actions">
-          <HelpButton
-            ref={helpButton}
-            open={help.open}
-            onToggle={help.toggle}
-          />
+          <GuideButton />
           <ThemeButton />
           {connected && (
             <button
@@ -461,8 +449,7 @@ function App() {
           )}
         </div>
       </header>
-      {help.open && <Help onClose={help.close} />}
-      {!help.open && request && request.sentences.length > 1 && (
+      {request && request.sentences.length > 1 && (
         <nav className="pager" aria-label="문장">
           <button
             type="button"
@@ -485,7 +472,7 @@ function App() {
           </button>
         </nav>
       )}
-      {!help.open && sentence && (
+      {sentence && (
         <SentenceView
           // '사전 단어 보기'는 그 페이지의 화면 상태라 페이지마다 새로 시작한다.
           key={`${request!.id}-${pageIndex}`}

@@ -928,82 +928,9 @@ h1 {
   color: var(--color-text-secondary);
 }
 
-/* 도움말(#365): 헤더 버튼과 항목별로 접는 설명. 예시는 실제 카드를 그린 그림이라 누를 수 없다. */
+/* 가이드 버튼(#370): 테마 버튼과 같은 둥근 아이콘 자리에 물음표를 둔다. */
 .help-button {
   font: inherit;
   font-size: 17px;
   font-weight: 700;
-}
-
-.help-button[aria-expanded="true"] {
-  color: var(--color-brand-strong);
-}
-
-.help {
-  display: grid;
-  gap: 12px;
-}
-
-.help-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.help-head h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.help-lead,
-.help-body p,
-.help-body dd {
-  margin: 0;
-  color: var(--color-text-secondary);
-}
-
-.help-topic {
-  padding: 4px 16px;
-  border-radius: 20px;
-  background: var(--color-surface);
-}
-
-.help-topic summary {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.help-body {
-  display: grid;
-  gap: 10px;
-  padding-bottom: 16px;
-}
-
-.help-body dl {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-}
-
-.help-body dt {
-  margin-top: 6px;
-  font-weight: 600;
-}
-
-.help-subtitle {
-  margin: 8px 0 0;
-  font-size: 14px;
-}
-
-.help-example {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-  padding: 12px;
-  border: 1px dashed var(--color-border);
-  border-radius: 14px;
-  background: var(--color-bg);
 }

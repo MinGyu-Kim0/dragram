@@ -3,7 +3,7 @@ import { itemKey } from "@/utils/my-items";
 import type { MyItems } from "../sidepanel/MyItems";
 
 // 가이드(#370) 장면의 예시 문장과 분석. 사용자 원문이 아니라 가이드용으로 새로 쓴 문장이다.
-// 미검수 배지 규칙은 실제 카드와 같다(ちゃう 용법, 존경 해석, 出かける의 AI 번역).
+// 미검수 배지 규칙은 실제 카드와 같다(ちゃう 용법, 出かける의 AI 번역).
 export const TEXT = "田中さんは雨が降っちゃったので、出かけられなかった。";
 
 const base = {
@@ -52,23 +52,12 @@ const RARERU: GrammarItem = {
   end: 21,
   pattern_name: "られる",
   usage_id: 3,
-  state: "divergent",
+  state: "decided",
   name: "가능",
   explanation_ko: "그 동작을 할 수 있음을 나타내요.",
   korean_equivalent: "~할 수 있다",
   pos_tags: ["auxiliary_verb"],
   function_tags: ["potential"],
-  alternatives: [
-    {
-      name: "존경",
-      korean_equivalent: "~하시다",
-      korean_equivalent_review_status: "pending",
-      function_tags: ["honorific"],
-      function_tags_review_status: "pending",
-      translation_ko: "다나카 씨는 비가 와 버려서 외출하지 않으셨다.",
-      review_status: "pending",
-    },
-  ],
 };
 
 export const ANALYSIS: Analysis = {

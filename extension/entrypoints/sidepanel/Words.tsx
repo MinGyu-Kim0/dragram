@@ -218,6 +218,7 @@ export function WordList({
   onSave,
   onRemove,
   items,
+  inSelectedCard = false,
 }: {
   text: string;
   words: WordItem[];
@@ -229,6 +230,8 @@ export function WordList({
   onChooseView: (key: string, named: boolean) => void;
   // 내 일본어 항목(#321). 있으면 뜻을 고른 단어 행에 추가·표시 안 함 버튼을 단다.
   items?: MyItems;
+  // '선택한 카드' 박스 안이면 출처 각주를 출처만 짧게 단다.
+  inSelectedCard?: boolean;
 } & NameActions) {
   // 읽기 입력을 연 단어 자리
   const [editing, setEditing] = useState<string>();
@@ -389,7 +392,7 @@ export function WordList({
           >
             CC BY-SA 4.0
           </a>
-          ). 이 문장에 맞는 뜻만 골라 보여 줘요.
+          ){!inSelectedCard && ". 이 문장에 맞는 뜻만 골라 보여 줘요."}
         </p>
       )}
     </>

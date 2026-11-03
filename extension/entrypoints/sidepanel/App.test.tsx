@@ -633,6 +633,28 @@ test("합친 카드의 어느 자리나 구성 문법 글자를 눌러도 그 �
   ).toBe("연결");
 });
 
+test("'선택한 카드'의 단어 출처 각주는 출처만 짧게 보이고, 단어 목록 각주는 그대로다", async () => {
+  respondWith(200, {
+    translation_ko: "먹었다",
+    grammar: [],
+    words: [wordItem(0, 2, "食べる", "たべる")],
+  });
+  render(<App />);
+  await send(panelWindowId, "食べた");
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 1" }));
+
+  fireEvent.click(screen.getByRole("button", { name: "食べ" }));
+
+  expect(within(selectedBox()!).getByText(/단어 정보/).textContent).toBe(
+    "단어 정보: JMdict (EDRDG, CC BY-SA 4.0)",
+  );
+  expect(
+    within(screen.getByRole("tabpanel")).getByText(/단어 정보/).textContent,
+  ).toBe(
+    "단어 정보: JMdict (EDRDG, CC BY-SA 4.0). 이 문장에 맞는 뜻만 골라 보여 줘요.",
+  );
+});
+
 test("원문의 단어를 누르면 '선택한 카드'에 그 글자의 문법 카드와 그 아래 단어 카드를 보인다", async () => {
   respondWith(200, {
     translation_ko: "먹어 버렸다",

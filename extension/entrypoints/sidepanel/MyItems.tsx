@@ -32,15 +32,12 @@ export function ItemActions({
   id,
   example,
   items,
-  hideable = true,
 }: {
   kind: ItemKind;
   id: number;
   // 예문으로 저장할 문장(이 페이지의 원문)과 그 안에서 이 카드가 가리키는 부분
   example: Example;
   items: MyItems;
-  // 구성 문법 하위 박스는 바깥 카드와 함께 보이고 숨으므로 '숨김'을 두지 않는다.
-  hideable?: boolean;
 }) {
   const added = items.states.get(itemKey(kind, id))?.added === true;
   const [busy, setBusy] = useState(false);
@@ -100,16 +97,14 @@ export function ItemActions({
               예문 저장
             </button>
           ))}
-        {hideable && (
-          <button
-            type="button"
-            className="text-button item-remove"
-            disabled={busy}
-            onClick={() => run(() => items.save(kind, id, { hidden: true }))}
-          >
-            숨김
-          </button>
-        )}
+        <button
+          type="button"
+          className="text-button item-remove"
+          disabled={busy}
+          onClick={() => run(() => items.save(kind, id, { hidden: true }))}
+        >
+          숨김
+        </button>
       </div>
       {error && (
         <p className="error">저장하지 못했습니다. 다시 시도해 주세요.</p>

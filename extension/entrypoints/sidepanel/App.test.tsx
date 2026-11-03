@@ -4308,7 +4308,7 @@ describe("내 일본어 항목(#321)", () => {
     expect(screen.queryByRole("heading", { name: "주제 は" })).toBeNull();
   });
 
-  test("구성 문법 하위 박스에서도 추가하고 예문을 저장하지만, 따로 숨기지는 않는다", async () => {
+  test("구성 문법 하위 박스에서도 추가하고 예문을 저장한다", async () => {
     respondWith(200, {
       translation_ko: "나는 학생입니다.",
       grammar: [
@@ -4332,7 +4332,6 @@ describe("내 일본어 항목(#321)", () => {
     const part = within(
       await screen.findByRole("list", { name: "구성 문법" }),
     ).getByRole("listitem");
-    expect(within(part).queryByRole("button", { name: "숨김" })).toBeNull();
     fireEvent.click(within(part).getByRole("button", { name: "추가" }));
     expect(
       await within(part).findByRole("button", { name: "추가됨" }),
@@ -4351,6 +4350,64 @@ describe("내 일본어 항목(#321)", () => {
         end: 6,
       },
     );
+  });
+
+  test("하위 박스에서 숨기면 바깥 카드는 두고 그 하위 박스만 빠져 숨긴 카드에 모이고, 복원하면 돌아온다", async () => {
+    respondWith(200, {
+      translation_ko: "나는 학생입니다.",
+      grammar: [
+        withParts(
+          { ...grammarItem(2, 6, "바깥 문법", "学生です"), usage_id: 30 },
+          { ...grammarItem(4, 6, "정중 です", "です"), usage_id: 12 },
+        ),
+      ],
+      words: [],
+    });
+    vi.mocked(fetchMyItems).mockResolvedValue([]);
+    vi.mocked(saveMyItem)
+      .mockResolvedValueOnce({
+        kind: "usage",
+        id: 12,
+        added: false,
+        hidden: true,
+      })
+      .mockResolvedValueOnce({
+        kind: "usage",
+        id: 12,
+        added: false,
+        hidden: false,
+      });
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    expect(
+      await screen.findByRole("tab", { name: "문법 2" }),
+    ).toBeInTheDocument();
+    const part = within(
+      screen.getByRole("list", { name: "구성 문법" }),
+    ).getByRole("listitem");
+
+    fireEvent.click(within(part).getByRole("button", { name: "숨김" }));
+
+    expect(
+      await screen.findByRole("tab", { name: "문법 1" }),
+    ).toBeInTheDocument();
+    expect(saveMyItem).toHaveBeenCalledWith(
+      "usage",
+      12,
+      { hidden: true },
+      undefined,
+    );
+    expect(
+      screen.getByRole("heading", { name: "바깥 문법" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("list", { name: "구성 문법" })).toBeNull();
+    const hidden = within(screen.getByRole("list", { name: "숨긴 카드" }));
+    fireEvent.click(hidden.getByRole("button", { name: "복원" }));
+
+    expect(
+      await screen.findByRole("tab", { name: "문법 2" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("list", { name: "구성 문법" })).toBeInTheDocument();
   });
 
   test("숨긴 용법은 다른 카드의 구성 문법에서도 빠지고 숨긴 카드에 모인다", async () => {

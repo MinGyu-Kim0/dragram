@@ -328,7 +328,6 @@ function GrammarCard({
                   id={part.usage_id}
                   example={{ text, start: part.start, end: part.end }}
                   items={items}
-                  hideable={false}
                 />
               )}
             </li>

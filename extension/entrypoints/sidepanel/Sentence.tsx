@@ -355,7 +355,6 @@ export function SentenceView({
                 onSave={onSave}
                 onRemove={removeName}
                 items={items}
-                inSelectedCard
               />
             )}
           </section>

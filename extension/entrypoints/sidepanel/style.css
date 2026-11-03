@@ -19,6 +19,7 @@
   --color-text-muted: light-dark(#5a6b63, #93a3b8);
   --color-brand: light-dark(#157a57, #a2bc4e);
   --color-brand-strong: light-dark(#0f5e44, #c8da8e);
+  --color-brand-soft: light-dark(#d7efe3, #273424);
   --color-on-brand: light-dark(#ffffff, #16210a);
   --color-border-subtle: light-dark(#e1ece5, #23344b);
   /* 세그먼트 탭·페이지 넘김 트랙: border-subtle, 다크는 surface(DESIGN §3 세그먼트 탭) */
@@ -454,6 +455,19 @@ h1 {
 
 .grammar-tags .word-tags {
   margin: 0;
+}
+
+/* 대응 표현·설명·뜻 줄 앞 라벨(#358). 회색 알약인 태그와 구분되게 옅은 초록 네모다. */
+.line-label {
+  display: inline-block;
+  margin-right: 6px;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  vertical-align: 1px;
+  background: var(--color-brand-soft);
+  color: var(--color-brand-strong);
 }
 
 /* 용법의 한국어 대응 표현 한 줄(#152) */

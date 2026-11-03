@@ -1030,6 +1030,36 @@ test("LLM보다 먼저 온 단어는 탭에 바로 보이고, 뜻을 준비하�
   ).not.toBeInTheDocument();
 });
 
+test("단어 뜻 앞에 '뜻' 라벨을 달고, 준비 중·실패 문구에는 달지 않는다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [],
+    words: [
+      wordItem(0, 1, "一", "いち"),
+      wordItem(1, 2, "二", "に", { meaning_ko: null, meaning_status: "ai" }),
+      wordItem(2, 3, "三", "さん", {
+        meaning_ko: null,
+        meaning_status: "failed",
+      }),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "一二三");
+
+  fireEvent.click(await screen.findByRole("tab", { name: "단어 3" }));
+
+  const [meaning, waiting, failed] = within(
+    screen.getByRole("list", { name: "단어" }),
+  )
+    .getAllByRole("listitem")
+    .filter((row) => row.classList.contains("word-row"));
+  expect(
+    within(within(meaning!).getByText("一 뜻")).getByText("뜻"),
+  ).toBeVisible();
+  expect(within(waiting!).queryByText("뜻")).toBeNull();
+  expect(within(failed!).queryByText("뜻")).toBeNull();
+});
+
 test("한국어 뜻이 아직 없으면 준비 중, 만들지 못했으면 실패 문구를 보인다", async () => {
   respondWith(200, {
     translation_ko: "번역",
@@ -2689,6 +2719,65 @@ test("대응 표현이 없는 카드에는 대응 표현 줄이 없다", async (
 
   await screen.findAllByRole("listitem");
   expect(document.querySelector(".korean-equivalent")).toBeNull();
+});
+
+test("대응 표현 앞에 '뜻', 설명 앞에 '설명' 라벨을 달고 하위 박스도 같다", async () => {
+  respondWith(200, {
+    translation_ko: "친구를 만났다",
+    grammar: [
+      withParts(
+        {
+          ...grammarItem(1, 6, "동작의 상대"),
+          korean_equivalent: "~에게",
+          korean_equivalent_review_status: "pending",
+        },
+        {
+          ...grammarItem(4, 6, "정중한 과거"),
+          korean_equivalent: "~었습니다",
+          korean_equivalent_review_status: "pending",
+        },
+      ),
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "友達に会いました");
+
+  const [card] = await screen.findAllByRole("listitem");
+  const [part] = within(
+    within(card!).getByRole("list", { name: "구성 문법" }),
+  ).getAllByRole("listitem");
+  for (const [box, equivalent, explanation] of [
+    [card!, "~에게", "동작의 상대 설명"],
+    [part!, "~었습니다", "정중한 과거 설명"],
+  ] as const) {
+    const lines = within(box);
+    expect(within(lines.getByText(equivalent)).getByText("뜻")).toBeVisible();
+    expect(
+      within(lines.getByText(explanation)).getByText("설명"),
+    ).toBeVisible();
+  }
+});
+
+test("판단하지 못함 줄과 대응 표현 없는 카드에는 라벨이 없다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [
+      grammarItem(1, 2, "주제 は"),
+      { ...grammarItem(4, 6, "정중 です"), state: "unresolved" },
+    ],
+    words: [],
+  });
+  render(<App />);
+
+  await send(panelWindowId, "私は学生です。");
+
+  await screen.findAllByRole("listitem");
+  const [plain, unresolved] = grammarCards();
+  expect(within(plain!).queryByText("뜻")).toBeNull();
+  expect(within(unresolved!).getByText("판단하지 못함")).toBeVisible();
+  expect(within(unresolved!).queryByText("설명")).toBeNull();
 });
 
 test("품사 태그와 기능 태그를 태그 줄에 보이고, 미검수 배지는 카드에 하나다", async () => {

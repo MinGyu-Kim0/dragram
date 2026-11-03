@@ -7,7 +7,14 @@ import pytest
 from analysis import review
 from analysis.models import GrammarPattern, SentenceAnalysis, SpanMatch
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import add_word, analyze, new_pattern, saved_analyses, span_answer
+from tests.analysis.helpers import (
+    add_word,
+    analyze,
+    grammar_item,
+    new_pattern,
+    saved_analyses,
+    span_answer,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -78,24 +85,15 @@ def test_span_of_a_usage_closed_pattern_is_decided_without_asking_the_llm(client
     assert request["decided_spans"] == [{"start_token_id": 3, "end_token_id": 4, "name": "진행"}]
     # LLM을 부르기 전에 확정 구간을 먼저 보낸다.
     assert response.types() == ["grammar", "translation", "analysis"]
-    expected = {
-        "start": 3,
-        "end": 6,
-        "state": "decided",
-        "connection": ANY,
-        "usage_id": ANY,
-        "pattern_name": "ている",
-        "name": "진행",
-        "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-        "korean_equivalent": None,
-        "korean_equivalent_review_status": None,
-        "pos_tags": ["particle", "verb"],
-        "function_tags": [],
-        "function_tags_review_status": None,
-        "review_status": "approved",
-        "register": "standard",
-        "variant_of": None,
-    }
+    expected = grammar_item(
+        start=3,
+        end=6,
+        pattern_name="ている",
+        name="진행",
+        explanation_ko="동작이 이어지고 있음을 나타낸다",
+        pos_tags=["particle", "verb"],
+        review_status="approved",
+    )
     assert response.events[0]["grammar"] == [expected]
     assert response.json()["grammar"] == [expected]
     span = SentenceAnalysis.objects.latest("id").span_matches.get()

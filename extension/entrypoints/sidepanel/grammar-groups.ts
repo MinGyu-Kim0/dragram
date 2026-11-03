@@ -30,3 +30,17 @@ export function grammarCardCount(grammar: GrammarItem[]): number {
     0,
   );
 }
+
+// 원문 글자(at)의 문법 카드(합친 카드는 첫 자리). 구간이 겹치는 글자는 먼저 시작하는 문법의
+// 카드다. 그 글자에 문법이 없으면 undefined다.
+export function cardAt(
+  grammar: GrammarItem[],
+  at: number,
+): GrammarItem | undefined {
+  const owner = sortGrammar(grammar).find(
+    (item) => item.start <= at && at < item.end,
+  );
+  return (
+    owner && groupGrammar(grammar).find((group) => group.includes(owner))![0]
+  );
+}

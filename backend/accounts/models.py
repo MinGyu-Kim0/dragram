@@ -15,6 +15,9 @@ class User(AbstractUser):
     # 가입할 때 보여 준 개인정보처리방침의 시행일. 동의가 아니라 고지한 판의 기록이다.
     privacy_version = models.DateField(null=True)
     terms_agreed_at = models.DateTimeField(null=True)
+    # 관리자가 하루 토큰 한도를 초기화한 시각(#386). 한도는 이 뒤의 사용만 센다. 사용 기록은
+    # 지우지 않는다.
+    usage_reset_at = models.DateTimeField(null=True)
 
 
 class ExtensionToken(models.Model):
@@ -32,6 +35,9 @@ class ExtensionToken(models.Model):
     # 한 번도 쓰지 않았으면 NULL이다. 만료는 마지막 사용(없으면 발급) 시각부터 센다.
     last_used_at = models.DateTimeField(null=True)
     revoked_at = models.DateTimeField(null=True)
+    # 이 토큰으로 마지막에 요청한 확장 버전(manifest 버전, #349). NULL은 버전을 보내지 않은
+    # 확장(0.2.0 이하)이거나 형식이 틀린 값이다.
+    extension_version = models.CharField(max_length=23, null=True)  # noqa: DJ001
 
     class Meta:
         indexes = [models.Index(fields=["session_key"], name="extension_token_session")]

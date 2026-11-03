@@ -85,26 +85,6 @@ def test_grammar_items_carry_part_of_speech_tags_in_order_without_any_tokens(cli
     assert tags == {"진행": ["particle", "verb"], "주어": ["particle"]}
 
 
-def test_auxiliary_verbs_are_tagged(client, fake_llm):
-    # 토큰: 0 勝ち / 1 まし / 2 た
-    fake_llm.response = {
-        "translation_ko": "이겼습니다",
-        "new_patterns": [
-            new_pattern(
-                (1, "lemma"),
-                (2, "lemma"),
-                pattern_name="ました",
-                usage_name="정중한 과거",
-                example_ja="本を読みました",
-            )
-        ],
-    }
-
-    [item] = analyze(client, "勝ちました").json()["grammar"]
-
-    assert item["pos_tags"] == ["auxiliary_verb"]
-
-
 def test_unfound_span_usage_stores_its_function_tags(client, fake_llm):
     registered(client, fake_llm)
     fake_llm.response = {

@@ -1,6 +1,6 @@
 # DB 스키마 (PostgreSQL)
 
-원본: `erd.json`(ERDCloud 스냅샷). 이 문서는 그 파일에서 생성했다. 결정 근거는 `../design-decisions.md` 참고.
+원본: `erd.json`(ERDCloud 스냅샷). 이 문서는 그 파일에서 생성했다. 결정 근거는 `../decisions.md` 참고(아래 "N절"은 이력 `../design-decisions.md`의 절 번호).
 
 > 설계 시점 스냅샷이다. 구현을 시작하면 Django 모델과 마이그레이션이 기준이고, 이 문서는 바뀐 부분을 손으로 맞춘다.
 > design-decisions 28절 변경(`grammar_pattern.status`, `span_match.state` 값)과 33절 1의 탁음화 매핑 변경(`grammar_pattern.morpheme_key`, `pattern_morpheme.lemma` 설명), 41절의 재매칭(`sentence_analysis.matcher_version` 설명, `span_match` 부분 유일성 제약), 42절의 회화체 연결(`grammar_pattern.register`·`variant_of` 설명과 CHECK), 43절의 회화체 연결 때 용법 병합(`grammar_pattern.variant_of`·`usage_closed`, `grammar_usage.pattern_id`, `span_match.analysis_id`·`usage_id`·`candidates`·`alternatives` 설명), 44절의 구성 문법 표시(`grammar_pattern.show_parts` 설명), 45절의 판별 규칙(`usage_rule` 칼럼과 설명, `span_match.decided_by`·`rule_id`·`basis_revision` 설명과 CHECK), 49절의 로그인(`users` 칼럼, `extension_token` 테이블, `usage_log.user_id` 설명), 50절의 문장 단어(`sentence_analysis.word_spans` 칼럼, `sense_ids` 설명), 51절의 큐·작업자(`sentence_analysis.processing_translation_ko` 칼럼, `status`·`generation` 설명, `usage_log.analysis_id` 설명), #93 트리아지와 구현(`user_sentence.original_hash` 타입과 설명, `analysis_id`·`selected_start`·`selected_end`·`last_analyzed_at` 설명), #136의 이름 지정(`designated_name` 테이블), #152의 대응 표현(`grammar_usage.korean_equivalent`·`korean_equivalent_filled`·`korean_equivalent_status` 칼럼, `usage_log.purpose`의 usage_fill, #151의 기능 태그(`grammar_usage.function_tags`·`function_tags_filled`·`function_tags_status`), #177의 평가 세트(`eval_sentence`·`eval_run`·`eval_result`·`eval_item` 테이블), #257의 약관 동의(`users.terms_version`·`privacy_version`·`terms_agreed_at`), #221의 매칭 정정(`match_correction` 설명, `span_match.decided_by`의 admin)은 이 문서에만 반영했고 `erd.json`에는 아직 반영하지 않았다.
@@ -20,6 +20,7 @@
 | terms_version | 동의한 이용약관 | date | Y |  | 동의한 이용약관의 시행일. 가입하기를 누를 때 서버가 정한다(웹이 보낸 값을 믿지 않는다). 동의 전 계정은 NULL이다(#257) |
 | privacy_version | 고지한 처리방침 | date | Y |  | 가입 화면에 보여 준 개인정보처리방침의 시행일. 동의가 아니라 고지한 판의 기록이다(design-decisions 68절). 동의 전 계정은 NULL이다 |
 | terms_agreed_at | 약관 동의일시 | timestamptz | Y |  | 가입하기를 누른 시각. 동의 전 계정은 NULL이다 |
+| usage_reset_at | 한도 초기화일시 | timestamptz | Y |  | 관리자가 admin에서 하루 토큰 한도를 초기화한 시각(#386). 하루 한도는 오늘 자정과 이 시각 중 늦은 때부터 센다. `usage_log`는 지우지 않는다. 탈퇴 때 남기는 그날 행도 이 시각 뒤 행만이다 |
 
 `AbstractUser`의 나머지 칸(password, first_name 등)도 있다. Google로 가입한 사용자는 비밀번호를 쓸 수 없다(ADR 0004, design-decisions 49절).
 
@@ -34,6 +35,7 @@
 | created_at | 발급일시 | timestamptz |  |  |  |
 | last_used_at | 마지막 사용 일시 | timestamptz | Y |  | 한 번도 쓰지 않았으면 NULL. 처음 쓸 때 채우고, 그 뒤에는 날짜가 바뀔 때만 갱신한다. 이 날짜(없으면 발급 날짜)부터 90일째 날까지 쓰고 그 뒤 만료 |
 | revoked_at | 폐기일시 | timestamptz | Y |  | 확장 로그아웃, 웹 로그아웃, 같은 세션의 다른 사용자 로그인 때 채운다 |
+| extension_version | 마지막 확장 버전 | varchar(23) | Y |  | 이 토큰으로 마지막에 요청한 확장 버전(`X-Dragram-Version`, 점으로 나눈 숫자 1~4개). 받은 값이 다를 때만 갱신한다. NULL은 헤더를 보내지 않은 확장(0.2.0 이하)이거나 형식이 틀린 값이다(#349) |
 
 세션마다 토큰은 많아야 둘이다(쓰던 토큰과 아직 쓰지 않은 새 토큰, design-decisions 49절).
 
@@ -48,7 +50,7 @@
 | original_hash | 원문 해시 | varchar(64) |  |  | 요청으로 받은 원문(정규화 전) 그대로의 SHA-256. UNIQUE(user_id, original_hash). 같은 사용자·같은 원문은 한 문장 upsert로 갱신해 동시 요청도 유일성 위반 없이 끝난다. 숫자만 다른 원문(1人/2人)도 따로 보관 |
 | analysis_id | 공용 분석 ID | bigint |  | → sentence_analysis | sentence_analysis.id 참조(FK). 공용 분석 행을 지우지 못하게 막는다(PROTECT). 지금 공용 분석을 지우는 코드는 없고, 지우게 되면 개인 기록을 어떻게 할지 그때 정한다(#93 구현, 확인 필요). 여러 사용자·숫자만 다른 원문이 같은 공용 분석을 가리킴. 해시는 조인해서 조회. 인덱스 있음(내 일본어 조회용). 정규화 규칙 변경 시 원문별로 새 키를 계산해 해당 분석이 준비되면 analysis_id를 재연결 |
 | original_text | 원문 | text |  |  | 정규화 전 원문. 개인 테이블에만 저장, 카드 예문 표시용 / 개인 원문, 본인만 조회, Django admin 미노출 |
-| name_readings | 이름 읽기 | jsonb |  |  | 기본값 `[]`. 보충한 이름 카드의 `{start, end, reading, reading_ko}` 목록. 위치는 original_text의 UTF-16 반열린 구간, reading은 가나, reading_ko는 한글 읽기다. 변환할 수 없는 이름은 제외한다. 개인 기록에만 저장하며 캐시 재조회·재분석·재매칭 때 해당 결과로 교체한다. 기존 기록은 다음 조회 때 채운다(0024 마이그레이션, design-decisions 63절). erd.json에는 미반영 |
+| name_readings | 이름 읽기 | jsonb |  |  | 지금은 쓰지 않는다. 한글 읽기는 응답할 때마다 계산하고 저장하지 않는다(requirements '이름의 한글 읽기', ADR 0006). 예전 설명: 기본값 `[]`. 보충한 이름 카드의 `{start, end, reading, reading_ko}` 목록. 위치는 original_text의 UTF-16 반열린 구간, reading은 가나, reading_ko는 한글 읽기다. 변환할 수 없는 이름은 제외한다. 개인 기록에만 저장하며 캐시 재조회·재분석·재매칭 때 해당 결과로 교체한다. 기존 기록은 다음 조회 때 채운다(0024 마이그레이션, design-decisions 63절). erd.json에는 미반영 |
 | selected_start | 드래그 시작 위치 | integer |  |  | original_text 코드포인트 기준. 실제로 드래그한 범위(문장 끝까지 자동 확장과 별도로 강조 표시). 읽는 곳이 없어 #93에서는 넣지 않는다. FR-M12처럼 필요해지면 별도 이슈로 더한다(2026-10-25 #93 트리아지) |
 | selected_end | 드래그 끝 위치 | integer |  |  | 반열린 구간 [start, end). selected_start와 같이 #93에서는 넣지 않는다 |
 | created_at | 처음 분석일시 | timestamptz |  |  |  |
@@ -81,15 +83,16 @@
 
 ## my_item — 내 일본어 항목
 
-사용자가 사이드 패널 카드에서 추가하거나 '표시 안 함'으로 숨긴 용법·단어 뜻(#322, ADR 0006). 개인 데이터라 본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다. 원문은 없다. 사용자당 10,000행 상한.
+사용자가 사이드 패널 카드에서 추가하거나 숨긴 용법·단어 뜻(#322, ADR 0006). 추가와 숨김은 따로 켜고 끄며(#362), 둘 다 꺼지면 행을 지운다(CHECK: added 또는 hidden). 개인 데이터라 본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다. 원문은 없다. 사용자당 10,000행 상한.
 
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | user_id | 사용자 ID | bigint |  | → users | 탈퇴 시 삭제(CASCADE) |
-| usage_id | 용법 ID | bigint | Y | → grammar_usage | usage_id와 sense_id 중 하나만 있다(CHECK). UNIQUE(user_id, usage_id). 용법을 합치면 합친 용법으로 옮긴다(추가가 숨김보다 앞섬). 용법을 지우지 못하게 PROTECT |
+| usage_id | 용법 ID | bigint | Y | → grammar_usage | usage_id와 sense_id 중 하나만 있다(CHECK). UNIQUE(user_id, usage_id). 용법을 합치면 합친 용법으로 옮긴다(추가는 어느 쪽이라도 추가면 추가, 숨김은 양쪽 모두 숨겼을 때만). 용법을 지우지 못하게 PROTECT |
 | sense_id | 단어 뜻 ID | bigint | Y | → word_sense | UNIQUE(user_id, sense_id). 뜻이 지워지면 함께 지운다(CASCADE) |
-| state | 상태 | varchar(30) |  |  | added(추가, 웹 내 기록에 보임) / hidden(표시 안 함, 사이드 패널에서 접음) |
+| added | 추가 | boolean |  |  | 내 일본어에 넣었다. 웹 내 기록에 보인다. 끄면(제외) 예문을 지운다. 예문은 추가된 항목에만 있다 |
+| hidden | 숨김 | boolean |  |  | 사이드 패널에서 숨긴 카드로 접는다. 추가한 항목이면 웹에서는 숨긴 항목이다. 추가하지 않고 숨기기만 한 항목은 웹에 보이지 않는다 |
 | created_at | 등록일시 | timestamptz |  |  |  |
 | updated_at | 변경일시 | timestamptz |  |  | 웹 목록은 최근 바꾼 순 |
 
@@ -112,7 +115,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null. 하루 토큰 한도의 집계 기준(#28, design-decisions 52절) |
+| user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null. 하루 토큰 한도의 집계 기준(#28, design-decisions 52절). `users.usage_reset_at` 뒤 행만 세고, `is_staff` 사용자는 하루 한도가 없다(#386) |
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | (구현이 정함, 확인 필요, design-decisions 51절) 선점한 분석 행에 처음부터 잇는다. 새 문장도 LLM을 부르기 전에 처리 중 행을 먼저 만들어, 실패한 시도의 기록도 그 행에 이어진다. 재매칭은 기존 분석 행에 잇는다 |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정). 처리 중 작업에 붙은 요청도 현재 llm이며, 이 분류는 FR-M01 전에 확인할 구현 동작(design-decisions 51절) |
@@ -169,7 +172,7 @@
 | morpheme_key | 형태소 열 키 | char(64) |  |  | 형태소 행(lemma\|pos1\|pos2\|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256. UNIQUE(morpheme_key). lemma 규칙: 조사·조동사는 SudachiPy dictionary_form(축약형 보존), 동사·형용사 등 내용어는 normalized_form(표기 통일). 탁음화 조건부 매핑: 앞 토큰이 동사이고 활용형이 連用形-撥音便·連用形-イ音便이면 で→て, でる→てる, じゃう→ちゃう, だ→た(だら는 원형이 だ라 함께 처리), どく→とく, じまう→ちまう, でく→てく, じゃ(接続助詞)→ちゃ. 이 규칙 이전에 등록된 패턴은 보정하지 않음(design-decisions 33절 1, 42절 14). 동시 생성은 get_or_create |
 | register | 말투 | varchar(20) |  |  | standard / colloquial, 기본 standard. 관리자가 원형에 연결할 때만 colloquial이 되고 해제해도 남음(admin 폼에서 따로 고치지 않음). colloquial이면 '회화체' 배지. colloquial인 패턴은 원형으로 고를 수 없음. variant_of가 있을 때(연결된 회화체)만 원형의 설명·용법을 쓰고, 해제된 회화체는 자기 용법을 씀 / variant_of가 있으면 colloquial(CHECK) |
 | usage_closed | 용법 완결 여부 | boolean |  |  | 관리자가 용법이 하나뿐이라고 확인한 패턴. 활용형 조건 검토 필수. 패턴 승인 + test_cases 통과 + 반려되지 않은 용법이 정확히 하나이고 승인 상태일 때만 true. 새 용법 추가(회화체 연결 때의 옮김 포함)·용법 반려 취소·용법이나 패턴의 승인 취소·반려 때 같은 트랜잭션에서 false로 바꾸고 그 패턴의 분석을 stale로. 원형에 연결된 회화체는 원형 승인 + 원형의 반려되지 않은 용법이 승인된 하나뿐이어야 하고, 원형 쪽 위 사건과 연결·해제 때도 false로 바꿈(design-decisions 42절) |
-| revision | 패턴 판 번호 | integer |  |  | 용법 완결 여부·형태소 조건·용법 구성이 바뀌면 증가. span_match.basis_revision과 조회 시 비교 |
+| revision | 패턴 판 번호 | integer |  |  | 아직 만들지 않음(최신 여부는 `sentence_analysis.is_stale`·`generation`, design-decisions 35·56절). 둘 때의 뜻: 용법 완결 여부·형태소 조건·용법 구성이 바뀌면 증가. span_match.basis_revision과 조회 시 비교 |
 | show_parts | 구성 문법 표시 여부 | boolean |  |  | 기본 true. 이 패턴이 바깥 구간일 때 그 안에 완전히 들어가는 구성 문법을 하위 박스로 보일지(true) 숨길지(false). 펼쳐 보는 토글은 없음. 바깥 구간에 실제로 매칭된 패턴의 값을 씀(회화체는 자기 값). 표시 전용이라 조회할 때 읽고, 바꿔도 stale·세대 번호·패턴 세트 버전·LLM 호출 없음. 분석 후보와 구성 문법의 span_match는 항상 보존. admin 폼에서 고침(design-decisions 44절) |
 | test_cases | 검증 예문 | jsonb |  |  | [{text, should_match}] 성공·실패 예문. '걸리면 안 됨' 예문은 관리자가 admin에서 씀. 승인·용법 완결 패턴은 통과하지 못하게 바꿀 수 없음(먼저 승인 취소). 첫 '걸려야 함' 항목은 등록 때 LLM이 새로 쓴 예문(원문을 베꼈으면 거부: 키 텍스트가 같거나, 원문 전체를 포함하거나, 원문의 연속된 일부를 기준 길이(`EXAMPLE_COPY_LENGTH`, 기본 8자) 이상 포함. 패턴에서 고정한 토큰 글자는 세지 않되, 그 토큰을 사이에 둔 앞뒤 복사는 이어서 셈. 기호·공백을 뺀 형태소가 하나뿐인 원문은 포함만 예외, 같으면 거부. 원문을 베껴 거부되면 한 번 다시 쓰게 함. 200자를 넘는 예문은 쓰지 않음). 전부 통과해야 승인·용법 완결 가능. 새로 쓴 should_match true·false 예문이 각각 1개 이상 있어야 하고 빈 배열은 통과 아님 / LLM·관리자가 새로 쓴 예문만, 사용자 원문 저장 금지(매칭기로 확인 후 저장, 회귀 테스트 겸용) |
 | is_active | 활성 여부 | boolean |  |  | 활성화 근거(등록 때 원래 문장 재매칭 통과 + 새로 쓴 should_match 예문 1개 이상 통과, LLM·관리자 예문 모두 인정)가 있고 rejected가 아니면 true. 반려 취소·예문 보완(admin에서 test_cases 저장) 때 서버가 다시 검증. 값이 바뀌거나 활성 패턴의 형태소 조건(pattern_morpheme)이 바뀌면 같은 트랜잭션에서 pattern_set_version.version을 1 올림. false면 매칭에 쓰지 않음 |
@@ -209,11 +212,11 @@
 | korean_equivalent | 대응 표현 | varchar(100) | Y |  | 이 용법이 한국어로 주로 옮겨지는 표현(용법 일반, 문장별 아님. 예: に-대상 → ~을/를). 마땅한 대응이 없으면 NULL. 새 용법을 만드는 LLM 경로(새 구문·미발견·다시 묻기·재매칭 재판정)가 함께 답하고, 글이 아니거나 빈 값·숫자 자리표시자·100자 초과·문장 전체 인용이면 이 칸만 NULL로 저장(용법 등록은 실패시키지 않음). 관리자는 admin 용법 화면과 패턴 인라인에서 고침(비우면 NULL). 상한 100자는 #152 구현이 정함(확인 필요) |
 | korean_equivalent_filled | 대응 표현 채움 여부 | boolean |  |  | 기본 false. 채운 적이 있으면 true라, korean_equivalent NULL이 '대응 없음'인지 '아직 안 채움'인지 가름. LLM 경로·admin 수정·채우기 명령이 true로 둠. 채우기 명령은 false인 행만 채움(조건부 update라 그사이 admin이 쓴 값을 덮지 않음) |
 | korean_equivalent_status | 대응 표현 검수 상태 | varchar(30) | Y |  | pending / approved, 값이 NULL이면 NULL. LLM 값은 pending, admin이 쓴 값은 approved. 용법을 승인하면 pending 대응 표현도 함께 approved. 승인된 용법에 나중에 채운 값은 admin 액션 '대응 표현 승인'까지 pending(design-decisions 54절) |
-| revision | 용법 판 번호 | integer |  |  | 설명이 아닌 의미 정의가 바뀌면 증가. span_match.usage_revision과 조회 시 비교 |
+| revision | 용법 판 번호 | integer |  |  | 아직 만들지 않음(위 `grammar_pattern.revision`과 같음). 둘 때의 뜻: 설명이 아닌 의미 정의가 바뀌면 증가. span_match.usage_revision과 조회 시 비교 |
 | function_tags | 기능 태그 | varchar(30)[] |  |  | FunctionTag 코드 배열, 허용 목록(DESIGN §5) 순서·중복 없음. 기본 빈 배열. LLM 답의 목록 밖 값은 서버가 버리고, admin은 목록 밖 값을 저장하지 못함(design-decisions 55절) |
 | function_tags_filled | 기능 태그 채움 여부 | boolean |  |  | 채운 적이 있는가. 빈 배열이 '태그 없음'인지 '아직 안 채움'인지 가름. `fill_usages`는 false인 용법만 채움. 기본 false |
 | function_tags_status | 기능 태그 검수 상태 | varchar(30) | Y |  | pending / approved. 태그가 없으면 NULL. LLM이 쓴 값은 pending, admin이 고친 값은 approved. 용법을 승인하면 함께 approved. 승인된 용법에 나중에 채운 태그는 admin '기능 태그 승인'까지 pending(태그 줄에 'AI 생성·미검수' 배지 하나) |
-| status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. pending은 'AI 생성·미검수' 배지로 표시, 확정 판별 근거로는 approved만. rejected는 판정·규칙·LLM 후보에서 빼고 응답에도 보이지 않음. 승인은 소속 패턴이 rejected가 아닐 때만(test_cases 조건 없음). 반려 취소는 항상 pending으로 되돌림. 반려·반려 취소 시 이 용법이 속한 패턴과 그 패턴을 원형으로 가리키는 회화체 패턴의 분석을 stale로 |
+| status | 승인 상태 | varchar(30) |  |  | pending / approved / rejected. pending은 'AI 생성·미검수' 배지로 표시, 확정 판별 근거로는 approved만. rejected는 판정·규칙·LLM 후보에서 빼고 응답에도 보이지 않음. 승인은 소속 패턴이 rejected가 아닐 때만(test_cases 조건 없음). 반려 취소는 항상 pending으로 되돌림. 반려·승인 취소 시 이 용법으로 정해진 구간(대안 포함)이 있는 분석만, 반려 취소 시 이 용법이 속한 패턴과 그 회화체 패턴의 구간이 있는 분석을 stale로(design-decisions 35절 3·40절 9) |
 | approved_via | 승인 방식 | varchar(30) | Y |  | manual / auto. auto는 그림자 모드 검증 후 실제 자동 승인을 켠 뒤에만 |
 | approved_by | 승인자 ID | bigint | Y | → users | 자동 승인이면 null |
 | approved_at | 승인일시 | timestamptz | Y |  |  |
@@ -246,9 +249,9 @@
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | sentence_hash | 문장 해시 | char(64) |  |  | 키 텍스트(정규화+숫자 자리표시자) SHA-256. UNIQUE(sentence_hash). 공용 테이블에 원문 미저장 |
-| normalize_version | 정규화 버전 | smallint |  |  | 기록용. 정규화 규칙이 바뀌면 마이그레이션으로 해시 재계산 |
-| pipeline_version | 파이프라인 버전 | varchar(30) |  |  | SudachiPy·사전·판별 로직 버전 |
-| matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전(pattern_set_version.version). 첫 분석·stale 교체·재매칭이 매칭 직전에 읽은 값을 기록하고, 값은 낮추지 않음. 기존 행은 0. 현재 값보다 낮으면 조회 시 그 요청의 원문으로 로컬 매칭을 다시 돌려 저장된 구간에 없는 새 구간만 더함(일괄 재처리 없음, stale로 만들지 않음). DB만으로 정할 수 없는 새 구간은 같은 요청 안에서 LLM 재판정(rematch_judge)으로 정함. 재판정이 실패하면 이 값도 그대로 둬 다음 조회가 다시 시도(design-decisions 41절) |
+| normalize_version | 정규화 버전 | smallint |  |  | 기록용. 원문을 저장하지 않아(ADR 0006) 정규화 규칙을 바꿀 때 해시를 다시 계산하는 방식은 미정 |
+| pipeline_version | 파이프라인 버전 | varchar(30) |  |  | 아직 만들지 않음. 둘 때의 뜻: SudachiPy·사전·판별 로직 버전 |
+| matcher_version | 매칭 버전 | integer |  |  | 분석 당시 패턴 세트 버전(pattern_set_version.version). 첫 분석·stale 교체·재매칭이 매칭 직전에 읽은 값을 기록하고, 값은 낮추지 않음. 기존 행은 0. 현재 값보다 낮으면 조회 시 그 요청의 원문으로 로컬 매칭을 다시 돌려 저장된 구간에 없는 새 구간만 더함(일괄 재처리 없음, stale로 만들지 않음). DB만으로 정할 수 없는 새 구간은 작업자의 LLM 재판정(rematch_judge) 한 번으로 정함(design-decisions 53절). 재판정이 실패하면 이 값도 그대로 둬 다음 조회가 다시 시도(design-decisions 41절) |
 | normalized_length | 키 텍스트 길이 | integer |  |  | 코드포인트 수. 구간 범위 검증용 |
 | status | 분석 상태 | varchar(30) |  |  | processing / complete / failed. '대상 문법 없음'이나 미확정 구간이 남은 분석도 분석 자체가 성공하면 complete. partial은 두지 않음(#99, design-decisions 51절 5) |
 | processing_started_at | 처리 시작일시 | timestamptz | Y |  | 조건부 UPDATE로 선점. 150초가 지나면 다음 요청이 다시 선점하며, 미완료 작업을 주기적으로 재투입하지 않음(#99, design-decisions 51절 5) |
@@ -258,7 +261,7 @@
 | processing_translation_ko | 처리 중 번역 | text | Y |  | 처리 중 작업이 검증한 번역을 먼저 저장하는 곳(자리표시자 포함 형태). stale 재분석 중에도 translation_ko(옛 결과)를 덮지 않음. 작업이 끝나면 비움(design-decisions 51절) |
 | name_spans | 이름 구간 | jsonb | Y |  | [{start, end, type: person/place/org/work/other}]. 키 텍스트 코드포인트 기준 [start, end)(word_spans와 같음)와 종류만 둔다. 새 문장 첫 LLM 요청이 토큰 ID 묶음으로 판단하고 서버가 위치를 계산한다. 형태소·문법 후보는 보존하고 주석만. NULL은 판단하지 않은 분석(이 칸이 생기기 전에 저장된 행, 또는 LLM 답이 목록이 아니었던 행)이고 이름 구간만 얻으려고 다시 분석하지 않는다. []는 이름이 없다는 판단(design-decisions 58절) |
 | word_spans | 단어 구간 | jsonb | Y |  | [{start, end, sense_id}]. 키 텍스트 코드포인트 기준 [start, end)와 고른 뜻(word_sense) ID만 둔다(공용 테이블에 원문 미저장). 같은 단어가 두 번 나오면 위치마다 하나씩. 사전에서 못 찾았거나 뜻을 정하지 못한 단어는 넣지 않는다. NULL은 이 칸이 생기기 전에 저장된 행이라 다시 분석(design-decisions 50절) |
-| sense_ids | 단어 뜻 ID 목록 | bigint[] | Y |  | 문장에 나온 단어 뜻(word_sense) ID 목록. word_spans의 sense_id를 중복 없이 모은 값이고 word_spans와 함께 씀. 단어는 sense에서 유도. 내 일본어 계산용. 단어·뜻 병합·삭제 시 갱신 필요(word_spans도) |
+| sense_ids | 단어 뜻 ID 목록 | bigint[] | Y |  | 문장에 나온 단어 뜻(word_sense) ID 목록. word_spans의 sense_id를 중복 없이 모은 값이고 word_spans와 함께 씀. 단어는 sense에서 유도. 저장만 하고 지금 읽는 곳은 없다(내 일본어 계산용이던 ADR 0002는 ADR 0006으로 대체). 단어·뜻 병합·삭제 시 갱신 필요(word_spans도) |
 | created_at | 생성일시 | timestamptz |  |  |  |
 | updated_at | 수정일시 | timestamptz |  |  |  |
 
@@ -276,10 +279,10 @@
 | decided_by | 판정 근거 | varchar(30) | Y |  | single_usage / rule / llm / admin. single_usage(승인된 용법 완결 패턴의 단일 후보, #39), rule(승인된 판별 규칙, #55), llm, admin(활성 관리자 정정을 적용함, #221)을 모두 쓴다 |
 | rule_id | 판별 규칙 ID | bigint | Y | → usage_rule | decided_by가 rule일 때만 있음(CHECK `span_match_rule_iff_decided_by_rule`, decided_by가 NULL이면 rule_id도 NULL). 같은 용법을 가리키는 규칙이 여럿 맞으면 지금 구현은 id가 가장 작은 규칙을 기록(확인 필요) |
 | basis_revision | 근거 판 번호 | integer | Y |  | single_usage면 grammar_pattern.revision. 판 번호를 두기 전까지(지금 구현, #39) 칼럼을 만들지 않고, 다시 판정은 is_stale(design-decisions 35절)에 맡김. 판별 규칙은 승인 뒤 내용을 바꾸지 않아 판 번호가 없음(45절) |
-| usage_revision | 용법 판 번호 | integer | Y |  | 판정 당시 grammar_usage.revision. 바뀌면 재검토 |
+| usage_revision | 용법 판 번호 | integer | Y |  | 아직 만들지 않음(판 번호 보류). 둘 때의 뜻: 판정 당시 grammar_usage.revision. 바뀌면 재검토 |
 | candidates | 후보 용법 목록 | jsonb | Y |  | 서버가 부여한 후보 ID [{candidate_id, usage_id}]. 해석 갈림의 대안은 alternatives. 회화체 연결 때 합친 용법의 usage_id는 합칠 원형 용법으로 바꾸고, 그래서 겹친 후보는 앞의 것만 남김 |
 | alternatives | 대안 해석 | jsonb | Y |  | 해석 갈림일 때만 [{usage_id, translation_ko}](서버가 매긴 후보 순서). translation_ko는 그 해석으로 옮긴 문장 전체 번역이고 주 번역처럼 키 텍스트 기준(자리표시자 형태). 대안의 근거는 문장을 풀어 쓴 글이라 저장하지 않음. 주 용법은 usage_id(번역과 같은 해석). 회화체 연결 때 합친 용법은 합칠 원형 용법으로 바꾸고, 주 용법과 같아졌거나 앞 대안과 겹친 대안은 뺌. 대안이 남지 않으면 state를 decided로 |
-| confidence | 신뢰도 | decimal(4,3) | Y |  | LLM 자기 보고값. 정확도로 취급하지 않음 / 0~1 (CHECK) |
+| confidence | 신뢰도 | decimal(4,3) | Y |  | 아직 만들지 않음. LLM 응답에서도 받지 않는다(판정 통계·기준값과 함께 보류). 둘 때의 뜻: LLM 자기 보고값. 정확도로 취급하지 않음 / 0~1 (CHECK) |
 
 ## match_correction — 매칭 정정
 
@@ -299,6 +302,8 @@
 | updated_at | 수정일시 | timestamptz |  |  |  |
 
 ## kanji — 한자
+
+> 아직 만들지 않았다(모델·적재 없음, FR-A17). 아래는 만들 때의 설계다.
 
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|

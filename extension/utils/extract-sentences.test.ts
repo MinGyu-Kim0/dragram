@@ -32,20 +32,18 @@ function locate(text: string, edge: "start" | "end"): [Text, number] {
   throw new Error(`본문에 없는 글자: ${text}`);
 }
 
-test("문장 일부를 고르면 문장 전체와 그 안의 드래그 범위를 돌려준다", () => {
+test("문장 일부를 고르면 문장 전체를 돌려준다", () => {
   const range = select("<p>私は学生です。猫が好きです。</p>", "学生", "学生");
 
-  expect(extractSentences(range)).toEqual([
-    { text: "私は学生です。", selection: { start: 2, end: 4 } },
-  ]);
+  expect(extractSentences(range)).toEqual([{ text: "私は学生です。" }]);
 });
 
-test("여러 문장에 걸쳐 고르면 문장별로 나누고, 드래그 범위도 문장마다 잘라 준다", () => {
+test("여러 문장에 걸쳐 고르면 문장별로 나눈다", () => {
   const range = select("<p>私は学生です。猫が好きです。</p>", "学生", "猫");
 
   expect(extractSentences(range)).toEqual([
-    { text: "私は学生です。", selection: { start: 2, end: 7 } },
-    { text: "猫が好きです。", selection: { start: 0, end: 1 } },
+    { text: "私は学生です。" },
+    { text: "猫が好きです。" },
   ]);
 });
 
@@ -59,7 +57,6 @@ test("인용부호 안의 마침표에서는 나누지 않는다", () => {
   expect(extractSentences(range)).toEqual([
     {
       text: "彼は「行く。待って。」と言った。",
-      selection: { start: 12, end: 14 },
     },
   ]);
 });
@@ -88,9 +85,7 @@ test("블록 경계에서 멈춘다", () => {
     "段落です",
   );
 
-  expect(extractSentences(range)).toEqual([
-    { text: "次の段落です", selection: { start: 2, end: 6 } },
-  ]);
+  expect(extractSentences(range)).toEqual([{ text: "次の段落です" }]);
 });
 
 test("줄바꿈(<br>)에서 멈춘다", () => {
@@ -124,9 +119,7 @@ test("루비의 읽기 글자(rt·rp)는 빼고 본문만 남긴다", () => {
     "漢字",
   );
 
-  expect(extractSentences(range)).toEqual([
-    { text: "私は漢字が好き。", selection: { start: 2, end: 4 } },
-  ]);
+  expect(extractSentences(range)).toEqual([{ text: "私は漢字が好き。" }]);
 });
 
 test("문장 안의 인라인 요소는 이어서 한 문장으로 본다", () => {
@@ -148,7 +141,7 @@ test("문장이 몇 개든 모두 돌려준다", () => {
   ]);
 });
 
-test("문장 앞뒤 공백은 빼고, 드래그 범위도 그 기준으로 맞춘다", () => {
+test("문장 앞뒤 공백은 뺀다", () => {
   // 반각 공백과 전각 공백(U+3000)
   const range = select(
     "<p> \u3000私は学生です。  猫です。</p>",
@@ -156,9 +149,7 @@ test("문장 앞뒤 공백은 빼고, 드래그 범위도 그 기준으로 맞�
     "学生",
   );
 
-  expect(extractSentences(range)).toEqual([
-    { text: "私は学生です。", selection: { start: 2, end: 4 } },
-  ]);
+  expect(extractSentences(range)).toEqual([{ text: "私は学生です。" }]);
 });
 
 test("인용이 겹친 대사(「『…。』」)도 닫는 괄호 묶음 뒤에서 문장을 끝낸다", () => {
@@ -177,7 +168,5 @@ test("visibility로 숨긴 글자는 빼고, 그 안에서 다시 보이게 한 
     "晴れ",
   );
 
-  expect(extractSentences(range)).toEqual([
-    { text: "今日は本当に晴れです。", selection: { start: 6, end: 8 } },
-  ]);
+  expect(extractSentences(range)).toEqual([{ text: "今日は本当に晴れです。" }]);
 });

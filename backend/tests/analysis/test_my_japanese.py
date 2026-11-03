@@ -93,15 +93,22 @@ def test_grammar_lists_added_usages_with_examples_most_recent_first(usages, fake
     assert usages_listed[1]["examples"] == []
 
 
-def test_hidden_filter_lists_only_hidden_items(usages):
+def test_web_lists_only_added_items_split_by_hidden(usages):
+    """추가하지 않고 숨기기만 한 항목은 웹에 보이지 않는다. 추가한 항목을 숨기면 숨긴 항목으로
+    옮겨 간다(#362).
+    """
     人で, ている = usages
     extension = connected_client("me")
     put(extension, "usage", 人で, "hidden")
     put(extension, "usage", ている, "added")
     me = User.objects.get(username="me")
-
-    assert [u["name"] for u in listed(me, GRAMMAR, "hidden")["usages"]] == ["인원"]
     assert [u["name"] for u in listed(me, GRAMMAR)["usages"]] == ["진행"]
+    assert listed(me, GRAMMAR, "hidden")["usages"] == []
+
+    put(extension, "usage", ている, "hidden")
+
+    assert listed(me, GRAMMAR)["usages"] == []
+    assert [u["name"] for u in listed(me, GRAMMAR, "hidden")["usages"]] == ["진행"]
 
 
 def test_rejected_usage_shows_only_its_examples_and_approved_has_no_pending_badge(usages):

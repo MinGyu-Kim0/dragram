@@ -142,18 +142,37 @@ test("문법 탭이 기본이고 추가한 용법을 미검수 배지·대응 �
   expect(screen.queryByRole("tab", { name: "문장" })).toBeNull();
 });
 
-test("숨기기를 누르면 서버에 보내고 목록에서 뺀다", async () => {
+test("문법 카드의 대응 표현 앞에 '뜻', 설명 앞에 '설명' 라벨을 단다", async () => {
+  open();
+
+  const [first, second] = await cards("추가한 문법");
+  expect(
+    within(within(first).getByText("~하고 있다")).getByText("뜻"),
+  ).toBeVisible();
+  expect(
+    within(
+      within(first).getByText("동작이 이어지고 있음을 나타낸다"),
+    ).getByText("설명"),
+  ).toBeVisible();
+  // 대응 표현이 없으면 '뜻' 라벨도 없다.
+  expect(within(second).queryByText("뜻")).toBeNull();
+  expect(
+    within(within(second).getByText("정중하게 단정한다")).getByText("설명"),
+  ).toBeVisible();
+});
+
+test("숨김을 누르면 서버에 보내고 목록에서 뺀다", async () => {
   responses["PUT /api/my-items/"] = () =>
-    json({ kind: "usage", id: 3, state: "hidden" });
+    json({ kind: "usage", id: 3, added: true, hidden: true });
   open();
   const [, second] = await cards("추가한 문법");
 
-  await userEvent.click(within(second).getByRole("button", { name: "숨기기" }));
+  await userEvent.click(within(second).getByRole("button", { name: "숨김" }));
 
   expect(calls.at(-1)).toEqual({
     url: "/api/my-items/",
     method: "PUT",
-    body: { kind: "usage", id: 3, state: "hidden" },
+    body: { kind: "usage", id: 3, hidden: true },
   });
   expect(screen.queryByText("정중")).toBeNull();
   // 열린 사이드 패널이 바로 다시 불러오게 확장에 알린다.
@@ -174,7 +193,7 @@ test("사이드 패널에서 바꾸고 이 창으로 돌아오면 목록을 다�
 
 test("다시 불러오는 사이 숨긴 항목은 늦게 온 이전 응답으로 되살아나지 않는다", async () => {
   responses["PUT /api/my-items/"] = () =>
-    json({ kind: "usage", id: 3, state: "hidden" });
+    json({ kind: "usage", id: 3, added: true, hidden: true });
   open();
   const [, second] = await cards("추가한 문법");
   let finishStale: (r: Response) => void = () => {};
@@ -186,7 +205,7 @@ test("다시 불러오는 사이 숨긴 항목은 늦게 온 이전 응답으로
   };
   window.dispatchEvent(new Event("focus"));
 
-  await userEvent.click(within(second).getByRole("button", { name: "숨기기" }));
+  await userEvent.click(within(second).getByRole("button", { name: "숨김" }));
   finishStale(json({ usages: USAGES }));
 
   await new Promise((resolve) => setTimeout(resolve, 0));
@@ -194,22 +213,22 @@ test("다시 불러오는 사이 숨긴 항목은 늦게 온 이전 응답으로
   expect(screen.getByText("진행")).toBeInTheDocument();
 });
 
-test("예문이 있는 항목은 한 번 확인받고 예문과 함께 뺀다", async () => {
-  responses["DELETE /api/my-items/"] = () =>
-    new Response(null, { status: 204 });
+test("예문이 있는 항목은 한 번 확인받고 예문과 함께 제외한다", async () => {
+  responses["PUT /api/my-items/"] = () =>
+    json({ kind: "usage", id: 7, added: false, hidden: false });
   open();
   const [first] = await cards("추가한 문법");
 
-  await userEvent.click(within(first).getByRole("button", { name: "빼기" }));
-  expect(calls.some((c) => c.method === "DELETE")).toBe(false);
+  await userEvent.click(within(first).getByRole("button", { name: "제외" }));
+  expect(calls.some((c) => c.method === "PUT")).toBe(false);
   await userEvent.click(
-    within(first).getByRole("button", { name: "예문과 함께 빼기" }),
+    within(first).getByRole("button", { name: "예문과 함께 제외" }),
   );
 
   expect(calls.at(-1)).toEqual({
     url: "/api/my-items/",
-    method: "DELETE",
-    body: { kind: "usage", id: 7 },
+    method: "PUT",
+    body: { kind: "usage", id: 7, added: false },
   });
   expect(screen.queryByText("진행")).toBeNull();
 });
@@ -228,57 +247,89 @@ test("예문을 하나씩 지울 수 있다", async () => {
   expect(screen.getByText("진행")).toBeInTheDocument();
 });
 
-test("숨긴 항목 필터에서 다시 보이게 하거나 추가로 바꾼다", async () => {
+test("숨긴 항목 필터에서 확인 없이 복원하거나 제외한다", async () => {
   responses["GET /api/my-japanese/grammar/?state=hidden"] = () =>
     json({ usages: [USAGES[1], { ...USAGES[0], examples: [] }] });
-  responses["DELETE /api/my-items/"] = () =>
-    new Response(null, { status: 204 });
   responses["PUT /api/my-items/"] = () =>
-    json({ kind: "usage", id: 7, state: "added" });
+    json({ kind: "usage", id: 3, added: true, hidden: false });
   open();
   await cards("추가한 문법");
 
   await userEvent.click(screen.getByRole("button", { name: "숨긴 항목" }));
-  const [shown, added] = await cards("숨긴 문법");
-  await userEvent.click(
-    within(shown).getByRole("button", { name: "다시 보이기" }),
-  );
-  await userEvent.click(
-    within(added).getByRole("button", { name: "추가로 바꾸기" }),
-  );
+  const [restored, excluded] = await cards("숨긴 문법");
+  expect(
+    within(restored).queryByRole("button", { name: "추가로 바꾸기" }),
+  ).toBeNull();
+  await userEvent.click(within(restored).getByRole("button", { name: "복원" }));
+  await userEvent.click(within(excluded).getByRole("button", { name: "제외" }));
 
-  expect(calls.slice(-2)).toEqual([
+  expect(calls.filter((c) => c.method === "PUT")).toEqual([
     {
       url: "/api/my-items/",
-      method: "DELETE",
-      body: { kind: "usage", id: 3 },
+      method: "PUT",
+      body: { kind: "usage", id: 3, hidden: false },
     },
     {
       url: "/api/my-items/",
       method: "PUT",
-      body: { kind: "usage", id: 7, state: "added" },
+      body: { kind: "usage", id: 7, added: false },
     },
   ]);
   expect(await screen.findByText("숨긴 문법이 없어요.")).toBeInTheDocument();
 });
 
-test("단어 탭은 뜻·AI 번역·출처를 보이고, 검수에서 빠진 뜻은 예문과 빼기만 보인다", async () => {
+test("단어 탭은 뜻·AI 번역·출처를 보이고, 검수에서 빠진 뜻은 예문과 제외만 보인다", async () => {
   open("/sentences?tab=words");
 
   const [run, rejected] = await cards("추가한 단어");
   expect(within(run).getByRole("heading", { name: "走る" })).toBeVisible();
   expect(run).toHaveTextContent("달리다");
+  expect(within(within(run).getByText("달리다")).getByText("뜻")).toBeVisible();
   expect(within(run).getByText("AI 번역")).toBeInTheDocument();
   expect(rejected).toHaveTextContent("검수에서 빠진 단어 뜻이에요");
   expect(rejected).toHaveTextContent("春が来た。");
   // 위치가 없는 예문은 표시 없이 보인다.
   expect(rejected.querySelector("mark")).toBeNull();
-  expect(within(rejected).queryByRole("button", { name: "숨기기" })).toBeNull();
+  expect(within(rejected).queryByRole("button", { name: "숨김" })).toBeNull();
   expect(
-    within(rejected).getByRole("button", { name: "빼기" }),
+    within(rejected).getByRole("button", { name: "제외" }),
   ).toBeInTheDocument();
   const panel = within(screen.getByRole("tabpanel"));
   expect(panel.getByRole("link", { name: "CC BY-SA 4.0" })).toBeVisible();
+});
+
+test("'보통 가나로 씀' 뜻은 읽기를 표제로, 한자 사전형을 회색 글자로 보인다", async () => {
+  const uk = (id: number, form: string, reading: string) => ({
+    ...WORDS[0],
+    sense_id: id,
+    dictionary_form: form,
+    reading,
+    tags: ["noun"],
+    sense: { ...WORDS[0]!.sense, id, tags: ["uk"] },
+  });
+  responses["GET /api/my-japanese/words/?state=added"] = () =>
+    json({
+      words: [
+        uk(21, "沢山", "たくさん"),
+        uk(22, "ある", "ある"),
+        WORDS[0],
+        { ...uk(23, "紙", "かみ"), sense: null },
+      ],
+    });
+  open("/sentences?tab=words");
+
+  const rows = await cards("추가한 단어");
+  expect(
+    rows.map((row) => [
+      within(row).getByRole("heading").textContent,
+      row.querySelector(".word-head .muted")!.textContent,
+    ]),
+  ).toEqual([
+    ["たくさん", "沢山"],
+    ["ある", "ある"],
+    ["走る", "はしる"],
+    ["紙", "かみ"],
+  ]);
 });
 
 test("바꾸지 못하면 항목을 남기고 알린다", async () => {
@@ -287,7 +338,7 @@ test("바꾸지 못하면 항목을 남기고 알린다", async () => {
   open();
   const [, second] = await cards("추가한 문법");
 
-  await userEvent.click(within(second).getByRole("button", { name: "숨기기" }));
+  await userEvent.click(within(second).getByRole("button", { name: "숨김" }));
 
   expect(await within(second).findByRole("alert")).toHaveTextContent(
     "바꾸지 못했어요",
@@ -327,27 +378,24 @@ test("옛 문장 분석 주소는 내 기록으로 보낸다", async () => {
   ).toBeInTheDocument();
 });
 
-test("예문이 있는 숨긴 항목은 다시 보이기 전에 예문도 지워진다고 확인받는다", async () => {
+test("예문이 있는 숨긴 항목도 복원은 예문을 지우지 않아 확인 없이 바로 한다", async () => {
   responses["GET /api/my-japanese/grammar/?state=hidden"] = () =>
     json({ usages: [USAGES[0]] });
-  responses["DELETE /api/my-items/"] = () =>
-    new Response(null, { status: 204 });
+  responses["PUT /api/my-items/"] = () =>
+    json({ kind: "usage", id: 7, added: true, hidden: false });
   open("/sentences?state=hidden");
   const [card] = await cards("숨긴 문법");
 
-  await userEvent.click(
-    within(card).getByRole("button", { name: "다시 보이기" }),
-  );
-  expect(calls.some((c) => c.method === "DELETE")).toBe(false);
-  await userEvent.click(
-    within(card).getByRole("button", { name: "예문과 함께 다시 보이기" }),
-  );
+  await userEvent.click(within(card).getByRole("button", { name: "복원" }));
 
   expect(calls.at(-1)).toEqual({
     url: "/api/my-items/",
-    method: "DELETE",
-    body: { kind: "usage", id: 7 },
+    method: "PUT",
+    body: { kind: "usage", id: 7, hidden: false },
   });
+  expect(
+    screen.queryByText("저장한 예문도 함께 지워져요. 되돌릴 수 없어요."),
+  ).toBeNull();
 });
 
 test("예문을 지우는 동안 그 예문만 다시 누를 수 없고, 다른 예문도 함께 지울 수 있다", async () => {

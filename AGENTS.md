@@ -15,7 +15,7 @@
 - 용어가 낯설거나 이름을 지을 때 → `GLOSSARY.md`. 코드·커밋·이슈에 이 용어를 그대로 쓴다.
 - 기능 범위·수용 기준 → `docs/requirements.md`
 - 테이블·칼럼 → `docs/schema/schema.md`
-- "왜 이렇게 정했지?" → `docs/design-decisions.md`(시간순, 뒤 절 우선), `docs/adr/`
+- "왜 이렇게 정했지?" → `docs/decisions.md`(지금 유효한 결정, 주제별. 차례에서 주제를 골라 그 절만 읽는다), `docs/adr/`. 바뀌기 전 맥락이 필요할 때만 이력 `docs/design-decisions.md`(동결, 절 번호로 참조)를 grep으로 찾아 읽는다. 옛 이름은 `GLOSSARY.md`의 _Avoid_ 이름으로 함께 찾는다.
 - 화면·색·문구 → `DESIGN.md`
 - 코드 리뷰 기준 → `CODING_STANDARDS.md`
 
@@ -44,6 +44,15 @@
   2. [단계] → 검증: [확인 방법]
   ```
 - 끝났다고 말하기 전에 테스트를 실제로 돌린다. 돌리지 못했으면 그렇다고 말한다.
+
+**바뀐 결정은 문서 반영 이슈에 모은다**
+- 이번 변경 범위 밖의 문서(requirements·schema·DESIGN·`docs/decisions.md`·GLOSSARY·ADR)에 반영할 결정이 생기면 그 문서를 고치지 않는다. 열린 `[Task] 바뀐 결정을 문서에 반영 (N차)` 이슈에 댓글로 더한다. 형식은 그 이슈 본문의 "모으는 방법"을 따른다.
+  ```
+  gh issue list --label documentation --state open --search "바뀐 결정을 문서에 반영 in:title"
+  ```
+- 이슈 본문은 고치지 않는다. 여러 세션이 동시에 고치면 덮어쓴다. PR 본문 "영향 및 참고"에 `문서 반영 필요: … (#N)`을 적는다.
+- 열린 이슈가 없으면 묻지 않고 직전 차수 본문을 틀로 다음 차수를 연다. 차수 이슈를 닫는 작업도 다음 차수를 연다. 라벨은 `documentation`만 붙인다. `ready-for-agent`는 처리할 때 사용자가 붙인다.
+- 이번 변경이 만든 기능의 문서는 같은 PR에서 고친다.
 
 ## Git
 - `main`과 `dev`에 직접 커밋하지 않는다. `dev`에서 작업 브랜치를 만들고 PR로 `dev`에 합친다. 병합은 사용자가 한다.

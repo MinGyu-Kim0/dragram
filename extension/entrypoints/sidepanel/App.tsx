@@ -13,6 +13,7 @@ import {
   type GrammarItem,
   type Translation,
   type WordItem,
+  watchUpdateRequired,
 } from "@/utils/api";
 import { loadToken, watchConnection } from "@/utils/auth";
 import { WEB_ORIGIN } from "@/utils/external-messages";
@@ -27,7 +28,6 @@ import {
   fetchMyItems,
   watchItemsChanged,
   itemKey,
-  removeMyItem,
   saveMyItem,
   type Example,
   type ItemKind,
@@ -35,9 +35,11 @@ import {
 } from "@/utils/my-items";
 import type { MyItems } from "./MyItems";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
+import { GuideButton } from "./GuideButton";
+import { Pager } from "./Pager";
 import { Logo } from "./Logo";
 import { ThemeButton } from "./ThemeButton";
-import { usePreference } from "./use-preference";
+import { useHighlightStyle, usePreference } from "./use-preference";
 
 // 서버에 동시에 보내는 문장 분석 요청 수. 문장 수에는 상한이 없어서(#23), 긴 글을 골라도
 // 서버에 한꺼번에 몰리지 않게 한다. 회차가 바뀌어도 이전 회차의 진행 중인 요청까지 센다.
@@ -60,14 +62,17 @@ function App() {
   const [results, setResults] = useState<Results>();
   const [page, setPage] = useState<Page>();
   const [tab, setTab] = useState<ResultTab>("grammar");
-  const [showHandles, toggleHandles] = usePreference("showDragHandles");
   const [showRuby, toggleRuby] = usePreference("showRuby");
+  const [highlightStyle, setHighlightStyle] = useHighlightStyle();
   // 패널 하나에서 모든 회차가 함께 쓰는 동시 요청 한도
   const [limiter] = useState(() => createLimiter(MAX_CONCURRENT_REQUESTS));
   // 지금 회차에서 실패한 문장을 다시 분석한다(문장 번호). 회차마다 새로 정한다.
   const retry = useRef<(index: number) => void>(undefined);
   // 확장 토큰이 있는지(웹에서 연결했는지). 처음 읽기 전에는 undefined다(#109).
   const [connected, setConnected] = useState<boolean>();
+  // 서버가 이 확장 버전을 거부했다(#349). 업데이트하면 확장이 다시 뜨므로 되돌리지 않는다.
+  const [updateRequired, setUpdateRequired] = useState(false);
+  useEffect(() => watchUpdateRequired(() => setUpdateRequired(true)), []);
   // 로그인이 필요해 분석하지 못한 요청이 있다. 연결되면 다시 분석한다.
   const waitingForLogin = useRef(false);
   // 지정한 이름(#136). 연결되면 한 번 받고, 지정·해제하면 열린 모든 문장 페이지에 바로 쓴다.
@@ -158,7 +163,10 @@ function App() {
           else {
             setItemStates(
               new Map(
-                loaded.map((item) => [itemKey(item.kind, item.id), item.state]),
+                loaded.map((item) => [
+                  itemKey(item.kind, item.id),
+                  { added: item.added, hidden: item.hidden },
+                ]),
               ),
             );
             setItemExamples(
@@ -385,34 +393,29 @@ function App() {
   const myItems: MyItems = {
     states: itemStates,
     withExamples: itemExamples,
-    save: (kind: ItemKind, id: number, state: ItemState, example?: Example) =>
+    save: (
+      kind: ItemKind,
+      id: number,
+      changes: Partial<ItemState>,
+      example?: Example,
+    ) =>
       inOrder(itemKey(kind, id), async () => {
         const started = loginRef.current;
-        const saved = await saveMyItem(kind, id, state, example);
+        const { added, hidden } = await saveMyItem(kind, id, changes, example);
         if (loginRef.current !== started) return;
         itemEdits.current += 1;
-        setItemStates((current) =>
-          new Map(current).set(itemKey(saved.kind, saved.id), saved.state),
-        );
-        if (example)
-          setItemExamples((current) =>
-            new Set(current).add(itemKey(saved.kind, saved.id)),
-          );
-      }),
-    remove: (kind: ItemKind, id: number) =>
-      inOrder(itemKey(kind, id), async () => {
-        const started = loginRef.current;
-        await removeMyItem(kind, id);
-        if (loginRef.current !== started) return;
-        itemEdits.current += 1;
+        const key = itemKey(kind, id);
+        // 두 축이 모두 꺼지면 항목이 없어지고, 제외하면 예문도 지워진다.
         setItemStates((current) => {
           const next = new Map(current);
-          next.delete(itemKey(kind, id));
+          if (added || hidden) next.set(key, { added, hidden });
+          else next.delete(key);
           return next;
         });
         setItemExamples((current) => {
           const next = new Set(current);
-          next.delete(itemKey(kind, id));
+          if (!added) next.delete(key);
+          else if (example) next.add(key);
           return next;
         });
       }),
@@ -423,9 +426,35 @@ function App() {
       <main>
         <header className="panel-header">
           <Logo />
-          <ThemeButton />
+          <div className="header-actions">
+            <GuideButton />
+            <ThemeButton />
+          </div>
         </header>
         <LoginPrompt />
+      </main>
+    );
+  }
+
+  if (updateRequired) {
+    return (
+      <main>
+        <header className="panel-header">
+          <Logo />
+          <div className="header-actions">
+            <GuideButton />
+            <ThemeButton />
+            {/* 옛 확장이어도 연결은 끊을 수 있다. */}
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => logoutExtension()}
+            >
+              로그아웃
+            </button>
+          </div>
+        </header>
+        <UpdatePrompt />
       </main>
     );
   }
@@ -435,6 +464,7 @@ function App() {
       <header className="panel-header">
         <Logo />
         <div className="header-actions">
+          <GuideButton />
           <ThemeButton />
           {connected && (
             <button
@@ -448,38 +478,17 @@ function App() {
         </div>
       </header>
       {request && request.sentences.length > 1 && (
-        <nav className="pager" aria-label="문장">
-          <button
-            type="button"
-            aria-label="이전 문장"
-            disabled={pageIndex === 0}
-            onClick={() => goTo(pageIndex - 1)}
-          >
-            ‹
-          </button>
-          <span>
-            {pageIndex + 1} / {request.sentences.length}
-          </span>
-          <button
-            type="button"
-            aria-label="다음 문장"
-            disabled={pageIndex === request.sentences.length - 1}
-            onClick={() => goTo(pageIndex + 1)}
-          >
-            ›
-          </button>
-        </nav>
+        <Pager index={pageIndex} total={request.sentences.length} onGo={goTo} />
       )}
       {sentence && (
         <SentenceView
           // '사전 단어 보기'는 그 페이지의 화면 상태라 페이지마다 새로 시작한다.
           key={`${request!.id}-${pageIndex}`}
           text={sentence.text}
-          selection={sentence.selection}
-          showHandles={showHandles}
-          onToggleHandles={toggleHandles}
           showRuby={showRuby}
           onToggleRuby={toggleRuby}
+          highlightStyle={highlightStyle}
+          onHighlightStyleChange={setHighlightStyle}
           result={result}
           tab={tab}
           onTabChange={setTab}
@@ -513,6 +522,41 @@ function LoginPrompt() {
       <p className="muted">
         분석할 문장은 Dragram 서버로 보내 분석하고, 분석에는 OpenAI를 써요.
       </p>
+    </section>
+  );
+}
+
+// 서버가 이 확장 버전을 더는 받지 않는다(#349). Chrome에 업데이트 확인을 요청하고, 받을 업데이트가
+// 있으면 확장을 다시 띄워 적용한다. 없거나 확인이 제한되면(throttled) 잠시 뒤 다시 하라고 한다.
+function UpdatePrompt() {
+  const [notReady, setNotReady] = useState(false);
+  const update = async () => {
+    try {
+      const { status } = await browser.runtime.requestUpdateCheck();
+      if (status === "update_available") {
+        browser.runtime.reload();
+        return;
+      }
+    } catch {
+      // 확인하지 못한 것도 받을 업데이트가 없는 것과 같이 안내한다.
+    }
+    setNotReady(true);
+  };
+  return (
+    <section className="login-prompt">
+      <h2>업데이트가 필요해요</h2>
+      <p>
+        이 버전의 확장 프로그램으로는 더 분석할 수 없어요. 확장 프로그램을
+        업데이트해 주세요.
+      </p>
+      <button type="button" className="primary-button" onClick={update}>
+        지금 업데이트
+      </button>
+      {notReady && (
+        <p className="error" role="alert">
+          아직 받을 수 있는 업데이트가 없어요. 잠시 뒤 다시 해 주세요.
+        </p>
+      )}
     </section>
   );
 }

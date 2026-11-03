@@ -8,8 +8,9 @@ import pytest
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.core import serializers
-from django.db import transaction
+from django.db import connection, transaction
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 
 from analysis.models import MyExample, MyItem, ReviewStatus, SpanMatch
 from tests.accounts.test_withdrawal import web_session
@@ -52,25 +53,107 @@ def states(client):
     return response.json()["items"]
 
 
-def test_extension_adds_hides_and_removes_items(usage, sense):
+def item(kind, target, added, hidden, **extra):
+    """API가 돌려주는 항목. state는 옛 확장을 위한 칸이다(#362)."""
+    state = "hidden" if hidden else "added"
+    return {
+        "kind": kind,
+        "id": target.pk,
+        "added": added,
+        "hidden": hidden,
+        "state": state,
+        **extra,
+    }
+
+
+def test_add_exclude_hide_and_restore_are_separate_axes(usage, sense):
+    """추가·제외는 내 일본어, 숨김·복원은 사이드 패널 표시다. 둘 다 꺼지면 항목이 사라진다(#362)."""
+    extension = connected_client("me")
+
+    added = send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True})
+    hidden = send(extension, "put", {"kind": "sense", "id": sense.pk, "hidden": True})
+
+    assert added.status_code == 200
+    assert added.json() == item("usage", usage, True, False)
+    assert hidden.json() == item("sense", sense, False, True)
+    assert states(extension) == [
+        item("usage", usage, True, False, has_examples=False),
+        item("sense", sense, False, True, has_examples=False),
+    ]
+    # 추가한 항목을 숨겨도 추가는 그대로고, 복원하면 숨김만 풀린다.
+    hide = send(extension, "put", {"kind": "usage", "id": usage.pk, "hidden": True})
+    assert hide.json() == item("usage", usage, True, True)
+    assert MyItem.objects.filter(usage=usage).count() == 1
+    restore = send(extension, "put", {"kind": "usage", "id": usage.pk, "hidden": False})
+    assert restore.json() == item("usage", usage, True, False)
+    # 제외하면 추가가 꺼지고, 숨기지도 않았으니 항목이 사라진다.
+    exclude = send(extension, "put", {"kind": "usage", "id": usage.pk, "added": False})
+    assert exclude.json() == {
+        "kind": "usage",
+        "id": usage.pk,
+        "added": False,
+        "hidden": False,
+        "state": None,
+    }
+    # 추가하지 않고 숨긴 항목을 복원해도 사라진다.
+    send(extension, "put", {"kind": "sense", "id": sense.pk, "hidden": False})
+    assert states(extension) == []
+
+
+def test_changing_an_item_locks_its_row(usage):
+    """사용자 잠금을 쓰지 않는 DELETE(옛 확장)가 그사이 행을 지워 저장이 실패하지 않게, 기존
+    항목을 행 잠금으로 읽는다(PR #364 리뷰).
+    """
+    extension = connected_client("me")
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True})
+
+    with CaptureQueriesContext(connection) as queries:
+        send(extension, "put", {"kind": "usage", "id": usage.pk, "hidden": True})
+
+    assert any(
+        'FROM "my_item"' in q["sql"] and "FOR UPDATE" in q["sql"] for q in queries.captured_queries
+    )
+
+
+def test_delete_still_clears_both_axes(usage):
+    extension = connected_client("me")
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True, "hidden": True})
+
+    assert send(extension, "delete", {"kind": "usage", "id": usage.pk}).status_code == 204
+    assert states(extension) == []
+
+
+def test_hiding_and_restoring_keep_examples_and_excluding_deletes_them(usage):
+    extension = connected_client("me")
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True, **WITH_EXAMPLE})
+
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "hidden": True})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "hidden": False})
+    assert MyExample.objects.count() == 1
+
+    # 숨긴 채 제외하면 예문은 지우고 숨김은 남긴다.
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "hidden": True})
+    excluded = send(extension, "put", {"kind": "usage", "id": usage.pk, "added": False})
+    assert excluded.json() == item("usage", usage, False, True)
+    assert not MyExample.objects.exists()
+
+
+def test_old_extension_state_requests_still_work(usage, sense):
+    """스토어에 배포된 옛 확장은 state만 보낸다(#362 호환)."""
     extension = connected_client("me")
 
     added = send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added"})
-    hidden = send(extension, "put", {"kind": "sense", "id": sense.pk, "state": "hidden"})
-
-    assert added.status_code == 200
-    assert added.json() == {"kind": "usage", "id": usage.pk, "state": "added"}
-    assert hidden.json() == {"kind": "sense", "id": sense.pk, "state": "hidden"}
+    assert added.json() == item("usage", usage, True, False)
+    # 옛 숨김은 추가 여부를 건드리지 않는다.
+    hidden = send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "hidden"})
+    assert hidden.json() == item("usage", usage, True, True)
+    send(extension, "put", {"kind": "sense", "id": sense.pk, "state": "hidden"})
+    # 옛 추가는 숨김도 푼다(옛 확장에서 숨긴 카드는 추가 버튼이 없어 다시 보이기로만 돌아왔다).
+    again = send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added"})
+    assert again.json() == item("usage", usage, True, False)
     assert states(extension) == [
-        {"kind": "usage", "id": usage.pk, "state": "added", "has_examples": False},
-        {"kind": "sense", "id": sense.pk, "state": "hidden", "has_examples": False},
-    ]
-    # 같은 항목을 다시 보내면 상태만 바뀐다.
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "hidden"})
-    assert MyItem.objects.filter(usage=usage).count() == 1
-    assert send(extension, "delete", {"kind": "usage", "id": usage.pk}).status_code == 204
-    assert states(extension) == [
-        {"kind": "sense", "id": sense.pk, "state": "hidden", "has_examples": False}
+        item("usage", usage, True, False, has_examples=False),
+        item("sense", sense, False, True, has_examples=False),
     ]
 
 
@@ -81,7 +164,7 @@ def test_adding_with_an_example_keeps_only_that_sentence(usage):
         response = send(
             extension,
             "put",
-            {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE},
+            {"kind": "usage", "id": usage.pk, "added": True, **WITH_EXAMPLE},
         )
         assert response.status_code == 200
 
@@ -89,28 +172,32 @@ def test_adding_with_an_example_keeps_only_that_sentence(usage):
     assert (example.item.usage, example.original_text) == (usage, EXAMPLE)
     assert (example.highlight_start, example.highlight_end) == (11, 14)
     # 예문 없이 다시 추가해도 저장한 예문은 그대로다.
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added"})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True})
     assert MyExample.objects.count() == 1
 
 
 def test_item_list_tells_which_items_have_examples(usage, sense):
     extension = connected_client("me")
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "hidden"})
-    send(extension, "put", {"kind": "sense", "id": sense.pk, "state": "hidden"})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True, **WITH_EXAMPLE})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "hidden": True})
+    send(extension, "put", {"kind": "sense", "id": sense.pk, "hidden": True})
 
-    # 확장이 빼기·다시 보이기 전에 예문이 함께 지워짐을 확인받을 수 있게 알린다(PR #320 리뷰).
+    # 확장이 제외하기 전에 예문이 함께 지워짐을 확인받을 수 있게 알린다(PR #320 리뷰).
     assert extension.get(ITEMS).json()["items"] == [
-        {"kind": "usage", "id": usage.pk, "state": "hidden", "has_examples": True},
-        {"kind": "sense", "id": sense.pk, "state": "hidden", "has_examples": False},
+        item("usage", usage, True, True, has_examples=True),
+        item("sense", sense, False, True, has_examples=False),
     ]
 
 
-def test_hiding_does_not_take_an_example(usage):
+@pytest.mark.parametrize(
+    "change",
+    [{"state": "hidden"}, {"hidden": True}, {"added": False}, {"added": True, "hidden": True}],
+)
+def test_only_adding_takes_an_example(usage, change):
     response = send(
         connected_client("me"),
         "put",
-        {"kind": "usage", "id": usage.pk, "state": "hidden", **WITH_EXAMPLE},
+        {"kind": "usage", "id": usage.pk, **change, **WITH_EXAMPLE},
     )
 
     assert (response.status_code, response.json()) == (400, {"error": "MY_ITEM:INVALID"})
@@ -119,7 +206,7 @@ def test_hiding_does_not_take_an_example(usage):
 
 def test_removing_an_item_deletes_its_examples(usage):
     extension = connected_client("me")
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True, **WITH_EXAMPLE})
 
     send(extension, "delete", {"kind": "usage", "id": usage.pk})
 
@@ -147,6 +234,11 @@ def test_removing_an_item_deletes_its_examples(usage):
         {**WITH_EXAMPLE, "kind": "usage", "state": "added", "example_start": 14},
         {**WITH_EXAMPLE, "kind": "usage", "state": "added", "example_end": 16},
         {"kind": "usage", "state": "added", "example_start": 0, "example_end": 1},
+        {"kind": "usage"},
+        {"kind": "usage", "added": 1},
+        {"kind": "usage", "hidden": "true"},
+        {"kind": "usage", "added": None},
+        {"kind": "usage", "state": "added", "added": True},
         ["usage"],
     ],
 )
@@ -195,9 +287,7 @@ def test_web_session_needs_csrf_to_change(usage):
 
     assert (refused.status_code, refused.json()) == (403, {"error": "AUTH:CSRF_FAILED"})
     assert accepted.status_code == 200
-    assert states(web) == [
-        {"kind": "usage", "id": usage.pk, "state": "added", "has_examples": False}
-    ]
+    assert states(web) == [item("usage", usage, True, False, has_examples=False)]
 
 
 def test_needs_login(usage):
@@ -240,16 +330,14 @@ def test_merging_usages_keeps_the_users_item(usage):
         origin=GrammarUsage.Origin.ADMIN,
     )
     extension = connected_client("me")
-    send(extension, "put", {"kind": "usage", "id": usage.pk, "state": "added", **WITH_EXAMPLE})
-    send(extension, "put", {"kind": "usage", "id": target.pk, "state": "hidden"})
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True, **WITH_EXAMPLE})
+    send(extension, "put", {"kind": "usage", "id": target.pk, "hidden": True})
 
     with transaction.atomic():
         merge_usage(usage, target)
 
-    # 추가가 숨김보다 앞서고, 예문은 합친 항목으로 옮긴다.
-    assert states(extension) == [
-        {"kind": "usage", "id": target.pk, "state": "added", "has_examples": True}
-    ]
+    # 어느 쪽이라도 추가면 추가이고, 숨김은 양쪽 모두 숨겼을 때만이다. 예문은 합친 항목으로 옮긴다.
+    assert states(extension) == [item("usage", target, True, False, has_examples=True)]
     assert MyExample.objects.get().item.usage == target
 
 

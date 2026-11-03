@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
+import { fakeBrowser } from "wxt/testing/fake-browser";
 
 // Vitest globals를 켜지 않아 Testing Library가 자동 정리를 등록하지 못하므로 직접 등록한다.
 afterEach(cleanup);
@@ -10,3 +11,10 @@ afterEach(cleanup);
 // 아니라 직접 바꿔, 되돌려도 이 가짜가 남게 한다.
 globalThis.fetch = () =>
   Promise.reject(new TypeError("테스트에서 진짜 fetch를 불렀습니다"));
+
+// fake-browser는 manifest를 주지 않는다. 확장 버전 헤더(#349)를 붙이는 요청이 쓴다.
+fakeBrowser.runtime.getManifest = () => ({
+  manifest_version: 3,
+  name: "Dragram",
+  version: "0.3.0",
+});

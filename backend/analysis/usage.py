@@ -15,6 +15,13 @@ def today_start():
     return timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
 
 
+def counted_since(user):
+    """하루 한도가 세기 시작하는 시각: 오늘(Asia/Seoul) 자정과 관리자 초기화 시각 중 늦은 쪽."""
+    start = today_start()
+    reset = getattr(user, "usage_reset_at", None)
+    return max(start, reset) if reset else start
+
+
 def withdrawn_key(user):
     """탈퇴한 Google 계정을 그날 다시 알아보는 값(PR #244). Google 계정 식별자는 남기지 않는다."""
     sub = getattr(user, "google_sub", None)
@@ -31,15 +38,18 @@ _BLANK_AFTER_WITHDRAWAL = {"analysis_id": None, "model": None, "attempt": None}
 def forget(user):
     """탈퇴하는 사용자의 사용량 기록을 지운다. 탈퇴 트랜잭션에서 사용자 행을 잠근 뒤 부른다.
 
-    오늘 행만 계정 연결 대신 withdrawn_key를 남겨, 같은 Google 계정이 그날 다시 가입해도 하루
-    한도를 새로 받지 못하게 한다. 남기는 행은 _BLANK_AFTER_WITHDRAWAL의 칸을 비운다. 이 행은
-    자정이 지나면 purge_withdrawn이 지운다.
+    오늘 행(관리자가 초기화했으면 그 뒤 행)만 계정 연결 대신 withdrawn_key를 남겨, 같은 Google
+    계정이 그날 다시 가입해도 하루 한도를 새로 받지 못하게 한다. 남기는 행은
+    _BLANK_AFTER_WITHDRAWAL의 칸을 비운다. 이 행은 자정이 지나면 purge_withdrawn이 지운다.
     """
     key = withdrawn_key(user)
     if key:
-        UsageLog.objects.filter(user=user, created_at__gte=today_start()).update(
+        since = counted_since(user)
+        UsageLog.objects.filter(user=user, created_at__gte=since).update(
             user=None, withdrawn_key=key, **_BLANK_AFTER_WITHDRAWAL
         )
+        # 앞선 탈퇴에서 이어받은 행도 초기화 전 것은 지워, 다음 가입에 되살아나지 않게 한다.
+        UsageLog.objects.filter(withdrawn_key=key, created_at__lt=since).delete()
     UsageLog.objects.filter(user=user).delete()
     purge_withdrawn()
 

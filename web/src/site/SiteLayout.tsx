@@ -75,7 +75,7 @@ export function Section({
 }
 
 /** 헤더 로고(와이어프레임의 32 viewBox 변형): 형광펜 두 줄 + 드래그 핸들 + 커서 */
-function LogoMark() {
+export function LogoMark() {
   return (
     <svg
       className="logo-mark"

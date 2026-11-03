@@ -6,11 +6,11 @@ import type {
   Translation,
   WordItem,
 } from "@/utils/api";
-import type { DragRange } from "./drag-range";
-import { GrammarCards, HighlightedText } from "./Grammar";
-import { grammarCardCount } from "./grammar-groups";
+import { GrammarCards, HighlightedText, SelectedGrammarCard } from "./Grammar";
+import { cardAt, grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
-import { isHidden } from "@/utils/my-items";
+import { isAdded, isHidden } from "@/utils/my-items";
+import type { HighlightStyle } from "@/utils/preferences";
 import { HiddenCards, type HiddenCard, type MyItems } from "./MyItems";
 import { senseBadges } from "./sense-badges";
 import { WordList, type NameActions } from "./Words";
@@ -101,6 +101,11 @@ function translationOf(result: SentenceResult | undefined) {
 
 export type ResultTab = "grammar" | "words";
 
+const HIGHLIGHT_STYLES: [HighlightStyle, string][] = [
+  ["marker", "형광펜"],
+  ["underline", "밑줄"],
+];
+
 // 실패 문구 바로 옆에 두는 다시 시도 버튼
 function RetryButton({ onRetry }: { onRetry: () => void }) {
   return (
@@ -113,11 +118,10 @@ function RetryButton({ onRetry }: { onRetry: () => void }) {
 // 문장 한 페이지: 원문 카드(원문, 번역) → 문법·단어 탭 → 탭 내용
 export function SentenceView({
   text,
-  selection,
-  showHandles,
-  onToggleHandles,
   showRuby,
   onToggleRuby,
+  highlightStyle,
+  onHighlightStyleChange,
   result,
   tab,
   onTabChange,
@@ -126,13 +130,13 @@ export function SentenceView({
   onSave,
   onRemove,
   items,
+  initialSelected,
 }: {
   text: string;
-  selection: DragRange;
-  showHandles: boolean;
-  onToggleHandles: () => void;
   showRuby: boolean;
   onToggleRuby: () => void;
+  highlightStyle: HighlightStyle;
+  onHighlightStyleChange: (style: HighlightStyle) => void;
   result: SentenceResult | undefined;
   tab: ResultTab;
   onTabChange: (tab: ResultTab) => void;
@@ -140,13 +144,17 @@ export function SentenceView({
   onRetry: () => void;
   // 지정한 이름(표기 → 읽기, #136)
   names: ReadonlyMap<string, string | null>;
-  // 내 일본어 항목(#321). '표시 안 함'으로 숨긴 카드는 목록·형광펜·개수에서 빼고 맨 아래에 접어 둔다.
+  // 내 일본어 항목(#321). '숨김'으로 숨긴 카드는 목록·형광펜·개수에서 빼고 맨 아래에 접어 둔다.
   items?: MyItems;
+  // 처음부터 고른 글자의 위치. 가이드(#370) 장면이 '선택한 카드'를 열어 보일 때만 쓴다.
+  initialSelected?: number;
 } & NameActions) {
   // '사전 단어 보기' 토글로 고른 보기(자리 → 이름 행인가). 화면 상태라 저장하지 않는다.
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
   const chooseView = (key: string, named: boolean) =>
     setChosen((current) => new Map(current).set(key, named));
+  // 원문을 눌러 고른 글자의 위치(#354). 화면 상태라 저장하지 않고 페이지마다 새로 시작한다.
+  const [selected, setSelected] = useState<number | undefined>(initialSelected);
   const hiddenUsage = (item: GrammarItem) =>
     !!items && isHidden(items.states, "usage", item.usage_id);
   // 숨긴 용법은 바깥 카드에서도, 다른 카드의 구성 문법(parts)에서도 뺀다(PR #327 리뷰). 바깥을
@@ -178,6 +186,41 @@ export function SentenceView({
     isHidden(items.states, "sense", word.sense?.id);
   const shownWords = (list: WordItem[]) =>
     list.filter((word) => !hiddenWord(word));
+  // '선택한 카드'(#354): 고른 글자의 문법 카드와 그 아래 그 글자의 단어 카드. 둘 다 사라지면
+  // (숨김·재분석) 닫고, 다시 나타나도 저절로 열지 않는다.
+  const visibleWords = shownWords(allWords);
+  const selectedGrammar =
+    selected === undefined ? undefined : cardAt(grammar, selected);
+  const selectedWords =
+    selected === undefined
+      ? []
+      : visibleWords.filter(
+          (word) => word.start <= selected && selected < word.end,
+        );
+  if (
+    selected !== undefined &&
+    !selectedGrammar &&
+    selectedWords.length === 0
+  ) {
+    setSelected(undefined);
+  }
+  const removeName = async (surface: string) => {
+    await onRemove(surface);
+    // 해제한 표기의 자리는 다시 지정해도 기본 보기로 시작한다.
+    setChosen(
+      (current) =>
+        new Map(
+          [...current].filter(
+            ([key]) =>
+              !allWords.some(
+                (word) =>
+                  wordKey(word) === key &&
+                  text.slice(word.start, word.end) === surface,
+              ),
+          ),
+        ),
+    );
+  };
   const tabbed = analysis
     ? {
         grammar,
@@ -204,6 +247,7 @@ export function SentenceView({
       name: item.name,
       pending: item.review_status === "pending",
       translated: false,
+      added: !!items && isAdded(items.states, "usage", item.usage_id),
     }),
   );
   const hiddenWords = hiddenCards(allWords.filter(hiddenWord), (word) => ({
@@ -212,6 +256,7 @@ export function SentenceView({
     chip: word.dictionary_form,
     name: word.sense!.meaning_ko ?? "",
     ...senseBadges(word.sense),
+    added: !!items && isAdded(items.states, "sense", word.sense?.id),
   }));
   // 단어 개수도 보이는 행 수다(합친 행은 한 행, #211).
   const wordCount = tabbed
@@ -237,23 +282,37 @@ export function SentenceView({
             </p>
           )}
           <button type="button" aria-pressed={showRuby} onClick={onToggleRuby}>
-            루비
+            후리가나
           </button>
-          <button
-            type="button"
-            aria-pressed={showHandles}
-            onClick={onToggleHandles}
-          >
-            드래그 표시
-          </button>
+          <div role="group" aria-label="형광펜 모양" className="style-choice">
+            {HIGHLIGHT_STYLES.map(([style, label]) => (
+              <button
+                key={style}
+                type="button"
+                aria-pressed={highlightStyle === style}
+                onClick={() => onHighlightStyleChange(style)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <p lang="ja" className="original">
+        <p
+          lang="ja"
+          className={
+            highlightStyle === "underline" ? "original underline" : "original"
+          }
+        >
           <HighlightedText
             text={text}
             grammar={grammar}
             checking={checking}
+            words={visibleWords}
             ruby={showRuby ? shownRuby : []}
-            dragHandles={showHandles ? selection : undefined}
+            selected={selected}
+            onSelect={(at) =>
+              setSelected((current) => (current === at ? undefined : at))
+            }
           />
         </p>
         <hr />
@@ -270,6 +329,41 @@ export function SentenceView({
         {translation && (
           <p className="translation">{translation.translation_ko}</p>
         )}
+        {selected !== undefined && (
+          <section aria-label="선택한 카드" className="selected-card">
+            <div className="selected-card-head">
+              <span className="card-meta">선택한 카드</span>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setSelected(undefined)}
+              >
+                닫기
+              </button>
+            </div>
+            {selectedGrammar && (
+              <SelectedGrammarCard
+                text={text}
+                item={selectedGrammar}
+                items={items}
+              />
+            )}
+            {selectedWords.length > 0 && (
+              <WordList
+                text={text}
+                words={selectedWords}
+                ruby={ruby}
+                names={names}
+                chosen={chosen}
+                nameSpans={analysis?.name_spans}
+                onChooseView={chooseView}
+                onSave={onSave}
+                onRemove={removeName}
+                items={items}
+              />
+            )}
+          </section>
+        )}
         {result?.status === "failed" && !translation && (
           <p className="error">
             {REFUSALS[result.code ?? ""] ?? "분석하지 못했습니다"}{" "}
@@ -285,7 +379,6 @@ export function SentenceView({
                 text={text}
                 grammar={grammar}
                 checking={checking}
-                selection={selection}
                 items={items}
               />
             )}
@@ -335,7 +428,6 @@ export function SentenceView({
                   text={text}
                   grammar={tabbed.grammar}
                   checking={tabbed.checking}
-                  selection={selection}
                   items={items}
                 />
                 {items && <HiddenCards cards={hiddenGrammar} items={items} />}
@@ -346,29 +438,12 @@ export function SentenceView({
                   text={text}
                   words={tabbed.words}
                   ruby={ruby}
-                  selection={selection}
                   names={names}
                   chosen={chosen}
                   nameSpans={analysis?.name_spans}
                   onChooseView={chooseView}
                   onSave={onSave}
-                  onRemove={async (surface) => {
-                    await onRemove(surface);
-                    // 해제한 표기의 자리는 다시 지정해도 기본 보기로 시작한다.
-                    setChosen(
-                      (current) =>
-                        new Map(
-                          [...current].filter(
-                            ([key]) =>
-                              !tabbed.words.some(
-                                (word) =>
-                                  wordKey(word) === key &&
-                                  text.slice(word.start, word.end) === surface,
-                              ),
-                          ),
-                        ),
-                    );
-                  }}
+                  onRemove={removeName}
                   items={items}
                 />
                 {items && <HiddenCards cards={hiddenWords} items={items} />}

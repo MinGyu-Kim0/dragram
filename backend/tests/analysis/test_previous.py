@@ -1,14 +1,21 @@
 """stale 분석의 옛 결과를 먼저 보내기(재분석 중, #60)."""
 
 import json
-from unittest.mock import ANY
 
 import pytest
 
 from analysis import review
 from analysis.models import GrammarPattern, SentenceAnalysis
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import add_word, analyze, new_pattern, post, read_body, span_answer
+from tests.analysis.helpers import (
+    add_word,
+    analyze,
+    grammar_item,
+    new_pattern,
+    post,
+    read_body,
+    span_answer,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -44,24 +51,14 @@ def test_stale_analysis_sends_its_previous_result_before_calling_the_llm(client,
     assert first["ruby"] == [{"start": 0, "end": 1, "reading": "はし"}]
     # 미검수 패턴·용법으로 정한 구간은 미검수로 실린다.
     assert first["grammar"] == [
-        {
-            "start": 2,
-            "end": 5,
-            "state": "decided",
-            "connection": ANY,
-            "usage_id": ANY,
-            "pattern_name": "ている",
-            "name": "진행",
-            "explanation_ko": "동작이 이어지고 있음을 나타낸다",
-            "korean_equivalent": None,
-            "korean_equivalent_review_status": None,
-            "pos_tags": ["particle", "verb"],
-            "function_tags": [],
-            "function_tags_review_status": None,
-            "review_status": "pending",
-            "register": "standard",
-            "variant_of": None,
-        }
+        grammar_item(
+            start=2,
+            end=5,
+            pattern_name="ている",
+            name="진행",
+            explanation_ko="동작이 이어지고 있음을 나타낸다",
+            pos_tags=["particle", "verb"],
+        )
     ]
     assert [(w["dictionary_form"], w["sense"]["gloss_en"]) for w in first["words"]] == [
         ("走る", ["to run"])
@@ -80,25 +77,20 @@ def test_reanalysis_after_the_previous_result_makes_the_same_llm_calls(client, f
     assert len(fake_llm.requests) == calls + 1
 
 
-def test_previous_result_leaves_out_spans_of_a_rejected_usage(client, fake_llm):
+@pytest.mark.parametrize(
+    "reject",
+    [
+        # 진행 용법이 반려돼 ている 패턴에는 후보가 없다.
+        lambda: review.reject_usage(GrammarPattern.objects.get().usages.get()),
+        # 반려된 패턴은 매칭되지 않는다.
+        lambda: review.reject_pattern(GrammarPattern.objects.get()),
+    ],
+    ids=["용법", "패턴"],
+)
+def test_previous_result_leaves_out_spans_of_a_rejected_usage_or_pattern(client, fake_llm, reject):
     stale_teiru(client, fake_llm)
     SentenceAnalysis.objects.update(is_stale=False)
-    review.reject_usage(GrammarPattern.objects.get().usages.get())
-    # 진행 용법이 반려돼 ている 패턴에는 후보가 없다.
-    fake_llm.response = {"translation_ko": "달리는 중이다"}
-
-    response = analyze(client, "走っている")
-
-    assert response.events[0]["type"] == "previous"
-    assert response.events[0]["grammar"] == []
-    assert response.types()[-1] == "analysis"
-
-
-def test_previous_result_leaves_out_spans_of_a_rejected_pattern(client, fake_llm):
-    stale_teiru(client, fake_llm)
-    SentenceAnalysis.objects.update(is_stale=False)
-    review.reject_pattern(GrammarPattern.objects.get())
-    # 반려된 패턴은 매칭되지 않는다.
+    reject()
     fake_llm.response = {"translation_ko": "달리는 중이다"}
 
     response = analyze(client, "走っている")

@@ -35,7 +35,6 @@ test("접속 형태를 기다리는 중에도 기존 카드와 설명은 즉시 
       grammar={[
         { ...teiru, review_status: "approved", connection: missingConnection },
       ]}
-      selection={{ start: 0, end: 7 }}
     />,
   );
 
@@ -57,7 +56,6 @@ test("저장된 접속 형태는 호출 없이 바로 보여 준다", () => {
     <GrammarCards
       text="食べています"
       grammar={[{ ...teiru, connection: filledConnection }]}
-      selection={{ start: 0, end: 7 }}
     />,
   );
 
@@ -74,7 +72,6 @@ test("접속 형태 생성에 실패해도 기존 설명은 유지한다", async
     <GrammarCards
       text="食べています"
       grammar={[{ ...teiru, connection: missingConnection }]}
-      selection={{ start: 0, end: 7 }}
     />,
   );
 
@@ -95,7 +92,6 @@ test("다른 카드로 바뀌면 늦게 온 이전 접속 형태는 표시하지
     <GrammarCards
       text="食べています"
       grammar={[{ ...teiru, connection: missingConnection }]}
-      selection={{ start: 0, end: 7 }}
     />,
   );
   rerender(
@@ -112,7 +108,6 @@ test("다른 카드로 바뀌면 늦게 온 이전 접속 형태는 표시하지
           },
         },
       ]}
-      selection={{ start: 0, end: 7 }}
     />,
   );
 
@@ -144,14 +139,12 @@ test("칩은 패턴 이름, 보조 줄은 다른 원문 형태를 보이고 설�
       <HighlightedText
         text="食べています"
         grammar={[teiru]}
+        words={[]}
         ruby={[]}
-        dragHandles={undefined}
+        selected={undefined}
+        onSelect={() => {}}
       />
-      <GrammarCards
-        text="食べています"
-        grammar={[teiru]}
-        selection={{ start: 0, end: 7 }}
-      />
+      <GrammarCards text="食べています" grammar={[teiru]} />
     </>,
   );
 
@@ -167,13 +160,7 @@ test("칩은 패턴 이름, 보조 줄은 다른 원문 형태를 보이고 설�
 });
 
 test("원문과 패턴 이름이 같으면 보조 줄을 생략한다", () => {
-  render(
-    <GrammarCards
-      text="食べている"
-      grammar={[{ ...teiru, end: 5 }]}
-      selection={{ start: 0, end: 5 }}
-    />,
-  );
+  render(<GrammarCards text="食べている" grammar={[{ ...teiru, end: 5 }]} />);
 
   expect(
     screen.queryByText("문장 속 형태:", { exact: false }),
@@ -196,7 +183,6 @@ test.each([false, true])(
             usage: hasUsage ? teiru : null,
           },
         ]}
-        selection={{ start: 0, end: 7 }}
       />,
     );
 

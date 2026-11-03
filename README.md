@@ -45,7 +45,7 @@ LLM 추론 강도는 모든 호출에 `low`를 기본으로 쓴다. `.env`의 `O
 
 - [요구사항](docs/requirements.md)
 - [DB 스키마](docs/schema/schema.md)
-- [설계 결정 기록](docs/design-decisions.md) · [ADR](docs/adr/)
+- [설계 결정](docs/decisions.md) · [ADR](docs/adr/) · [설계 결정 이력](docs/design-decisions.md)(동결)
 - [디자인 기준](DESIGN.md)
 - [용어집](GLOSSARY.md)
 - [기여 안내](.github/CONTRIBUTING.md)

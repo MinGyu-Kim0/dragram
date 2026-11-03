@@ -1,7 +1,7 @@
 # 인계 메모 (2026-10-18)
 
 > 이 문서는 2026-10-18 당시의 인수인계 스냅샷이다. 아래 레포 상태와 다음 단계는 그때 기준이다.
-> 현재 작업은 [요구사항](requirements.md), [스키마](schema/schema.md), [최신 결정 기록](design-decisions.md)의 뒤 절과 [실행 안내](../README.md)를 따른다.
+> 현재 작업은 [요구사항](requirements.md), [스키마](schema/schema.md), [설계 결정](decisions.md)과 [실행 안내](../README.md)를 따른다.
 
 설계(요구사항·DB 스키마·디자인 기준)는 마감됐다. 다음은 구현 시작이다. 사용자와는 한국어로 대화한다.
 
@@ -10,7 +10,7 @@
 - 요구사항(최종 기준): `docs/requirements.md`
 - DB 스키마(설계 시점 기준): `docs/schema/schema.md`, 원본 `docs/schema/erd.json`(ERDCloud)
 - 디자인 기준: `DESIGN.md`
-- 설계 결정 기록(왜 그렇게 정했나, 시간순·뒤 절 우선): `docs/design-decisions.md`
+- 설계 결정(왜 그렇게 정했나, 주제별): `docs/decisions.md`. 바뀌기 전 맥락은 동결한 이력 `docs/design-decisions.md`
 - ADR: `docs/adr/`
 
 ## 규칙 문서

@@ -8,7 +8,7 @@ import { BadgeRow, PendingBadge, WordRow } from "./cards";
 import "../connect/connect.css";
 import "./history.css";
 
-// 내 기록: 사이드 패널 카드에서 추가하거나 '표시 안 함'으로 숨긴 내 일본어(#321, #324). 문법·단어
+// 내 기록: 사이드 패널 카드에서 추가한 내 일본어(#321, #324). 문법·단어
 // 탭과 추가한·숨긴 항목 필터를 두고, 항목 상태와 사용자가 고른 예문을 여기서 바꾸거나 지운다.
 // 분석한 문장 원문은 저장하지 않으므로 문장 목록은 없다.
 
@@ -318,13 +318,17 @@ function UsageBody({ usage, index }: { usage: Usage; index: number }) {
       </div>
       {usage.korean_equivalent !== null && (
         <p>
+          <span className="line-label">뜻</span>
           {usage.korean_equivalent}
           {!pending && usage.korean_equivalent_review_status === "pending" && (
             <PendingBadge />
           )}
         </p>
       )}
-      <p className="secondary">{usage.explanation_ko}</p>
+      <p className="secondary">
+        <span className="line-label">설명</span>
+        {usage.explanation_ko}
+      </p>
     </>
   );
 }
@@ -391,9 +395,9 @@ function Examples({
   );
 }
 
-/** 항목 상태 버튼. 추가한 항목은 숨기기·빼기, 숨긴 항목은 다시 보이기·추가로 바꾸기. 반려된
- * 항목은 빼기만 있다. 빼기와 다시 보이기는 항목을 해제해 예문도 지우므로, 예문이 있으면 한 번
- * 확인받는다.
+/** 항목 상태 버튼(#362). 추가한 항목은 숨김·제외, 숨긴 항목은 복원·제외. 반려된 항목은 제외만
+ * 있다(서버가 반려된 항목의 상태 변경을 받지 않아 해제한다). 제외는 예문도 지우므로 예문이 있으면
+ * 한 번 확인받고, 복원은 숨김만 풀어 바로 한다.
  */
 function ItemActions({
   kind,
@@ -413,14 +417,13 @@ function ItemActions({
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const send = (method: "PUT" | "DELETE", next?: ItemState) => {
+  const send = (
+    method: "PUT" | "DELETE",
+    changes?: { added?: boolean; hidden?: boolean },
+  ) => {
     setBusy(true);
     setFailed(false);
-    request<unknown>(method, "/api/my-items/", {
-      kind,
-      id,
-      ...(next && { state: next }),
-    }).then(
+    request<unknown>(method, "/api/my-items/", { kind, id, ...changes }).then(
       () => {
         // 열린 사이드 패널이 바로 다시 불러오게 알린다. 확장이 없으면 그냥 넘어간다.
         void sendToExtension({ type: "items-changed" });
@@ -432,7 +435,8 @@ function ItemActions({
       },
     );
   };
-  const remove = () => send("DELETE");
+  const exclude = () =>
+    rejected ? send("DELETE") : send("PUT", { added: false });
   if (confirming)
     return (
       <div className="actions">
@@ -443,11 +447,9 @@ function ItemActions({
           type="button"
           className="danger-button"
           disabled={busy}
-          onClick={remove}
+          onClick={exclude}
         >
-          {state === "hidden" && !rejected
-            ? "예문과 함께 다시 보이기"
-            : "예문과 함께 빼기"}
+          예문과 함께 제외
         </button>
         <button
           type="button"
@@ -460,52 +462,26 @@ function ItemActions({
         {failed && <Failed />}
       </div>
     );
-  const removeButton = (
-    <button
-      type="button"
-      className="secondary-button"
-      disabled={busy}
-      onClick={() => (hasExamples ? setConfirming(true) : remove())}
-    >
-      빼기
-    </button>
-  );
   return (
     <div className="actions">
-      {rejected ? (
-        removeButton
-      ) : state === "added" ? (
-        <>
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={busy}
-            onClick={() => send("PUT", "hidden")}
-          >
-            숨기기
-          </button>
-          {removeButton}
-        </>
-      ) : (
-        <>
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={busy}
-            onClick={() => (hasExamples ? setConfirming(true) : remove())}
-          >
-            다시 보이기
-          </button>
-          <button
-            type="button"
-            className="secondary-button"
-            disabled={busy}
-            onClick={() => send("PUT", "added")}
-          >
-            추가로 바꾸기
-          </button>
-        </>
+      {!rejected && (
+        <button
+          type="button"
+          className="secondary-button"
+          disabled={busy}
+          onClick={() => send("PUT", { hidden: state === "added" })}
+        >
+          {state === "added" ? "숨김" : "복원"}
+        </button>
       )}
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={busy}
+        onClick={() => (hasExamples ? setConfirming(true) : exclude())}
+      >
+        제외
+      </button>
       {failed && <Failed />}
     </div>
   );

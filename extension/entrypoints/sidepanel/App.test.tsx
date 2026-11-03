@@ -13,6 +13,7 @@ import { loadToken, saveToken, signOut } from "@/utils/auth";
 import { handleExternalMessage, WEB_ORIGIN } from "@/utils/external-messages";
 import { fetchMyItems, saveMyItem } from "@/utils/my-items";
 import { fetchNames, removeName, saveName } from "@/utils/names";
+import { loadHelpSeen, saveHelpSeen } from "@/utils/preferences";
 import App from "./App";
 
 // 지정한 이름 API(#136)는 분석 요청의 fetch 가짜와 섞이지 않게 따로 가짜로 둔다.
@@ -130,6 +131,8 @@ beforeEach(async () => {
   panelWindowId = panelWindow!.id!;
   // 웹에서 연결한 상태로 시작한다(#109).
   await saveToken("extension-token");
+  // 도움말(#365)은 본 것으로 두고 시작한다. 처음 한 번 저절로 여는 것은 도움말 테스트에서 본다.
+  await saveHelpSeen();
   vi.mocked(fetchNames).mockReset().mockResolvedValue([]);
   vi.mocked(fetchMyItems).mockReset().mockResolvedValue([]);
   vi.mocked(saveMyItem).mockReset();
@@ -4615,5 +4618,105 @@ describe("내 일본어 항목(#321)", () => {
     expect(
       within(cardOf("주제 は")).getByRole("button", { name: "추가" }),
     ).toBeInTheDocument();
+  });
+});
+
+describe("도움말(#365)", () => {
+  const help = () => screen.queryByRole("region", { name: "도움말" });
+  const helpButton = () => screen.getByRole("button", { name: "도움말" });
+
+  test("로그인한 패널을 처음 열면 도움말이 저절로 열리고, 닫으면 다시 저절로 열리지 않는다", async () => {
+    await fakeBrowser.storage.local.remove("helpSeen");
+    const { unmount } = render(<App />);
+
+    expect(
+      await screen.findByRole("region", { name: "도움말" }),
+    ).toBeInTheDocument();
+    fireEvent.click(within(help()!).getByRole("button", { name: "닫기" }));
+    expect(help()).not.toBeInTheDocument();
+    await waitFor(async () => expect(await loadHelpSeen()).toBe(true));
+
+    unmount();
+    render(<App />);
+    await screen.findByRole("button", { name: "도움말" });
+    await act(() => Promise.resolve());
+    expect(help()).not.toBeInTheDocument();
+  });
+
+  test("헤더 버튼으로 열고 닫으며, 닫으면 포커스가 버튼으로 돌아간다", async () => {
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "도움말" }));
+    expect(help()).toBeInTheDocument();
+    expect(helpButton()).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(within(help()!).getByRole("button", { name: "닫기" }));
+
+    expect(help()).not.toBeInTheDocument();
+    expect(helpButton()).toHaveAttribute("aria-expanded", "false");
+    expect(helpButton()).toHaveFocus();
+  });
+
+  test("도움말을 열었다 닫아도 보던 문장 페이지와 탭이 그대로다", async () => {
+    respondPerSentence({
+      "一つ目。": () => json(200, analysis("첫째.")),
+      "二つ目。": () => json(200, analysis("둘째.")),
+    });
+    render(<App />);
+    await send(panelWindowId, "一つ目。", "二つ目。");
+    fireEvent.click(await screen.findByRole("button", { name: "다음 문장" }));
+    await screen.findByText("둘째.");
+
+    fireEvent.click(helpButton());
+    expect(screen.queryByText("둘째.")).not.toBeInTheDocument();
+    fireEvent.click(within(help()!).getByRole("button", { name: "닫기" }));
+
+    expect(screen.getByText("둘째.")).toBeInTheDocument();
+    expect(screen.getByText("2 / 2")).toBeInTheDocument();
+  });
+
+  test("도움말이 열린 동안 온 분석 요청도 닫으면 결과가 보인다", async () => {
+    respondWith(200, analysis("나는 학생입니다."));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "도움말" }));
+
+    await send(panelWindowId, "私は学生です。");
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    fireEvent.click(within(help()!).getByRole("button", { name: "닫기" }));
+
+    expect(await screen.findByText("나는 학생입니다.")).toBeInTheDocument();
+  });
+
+  test("예시 카드에는 미검수 배지가 있고, 예시 버튼을 눌러도 아무것도 저장하지 않는다", async () => {
+    const fetchMock = respondWith(200, analysis(""));
+    render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "도움말" }));
+    const panel = help()!;
+
+    expect(within(panel).getAllByText("AI 생성·미검수").length).toBeGreaterThan(
+      0,
+    );
+    for (const name of ["추가", "숨김", "예문 저장"]) {
+      for (const button of within(panel).queryAllByRole("button", {
+        name,
+        hidden: true,
+      })) {
+        fireEvent.click(button);
+      }
+    }
+    await act(() => Promise.resolve());
+
+    expect(saveMyItem).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("로그인 전 화면에도 도움말 버튼이 있지만 저절로 열지 않는다", async () => {
+    await fakeBrowser.storage.local.clear();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "로그인이 필요해요" });
+    await act(() => Promise.resolve());
+    expect(help()).not.toBeInTheDocument();
+    fireEvent.click(helpButton());
+    expect(help()).toBeInTheDocument();
   });
 });

@@ -317,16 +317,28 @@ const FORBIDDEN_PHRASES = [
   "나이 제한이 없",
 ];
 
-test.each(["/privacy", "/privacy/2026-11-02", "/privacy/2026-10-29"])(
-  "%s는 로그인 없이 처리방침을 보여준다",
-  (path) => {
-    open(path);
+test.each([
+  "/privacy",
+  "/privacy/2026-11-04",
+  "/privacy/2026-11-02",
+  "/privacy/2026-10-29",
+])("%s는 로그인 없이 처리방침을 보여준다", (path) => {
+  open(path);
 
-    expect(
-      screen.getByRole("heading", { level: 1, name: "개인정보처리방침" }),
-    ).toBeInTheDocument();
-  },
-);
+  expect(
+    screen.getByRole("heading", { level: 1, name: "개인정보처리방침" }),
+  ).toBeInTheDocument();
+});
+
+test("최신 처리방침은 확장 연결에 확장 프로그램 버전을 적는다(#349)", () => {
+  open("/privacy");
+
+  const row = screen.getByRole("rowheader", {
+    name: "확장 프로그램 연결",
+  }).parentElement!;
+  expect(row).toHaveTextContent("마지막으로 요청한 확장 프로그램 버전");
+  expect(row).toHaveTextContent("업데이트가 필요한지 확인·안내");
+});
 
 test("처리방침에 쓰지 않을 문구가 없다", () => {
   open("/privacy");

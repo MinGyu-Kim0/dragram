@@ -3,8 +3,10 @@ import { itemKey } from "@/utils/my-items";
 import type { MyItems } from "../sidepanel/MyItems";
 
 // 가이드(#370) 장면의 예시 문장과 분석. 사용자 원문이 아니라 가이드용으로 새로 쓴 문장이다.
-// 미검수 배지 규칙은 실제 카드와 같다(ちゃう 용법, 出かける의 AI 번역).
+// 미검수 배지 규칙은 실제 카드와 같다(てしまう 용법, 出かける의 AI 번역).
 export const TEXT = "田中さんは雨が降っちゃったので、出かけられなかった。";
+// 함께 고른 둘째 문장. 장면은 첫 페이지만 그린다.
+export const NEXT_TEXT = "それで、家でゆっくり本を読んだ。";
 
 const base = {
   korean_equivalent_review_status: "approved",
@@ -15,21 +17,21 @@ const base = {
   variant_of: null,
 } as const;
 
+// 지금 분석이 ちゃった를 てしまう 카드로 보이는 모양 그대로다. 회화체 패턴(#375)이 정해지면 맞춘다.
 const CHAU: GrammarItem = {
   ...base,
   start: 9,
-  end: 12,
-  pattern_name: "ちゃう",
+  end: 13,
+  pattern_name: "てしまう",
   usage_id: 1,
   state: "decided",
   name: "완료·유감",
   explanation_ko:
-    "동작이 끝나 버렸음을 나타내요. 아쉬움이나 뜻밖이라는 느낌이 함께 담길 때가 많아요.",
-  korean_equivalent: "~해 버리다",
+    "동작이나 상태가 완전히 끝났음을 나타내요. 문맥에 따라 그 일에 대한 아쉬움을 덧붙여요.",
+  korean_equivalent: "~어 버리다 · ~고 말다",
+  pos_tags: ["auxiliary_verb"],
   function_tags: ["perfective"],
   review_status: "pending",
-  register: "colloquial",
-  variant_of: "てしまう",
 };
 
 const NODE: GrammarItem = {

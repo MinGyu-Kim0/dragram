@@ -22,6 +22,11 @@ export const STEPS: Step[] = [
     menu: true,
   },
   {
+    title: "여러 문장",
+    body: "여러 문장을 한 번에 고르면 문장마다 페이지로 나뉘어요. ‹ ›로 페이지를 넘겨요.",
+    target: ".fake-panel .pager",
+  },
+  {
     title: "원문",
     body: "드래그한 부분이 들어 있는 문장 전체예요. 칠해진 부분이 문법이에요.",
     target: ".sentence-card .original",

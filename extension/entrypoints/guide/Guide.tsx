@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Logo } from "../sidepanel/Logo";
+import { Pager } from "../sidepanel/Pager";
 import { SentenceView, type ResultTab } from "../sidepanel/Sentence";
-import { ANALYSIS, ITEMS, TEXT, noop, nothing } from "./example";
+import { ANALYSIS, ITEMS, NEXT_TEXT, TEXT, noop, nothing } from "./example";
 import { STEPS } from "./steps";
 
 // 가이드(#370): 실제 패널 컴포넌트로 그린 장면 위에서 한 단계씩 요소를 밝혀 설명한다.
@@ -220,7 +221,11 @@ function Scene({
           <h2>雨の日の週末</h2>
           <p>
             田中さんは毎週末、友だちと海へ行く。でも、今週は朝から天気が悪かった。
-            <span className="fake-selection">{TEXT}</span>
+            {/* 두 문장을 골라 패널이 문장별 페이지(1 / 2)로 나뉜 모습이다. */}
+            <span className="fake-selection">
+              {TEXT}
+              {NEXT_TEXT}
+            </span>
             {/* 우클릭 메뉴는 드래그를 끝낸 자리(선택 끝)에 붙인다. */}
             {menu && (
               <span className="fake-menu-anchor">
@@ -235,7 +240,6 @@ function Scene({
                 </span>
               </span>
             )}
-            それで、家でゆっくり本を読んだ。
           </p>
           <p>
             来週は晴れるといいね、と田中さんは笑った。雨の日の静かな時間も、悪くないかもしれない。
@@ -248,6 +252,7 @@ function Scene({
               <span className="theme-button guide-button">?</span>
             </div>
           </header>
+          <Pager index={0} total={2} onGo={noop} />
           <SentenceView
             // 고른 글자는 처음 그릴 때만 받으므로 단계가 바꾸면 새로 그린다.
             key={selected ?? "none"}

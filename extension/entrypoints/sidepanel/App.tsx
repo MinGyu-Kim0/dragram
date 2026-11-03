@@ -35,6 +35,7 @@ import {
 import type { MyItems } from "./MyItems";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 import { GuideButton } from "./GuideButton";
+import { Pager } from "./Pager";
 import { Logo } from "./Logo";
 import { ThemeButton } from "./ThemeButton";
 import { useHighlightStyle, usePreference } from "./use-preference";
@@ -450,27 +451,7 @@ function App() {
         </div>
       </header>
       {request && request.sentences.length > 1 && (
-        <nav className="pager" aria-label="문장">
-          <button
-            type="button"
-            aria-label="이전 문장"
-            disabled={pageIndex === 0}
-            onClick={() => goTo(pageIndex - 1)}
-          >
-            ‹
-          </button>
-          <span>
-            {pageIndex + 1} / {request.sentences.length}
-          </span>
-          <button
-            type="button"
-            aria-label="다음 문장"
-            disabled={pageIndex === request.sentences.length - 1}
-            onClick={() => goTo(pageIndex + 1)}
-          >
-            ›
-          </button>
-        </nav>
+        <Pager index={pageIndex} total={request.sentences.length} onGo={goTo} />
       )}
       {sentence && (
         <SentenceView

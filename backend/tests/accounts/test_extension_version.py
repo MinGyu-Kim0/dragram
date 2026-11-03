@@ -138,3 +138,18 @@ def test_admin_lists_and_filters_tokens_by_extension_version(admin_client):
     assert "me@example.com" in filtered and "other@example.com" not in filtered
     # 토큰 해시는 보이지 않는다.
     assert ExtensionToken.objects.first().token_hash not in page
+
+
+def test_admin_cannot_delete_tokens(admin_client):
+    token()
+    pk = ExtensionToken.objects.get().pk
+
+    response = admin_client.post(f"/admin/accounts/extensiontoken/{pk}/delete/", {"post": "yes"})
+
+    admin_client.post(
+        "/admin/accounts/extensiontoken/",
+        {"action": "delete_selected", "_selected_action": [pk], "post": "yes"},
+    )
+
+    assert response.status_code == 403
+    assert ExtensionToken.objects.filter(pk=pk).exists()

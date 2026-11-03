@@ -659,17 +659,14 @@ class DesignatedName(models.Model):
 
 
 class MyItem(models.Model):
-    """내 일본어 항목(#321, #322): 사용자가 사이드 패널 카드에서 추가하거나 '표시 안 함'으로 숨긴
-    용법 또는 단어 뜻. 개인 데이터다. 원문은 없고 ID만 둔다.
+    """내 일본어 항목(#321, #322): 사용자가 사이드 패널 카드에서 추가하거나 숨긴 용법 또는 단어 뜻.
+    개인 데이터다. 원문은 없고 ID만 둔다.
+
+    추가(내 일본어에 넣음)와 숨김(사이드 패널에서 가림)은 따로 켜고 끈다(#362). 둘 다 꺼지면 행을
+    지운다. 예문은 추가된 항목에만 있다.
 
     본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다.
     """
-
-    class State(models.TextChoices):
-        # 내 일본어에 추가했다. 웹 내 기록에 보인다.
-        ADDED = "added"
-        # 표시 안 함. 사이드 패널에서 이 카드를 접어 둔다.
-        HIDDEN = "hidden"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="my_items"
@@ -677,7 +674,10 @@ class MyItem(models.Model):
     # 용법을 합치면 합친 쪽으로 옮긴다(patterns.merge_usage). 용법을 지우지 않게 PROTECT다.
     usage = models.ForeignKey(GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+")
     sense = models.ForeignKey(WordSense, on_delete=models.CASCADE, null=True, related_name="+")
-    state = models.CharField(max_length=30, choices=State.choices)
+    # 내 일본어에 추가했다. 웹 내 기록에 보인다.
+    added = models.BooleanField(default=False)
+    # 사이드 패널에서 이 카드를 숨긴 카드로 접어 둔다. 추가한 항목이면 웹에서는 숨긴 항목이다.
+    hidden = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -698,6 +698,10 @@ class MyItem(models.Model):
                 fields=["user", "sense"],
                 condition=models.Q(sense__isnull=False),
                 name="my_item_sense_unique",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(added=True) | models.Q(hidden=True),
+                name="my_item_added_or_hidden",
             ),
         ]
 

@@ -449,7 +449,8 @@ def merge_usage(source, target):
 
 def _move_my_items(source, target):
     """사용자가 추가·숨긴 source 항목을 target으로 옮긴다(#322, FR-M13 승계). 같은 사용자가 target도
-    두었으면 하나로 합친다: 추가가 숨김보다 앞서고, 예문은 겹치지 않게 옮긴다.
+    두었으면 하나로 합친다: 어느 쪽이라도 추가면 추가이고, 숨김은 양쪽 모두 숨겼을 때만이다(#362).
+    예문은 겹치지 않게 옮긴다.
 
     항목 추가·예문 저장(my_items)과 같은 사용자 잠금을 먼저 잡아, 옮기는 사이 target 항목에 같은
     예문이 저장되어 합치기 전체가 제약 위반으로 되돌려지지 않게 한다(PR #326 리뷰).
@@ -463,9 +464,9 @@ def _move_my_items(source, target):
             item.usage = target
             item.save(update_fields=["usage", "updated_at"])
             continue
-        if MyItem.State.ADDED in (item.state, kept.state):
-            kept.state = MyItem.State.ADDED
-            kept.save(update_fields=["state", "updated_at"])
+        kept.added = kept.added or item.added
+        kept.hidden = kept.hidden and item.hidden
+        kept.save(update_fields=["added", "hidden", "updated_at"])
         taken = set(kept.examples.values_list("original_hash", flat=True))
         item.examples.exclude(original_hash__in=taken).update(item=kept)
         item.delete()

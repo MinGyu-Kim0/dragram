@@ -34,18 +34,6 @@
   text-decoration: none;
 }
 
-.logo-pen {
-  fill: var(--color-logo-pen);
-}
-
-.logo-ink {
-  fill: var(--color-logo-ink);
-}
-
-.logo-cursor {
-  stroke: var(--color-logo-outline);
-}
-
 .site .header-link {
   display: inline-flex;
   align-items: center;

@@ -21,6 +21,7 @@ import { POLICIES, TERMS } from "../site/documents";
 import type { Version } from "../site/VersionedDocument";
 import { logoutAndDisconnect, oneAtATime, sendToExtension } from "./extension";
 import { renderGoogleButton } from "./google";
+import { LogoMark } from "../site/SiteLayout";
 import "./connect.css";
 
 // 로그인·확장 연결 화면(DESIGN WebConnect)의 로그인 카드. 연결 성공 카드는 #109에서 만든다.
@@ -80,8 +81,12 @@ function ConnectPage() {
 
   return (
     <main className="connect">
-      {/* 가입 화면은 문서를 읽으므로 카드를 넓힌다. */}
-      <section className={state.kind === "signingUp" ? "card wide" : "card"}>
+      {/* 상태 이름을 클래스로 붙인다. 가입 화면(signingUp)은 문서를 읽으므로 카드를 넓힌다. */}
+      <section className={`card ${state.kind}`}>
+        <p className="brand">
+          <LogoMark />
+          Dragram
+        </p>
         {state.kind === "loading" && <p className="muted">확인하는 중…</p>}
         {state.kind === "signedOut" && (
           <>
@@ -198,7 +203,6 @@ function SignUp({
 
   return (
     <>
-      <p className="brand">Dragram</p>
       <div className="title">
         <h1>거의 다 됐어요</h1>
         <p className="secondary">
@@ -220,8 +224,10 @@ function SignUp({
         </p>
       )}
       {/* 처리방침은 동의받지 않고 보여 주기만 한다(#257). 동의 체크는 아래 이용약관 하나다. */}
-      <DocumentBox title="개인정보처리방침" version={POLICIES[0]} />
-      <DocumentBox title="이용약관" version={TERMS[0]} />
+      <div className="docs">
+        <DocumentBox title="개인정보처리방침" version={POLICIES[0]} />
+        <DocumentBox title="이용약관" version={TERMS[0]} />
+      </div>
       {/* 박스 전체가 체크 상태를 따라 바뀐다. 14세 안내는 체크박스 이름에 넣지 않으려고 label 밖에 둔다. */}
       <div className="terms-box">
         <label className="terms-check">

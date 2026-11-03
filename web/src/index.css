@@ -72,6 +72,19 @@ body {
   font-family: "IBM Plex Sans KR", system-ui, sans-serif;
 }
 
+/* 로고 그림(SiteLayout LogoMark). 사이트 헤더와 가입 화면이 함께 쓴다. */
+.logo-pen {
+  fill: var(--color-logo-pen);
+}
+
+.logo-ink {
+  fill: var(--color-logo-ink);
+}
+
+.logo-cursor {
+  stroke: var(--color-logo-outline);
+}
+
 /* 일본어는 전부 Zen Maru Gothic(DESIGN §2 글꼴) */
 :lang(ja) {
   font-family: "Zen Maru Gothic", "IBM Plex Sans KR", sans-serif;

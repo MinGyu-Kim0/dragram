@@ -158,7 +158,8 @@ def my_items(request):
         # 같은 사용자의 변경을 직렬화해, 동시에 보내도 상한을 넘지 않게 센다.
         lock_user(user.pk)
         mine = MyItem.objects.filter(user=user)
-        row = mine.filter(**{kind: target}).first()
+        # 사용자 잠금을 쓰지 않는 DELETE(옛 확장)가 그사이 지우지 못하게 행도 잠근다(PR #364 리뷰).
+        row = mine.filter(**{kind: target}).select_for_update().first()
         added = changes.get("added", row.added if row else False)
         hidden = changes.get("hidden", row.hidden if row else False)
         if not (added or hidden):

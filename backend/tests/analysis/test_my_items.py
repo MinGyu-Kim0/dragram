@@ -8,8 +8,9 @@ import pytest
 from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.core import serializers
-from django.db import transaction
+from django.db import connection, transaction
 from django.test import Client
+from django.test.utils import CaptureQueriesContext
 
 from analysis.models import MyExample, MyItem, ReviewStatus, SpanMatch
 from tests.accounts.test_withdrawal import web_session
@@ -97,6 +98,21 @@ def test_add_exclude_hide_and_restore_are_separate_axes(usage, sense):
     # 추가하지 않고 숨긴 항목을 복원해도 사라진다.
     send(extension, "put", {"kind": "sense", "id": sense.pk, "hidden": False})
     assert states(extension) == []
+
+
+def test_changing_an_item_locks_its_row(usage):
+    """사용자 잠금을 쓰지 않는 DELETE(옛 확장)가 그사이 행을 지워 저장이 실패하지 않게, 기존
+    항목을 행 잠금으로 읽는다(PR #364 리뷰).
+    """
+    extension = connected_client("me")
+    send(extension, "put", {"kind": "usage", "id": usage.pk, "added": True})
+
+    with CaptureQueriesContext(connection) as queries:
+        send(extension, "put", {"kind": "usage", "id": usage.pk, "hidden": True})
+
+    assert any(
+        'FROM "my_item"' in q["sql"] and "FOR UPDATE" in q["sql"] for q in queries.captured_queries
+    )
 
 
 def test_delete_still_clears_both_axes(usage):

@@ -6,7 +6,6 @@ import secrets
 from datetime import timedelta
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 from django.db import transaction
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
@@ -104,12 +103,9 @@ def _parts(version):
 
 
 def _needs_update(version):
+    # 최소 확장 버전의 형식은 설정을 읽을 때 검사했다.
     minimum = settings.MIN_EXTENSION_VERSION
-    if not minimum:
-        return False
-    if _extension_version(minimum) is None:
-        raise ImproperlyConfigured(f"MIN_EXTENSION_VERSION 형식이 틀림: {minimum!r}")
-    return version is None or _parts(version) < _parts(minimum)
+    return bool(minimum) and (version is None or _parts(version) < _parts(minimum))
 
 
 class ExtensionTokenAuthentication(BaseAuthentication):

@@ -292,6 +292,9 @@ export function WordList({
           const kanaFirst =
             !!word.sense?.tags.includes("uk") &&
             /\p{sc=Han}/u.test(word.dictionary_form);
+          const [head, sub] = kanaFirst
+            ? [readings, word.dictionary_form]
+            : [word.dictionary_form, readings];
           return (
             <li key={key} className="word-row">
               <BadgeRow
@@ -299,21 +302,10 @@ export function WordList({
                 nameLabel={nameTypeLabel(word, nameSpans)}
               />
               <div className="word-head">
-                {kanaFirst ? (
-                  <>
-                    <h3 lang="ja">{readings}</h3>
-                    <span lang="ja" className="word-reading">
-                      {word.dictionary_form}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <h3 lang="ja">{word.dictionary_form}</h3>
-                    <span lang="ja" className="word-reading">
-                      {readings}
-                    </span>
-                  </>
-                )}
+                <h3 lang="ja">{head}</h3>
+                <span lang="ja" className="word-reading">
+                  {sub}
+                </span>
                 {others.length > 0 && (
                   <button
                     type="button"

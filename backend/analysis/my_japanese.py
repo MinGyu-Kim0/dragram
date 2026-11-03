@@ -1,5 +1,6 @@
-"""내 일본어: 사용자가 사이드 패널 카드에서 추가하거나 숨긴 용법(#313)과 단어 뜻(#314)을 웹에 보인다
-(#322, FR-M10). 항목마다 사용자가 고른 예문을 함께 싣는다.
+"""내 일본어: 사용자가 사이드 패널 카드에서 추가한 용법(#313)과 단어 뜻(#314)을 웹에 보인다
+(#322, FR-M10). 항목마다 사용자가 고른 예문을 함께 싣는다. 추가하지 않고 숨기기만 한 항목은
+보이지 않고, 추가한 뒤 숨긴 항목은 숨긴 항목으로 나눈다(#362).
 
 본인 항목만 읽고 LLM을 부르지 않는다. 미검수면 pending이다(ADR 0003). 반려된 용법·패턴·뜻은 내용
 없이 ID와 예문만 보낸다({"rejected": true}). 사용자가 그 예문(본인 원문)과 항목을 지울 수 있게 하기
@@ -19,14 +20,21 @@ from errors.my_items import MyItemError
 
 
 def _my_items(request, kind):
-    """로그인한 사용자의 그 종류 항목(?state=added|hidden, 기본 added). 최근에 바꾼 순이다."""
+    """로그인한 사용자가 추가한 그 종류 항목(?state=added|hidden, 기본 added: 숨기지 않은 것,
+    hidden: 숨긴 것). 최근에 바꾼 순이다.
+    """
     if not request.user.is_authenticated:
         raise BusinessError(AuthError.LOGIN_REQUIRED, "로그인하지 않은 세션")
-    state = request.GET.get("state", MyItem.State.ADDED)
-    if state not in MyItem.State.values:
+    state = request.GET.get("state", "added")
+    if state not in ("added", "hidden"):
         raise BusinessError(MyItemError.INVALID, "상태가 맞지 않음")
     return (
-        MyItem.objects.filter(user=request.user, state=state, **{f"{kind}__isnull": False})
+        MyItem.objects.filter(
+            user=request.user,
+            added=True,
+            hidden=state == "hidden",
+            **{f"{kind}__isnull": False},
+        )
         .prefetch_related("examples")
         .order_by("-updated_at", "-id")
     )

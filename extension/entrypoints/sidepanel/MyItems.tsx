@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  isAdded,
   itemKey,
   type Example,
   type ItemKind,
@@ -11,37 +12,35 @@ import { BadgeRow } from "./BadgeRow";
 // 동작. 바꾸는 동작은 실패하면 거부되고, 화면은 성공했을 때만 바뀐다.
 export interface MyItems {
   states: ReadonlyMap<string, ItemState>;
-  // 저장한 예문이 있는 항목의 열쇠. 빼기·복원은 예문도 지우므로 한 번 확인받는다.
+  // 저장한 예문이 있는 항목의 열쇠. 제외는 예문도 지우므로 한 번 확인받는다.
   withExamples: ReadonlySet<string>;
+  // 준 축만 바꾼다(추가·제외·숨김·복원, #362).
   save: (
     kind: ItemKind,
     id: number,
-    state: ItemState,
+    changes: Partial<ItemState>,
     example?: Example,
   ) => Promise<void>;
-  remove: (kind: ItemKind, id: number) => Promise<void>;
 }
 
-// 카드 아래 버튼 줄. 부르는 쪽이 key에 상태를 넣어, 같은 항목을 다른 줄에서 빼면 이 줄의
-// '예문 저장됨'도 함께 초기화된다(PR #327 리뷰). 추가 전: 추가 · 숨김. 추가한 뒤: 추가됨 표시, 이 문장을 예문으로 저장,
-// 숨김(숨긴 카드로 보내고 예문은 둔다). 숨길 수 없는 구성 문법 하위 박스는 숨김 대신 빼기(예문도
-// 지운다). 예문은 사용자가 누를 때만 원문 그대로 보낸다.
+// 카드 아래 버튼 줄. 부르는 쪽이 key에 상태를 넣어, 같은 항목을 다른 줄에서 바꾸면 이 줄의
+// '예문 저장됨'도 함께 초기화된다(PR #327 리뷰). 추가 전: 추가 · 숨김. 추가한 뒤: 추가됨 · 예문 저장 ·
+// 숨김. '추가'와 '추가됨'은 한 토글 버튼이라 추가됨을 다시 누르면 제외한다(예문이 있으면 확인,
+// #362). 숨김은 숨긴 카드로 보내고 추가·예문은 그대로 둔다. 예문은 사용자가 누를 때만 원문 그대로
+// 보낸다.
 export function ItemActions({
   kind,
   id,
   example,
   items,
-  hideable = true,
 }: {
   kind: ItemKind;
   id: number;
   // 예문으로 저장할 문장(이 페이지의 원문)과 그 안에서 이 카드가 가리키는 부분
   example: Example;
   items: MyItems;
-  // 구성 문법 하위 박스는 바깥 카드와 함께 보이고 숨으므로 '숨김'을 두지 않는다.
-  hideable?: boolean;
 }) {
-  const state = items.states.get(itemKey(kind, id));
+  const added = isAdded(items.states, kind, id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
   const [exampleSaved, setExampleSaved] = useState(false);
@@ -55,71 +54,53 @@ export function ItemActions({
   return (
     <>
       <div className="item-actions">
-        {state === "added" ? (
-          <>
-            <span className="item-mark">내 일본어에 추가됨</span>
-            {exampleSaved ? (
-              <span className="item-mark">예문 저장됨</span>
-            ) : (
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  run(
-                    () => items.save(kind, id, "added", example),
-                    () => setExampleSaved(true),
-                  )
-                }
-              >
-                이 문장을 예문으로 저장
-              </button>
-            )}
-            {hideable ? (
-              <button
-                type="button"
-                className="text-button item-remove"
-                disabled={busy}
-                onClick={() => run(() => items.save(kind, id, "hidden"))}
-              >
-                숨김
-              </button>
-            ) : (
-              <RemoveButton
-                label="빼기"
-                confirmLabel="예문과 함께 빼기"
-                className="text-button item-remove"
-                confirm={items.withExamples.has(itemKey(kind, id))}
-                busy={busy}
-                onRemove={() =>
-                  run(
-                    () => items.remove(kind, id),
-                    () => setExampleSaved(false),
-                  )
-                }
-              />
-            )}
-          </>
+        {added ? (
+          <AddedToggle
+            confirm={items.withExamples.has(itemKey(kind, id))}
+            busy={busy}
+            onExclude={() =>
+              run(
+                () => items.save(kind, id, { added: false }),
+                () => setExampleSaved(false),
+              )
+            }
+          />
         ) : (
-          <>
+          <button
+            type="button"
+            className="item-toggle"
+            aria-pressed={false}
+            disabled={busy}
+            onClick={() => run(() => items.save(kind, id, { added: true }))}
+          >
+            추가
+          </button>
+        )}
+        {added &&
+          (exampleSaved ? (
+            <span className="item-mark">예문 저장됨</span>
+          ) : (
             <button
               type="button"
               disabled={busy}
-              onClick={() => run(() => items.save(kind, id, "added"))}
+              onClick={() =>
+                run(
+                  () => items.save(kind, id, { added: true }, example),
+                  () => setExampleSaved(true),
+                )
+              }
             >
-              추가
+              예문 저장
             </button>
-            {hideable && (
-              <button
-                type="button"
-                className="text-button item-remove"
-                disabled={busy}
-                onClick={() => run(() => items.save(kind, id, "hidden"))}
-              >
-                숨김
-              </button>
-            )}
-          </>
-        )}
+          ))}
+        <button
+          type="button"
+          className="text-button item-remove"
+          disabled={busy}
+          onClick={() => run(() => items.save(kind, id, { hidden: true }))}
+        >
+          숨김
+        </button>
       </div>
       {error && (
         <p className="error">저장하지 못했습니다. 다시 시도해 주세요.</p>
@@ -138,10 +119,12 @@ export interface HiddenCard {
   // 이름에 다는 배지. 카드에서처럼 미검수가 검수처럼 보이지 않게 한다(ADR 0003).
   pending: boolean;
   translated: boolean;
+  // 내 일본어에 추가한 항목인가. 복원하면 추가됨으로 돌아온다(#362).
+  added: boolean;
 }
 
-// '숨김'으로 숨긴 카드. 접어 두고, 펼치면 칩과 이름, '복원'만 보인다. 형광펜은 칠하지
-// 않는다(원문 형광펜과 카드 칩 색을 맞추기 위해 숨긴 문법은 처음부터 뺀다).
+// '숨김'으로 숨긴 카드. 접어 두고, 펼치면 칩과 이름, 추가한 항목이면 '추가됨', '복원'만 보인다.
+// 형광펜은 칠하지 않는다(원문 형광펜과 카드 칩 색을 맞추기 위해 숨긴 문법은 처음부터 뺀다).
 export function HiddenCards({
   cards,
   items,
@@ -162,6 +145,7 @@ export function HiddenCards({
   );
 }
 
+// 복원은 숨김만 풀어 지워지는 것이 없으므로 확인 없이 바로 한다(#362).
 function HiddenRow({ card, items }: { card: HiddenCard; items: MyItems }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);
@@ -172,41 +156,36 @@ function HiddenRow({ card, items }: { card: HiddenCard; items: MyItems }) {
         {card.chip}
       </span>
       <span>{card.name}</span>
-      <RemoveButton
-        label="복원"
-        confirmLabel="예문과 함께 복원"
-        confirm={items.withExamples.has(itemKey(card.kind, card.id))}
-        busy={busy}
-        onRemove={() => {
+      {card.added && <span className="item-mark">추가됨</span>}
+      <button
+        type="button"
+        disabled={busy}
+        onClick={() => {
           setBusy(true);
           setError(false);
           items
-            .remove(card.kind, card.id)
+            .save(card.kind, card.id, { hidden: false })
             .catch(() => setError(true))
             .finally(() => setBusy(false));
         }}
-      />
+      >
+        복원
+      </button>
       {error && <p className="error">바꾸지 못했습니다. 다시 시도해 주세요.</p>}
     </li>
   );
 }
 
-// 항목을 빼는 버튼. 저장한 예문이 있으면(confirm) 예문도 함께 지워짐을 한 번 확인받는다(웹과 같다,
-// PR #320 리뷰).
-function RemoveButton({
-  label,
-  confirmLabel,
-  className,
+// '추가됨' 토글(#362). 누르면 제외하고, 저장한 예문이 있으면(confirm) 예문도 함께 지워짐을 한 번
+// 확인받는다(웹과 같다, PR #320 리뷰).
+function AddedToggle({
   confirm,
   busy,
-  onRemove,
+  onExclude,
 }: {
-  label: string;
-  confirmLabel: string;
-  className?: string;
   confirm: boolean;
   busy: boolean;
-  onRemove: () => void;
+  onExclude: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
   if (confirming)
@@ -218,10 +197,10 @@ function RemoveButton({
           disabled={busy}
           onClick={() => {
             setConfirming(false);
-            onRemove();
+            onExclude();
           }}
         >
-          {confirmLabel}
+          예문과 함께 제외
         </button>
         <button
           type="button"
@@ -235,11 +214,13 @@ function RemoveButton({
   return (
     <button
       type="button"
-      className={className}
+      className="item-toggle"
+      aria-pressed
+      title="다시 누르면 내 일본어에서 제외해요"
       disabled={busy}
-      onClick={() => (confirm ? setConfirming(true) : onRemove())}
+      onClick={() => (confirm ? setConfirming(true) : onExclude())}
     >
-      {label}
+      추가됨
     </button>
   );
 }

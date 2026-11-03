@@ -2,13 +2,16 @@ import { tokenRequest } from "./token-request";
 
 // 내 일본어 항목(#321): 사용자가 카드에서 추가하거나 '숨김'으로 숨긴 용법·단어 뜻. 본인만
 // 보는 개인 데이터다. 예문(원문)은 사용자가 고를 때만 본문으로 보낸다.
+// 추가·제외(added)와 숨김·복원(hidden)은 따로 켜고 끈다(#362). 둘 다 꺼지면 항목이 없다.
 export type ItemKind = "usage" | "sense";
-export type ItemState = "added" | "hidden";
+export interface ItemState {
+  added: boolean;
+  hidden: boolean;
+}
 
-export interface MyItem {
+export interface MyItem extends ItemState {
   kind: ItemKind;
   id: number;
-  state: ItemState;
   // 저장한 예문이 있는가. 목록(GET)에만 온다.
   has_examples?: boolean;
 }
@@ -37,8 +40,21 @@ export function isHidden(
   kind: ItemKind,
   id: number | null | undefined,
 ) {
-  return id != null && states.get(itemKey(kind, id)) === "hidden";
+  return id != null && states.get(itemKey(kind, id))?.hidden === true;
 }
+
+// 내 일본어에 추가한 항목인가.
+export function isAdded(
+  states: ReadonlyMap<string, ItemState>,
+  kind: ItemKind,
+  id: number | null | undefined,
+) {
+  return id != null && states.get(itemKey(kind, id))?.added === true;
+}
+
+// 버튼 줄 key에 넣는 상태 글자. 다른 줄에서 상태가 바뀌면 그 줄의 화면 상태도 새로 시작한다.
+export const stateTag = (state: ItemState | undefined) =>
+  state ? `${state.added}:${state.hidden}` : "none";
 
 export async function fetchMyItems(): Promise<MyItem[]> {
   const response = await tokenRequest("/api/my-items/", "GET");
@@ -52,17 +68,18 @@ export interface Example {
   end: number;
 }
 
-// 추가하거나 숨긴다. 같은 항목이면 상태만 바뀐다. example을 주면(추가할 때만) 예문으로 저장한다.
+// 준 축만 바꾼다(추가·제외·숨김·복원). example을 주면(추가할 때만) 예문으로 저장한다. 제외하면
+// 예문이 지워지고, 두 축이 모두 꺼지면 항목이 없어진다.
 export async function saveMyItem(
   kind: ItemKind,
   id: number,
-  state: ItemState,
+  changes: Partial<ItemState>,
   example?: Example,
 ): Promise<MyItem> {
   const response = await tokenRequest("/api/my-items/", "PUT", {
     kind,
     id,
-    state,
+    ...changes,
     ...(example !== undefined && {
       example: example.text,
       example_start: example.start,
@@ -70,9 +87,4 @@ export async function saveMyItem(
     }),
   });
   return (await response.json()) as MyItem;
-}
-
-// 해제한다(추가·숨김을 모두 없앤다). 그 항목의 예문도 지워진다.
-export async function removeMyItem(kind: ItemKind, id: number): Promise<void> {
-  await tokenRequest("/api/my-items/", "DELETE", { kind, id });
 }

@@ -81,15 +81,16 @@
 
 ## my_item — 내 일본어 항목
 
-사용자가 사이드 패널 카드에서 추가하거나 '표시 안 함'으로 숨긴 용법·단어 뜻(#322, ADR 0006). 개인 데이터라 본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다. 원문은 없다. 사용자당 10,000행 상한.
+사용자가 사이드 패널 카드에서 추가하거나 숨긴 용법·단어 뜻(#322, ADR 0006). 추가와 숨김은 따로 켜고 끄며(#362), 둘 다 꺼지면 행을 지운다(CHECK: added 또는 hidden). 개인 데이터라 본인 user_id로만 조회·수정·삭제하고 Django admin에 등록하지 않는다. 원문은 없다. 사용자당 10,000행 상한.
 
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
 | user_id | 사용자 ID | bigint |  | → users | 탈퇴 시 삭제(CASCADE) |
-| usage_id | 용법 ID | bigint | Y | → grammar_usage | usage_id와 sense_id 중 하나만 있다(CHECK). UNIQUE(user_id, usage_id). 용법을 합치면 합친 용법으로 옮긴다(추가가 숨김보다 앞섬). 용법을 지우지 못하게 PROTECT |
+| usage_id | 용법 ID | bigint | Y | → grammar_usage | usage_id와 sense_id 중 하나만 있다(CHECK). UNIQUE(user_id, usage_id). 용법을 합치면 합친 용법으로 옮긴다(추가는 어느 쪽이라도 추가면 추가, 숨김은 양쪽 모두 숨겼을 때만). 용법을 지우지 못하게 PROTECT |
 | sense_id | 단어 뜻 ID | bigint | Y | → word_sense | UNIQUE(user_id, sense_id). 뜻이 지워지면 함께 지운다(CASCADE) |
-| state | 상태 | varchar(30) |  |  | added(추가, 웹 내 기록에 보임) / hidden(표시 안 함, 사이드 패널에서 접음) |
+| added | 추가 | boolean |  |  | 내 일본어에 넣었다. 웹 내 기록에 보인다. 끄면(제외) 예문을 지운다. 예문은 추가된 항목에만 있다 |
+| hidden | 숨김 | boolean |  |  | 사이드 패널에서 숨긴 카드로 접는다. 추가한 항목이면 웹에서는 숨긴 항목이다. 추가하지 않고 숨기기만 한 항목은 웹에 보이지 않는다 |
 | created_at | 등록일시 | timestamptz |  |  |  |
 | updated_at | 변경일시 | timestamptz |  |  | 웹 목록은 최근 바꾼 순 |
 

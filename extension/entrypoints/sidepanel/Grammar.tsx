@@ -3,7 +3,7 @@ import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
 import { BadgeRow } from "./BadgeRow";
 import { ConnectionNote } from "./ConnectionNote";
 import { cardAt, groupGrammar, sortGrammar } from "./grammar-groups";
-import { itemKey } from "@/utils/my-items";
+import { itemKey, stateTag } from "@/utils/my-items";
 import { ItemActions, type MyItems } from "./MyItems";
 import { TAG_NAMES } from "./tag-names";
 
@@ -323,12 +323,11 @@ function GrammarCard({
               <GrammarBody text={text} item={part} Heading="h4" />
               {items && part.usage_id != null && (
                 <ItemActions
-                  key={`${itemKey("usage", part.usage_id)}:${items.states.get(itemKey("usage", part.usage_id)) ?? "none"}`}
+                  key={`${itemKey("usage", part.usage_id)}:${stateTag(items.states.get(itemKey("usage", part.usage_id)))}`}
                   kind="usage"
                   id={part.usage_id}
                   example={{ text, start: part.start, end: part.end }}
                   items={items}
-                  hideable={false}
                 />
               )}
             </li>
@@ -337,7 +336,7 @@ function GrammarCard({
       )}
       {items && item.usage_id != null && (
         <ItemActions
-          key={`${itemKey("usage", item.usage_id)}:${items.states.get(itemKey("usage", item.usage_id)) ?? "none"}`}
+          key={`${itemKey("usage", item.usage_id)}:${stateTag(items.states.get(itemKey("usage", item.usage_id)))}`}
           kind="usage"
           id={item.usage_id}
           example={{ text, start: item.start, end: item.end }}

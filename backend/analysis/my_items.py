@@ -1,4 +1,8 @@
-"""내 일본어 항목(#322)의 조회·추가·숨김·해제와 예문 삭제 API. 본인 것만 다룬다.
+"""내 일본어 항목(#322)의 조회·추가·제외·숨김·복원·해제와 예문 삭제 API. 본인 것만 다룬다.
+
+추가·제외(added)와 숨김·복원(hidden)은 따로 바꾼다(#362). 스토어에 배포된 옛 확장을 위해 state
+칸도 받고 돌려준다: 받은 added는 추가하며 숨김을 풀고, hidden은 숨긴다. 돌려줄 때는 숨겼으면
+hidden, 아니면 added다.
 
 확장은 Bearer 토큰, 웹은 세션으로 부른다. 세션으로 상태를 바꾸는 요청은 CSRF를 검사한다. 예문
 원문은 본문으로만 받고 로그·오류 사유·공용 테이블에 남기지 않는다.
@@ -80,9 +84,34 @@ def _example(data):
     return text, start, end
 
 
-def _item(row):
+def _item(kind, target_id, added, hidden):
+    if added or hidden:
+        state = "hidden" if hidden else "added"
+    else:
+        state = None
+    return {"kind": kind, "id": target_id, "added": added, "hidden": hidden, "state": state}
+
+
+def _row_item(row):
     kind = "usage" if row.usage_id else "sense"
-    return {"kind": kind, "id": row.usage_id or row.sense_id, "state": row.state}
+    return _item(kind, row.usage_id or row.sense_id, row.added, row.hidden)
+
+
+def _changes(data):
+    """본문이 바꾸는 축 {added?, hidden?}. 옛 확장의 state도 옮긴다. 없거나 맞지 않으면 거부한다."""
+    if "state" in data:
+        if "added" in data or "hidden" in data:
+            raise _invalid("state와 두 축을 함께 줌")
+        state = data["state"]
+        if state == "added":
+            return {"added": True, "hidden": False}
+        if state == "hidden":
+            return {"hidden": True}
+        raise _invalid("상태가 맞지 않음")
+    changes = {axis: data[axis] for axis in ("added", "hidden") if axis in data}
+    if not changes or any(type(value) is not bool for value in changes.values()):
+        raise _invalid("바꿀 축이 없거나 참거짓이 아님")
+    return changes
 
 
 def _authorized(request):
@@ -97,21 +126,22 @@ def _authorized(request):
 @authentication_classes([TokenOrSession])
 @permission_classes([])
 def my_items(request):
-    """GET은 내 항목 상태와 예문 유무 목록(만든 순), PUT은 추가·숨김(같은 항목이면 상태만
-    바뀐다. 추가할 때 example과 그 안의 카드 구간 example_start·example_end를 주면 예문으로
-    저장한다), DELETE는 해제(예문도 지운다)다.
+    """GET은 내 항목 상태와 예문 유무 목록(만든 순), PUT은 추가·제외·숨김·복원(added·hidden 중
+    준 축만 바꾼다. 추가할 때 example과 그 안의 카드 구간 example_start·example_end를 주면
+    예문으로 저장한다. 제외하면 예문을 지우고, 두 축이 모두 꺼지면 항목을 지운다), DELETE는
+    해제(두 축을 모두 끄고 예문도 지운다)다.
     """
     _authorized(request)
     user = request.user
     if request.method == "GET":
-        # 예문이 있는지도 알려, 확장이 빼기·다시 보이기 전에 예문 삭제를 확인받게 한다.
+        # 예문이 있는지도 알려, 확장이 제외하기 전에 예문 삭제를 확인받게 한다.
         rows = (
             MyItem.objects.filter(user=user)
             .annotate(has_examples=Exists(MyExample.objects.filter(item=OuterRef("pk"))))
             .order_by("id")
         )
         return Response(
-            {"items": [{**_item(row), "has_examples": row.has_examples} for row in rows]}
+            {"items": [{**_row_item(row), "has_examples": row.has_examples} for row in rows]}
         )
     kind, target = _target(request.data)
     if request.method == "DELETE":
@@ -120,18 +150,33 @@ def my_items(request):
         return Response(status=204)
     if _rejected(kind, target):
         raise _invalid("반려된 항목")
-    state, example = request.data.get("state"), _example(request.data)
-    if state not in MyItem.State.values or (example is not None and state != MyItem.State.ADDED):
-        raise _invalid("상태가 맞지 않거나 숨기며 예문을 줌")
+    changes, example = _changes(request.data), _example(request.data)
+    # 예문은 추가하는 요청에만 붙는다(숨기며 함께 주면 거부한다).
+    if example is not None and (changes.get("added") is not True or changes.get("hidden")):
+        raise _invalid("추가하지 않으며 예문을 줌")
     with transaction.atomic():
         # 같은 사용자의 변경을 직렬화해, 동시에 보내도 상한을 넘지 않게 센다.
         lock_user(user.pk)
         mine = MyItem.objects.filter(user=user)
-        if not mine.filter(**{kind: target}).exists() and mine.count() >= MAX_ITEMS:
-            raise BusinessError(MyItemError.TOO_MANY, "항목 수 상한")
-        row, _ = MyItem.objects.update_or_create(
-            user=user, **{kind: target}, defaults={"state": state}
-        )
+        # 사용자 잠금을 쓰지 않는 DELETE(옛 확장)가 그사이 지우지 못하게 행도 잠근다(PR #364 리뷰).
+        row = mine.filter(**{kind: target}).select_for_update().first()
+        added = changes.get("added", row.added if row else False)
+        hidden = changes.get("hidden", row.hidden if row else False)
+        if not (added or hidden):
+            # 제외·복원으로 두 축이 모두 꺼졌다. 예문도 함께 지워진다.
+            if row is not None:
+                row.delete()
+            return Response(_item(kind, target.pk, False, False))
+        if row is None:
+            if mine.count() >= MAX_ITEMS:
+                raise BusinessError(MyItemError.TOO_MANY, "항목 수 상한")
+            row = MyItem.objects.create(user=user, **{kind: target}, added=added, hidden=hidden)
+        else:
+            row.added, row.hidden = added, hidden
+            row.save(update_fields=["added", "hidden", "updated_at"])
+        if not added:
+            # 제외하면 예문을 지운다. 예문은 추가된 항목에만 둔다.
+            row.examples.all().delete()
         if example is not None:
             text, start, end = example
             digest = hashlib.sha256(text.encode()).hexdigest()
@@ -145,7 +190,7 @@ def my_items(request):
                     highlight_start=start,
                     highlight_end=end,
                 )
-    return Response(_item(row))
+    return Response(_row_item(row))
 
 
 @api_view(["DELETE"])

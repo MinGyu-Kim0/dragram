@@ -20,6 +20,7 @@
   --color-brand: light-dark(#157a57, #a2bc4e);
   --color-brand-strong: light-dark(#0f5e44, #c8da8e);
   --color-brand-soft: light-dark(#d7efe3, #273424);
+  --color-scrim: light-dark(rgba(23, 48, 42, 0.45), rgba(0, 0, 0, 0.6));
   --color-on-brand: light-dark(#ffffff, #16210a);
   --color-border-subtle: light-dark(#e1ece5, #23344b);
   /* 세그먼트 탭·페이지 넘김 트랙: border-subtle, 다크는 surface(DESIGN §3 세그먼트 탭) */
@@ -929,7 +930,7 @@ h1 {
 }
 
 /* 가이드 버튼(#370): 테마 버튼과 같은 둥근 아이콘 자리에 물음표를 둔다. */
-.help-button {
+.guide-button {
   font: inherit;
   font-size: 17px;
   font-weight: 700;

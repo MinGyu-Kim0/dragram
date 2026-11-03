@@ -10,6 +10,8 @@ export interface Step {
   tab?: ResultTab;
   // 웹페이지 위에 우클릭 메뉴를 띄운다.
   menu?: boolean;
+  // 원문에서 이 위치의 글자를 고른 장면('선택한 카드'가 열린다)
+  selected?: number;
 }
 
 export const STEPS: Step[] = [
@@ -21,8 +23,14 @@ export const STEPS: Step[] = [
   },
   {
     title: "원문",
-    body: "고른 문장이에요. 칠해진 부분이 문법이고, 누르면 그 부분의 문법 카드와 단어를 원문 아래에 모아 보여 줘요.",
+    body: "고른 문장이에요. 칠해진 부분이 문법이에요.",
     target: ".sentence-card .original",
+  },
+  {
+    title: "선택한 카드",
+    body: "원문의 칠해진 부분을 누르면 그 부분의 문법 카드와 단어를 원문 아래에 모아 보여 줘요. 다시 누르거나 '닫기'로 닫아요.",
+    target: ".selected-card",
+    selected: 13,
   },
   {
     title: "후리가나",
@@ -46,7 +54,7 @@ export const STEPS: Step[] = [
   },
   {
     title: "AI 생성·미검수",
-    body: "AI가 만들었고 아직 사람이 확인하지 않은 설명이에요. 틀릴 수 있어요. 배지가 없으면 검수를 마친 내용이에요.",
+    body: "AI가 만들었고 아직 사람이 확인하지 않은 설명이에요. 틀릴 수 있어요. 배지가 없으면 사람이 확인했거나 사전(JMdict)에서 온 내용이에요.",
     target: ".grammar-card .badge-warn",
   },
   {

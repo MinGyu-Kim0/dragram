@@ -43,6 +43,23 @@ test("모든 단계의 강조 대상이 장면 안에 있다", () => {
   }
 });
 
+test("'추가' 단계는 추가한 카드의 버튼 줄을, '선택한 카드' 단계는 열린 선택한 카드를 밝힌다", () => {
+  const { container } = render(<Guide />);
+  // 그 단계까지 넘긴 뒤 강조 대상을 돌려준다.
+  const targetOf = (title: string) => {
+    const at = STEPS.findIndex((step) => step.title === title);
+    while (!within(dialog()).queryByText(`${at + 1} / ${STEPS.length}`)) {
+      fireEvent.click(screen.getByRole("button", { name: "다음" }));
+    }
+    return container
+      .querySelector(".guide-scene")!
+      .querySelector(STEPS[at]!.target);
+  };
+
+  expect(targetOf("선택한 카드")).toHaveTextContent("선택한 카드");
+  expect(targetOf("추가 · 예문 저장 · 숨김")).toHaveTextContent("추가됨");
+});
+
 test("마지막 단계의 '시작하기'와 건너뛰기·Esc는 가이드 탭을 닫는다", () => {
   render(<Guide />);
 

@@ -59,27 +59,33 @@
   margin: 0 0 16px;
 }
 
+/* 브라우저의 선택 표시를 흉내 낸 색 */
 .fake-selection {
-  background: #a8c7fa;
-  color: #111;
+  background: light-dark(#a8c7fa, #2f4f86);
+  color: var(--color-text);
+}
+
+.fake-menu-anchor {
+  position: relative;
 }
 
 .fake-menu {
   position: absolute;
-  top: 210px;
-  left: 45%;
-  margin: 0;
+  top: 1.6em;
+  left: -40px;
+  z-index: 1;
+  min-width: 220px;
   padding: 6px 0;
   border: 1px solid var(--color-border);
   border-radius: 8px;
   background: var(--color-surface);
   box-shadow: 0 4px 16px rgb(0 0 0 / 20%);
-  list-style: none;
   font-size: 14px;
   line-height: 1.6;
+  white-space: nowrap;
 }
 
-.fake-menu li {
+.fake-menu > span {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -103,7 +109,7 @@
   border-radius: 12px;
   box-shadow:
     0 0 0 3px var(--color-brand),
-    0 0 0 100vmax rgb(0 0 0 / 62%);
+    0 0 0 100vmax var(--color-scrim);
   pointer-events: none;
   transition: all 0.25s ease;
 }

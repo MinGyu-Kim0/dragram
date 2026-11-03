@@ -5,7 +5,7 @@ export function GuideButton() {
   return (
     <button
       type="button"
-      className="theme-button help-button"
+      className="theme-button guide-button"
       aria-label="가이드"
       onClick={() => openGuide()}
     >

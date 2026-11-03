@@ -123,7 +123,7 @@
   gap: 4px;
   padding: 3px;
   border-radius: 999px;
-  background: var(--color-track);
+  background: var(--color-track-on-surface);
 }
 
 .history .tabs button {

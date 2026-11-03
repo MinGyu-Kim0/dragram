@@ -51,7 +51,25 @@ function grammarTags(item: GrammarItem): string[] {
   ].filter((name): name is string => name !== undefined);
 }
 
+// 문법 카드 하나(합친 카드는 첫 자리)를 가리키는 값. 분석 결과가 새로 와도 같은 카드면 같다.
+export function cardKey(item: GrammarItem): string {
+  return `${item.start}:${item.end}:${item.pattern_name}:${item.name}`;
+}
+
+// '선택한 카드'로 고른 카드(합친 카드는 첫 자리). 보이는 문법에 없으면 undefined다.
+export function selectedCard(
+  grammar: GrammarItem[],
+  selected: string,
+): GrammarItem | undefined {
+  return groupGrammar(grammar)
+    .map(([head]) => head!)
+    .find((head) => cardKey(head) === selected);
+}
+
 // 원문에 문법 구간을 형광펜으로 칠한다. 색은 한 가지다(DESIGN.md 형광펜, #354).
+// 형광펜을 누르면 그 글자의 카드를 고른다(onSelect). 구간이 겹치는 글자는 먼저 시작하는 문법의
+// 카드이고, 합친 카드의 자리는 모두 그 카드다. 구성 문법(parts)은 받지 않으므로 그 글자는 바깥
+// 카드다. 고른 카드(selected)의 형광펜은 모두 선택 표시를 단다.
 // 루비는 형광펜 안에 단다(끄면 빈 목록).
 // 판별 대상 구간(checking, 확인 중)은 형광펜 대신 점선 밑줄로 표시하고, 문법 구간과 겹치면 형광펜을
 // 쓴다. 판별 대상 구간의 경계가 문법 구간 안에 있으면 형광펜이 쪼개지지 않게 그 경계는 쓰지 않는다.
@@ -60,13 +78,22 @@ export function HighlightedText({
   grammar,
   checking = [],
   ruby,
+  selected,
+  onSelect,
 }: {
   text: string;
   grammar: GrammarItem[];
   checking?: CheckingItem[];
   ruby: RubyItem[];
+  selected: string | undefined;
+  onSelect: (key: string) => void;
 }) {
   const sorted = sortGrammar(grammar);
+  const cardOf = new Map(
+    groupGrammar(grammar).flatMap((group) =>
+      group.map((item) => [item, cardKey(group[0]!)] as const),
+    ),
+  );
   const sortedRuby = [...ruby].sort((a, b) => a.start - b.start);
   const insideGrammar = (at: number) =>
     sorted.some((item) => item.start < at && at < item.end);
@@ -99,12 +126,69 @@ export function HighlightedText({
           );
         }
         return (
-          <mark key={start} className="highlight">
+          <HighlightMark
+            key={start}
+            card={cardOf.get(sorted[index]!)!}
+            selected={selected}
+            onSelect={onSelect}
+          >
             {segment}
-          </mark>
+          </HighlightMark>
         );
       })}
     </>
+  );
+}
+
+// 누를 수 있는 형광펜 한 조각. 키보드로도 누를 수 있게 버튼을 넣는다.
+function HighlightMark({
+  card,
+  selected,
+  onSelect,
+  children,
+}: {
+  card: string;
+  selected: string | undefined;
+  onSelect: (key: string) => void;
+  children: ReactNode;
+}) {
+  return (
+    <mark className={card === selected ? "highlight selected" : "highlight"}>
+      <button
+        type="button"
+        aria-pressed={card === selected}
+        onClick={() => onSelect(card)}
+      >
+        {children}
+      </button>
+    </mark>
+  );
+}
+
+// 번역 아래 '선택한 카드' 박스(#354). 목록과 같은 문법 카드라 추가·표시 안 함 버튼도 같다.
+export function SelectedCard({
+  text,
+  item,
+  items,
+  onClose,
+}: {
+  text: string;
+  item: GrammarItem;
+  items?: MyItems;
+  onClose: () => void;
+}) {
+  return (
+    <section aria-label="선택한 카드" className="selected-card">
+      <div className="selected-card-head">
+        <span className="card-meta">선택한 카드</span>
+        <button type="button" className="text-button" onClick={onClose}>
+          닫기
+        </button>
+      </div>
+      <ul className="grammar-cards">
+        <GrammarCard text={text} item={item} items={items} />
+      </ul>
+    </section>
   );
 }
 

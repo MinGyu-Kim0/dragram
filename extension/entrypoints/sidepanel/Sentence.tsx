@@ -6,7 +6,12 @@ import type {
   Translation,
   WordItem,
 } from "@/utils/api";
-import { GrammarCards, HighlightedText } from "./Grammar";
+import {
+  GrammarCards,
+  HighlightedText,
+  SelectedCard,
+  selectedCard,
+} from "./Grammar";
 import { grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
 import { isHidden } from "@/utils/my-items";
@@ -140,6 +145,8 @@ export function SentenceView({
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
   const chooseView = (key: string, named: boolean) =>
     setChosen((current) => new Map(current).set(key, named));
+  // 원문 형광펜을 눌러 고른 카드(#354). 화면 상태라 저장하지 않고 페이지마다 새로 시작한다.
+  const [selected, setSelected] = useState<string>();
   const hiddenUsage = (item: GrammarItem) =>
     !!items && isHidden(items.states, "usage", item.usage_id);
   // 숨긴 용법은 바깥 카드에서도, 다른 카드의 구성 문법(parts)에서도 뺀다(PR #327 리뷰). 바깥을
@@ -154,6 +161,9 @@ export function SentenceView({
   const translation = translationOf(result);
   const allGrammar = grammarOf(result);
   const grammar = shownGrammar(allGrammar);
+  const selectedItem = selected ? selectedCard(grammar, selected) : undefined;
+  // 고른 카드가 사라지면(숨김·재분석) 닫는다. 다시 나타나도 저절로 열지 않는다.
+  if (selected && !selectedItem) setSelected(undefined);
   const checking = checkingOf(result);
   const earlyWords = earlyWordsOf(result);
   // 탭에 보일 문법·단어. 분석이 끝나기 전에도 먼저 온 단어가 있으면 먼저 온 문법과 함께 탭으로
@@ -239,6 +249,10 @@ export function SentenceView({
             grammar={grammar}
             checking={checking}
             ruby={showRuby ? shownRuby : []}
+            selected={selected}
+            onSelect={(key) =>
+              setSelected((current) => (current === key ? undefined : key))
+            }
           />
         </p>
         <hr />
@@ -254,6 +268,14 @@ export function SentenceView({
         )}
         {translation && (
           <p className="translation">{translation.translation_ko}</p>
+        )}
+        {selectedItem && (
+          <SelectedCard
+            text={text}
+            item={selectedItem}
+            items={items}
+            onClose={() => setSelected(undefined)}
+          />
         )}
         {result?.status === "failed" && !translation && (
           <p className="error">

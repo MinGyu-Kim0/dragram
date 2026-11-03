@@ -505,6 +505,131 @@ test("원문의 문법 구간에 형광펜을 칠하고, 카드 칩에 패턴 �
   expect(chips[1]!.className).toBe(chips[0]!.className);
 });
 
+// 번역 아래 '선택한 카드' 박스(#354)
+function selectedBox() {
+  return screen.queryByRole("region", { name: "선택한 카드" });
+}
+
+test("원문 형광펜을 누르면 번역 아래 '선택한 카드'에 그 문법 카드를 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [
+      grammarItem(1, 2, "주제 は", "は"),
+      grammarItem(4, 6, "정중 です", "です"),
+    ],
+    words: [],
+  });
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  await screen.findByRole("tab", { name: "문법 2" });
+  expect(selectedBox()).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "です" }));
+
+  const box = selectedBox()!;
+  expect(within(box).getByRole("heading").textContent).toBe("정중 です");
+  expect(within(box).getByText("정중 です 설명")).toBeInTheDocument();
+  expect(within(box).getByText("AI 생성·미검수")).toBeInTheDocument();
+  // 박스는 원문 카드 안, 번역 바로 다음이다.
+  expect(screen.getByText("나는 학생입니다.").nextElementSibling).toBe(box);
+  expect(screen.getByRole("button", { name: "です" })).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "は" })).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
+});
+
+test("다른 형광펜을 누르면 그 카드로 바꾸고, 같은 형광펜이나 닫기를 누르면 닫는다", async () => {
+  respondWith(200, {
+    translation_ko: "나는 학생입니다.",
+    grammar: [
+      grammarItem(1, 2, "주제 は", "は"),
+      grammarItem(4, 6, "정중 です", "です"),
+    ],
+    words: [],
+  });
+  render(<App />);
+  await send(panelWindowId, "私は学生です。");
+  await screen.findByRole("tab", { name: "문법 2" });
+
+  fireEvent.click(screen.getByRole("button", { name: "は" }));
+  fireEvent.click(screen.getByRole("button", { name: "です" }));
+  expect(within(selectedBox()!).getByRole("heading").textContent).toBe(
+    "정중 です",
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "です" }));
+  expect(selectedBox()).toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "は" }));
+  fireEvent.click(within(selectedBox()!).getByRole("button", { name: "닫기" }));
+  expect(selectedBox()).toBeNull();
+});
+
+test("합친 카드의 어느 자리나 구성 문법 글자를 눌러도 그 카드 한 장을 연다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [
+      grammarItem(1, 2, "주어 が", "が"),
+      grammarItem(3, 4, "주어 が", "が"),
+      withParts(
+        grammarItem(6, 10, "완료", "てしまう"),
+        grammarItem(6, 7, "연결", "て"),
+      ),
+    ],
+    words: [],
+  });
+  render(<App />);
+  await send(panelWindowId, "猫が犬が食べてしまう");
+  await screen.findByRole("heading", { name: "완료" });
+  const [, second] = screen.getAllByRole("button", { name: "が" });
+
+  fireEvent.click(second!);
+
+  expect(within(selectedBox()!).getAllByRole("heading")).toHaveLength(1);
+  expect(within(selectedBox()!).getByRole("heading").textContent).toBe(
+    "주어 が",
+  );
+  // 합친 카드의 자리는 모두 선택 표시를 단다.
+  for (const button of screen.getAllByRole("button", { name: "が" })) {
+    expect(button).toHaveAttribute("aria-pressed", "true");
+  }
+
+  fireEvent.click(screen.getByRole("button", { name: "てしまう" }));
+
+  const box = selectedBox()!;
+  expect(within(box).getByRole("heading", { level: 3 }).textContent).toBe(
+    "완료",
+  );
+  expect(
+    within(within(box).getByRole("list", { name: "구성 문법" })).getByRole(
+      "heading",
+      { level: 4 },
+    ).textContent,
+  ).toBe("연결");
+});
+
+test("다른 문장 페이지로 넘기면 '선택한 카드'를 닫는다", async () => {
+  respondWith(200, {
+    translation_ko: "번역",
+    grammar: [grammarItem(1, 2, "주제 は", "は")],
+    words: [],
+  });
+  render(<App />);
+  await send(panelWindowId, "私は学生。", "彼は先生。");
+  await screen.findByRole("heading", { name: "주제 は" });
+  fireEvent.click(screen.getByRole("button", { name: "は" }));
+  expect(selectedBox()).not.toBeNull();
+
+  fireEvent.click(screen.getByRole("button", { name: "다음 문장" }));
+  await screen.findByText("2 / 2");
+
+  expect(selectedBox()).toBeNull();
+});
+
 test("문법이 없으면 문법 칸 자리에 '문법 요소 없음'을 보인다", async () => {
   respondWith(200, { translation_ko: "도쿄", grammar: [], words: [] });
   render(<App />);
@@ -3579,6 +3704,41 @@ describe("내 일본어 항목(#321)", () => {
     expect(
       within(cardOf("정중 です")).getByRole("button", { name: "추가" }),
     ).toBeInTheDocument();
+  });
+
+  test("'선택한 카드'에서도 추가할 수 있고, '표시 안 함'을 누르면 형광펜과 함께 박스가 닫힌다", async () => {
+    respondWithCards();
+    vi.mocked(saveMyItem)
+      .mockResolvedValueOnce({ kind: "usage", id: 11, state: "added" })
+      .mockResolvedValueOnce({ kind: "usage", id: 12, state: "hidden" });
+    render(<App />);
+    await send(panelWindowId, SENTENCE);
+    await screen.findByRole("heading", { name: "주제 は" });
+    fireEvent.click(screen.getByRole("button", { name: "は" }));
+    const box = () => screen.getByRole("region", { name: "선택한 카드" });
+
+    fireEvent.click(within(box()).getByRole("button", { name: "추가" }));
+
+    expect(
+      await within(box()).findByText("내 일본어에 추가됨"),
+    ).toBeInTheDocument();
+    expect(saveMyItem).toHaveBeenCalledWith("usage", 11, "added", undefined);
+
+    fireEvent.click(screen.getByRole("button", { name: "です" }));
+    fireEvent.click(within(box()).getByRole("button", { name: "표시 안 함" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "선택한 카드" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(saveMyItem).toHaveBeenLastCalledWith(
+      "usage",
+      12,
+      "hidden",
+      undefined,
+    );
+    expect(highlights()).toBe(1);
   });
 
   test("'표시 안 함'은 카드·형광펜·개수에서 빼고 맨 아래에 접어 두며, '다시 보이기'로 돌아온다", async () => {

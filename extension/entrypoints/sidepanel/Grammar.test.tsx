@@ -136,7 +136,13 @@ const teiru = {
 test("칩은 패턴 이름, 보조 줄은 다른 원문 형태를 보이고 설명과 하이라이트를 유지한다", () => {
   const { container } = render(
     <>
-      <HighlightedText text="食べています" grammar={[teiru]} ruby={[]} />
+      <HighlightedText
+        text="食べています"
+        grammar={[teiru]}
+        ruby={[]}
+        selected={undefined}
+        onSelect={() => {}}
+      />
       <GrammarCards text="食べています" grammar={[teiru]} />
     </>,
   );

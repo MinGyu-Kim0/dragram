@@ -15,7 +15,7 @@
 - 용어가 낯설거나 이름을 지을 때 → `GLOSSARY.md`. 코드·커밋·이슈에 이 용어를 그대로 쓴다.
 - 기능 범위·수용 기준 → `docs/requirements.md`
 - 테이블·칼럼 → `docs/schema/schema.md`
-- "왜 이렇게 정했지?" → `docs/decisions.md`(지금 유효한 결정, 주제별), `docs/adr/`. 바뀌기 전 맥락이 필요할 때만 이력 `docs/design-decisions.md`(동결, 절 번호로 참조)를 grep으로 찾아 읽는다. 옛 이름은 `GLOSSARY.md`의 _Avoid_ 이름으로 함께 찾는다.
+- "왜 이렇게 정했지?" → `docs/decisions.md`(지금 유효한 결정, 주제별. 차례에서 주제를 골라 그 절만 읽는다), `docs/adr/`. 바뀌기 전 맥락이 필요할 때만 이력 `docs/design-decisions.md`(동결, 절 번호로 참조)를 grep으로 찾아 읽는다. 옛 이름은 `GLOSSARY.md`의 _Avoid_ 이름으로 함께 찾는다.
 - 화면·색·문구 → `DESIGN.md`
 - 코드 리뷰 기준 → `CODING_STANDARDS.md`
 

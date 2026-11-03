@@ -31,17 +31,16 @@ export function grammarCardCount(grammar: GrammarItem[]): number {
   );
 }
 
-// 문법 카드 하나(합친 카드는 첫 자리)를 가리키는 값. 분석 결과가 새로 와도 같은 카드면 같다.
-export function cardKey(item: GrammarItem): string {
-  return `${item.start}:${item.end}:${item.pattern_name}:${item.name}`;
-}
-
-// '선택한 카드'로 고른 카드(합친 카드는 첫 자리). 보이는 문법에 없으면 undefined다.
-export function selectedCard(
+// 원문 글자(at)의 문법 카드(합친 카드는 첫 자리). 구간이 겹치는 글자는 먼저 시작하는 문법의
+// 카드다. 그 글자에 문법이 없으면 undefined다.
+export function cardAt(
   grammar: GrammarItem[],
-  selected: string,
+  at: number,
 ): GrammarItem | undefined {
-  return groupGrammar(grammar)
-    .map(([head]) => head!)
-    .find((head) => cardKey(head) === selected);
+  const owner = sortGrammar(grammar).find(
+    (item) => item.start <= at && at < item.end,
+  );
+  return (
+    owner && groupGrammar(grammar).find((group) => group.includes(owner))![0]
+  );
 }

@@ -139,6 +139,7 @@ test("칩은 패턴 이름, 보조 줄은 다른 원문 형태를 보이고 설�
       <HighlightedText
         text="食べています"
         grammar={[teiru]}
+        words={[]}
         ruby={[]}
         selected={undefined}
         onSelect={() => {}}

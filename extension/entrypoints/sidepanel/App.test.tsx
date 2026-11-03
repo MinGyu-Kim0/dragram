@@ -612,10 +612,12 @@ test("합친 카드의 어느 자리나 구성 문법 글자를 눌러도 그 �
   expect(within(selectedBox()!).getByRole("heading").textContent).toBe(
     "주어 が",
   );
-  // 합친 카드의 자리는 모두 선택 표시를 단다.
-  for (const button of screen.getAllByRole("button", { name: "が" })) {
-    expect(button).toHaveAttribute("aria-pressed", "true");
-  }
+  // 누른 자리만 눌린 상태다.
+  expect(
+    screen
+      .getAllByRole("button", { name: "が" })
+      .map((button) => button.getAttribute("aria-pressed")),
+  ).toEqual(["false", "true"]);
 
   fireEvent.click(screen.getByRole("button", { name: "てしまう" }));
 
@@ -629,6 +631,41 @@ test("합친 카드의 어느 자리나 구성 문법 글자를 눌러도 그 �
       { level: 4 },
     ).textContent,
   ).toBe("연결");
+});
+
+test("원문의 단어를 누르면 '선택한 카드'에 그 글자의 문법 카드와 그 아래 단어 카드를 보인다", async () => {
+  respondWith(200, {
+    translation_ko: "먹어 버렸다",
+    grammar: [grammarItem(2, 6, "완료", "てしまう")],
+    words: [
+      wordItem(0, 2, "食べる", "たべる"),
+      wordItem(3, 6, "しまう", "しまう"),
+    ],
+  });
+  render(<App />);
+  await send(panelWindowId, "食べてしまった");
+  await screen.findByRole("tab", { name: "문법 1" });
+  const headings = () =>
+    within(selectedBox()!)
+      .getAllByRole("heading", { level: 3 })
+      .map((heading) => heading.textContent);
+  // 형광펜은 단어 경계에서 쪼개지 않는다.
+  expect(
+    [...document.querySelectorAll(".original mark")].map(
+      (mark) => mark.textContent,
+    ),
+  ).toEqual(["てしまっ"]);
+
+  fireEvent.click(screen.getByRole("button", { name: "しまっ" }));
+  expect(headings()).toEqual(["완료", "しまう"]);
+
+  // 형광펜이 없는 단어는 단어 카드만 보인다.
+  fireEvent.click(screen.getByRole("button", { name: "食べ" }));
+  expect(headings()).toEqual(["食べる"]);
+
+  // 단어가 없는 형광펜 글자는 문법 카드만 보인다.
+  fireEvent.click(screen.getByRole("button", { name: "て" }));
+  expect(headings()).toEqual(["완료"]);
 });
 
 test("보통 카드끼리 겹친 글자를 누르면 먼저 시작한 문법의 카드를 연다", async () => {
@@ -3859,6 +3896,15 @@ describe("내 일본어 항목(#321)", () => {
       undefined,
     );
     expect(highlights()).toBe(1);
+
+    // 단어 카드도 목록과 같은 추가 버튼을 단다.
+    fireEvent.click(screen.getByRole("button", { name: "学生" }));
+    expect(
+      within(box()).getByRole("heading", { name: "学生" }),
+    ).toBeInTheDocument();
+    expect(
+      within(box()).getByRole("button", { name: "추가" }),
+    ).toBeInTheDocument();
   });
 
   test("'표시 안 함'은 카드·형광펜·개수에서 빼고 맨 아래에 접어 두며, '다시 보이기'로 돌아온다", async () => {

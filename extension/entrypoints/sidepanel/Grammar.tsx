@@ -2,7 +2,7 @@ import { Fragment, type ReactNode } from "react";
 import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
 import { BadgeRow } from "./BadgeRow";
 import { ConnectionNote } from "./ConnectionNote";
-import { cardKey, groupGrammar, sortGrammar } from "./grammar-groups";
+import { cardAt, groupGrammar, sortGrammar } from "./grammar-groups";
 import { itemKey } from "@/utils/my-items";
 import { ItemActions, type MyItems } from "./MyItems";
 import { TAG_NAMES } from "./tag-names";
@@ -52,16 +52,17 @@ function grammarTags(item: GrammarItem): string[] {
 }
 
 // 원문에 문법 구간을 형광펜으로 칠한다. 색은 한 가지다(DESIGN.md 형광펜, #354).
-// 형광펜을 누르면 그 글자의 카드를 고른다(onSelect). 구간이 겹치는 글자는 먼저 시작하는 문법의
-// 카드이고, 합친 카드의 자리는 모두 그 카드다. 구성 문법(parts)은 받지 않으므로 그 글자는 바깥
-// 카드다. 고른 카드(selected)의 형광펜은 모두 선택 표시를 단다.
 // 루비는 형광펜 안에 단다(끄면 빈 목록).
 // 판별 대상 구간(checking, 확인 중)은 형광펜 대신 점선 밑줄로 표시하고, 문법 구간과 겹치면 형광펜을
 // 쓴다. 판별 대상 구간의 경계가 문법 구간 안에 있으면 형광펜이 쪼개지지 않게 그 경계는 쓰지 않는다.
+// 문법이나 단어가 있는 글자는 눌러서 '선택한 카드'를 연다(onSelect, 누른 조각의 시작 위치). 누르는
+// 조각은 형광펜 안에서 단어 경계로 나누되 형광펜과 루비는 쪼개지 않는다. 고른 글자(selected)의 문법
+// 카드의 형광펜은 모두 선택 표시를 단다(cardAt).
 export function HighlightedText({
   text,
   grammar,
   checking = [],
+  words,
   ruby,
   selected,
   onSelect,
@@ -69,116 +70,140 @@ export function HighlightedText({
   text: string;
   grammar: GrammarItem[];
   checking?: CheckingItem[];
+  words: { start: number; end: number }[];
   ruby: RubyItem[];
-  selected: string | undefined;
-  onSelect: (key: string) => void;
+  selected: number | undefined;
+  onSelect: (at: number) => void;
 }) {
   const sorted = sortGrammar(grammar);
-  const cardOf = new Map(
+  const headOf = new Map(
     groupGrammar(grammar).flatMap((group) =>
-      group.map((item) => [item, cardKey(group[0]!)] as const),
+      group.map((item) => [item, group[0]!] as const),
     ),
   );
+  const selectedCard =
+    selected === undefined ? undefined : cardAt(grammar, selected);
   const sortedRuby = [...ruby].sort((a, b) => a.start - b.start);
   const insideGrammar = (at: number) =>
     sorted.some((item) => item.start < at && at < item.end);
-  const bounds = [
-    ...new Set([
-      0,
-      text.length,
-      ...sorted.flatMap((item) => [item.start, item.end]),
-      ...checking
-        .flatMap((item) => [item.start, item.end])
-        .filter((at) => !insideGrammar(at)),
-    ]),
-  ].sort((a, b) => a - b);
+  const insideRuby = (at: number) =>
+    sortedRuby.some((piece) => piece.start < at && at < piece.end);
+  const bounds = unique([
+    0,
+    text.length,
+    ...sorted.flatMap((item) => [item.start, item.end]),
+    ...checking
+      .flatMap((item) => [item.start, item.end])
+      .filter((at) => !insideGrammar(at)),
+  ]);
+  const wordBounds = words
+    .flatMap((word) => [word.start, word.end])
+    .filter((at) => !insideRuby(at));
+
+  // 원문 [start, end)를 단어 경계로 나눈 조각들. 문법(inGrammar)이나 단어가 있는 조각은 누를 수 있다.
+  const pieces = (start: number, end: number, inGrammar: boolean) => {
+    const cuts = unique([
+      start,
+      end,
+      ...wordBounds.filter((at) => start < at && at < end),
+    ]);
+    return cuts.slice(0, -1).map((from, i) => {
+      const to = cuts[i + 1]!;
+      const content = withRuby(text, from, to, sortedRuby);
+      const hasWord = words.some((word) => word.start < to && from < word.end);
+      if (!inGrammar && !hasWord) {
+        return <Fragment key={from}>{content}</Fragment>;
+      }
+      return (
+        <Piece
+          key={from}
+          pressed={selected !== undefined && from <= selected && selected < to}
+          onPress={() => onSelect(from)}
+        >
+          {content}
+        </Piece>
+      );
+    });
+  };
 
   return (
     <>
       {bounds.slice(0, -1).map((start, i) => {
         const end = bounds[i + 1]!;
-        const segment = withRuby(text, start, end, sortedRuby);
         const covers = (item: { start: number; end: number }) =>
           item.start <= start && end <= item.end;
-        const index = sorted.findIndex(covers);
-        if (index === -1) {
-          const waiting = checking.some(covers);
-          if (!waiting) return <Fragment key={start}>{segment}</Fragment>;
+        const owner = sorted.find(covers);
+        if (!owner) {
+          const content = pieces(start, end, false);
+          if (!checking.some(covers)) {
+            return <Fragment key={start}>{content}</Fragment>;
+          }
           return (
             <mark key={start} className="checking">
-              {segment}
+              {content}
             </mark>
           );
         }
+        const chosen = selectedCard && headOf.get(owner) === selectedCard;
         return (
-          <HighlightMark
+          <mark
             key={start}
-            card={cardOf.get(sorted[index]!)!}
-            selected={selected}
-            onSelect={onSelect}
+            className={chosen ? "highlight selected" : "highlight"}
           >
-            {segment}
-          </HighlightMark>
+            {pieces(start, end, true)}
+          </mark>
         );
       })}
     </>
   );
 }
 
-// 누를 수 있는 형광펜 한 조각. <button>은 줄을 넘겨 감기지 않아 mark에 버튼 역할을 준다.
-function HighlightMark({
-  card,
-  selected,
-  onSelect,
+function unique(at: number[]): number[] {
+  return [...new Set(at)].sort((a, b) => a - b);
+}
+
+// 누를 수 있는 원문 조각. <button>은 줄을 넘겨 감기지 않아 span에 버튼 역할을 준다.
+function Piece({
+  pressed,
+  onPress,
   children,
 }: {
-  card: string;
-  selected: string | undefined;
-  onSelect: (key: string) => void;
+  pressed: boolean;
+  onPress: () => void;
   children: ReactNode;
 }) {
   return (
-    <mark
-      className={card === selected ? "highlight selected" : "highlight"}
+    <span
+      className="piece"
       role="button"
       tabIndex={0}
-      aria-pressed={card === selected}
-      onClick={() => onSelect(card)}
+      aria-pressed={pressed}
+      onClick={onPress}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        onSelect(card);
+        onPress();
       }}
     >
       {children}
-    </mark>
+    </span>
   );
 }
 
-// 번역 아래 '선택한 카드' 박스(#354). 목록과 같은 문법 카드라 추가·표시 안 함 버튼도 같다.
-export function SelectedCard({
+// '선택한 카드' 박스(#354)의 문법 카드. 목록과 같은 카드라 추가·표시 안 함 버튼도 같다.
+export function SelectedGrammarCard({
   text,
   item,
   items,
-  onClose,
 }: {
   text: string;
   item: GrammarItem;
   items?: MyItems;
-  onClose: () => void;
 }) {
   return (
-    <section aria-label="선택한 카드" className="selected-card">
-      <div className="selected-card-head">
-        <span className="card-meta">선택한 카드</span>
-        <button type="button" className="text-button" onClick={onClose}>
-          닫기
-        </button>
-      </div>
-      <ul className="grammar-cards">
-        <GrammarCard text={text} item={item} items={items} />
-      </ul>
-    </section>
+    <ul className="grammar-cards">
+      <GrammarCard text={text} item={item} items={items} />
+    </ul>
   );
 }
 

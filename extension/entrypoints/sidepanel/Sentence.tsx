@@ -6,8 +6,8 @@ import type {
   Translation,
   WordItem,
 } from "@/utils/api";
-import { GrammarCards, HighlightedText, SelectedCard } from "./Grammar";
-import { grammarCardCount, selectedCard } from "./grammar-groups";
+import { GrammarCards, HighlightedText, SelectedGrammarCard } from "./Grammar";
+import { cardAt, grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
 import { isHidden } from "@/utils/my-items";
 import type { HighlightStyle } from "@/utils/preferences";
@@ -150,8 +150,8 @@ export function SentenceView({
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map());
   const chooseView = (key: string, named: boolean) =>
     setChosen((current) => new Map(current).set(key, named));
-  // 원문 형광펜을 눌러 고른 카드(#354). 화면 상태라 저장하지 않고 페이지마다 새로 시작한다.
-  const [selected, setSelected] = useState<string>();
+  // 원문을 눌러 고른 글자의 위치(#354). 화면 상태라 저장하지 않고 페이지마다 새로 시작한다.
+  const [selected, setSelected] = useState<number>();
   const hiddenUsage = (item: GrammarItem) =>
     !!items && isHidden(items.states, "usage", item.usage_id);
   // 숨긴 용법은 바깥 카드에서도, 다른 카드의 구성 문법(parts)에서도 뺀다(PR #327 리뷰). 바깥을
@@ -166,9 +166,6 @@ export function SentenceView({
   const translation = translationOf(result);
   const allGrammar = grammarOf(result);
   const grammar = shownGrammar(allGrammar);
-  const selectedItem = selected ? selectedCard(grammar, selected) : undefined;
-  // 고른 카드가 사라지면(숨김·재분석) 닫는다. 다시 나타나도 저절로 열지 않는다.
-  if (selected && !selectedItem) setSelected(undefined);
   const checking = checkingOf(result);
   const earlyWords = earlyWordsOf(result);
   // 탭에 보일 문법·단어. 분석이 끝나기 전에도 먼저 온 단어가 있으면 먼저 온 문법과 함께 탭으로
@@ -186,6 +183,41 @@ export function SentenceView({
     isHidden(items.states, "sense", word.sense?.id);
   const shownWords = (list: WordItem[]) =>
     list.filter((word) => !hiddenWord(word));
+  // '선택한 카드'(#354): 고른 글자의 문법 카드와 그 아래 그 글자의 단어 카드. 둘 다 사라지면
+  // (숨김·재분석) 닫고, 다시 나타나도 저절로 열지 않는다.
+  const visibleWords = shownWords(allWords);
+  const selectedGrammar =
+    selected === undefined ? undefined : cardAt(grammar, selected);
+  const selectedWords =
+    selected === undefined
+      ? []
+      : visibleWords.filter(
+          (word) => word.start <= selected && selected < word.end,
+        );
+  if (
+    selected !== undefined &&
+    !selectedGrammar &&
+    selectedWords.length === 0
+  ) {
+    setSelected(undefined);
+  }
+  const removeName = async (surface: string) => {
+    await onRemove(surface);
+    // 해제한 표기의 자리는 다시 지정해도 기본 보기로 시작한다.
+    setChosen(
+      (current) =>
+        new Map(
+          [...current].filter(
+            ([key]) =>
+              !allWords.some(
+                (word) =>
+                  wordKey(word) === key &&
+                  text.slice(word.start, word.end) === surface,
+              ),
+          ),
+        ),
+    );
+  };
   const tabbed = analysis
     ? {
         grammar,
@@ -270,10 +302,11 @@ export function SentenceView({
             text={text}
             grammar={grammar}
             checking={checking}
+            words={visibleWords}
             ruby={showRuby ? shownRuby : []}
             selected={selected}
-            onSelect={(key) =>
-              setSelected((current) => (current === key ? undefined : key))
+            onSelect={(at) =>
+              setSelected((current) => (current === at ? undefined : at))
             }
           />
         </p>
@@ -291,13 +324,40 @@ export function SentenceView({
         {translation && (
           <p className="translation">{translation.translation_ko}</p>
         )}
-        {selectedItem && (
-          <SelectedCard
-            text={text}
-            item={selectedItem}
-            items={items}
-            onClose={() => setSelected(undefined)}
-          />
+        {selected !== undefined && (
+          <section aria-label="선택한 카드" className="selected-card">
+            <div className="selected-card-head">
+              <span className="card-meta">선택한 카드</span>
+              <button
+                type="button"
+                className="text-button"
+                onClick={() => setSelected(undefined)}
+              >
+                닫기
+              </button>
+            </div>
+            {selectedGrammar && (
+              <SelectedGrammarCard
+                text={text}
+                item={selectedGrammar}
+                items={items}
+              />
+            )}
+            {selectedWords.length > 0 && (
+              <WordList
+                text={text}
+                words={selectedWords}
+                ruby={ruby}
+                names={names}
+                chosen={chosen}
+                nameSpans={analysis?.name_spans}
+                onChooseView={chooseView}
+                onSave={onSave}
+                onRemove={removeName}
+                items={items}
+              />
+            )}
+          </section>
         )}
         {result?.status === "failed" && !translation && (
           <p className="error">
@@ -378,23 +438,7 @@ export function SentenceView({
                   nameSpans={analysis?.name_spans}
                   onChooseView={chooseView}
                   onSave={onSave}
-                  onRemove={async (surface) => {
-                    await onRemove(surface);
-                    // 해제한 표기의 자리는 다시 지정해도 기본 보기로 시작한다.
-                    setChosen(
-                      (current) =>
-                        new Map(
-                          [...current].filter(
-                            ([key]) =>
-                              !tabbed.words.some(
-                                (word) =>
-                                  wordKey(word) === key &&
-                                  text.slice(word.start, word.end) === surface,
-                              ),
-                          ),
-                        ),
-                    );
-                  }}
+                  onRemove={removeName}
                   items={items}
                 />
                 {items && <HiddenCards cards={hiddenWords} items={items} />}

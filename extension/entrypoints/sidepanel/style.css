@@ -245,14 +245,24 @@ h1 {
   padding: 0 2px;
 }
 
-/* 형광펜은 눌러서 '선택한 카드'를 연다(#354). */
-.original mark.highlight {
+/* 문법·단어가 있는 원문 조각은 눌러서 '선택한 카드'를 연다(#354). */
+.original .piece {
   cursor: pointer;
+  border-radius: 3px;
 }
 
-.original mark.highlight:focus-visible {
+.original .piece:hover {
+  background: var(--color-surface-inset);
+}
+
+.original .piece:focus-visible {
   outline: 2px solid var(--color-ring);
   outline-offset: 2px;
+}
+
+/* 문법이 없는 단어를 골랐으면 그 조각에 선택 링을 두른다(문법이면 형광펜 전체에 두른다). */
+.original :not(mark.selected) > .piece[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--color-ring);
 }
 
 /* 밑줄 모양(#354): 칠하지 않고 글자 아래에 선을 긋는다. 이웃한 구간의 선이 이어지지 않게

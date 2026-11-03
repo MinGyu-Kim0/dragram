@@ -277,7 +277,7 @@ export function SentenceView({
             </p>
           )}
           <button type="button" aria-pressed={showRuby} onClick={onToggleRuby}>
-            루비
+            후리가나
           </button>
           <div role="group" aria-label="형광펜 모양" className="style-choice">
             {HIGHLIGHT_STYLES.map(([style, label]) => (

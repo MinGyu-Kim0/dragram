@@ -20,6 +20,7 @@
 | terms_version | 동의한 이용약관 | date | Y |  | 동의한 이용약관의 시행일. 가입하기를 누를 때 서버가 정한다(웹이 보낸 값을 믿지 않는다). 동의 전 계정은 NULL이다(#257) |
 | privacy_version | 고지한 처리방침 | date | Y |  | 가입 화면에 보여 준 개인정보처리방침의 시행일. 동의가 아니라 고지한 판의 기록이다(design-decisions 68절). 동의 전 계정은 NULL이다 |
 | terms_agreed_at | 약관 동의일시 | timestamptz | Y |  | 가입하기를 누른 시각. 동의 전 계정은 NULL이다 |
+| usage_reset_at | 한도 초기화일시 | timestamptz | Y |  | 관리자가 admin에서 하루 토큰 한도를 초기화한 시각(#386). 하루 한도는 오늘 자정과 이 시각 중 늦은 때부터 센다. `usage_log`는 지우지 않는다. 탈퇴 때 남기는 그날 행도 이 시각 뒤 행만이다 |
 
 `AbstractUser`의 나머지 칸(password, first_name 등)도 있다. Google로 가입한 사용자는 비밀번호를 쓸 수 없다(ADR 0004, design-decisions 49절).
 
@@ -114,7 +115,7 @@
 | 칼럼 | 이름 | 타입 | NULL | 참조 | 설명 |
 |---|---|---|---|---|---|
 | id | ID | bigint |  | PK |  |
-| user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null. 하루 토큰 한도의 집계 기준(#28, design-decisions 52절) |
+| user_id | 사용자 ID | bigint | Y | → users | 분석 요청과 그 요청의 LLM 호출은 확장 토큰의 주인(#109). 시스템 일괄 작업 호출이면 null. 하루 토큰 한도의 집계 기준(#28, design-decisions 52절). `users.usage_reset_at` 뒤 행만 세고, `is_staff` 사용자는 하루 한도가 없다(#386) |
 | analysis_id | 문장 분석 ID | bigint | Y | → sentence_analysis | (구현이 정함, 확인 필요, design-decisions 51절) 선점한 분석 행에 처음부터 잇는다. 새 문장도 LLM을 부르기 전에 처리 중 행을 먼저 만들어, 실패한 시도의 기록도 그 행에 이어진다. 재매칭은 기존 분석 행에 잇는다 |
 | kind | 기록 종류 | varchar(30) |  |  | request(분석 요청, 경로를 정할 때 1행) / llm(LLM 호출, 호출마다 저장 트랜잭션 밖에서 바로 1행. 마감이 지나 보내지 않은 호출은 남기지 않음. 기록 시점은 구현이 정함, 확인 필요). 원문은 저장하지 않음 |
 | path | 처리 경로 | varchar(30) | Y |  | request일 때: cache(패턴 세트 버전이 최신인 캐시 분석을 그대로 보냄) / db(캐시 분석을 다시 매칭했고 LLM 없이 확정) / llm(LLM을 부름: 새 문장, stale 재분석, 재매칭 재판정). 처리 중 작업에 붙은 요청도 현재 llm이며, 이 분류는 FR-M01 전에 확인할 구현 동작(design-decisions 51절) |

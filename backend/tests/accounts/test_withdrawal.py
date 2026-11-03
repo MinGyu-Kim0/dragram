@@ -261,6 +261,22 @@ def test_signing_up_again_the_same_day_keeps_the_days_usage(fake_llm, monkeypatc
     assert_only_tokens_and_time_are_kept()
 
 
+def test_usage_reset_by_an_admin_stays_reset_after_signing_up_again(
+    fake_llm, monkeypatch, settings
+):
+    # 초기화 전 사용량이 탈퇴·재가입으로 한도에 되살아나지 않는다.
+    me, _ = user_with_records("me", fake_llm)
+    User.objects.filter(pk=me.pk).update(google_sub="google-sub-1", usage_reset_at=timezone.now())
+    me.refresh_from_db()
+    assert limits.today_tokens(me) == 0
+    web, headers = web_session(me)
+    withdraw(web, headers, me)
+
+    again = google_login(web, monkeypatch, settings, "google-sub-1")
+
+    assert limits.today_tokens(again) == 0
+
+
 def test_another_google_account_does_not_get_the_withdrawn_usage(fake_llm, monkeypatch, settings):
     me, _ = user_with_records("me", fake_llm)
     User.objects.filter(pk=me.pk).update(google_sub="google-sub-1")

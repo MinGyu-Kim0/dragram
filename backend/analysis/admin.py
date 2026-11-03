@@ -36,6 +36,7 @@ from analysis.models import (
     MatchCorrection,
     PatternMorpheme,
     ReviewStatus,
+    UsageLog,
     UsageRule,
     Word,
     WordSense,
@@ -862,6 +863,52 @@ class MatchCorrectionAdmin(admin.ModelAdmin):
     @admin.display(description="정정 후 용법")
     def after(self, correction):
         return correction.after_usage or "매칭 해제"
+
+
+@admin.register(UsageLog)
+class UsageLogAdmin(admin.ModelAdmin):
+    """사용자별 토큰 사용량(#386). 보기만 한다. 원문은 없고, 탈퇴한 Google 계정의 비교값
+    (withdrawn_key)은 칸·찾기·거르기 어디에도 두지 않는다.
+    """
+
+    list_display = [
+        "created_at",
+        "owner",
+        "kind",
+        "path",
+        "purpose",
+        "model",
+        "input_tokens",
+        "cached_input_tokens",
+        "output_tokens",
+        "success",
+        "attempt",
+        "analysis_id",
+    ]
+    list_filter = ["kind", "path", "purpose", "success"]
+    search_fields = ["user__email"]
+    date_hierarchy = "created_at"
+    fields = list_display
+    readonly_fields = fields
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related("user").order_by("-created_at")
+
+    @admin.display(description="사용자", ordering="user__email")
+    def owner(self, row):
+        if row.user:
+            return row.user.email or row.user.username
+        # 사용자 없는 행은 시스템 일괄 작업이거나 오늘 탈퇴한 계정의 행이다.
+        return "탈퇴(오늘)" if row.withdrawn_key else "시스템"
 
 
 # 평가 세트(FR-A26, #177). 평가 문장은 관리자가 쓴 문장이라 admin에 보여도 된다(NFR-13).

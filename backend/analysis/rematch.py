@@ -466,7 +466,7 @@ def _judge(sentence, analysis_id, usage_id, version, basis):
         else:
             saved = save_rematch(sentence, lambda row: row, new_closed)
     except BusinessError as e:
-        # 사유는 원문 없는 고정 문구다(BusinessError).
+        # 사유에는 원문 없이 정해진 문구·규칙 이름·숫자만 들어간다(BusinessError).
         logger.warning(
             "rematch_judge 실패: analysis_id=%s error=%s: %s", analysis_id, e.error_code.code, e
         )

@@ -18,7 +18,12 @@ from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 
 from analysis import jobs, limits, llm, patterns, stream
-from analysis.answers import FIRST_VERDICTS, _validate_recheck_answers, reject_quotes
+from analysis.answers import (
+    FIRST_VERDICTS,
+    SpanAnswersRejected,
+    _validate_recheck_answers,
+    reject_quotes,
+)
 from analysis.examples import _check_examples
 from analysis.models import GrammarPattern, GrammarUsage, SentenceAnalysis, SpanMatch, UsageLog
 from analysis.presenter import _review_status, _with_parts
@@ -295,11 +300,12 @@ def judge_rematched(sentence, event_of, new_closed, new_spans, usage, grown=()):
     )
     if not isinstance(result, dict):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 재판정")
-    checked = _validate_recheck_answers(
-        result.get("spans"), span_list, [FIRST_VERDICTS] * len(span_list), sentence.numbers
-    )
-    if checked is None:
-        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 재판정")
+    try:
+        checked = _validate_recheck_answers(
+            result.get("spans"), span_list, [FIRST_VERDICTS] * len(span_list), sentence.numbers
+        )
+    except SpanAnswersRejected as e:
+        raise BusinessError(AnalysisError.FAILED, f"LLM 응답 검증 실패: 재판정 ({e})") from None
     answers, alternatives = checked
     # 대안 번역이 저장 번역과 같으면 갈린 해석이 아니다.
     if any(
@@ -460,8 +466,9 @@ def _judge(sentence, analysis_id, usage_id, version, basis):
         else:
             saved = save_rematch(sentence, lambda row: row, new_closed)
     except BusinessError as e:
+        # 사유에는 원문 없이 정해진 문구·규칙 이름·숫자만 들어간다(BusinessError).
         logger.warning(
-            "rematch_judge 실패: analysis_id=%s error=%s", analysis_id, e.error_code.code
+            "rematch_judge 실패: analysis_id=%s error=%s: %s", analysis_id, e.error_code.code, e
         )
         return False
     return saved is not None

@@ -12,6 +12,7 @@ from analysis import jobs, limits, llm, morphology, patterns, timing, words
 from analysis.answers import (
     FIRST_VERDICTS,
     RECHECK_VERDICTS,
+    SpanAnswersRejected,
     _is_text,
     _quotes_whole_sentence,
     _validate,
@@ -391,8 +392,9 @@ class Worker:
         문장 전체를 인용했으면 None이다(알리지 않고, 응답 전체 검증에서 실패한다).
         """
         s = self.sentence
-        checked = _validate_span_answers(answers, s.spans)
-        if checked is None:
+        try:
+            checked = _validate_span_answers(answers, s.spans)
+        except SpanAnswersRejected:
             return None
         texts = [
             new_usage[field]
@@ -501,14 +503,17 @@ class Worker:
         )
         if not isinstance(result, dict):
             raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 다시 묻기")
-        checked = _validate_recheck_answers(
-            result.get("spans"),
-            recheck_spans + asked,
-            [RECHECK_VERDICTS] * len(recheck) + [FIRST_VERDICTS] * len(asked),
-            s.numbers,
-        )
-        if checked is None:
-            raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 다시 묻기")
+        try:
+            checked = _validate_recheck_answers(
+                result.get("spans"),
+                recheck_spans + asked,
+                [RECHECK_VERDICTS] * len(recheck) + [FIRST_VERDICTS] * len(asked),
+                s.numbers,
+            )
+        except SpanAnswersRejected as e:
+            raise BusinessError(
+                AnalysisError.FAILED, f"LLM 응답 검증 실패: 다시 묻기 ({e})"
+            ) from None
         answers, new_alternatives = checked
         translation = validated["translation_ko"]
         if any(

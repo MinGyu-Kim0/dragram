@@ -74,20 +74,29 @@ def _validate_alternatives(items, candidates, primary_id, numbers):
     ]
 
 
+class SpanAnswersRejected(Exception):
+    """판정 검증이 응답을 거부한 사유(#394). 로그에만 남기므로 규칙 이름과 숫자만 담는다.
+
+    str은 "규칙 span=2/5 verdict=usage candidates=1"처럼 규칙 이름 뒤에 맥락을 붙인다.
+    """
+
+    def __init__(self, rule, **context):
+        super().__init__(" ".join([rule, *(f"{key}={value}" for key, value in context.items())]))
+
+
 def _validate_span_answers(answers, spans):
-    """첫 응답이 후보 구간마다 낸 판정을 검증한다. 하나라도 틀리거나 빠지면 None.
+    """첫 응답이 후보 구간마다 낸 판정을 검증한다. 하나라도 틀리거나 빠지면 SpanAnswersRejected.
 
     구간마다 (판정 상태, 고른 용법, 새 용법)을 돌려준다. 용법은 그 구간에 준 후보 안에서만 고를
     수 있다. 미발견이면 그 패턴 아래 더할 새 용법(이름·설명·예문)이 있어야 한다. 해석 갈림은 주
     용법만 받고, 후보가 하나뿐인 구간에서는 갈릴 해석이 없어 틀린 답이다.
     """
-    checked = _checked_span_answers(answers, spans, [FIRST_VERDICTS] * len(spans), None)
-    return None if checked is None else checked[0]
+    return _checked_span_answers(answers, spans, [FIRST_VERDICTS] * len(spans), None)[0]
 
 
 def _validate_recheck_answers(answers, spans, allowed, numbers):
-    """다시 묻기의 판정을 검증한다. 하나라도 틀리거나 빠지면 None, 아니면 (판정들, {구간 순번:
-    [(대안 용법, 대안 번역)]}).
+    """다시 묻기의 판정을 검증한다. 하나라도 틀리거나 빠지면 SpanAnswersRejected, 아니면 (판정들,
+    {구간 순번: [(대안 용법, 대안 번역)]}).
 
     allowed는 구간마다 받을 판정이다. 해석 갈림은 대안까지 검증하고, 근거 있는 대안이 남지 않으면
     미확정이다.
@@ -98,26 +107,36 @@ def _validate_recheck_answers(answers, spans, allowed, numbers):
 def _checked_span_answers(answers, spans, allowed, numbers):
     """두 검증이 함께 쓰는 판정 검증. numbers가 None이면 첫 응답이라 대안을 보지 않는다."""
     if not isinstance(answers, list):
-        return None
+        raise SpanAnswersRejected("not_list")
     judged, alternatives = {}, {}
-    for item in answers:
+    for answer_no, item in enumerate(answers, 1):
         if not isinstance(item, dict):
-            return None
+            raise SpanAnswersRejected("not_object", answer=answer_no)
         span_id = item.get("span_id")
         # 구간 ID도 서버가 0부터 매긴 번호라 토큰 ID와 같은 방식으로 본다.
-        if not _is_token_id(span_id, len(spans)) or span_id in judged:
-            return None
+        if not _is_token_id(span_id, len(spans)):
+            raise SpanAnswersRejected("span_id_out_of_range", answer=answer_no, spans=len(spans))
+        span = f"{span_id + 1}/{len(spans)}"
+        if span_id in judged:
+            raise SpanAnswersRejected("duplicate_span", span=span)
         verdict, candidate_id = item.get("verdict"), item.get("candidate_id")
+        # LLM이 낸 글은 로그에 남기지 않는다. 판정은 정해진 값일 때만 적는다.
+        shown = verdict if verdict in FIRST_VERDICTS else "?"
         if verdict not in allowed[span_id]:
-            return None
+            raise SpanAnswersRejected("verdict_not_allowed", span=span, verdict=shown)
+        candidates = dict(spans[span_id].candidates)
+        # bool은 int의 하위 타입이고 True == 1이라 따로 거른다.
+        usage = candidates.get(candidate_id) if type(candidate_id) is int else None
+        if verdict in ("divergent", "usage") and usage is None:
+            raise SpanAnswersRejected(
+                "candidate_not_in_span", span=span, verdict=shown, candidates=len(candidates)
+            )
         if verdict == "divergent":
-            candidates = dict(spans[span_id].candidates)
-            usage = candidates.get(candidate_id)
-            if type(candidate_id) is not int or usage is None:
-                return None
             if numbers is None:
                 if len(candidates) < 2:
-                    return None
+                    raise SpanAnswersRejected(
+                        "divergent_single_candidate", span=span, candidates=len(candidates)
+                    )
                 judged[span_id] = (SpanMatch.State.DIVERGENT, usage, None)
                 continue
             # 대안 칸이 null이면 대안이 없는 것이다(근거 있는 대안이 없을 때와 같다).
@@ -125,7 +144,9 @@ def _checked_span_answers(answers, spans, allowed, numbers):
                 item.get("alternatives") or [], candidates, candidate_id, numbers
             )
             if alts is None:
-                return None
+                raise SpanAnswersRejected(
+                    "alternatives_invalid", span=span, verdict=shown, candidates=len(candidates)
+                )
             if alts:
                 judged[span_id] = (SpanMatch.State.DIVERGENT, usage, None)
                 alternatives[span_id] = alts
@@ -134,17 +155,13 @@ def _checked_span_answers(answers, spans, allowed, numbers):
         elif verdict == "unresolved":
             judged[span_id] = (SpanMatch.State.UNRESOLVED, None, None)
         elif verdict == "usage":
-            # bool은 int의 하위 타입이고 True == 1이라 따로 거른다.
-            usage = dict(spans[span_id].candidates).get(candidate_id)
-            if type(candidate_id) is not int or usage is None:
-                return None
             judged[span_id] = (SpanMatch.State.DECIDED, usage, None)
         elif verdict == "not_applicable":
             judged[span_id] = (SpanMatch.State.NOT_APPLICABLE, None, None)
         elif verdict == "unfound":
             new_usage = item.get("new_usage")
             if not isinstance(new_usage, dict) or not _are_new_texts(new_usage, ("usage_name",)):
-                return None
+                raise SpanAnswersRejected("new_usage_invalid", span=span)
             equivalent = korean_equivalent(new_usage.get("korean_equivalent"))
             new_usage = {
                 **new_usage,
@@ -153,9 +170,9 @@ def _checked_span_answers(answers, spans, allowed, numbers):
             }
             judged[span_id] = (SpanMatch.State.UNFOUND, None, new_usage)
         else:
-            return None
+            raise SpanAnswersRejected("verdict_not_allowed", span=span, verdict=shown)
     if len(judged) != len(spans):
-        return None
+        raise SpanAnswersRejected("missing_spans", answered=f"{len(judged)}/{len(spans)}")
     return [judged[span_id] for span_id in range(len(spans))], alternatives
 
 
@@ -415,9 +432,10 @@ def _validate(result, numbers, token_count, spans, ambiguous, unknown):
     if not isinstance(result, dict):
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 객체 아님")
     _validate_translation(result.get("translation_ko"), numbers)
-    span_answers = _validate_span_answers(result.get("spans"), spans)
-    if span_answers is None:
-        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 후보 구간")
+    try:
+        span_answers = _validate_span_answers(result.get("spans"), spans)
+    except SpanAnswersRejected as e:
+        raise BusinessError(AnalysisError.FAILED, f"LLM 응답 검증 실패: 후보 구간 ({e})") from None
     new_patterns = _validate_new_patterns(result.get("new_patterns"), token_count)
     if new_patterns is None:
         raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 새 구문")

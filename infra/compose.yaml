@@ -73,11 +73,12 @@ services:
       retries: 3
 
   # 분석 LLM 작업을 실행한다(ADR 0005). 작업은 대부분 LLM 응답 대기라 수는 메모리로 정한다.
+  # 2GB 서버에서 작업자 하나는 분석 뒤 약 125MiB, 2개일 때 available 약 840MiB였다(2026-11-04, #318).
   worker:
     <<: *backend
     command: python manage.py analysis_worker
     deploy:
-      replicas: 2
+      replicas: 4
 
   caddy:
     image: caddy:2-alpine

@@ -56,7 +56,7 @@ async function guide(options) {
 }
 
 // 1) 스크린샷: 가이드 장면을 1280×800 그대로.
-const plain = {
+const shots = {
   0: "1-분석-시작",
   3: "2-선택한-카드",
   9: "3-문법-카드",
@@ -65,7 +65,7 @@ const plain = {
 const page = await guide({ viewport: { width: 1280, height: 800 } });
 for (let i = 0; i <= 10; i++) {
   await page.waitForTimeout(400);
-  if (plain[i]) await page.screenshot({ path: `${out}/${plain[i]}.png` });
+  if (shots[i]) await page.screenshot({ path: `${out}/${shots[i]}.png` });
   await page.keyboard.press("ArrowRight");
 }
 
@@ -108,7 +108,7 @@ const promos = {
 };
 for (const [id, name] of Object.entries(promos)) {
   await page.goto(`file://${work}/promo.html#${id}`);
-  await page.reload();
+  await page.reload(); // 해시만 바뀌면 장면을 고르는 스크립트가 다시 돌지 않는다.
   await page.evaluate(() => document.fonts.ready);
   await page.waitForTimeout(300);
   await page.screenshot({ path: `${out}/promo/${name}.png` });
@@ -118,7 +118,7 @@ server.close();
 
 // 자체 확인: 7장 모두 1280×800이어야 한다.
 const outputs = [
-  ...Object.values(plain),
+  ...Object.values(shots),
   ...Object.values(promos).map((n) => `promo/${n}`),
 ];
 for (const name of outputs) {

@@ -13,7 +13,8 @@ class ErrorCode:
 class BusinessError(Exception):
     """API가 정해진 오류 코드로 응답하는 실패. 응답은 errors.handler가 만든다.
 
-    reason은 로그에만 남기는 고정 문구다. 응답에는 나가지 않고, 사용자 원문을 담지 않는다.
+    reason은 로그에만 남기는 사유다. 응답에는 나가지 않고, 사용자 원문이나 LLM이 쓴 글을
+    담지 않는다(정해진 문구·규칙 이름·숫자만).
     """
 
     def __init__(self, error_code, reason=""):

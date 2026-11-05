@@ -42,6 +42,23 @@
    ```
 3. 개인키 파일은 secret에 넣었으니 개발 PC에서 지워도 된다. 키를 바꾸면 서버 `~/.ssh/authorized_keys`에서 `dragram-deploy` 줄을 지운다.
 
+## 릴리스 (개발 PC)
+
+확장을 스토어에 올리는 단위다. 백엔드와 확장의 버전을 같이 올린다(웹은 버전이 없다).
+
+1. 버전을 올리는 PR을 `dev`에 낸다. `backend/pyproject.toml`의 `version`을 고치고 `backend/`에서 `uv lock`, `extension/`에서 `npm version <버전> --no-git-tag-version`.
+2. `dev`→`main` 릴리스 PR을 연다. 본문에 지난 릴리스 뒤 `dev`에 쌓인 변경과 마이그레이션을 적는다. 병합은 사용자가 하고, 병합이 곧 배포다(위 자동 배포). `/api/health/`로 확인한다.
+3. `main`의 병합 커밋에 태그와 릴리스를 만든다. `--target`에는 전체 SHA를 준다(짧은 SHA는 API가 거부한다).
+   ```bash
+   gh release create v<버전> --target "$(git rev-parse origin/main)" --title v<버전> --generate-notes --latest
+   ```
+4. 스토어 zip과 스크린샷은 그 태그를 받은 worktree에서 만든다. 공유 체크아웃은 다른 브랜치일 수 있어 다른 버전이 나온다.
+   ```bash
+   git worktree add --detach /tmp/dragram-release v<버전> && cd /tmp/dragram-release/extension && npm ci && npm run zip:store && npm run shots:store
+   ```
+   결과는 `.output/store/`의 `dragram-extension-<버전>-chrome.zip`과 `screenshots-<버전>/`(스크린샷 4장 + `promo/` 홍보 3장, 1280×800). 옮긴 뒤 `git worktree remove /tmp/dragram-release`.
+5. 스토어 등록 초안(`store-listing-draft.md`)을 바뀐 화면 문구·권한 사유와 대조해 고친 뒤 심사에 올린다. 스토어가 정한 확장 ID는 `extension/AGENTS.md`의 zip 항목대로 서버 `.env`에 넣는다.
+
 ## 수동 배포 (개발 PC, 저장소 루트)
 
 운영 웹은 서버 `~/dragram/.env`의 `VITE_` 값(확장 ID, 연락 메일 등)으로 빌드한다. Google 클라이언트 ID는 backend와 같은 `GOOGLE_CLIENT_ID`를 쓰고, 비어 있으면 배포가 멈춘다. 값을 바꾸면 다시 배포해야 웹에 반영된다. 웹은 개발 PC의 Docker에서 Node 22 컨테이너로 빌드한다.

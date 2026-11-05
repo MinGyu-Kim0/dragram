@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      @font-face {
+        font-family: "Jua";
+        src: url(jua.woff2) format("woff2");
+      }
+      :root {
+        --bg: #f2f7f3;
+        --surface: #ffffff;
+        --text: #17302a;
+        --muted: #5a6b63;
+        --brand: #157a57;
+        --brand-strong: #0f5e44;
+        --pen: #7ccba7;
+        --highlight: #ddf27a;
+        --border: #dce7e0;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+      }
+      html,
+      body {
+        width: 1280px;
+        height: 800px;
+        overflow: hidden;
+      }
+      body {
+        font-family: "Malgun Gothic", "Segoe UI", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at 92% 8%, #e1efe6 0 180px, transparent 181px),
+          radial-gradient(circle at 4% 96%, #e1efe6 0 150px, transparent 151px),
+          var(--bg);
+      }
+      .slide {
+        display: none;
+        width: 1280px;
+        height: 800px;
+        padding: 0 64px 0 88px;
+        align-items: center;
+        gap: 40px;
+      }
+      .slide.on {
+        display: flex;
+      }
+      .copy {
+        flex: 0 0 470px;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-family: "Jua";
+        font-size: 34px;
+        color: var(--brand-strong);
+        margin-bottom: 36px;
+      }
+      .logo svg {
+        width: 40px;
+        height: 40px;
+      }
+      h2 {
+        font-size: 46px;
+        white-space: nowrap;
+        line-height: 1.32;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+      mark {
+        background: linear-gradient(
+          transparent 52%,
+          var(--highlight) 52% 92%,
+          transparent 92%
+        );
+        color: inherit;
+        padding: 0 2px;
+      }
+      p {
+        margin-top: 30px;
+        font-size: 22px;
+        line-height: 1.65;
+        color: var(--muted);
+      }
+      .shots {
+        flex: 1;
+        display: flex;
+        gap: 24px;
+        justify-content: center;
+        align-items: flex-start;
+        height: 700px;
+      }
+      .window {
+        width: 316px;
+        height: 700px;
+        border-radius: 18px;
+        overflow: hidden;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        box-shadow:
+          0 24px 60px rgba(23, 48, 42, 0.16),
+          0 4px 12px rgba(23, 48, 42, 0.08);
+        display: flex;
+        flex-direction: column;
+      }
+      .window .bar {
+        flex: 0 0 34px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        background: #fde3c8;
+        font:
+          13px "Segoe UI",
+          sans-serif;
+        color: #3b2a1a;
+      }
+      .window .bar .dot {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        background: var(--brand);
+      }
+      .window .bar .x {
+        margin-left: auto;
+        letter-spacing: 10px;
+      }
+      .window img {
+        width: 100%;
+        display: block;
+      }
+      .wide {
+        width: 100%;
+        height: auto;
+      }
+      .wide img {
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute">
+      <symbol id="mark" viewBox="0 0 32 35">
+        <rect fill="#7ccba7" x="10" y="5" width="19" height="8.5" rx="2.6" />
+        <rect fill="#7ccba7" x="3" y="15.5" width="15" height="8.5" rx="2.6" />
+        <rect fill="#0f5e44" x="8.6" y="3" width="2.8" height="12.5" rx="1.4" />
+        <path
+          fill="#0f5e44"
+          stroke="#fff"
+          stroke-width="2.2"
+          stroke-linejoin="round"
+          paint-order="stroke"
+          d="M16.5 18 L16.5 31.6 L20.1 28.4 L22.5 34 L25.3 32.8 L22.9 27.2 L27.3 27.2 Z"
+        />
+      </symbol>
+    </svg>
+
+    <section class="slide" id="tabs">
+      <div class="copy">
+        <div class="logo">
+          <svg><use href="#mark" /></svg>Dragram
+        </div>
+        <h2>
+          문법은 <mark>형광펜으로,</mark><br />단어는
+          <mark>문장 속 뜻으로</mark>
+        </h2>
+        <p>
+          드래그한 문장의 번역과 후리가나,<br />그 문장에 쓰인 문법과 단어를<br />사이드
+          패널에서 바로 봐요.
+        </p>
+      </div>
+      <div class="shots">
+        <div class="window">
+          <div class="bar">
+            <span class="dot"></span>Dragram<span class="x">⌖ ✕</span>
+          </div>
+          <img src="panel-grammar.png" />
+        </div>
+        <div class="window">
+          <div class="bar">
+            <span class="dot"></span>Dragram<span class="x">⌖ ✕</span>
+          </div>
+          <img src="panel-words.png" />
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="menu">
+      <div class="copy" style="flex-basis: 400px">
+        <div class="logo">
+          <svg><use href="#mark" /></svg>Dragram
+        </div>
+        <h2 style="font-size: 42px">
+          읽던 그 자리에서<br /><mark>드래그하고 우클릭</mark>
+        </h2>
+        <p>
+          일본어 문장을 드래그하고<br />'Dragram으로 분석'을 누르면<br />옆
+          패널에 결과가 나와요.
+        </p>
+      </div>
+      <div class="shots" style="align-items: center">
+        <div
+          class="window"
+          style="width: 700px; height: 510px; position: relative"
+        >
+          <img
+            src="scene-menu.png"
+            style="position: absolute; width: 1054px; left: -354px; top: 0"
+          />
+        </div>
+      </div>
+    </section>
+
+    <section class="slide" id="mine">
+      <div class="copy">
+        <div class="logo">
+          <svg><use href="#mark" /></svg>Dragram
+        </div>
+        <h2>필요한 것만<br /><mark>내 일본어로</mark> 모으기</h2>
+        <p>
+          카드를 추가하고 그 문장을 예문으로<br />저장하면 dragram.app의<br />내
+          기록에 모여요.
+        </p>
+      </div>
+      <div class="shots">
+        <div class="window">
+          <div class="bar">
+            <span class="dot"></span>Dragram<span class="x">⌖ ✕</span>
+          </div>
+          <img src="panel-selected.png" />
+        </div>
+      </div>
+    </section>
+    <script>
+      document
+        .getElementById(location.hash.slice(1) || "tabs")
+        .classList.add("on");
+    </script>
+  </body>
+</html>

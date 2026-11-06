@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Logo } from "../sidepanel/Logo";
 import { Pager } from "../sidepanel/Pager";
-import { SentenceView, type ResultTab } from "../sidepanel/Sentence";
+import { SentenceView } from "../sidepanel/Sentence";
+import type { ResultTab } from "../sidepanel/sentence-result";
 import { ANALYSIS, ITEMS, NEXT_TEXT, TEXT, noop, nothing } from "./example";
 import { STEPS } from "./steps";
 

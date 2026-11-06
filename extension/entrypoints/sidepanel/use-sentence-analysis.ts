@@ -15,7 +15,7 @@ import {
 } from "@/utils/api";
 import { loadToken } from "@/utils/auth";
 import { createLimiter } from "@/utils/limiter";
-import type { SentenceResult } from "./Sentence";
+import type { SentenceResult } from "./sentence-result";
 
 // 서버에 동시에 보내는 문장 분석 요청 수. 문장 수에는 상한이 없어서(#23), 긴 글을 골라도
 // 서버에 한꺼번에 몰리지 않게 한다. 회차가 바뀌어도 이전 회차의 진행 중인 요청까지 센다.

@@ -1,4 +1,4 @@
-import type { ResultTab } from "../sidepanel/Sentence";
+import type { ResultTab } from "../sidepanel/sentence-result";
 
 // 가이드(#370)의 한 단계. target은 장면 안에서 강조할 요소의 선택자다. 실제 패널 컴포넌트의
 // 클래스를 가리키므로 화면이 바뀌면 함께 고친다(가이드 테스트가 대상이 있는지 본다).

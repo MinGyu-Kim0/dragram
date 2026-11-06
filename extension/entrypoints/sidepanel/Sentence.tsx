@@ -8,7 +8,7 @@ import { namedWords, withNameRuby, wordKey } from "./named-words";
 import { isAdded, isHidden } from "@/utils/my-items";
 import type { HighlightStyle } from "@/utils/preferences";
 import { HiddenCards, type HiddenCard, type MyItems } from "./MyItems";
-import { ResultTabs } from "./ResultTabs";
+import { ResultTabs, type ResultTab } from "./ResultTabs";
 import { SelectedCard } from "./SelectedCard";
 import { senseBadges } from "./sense-badges";
 import {
@@ -18,7 +18,6 @@ import {
   grammarOf,
   refusalOf,
   translationOf,
-  type ResultTab,
   type SentenceResult,
 } from "./sentence-result";
 import type { NameActions } from "./Words";

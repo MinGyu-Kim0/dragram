@@ -89,8 +89,6 @@ export function translationOf(result: SentenceResult | undefined) {
   return result && "translation" in result ? result.translation : undefined;
 }
 
-export type ResultTab = "grammar" | "words";
-
 // 분석하지 못한 사유 문구
 export function refusalOf(code: string | undefined) {
   return REFUSALS[code ?? ""] ?? "분석하지 못했습니다";

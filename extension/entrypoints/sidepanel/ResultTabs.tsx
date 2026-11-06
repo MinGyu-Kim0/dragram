@@ -2,8 +2,9 @@ import type { CheckingItem, GrammarItem, WordItem } from "@/utils/api";
 import { AnalyzingStatus } from "./AnalysisStatus";
 import { GrammarCards } from "./Grammar";
 import { HiddenCards, type HiddenCard } from "./MyItems";
-import type { ResultTab } from "./sentence-result";
 import { WordList, type WordListProps } from "./Words";
+
+export type ResultTab = "grammar" | "words";
 
 // 문법·단어 탭과 탭 내용
 export function ResultTabs({

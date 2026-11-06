@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { logoutExtension, watchUpdateRequired } from "@/utils/api";
+import { logoutExtension } from "@/utils/api";
 import { watchConnection } from "@/utils/auth";
 import { LoginPrompt } from "./LoginPrompt";
+import type { ResultTab } from "./ResultTabs";
 import { SentenceView } from "./Sentence";
-import type { ResultTab } from "./sentence-result";
 import { UpdatePrompt } from "./UpdatePrompt";
 import { GuideButton } from "./GuideButton";
 import { Pager } from "./Pager";
@@ -14,6 +14,7 @@ import { useLoginGeneration } from "./use-login-generation";
 import { useMyItemStates } from "./use-my-item-states";
 import { useSentenceAnalysis } from "./use-sentence-analysis";
 import { useHighlightStyle, usePreference } from "./use-preference";
+import { useUpdateRequired } from "./use-update-required";
 
 // 페이지에 회차 ID를 붙여, 지금 요청의 것만 쓴다.
 interface Page {
@@ -22,20 +23,19 @@ interface Page {
 }
 
 function App() {
-  const analysis = useSentenceAnalysis();
-  const { request, resumeAfterLogin, clear: clearAnalysis } = analysis;
   const [page, setPage] = useState<Page>();
   const [tab, setTab] = useState<ResultTab>("grammar");
   const [showRuby, toggleRuby] = usePreference("showRuby");
   const [highlightStyle, setHighlightStyle] = useHighlightStyle();
   // 확장 토큰이 있는지(웹에서 연결했는지). 처음 읽기 전에는 undefined다(#109).
   const [connected, setConnected] = useState<boolean>();
-  // 서버가 이 확장 버전을 거부했다(#349). 업데이트하면 확장이 다시 뜨므로 되돌리지 않는다.
-  const [updateRequired, setUpdateRequired] = useState(false);
-  useEffect(() => watchUpdateRequired(() => setUpdateRequired(true)), []);
+  const updateRequired = useUpdateRequired();
   const generation = useLoginGeneration();
   const names = useDesignatedNames(connected, generation);
   const myItems = useMyItemStates(connected, generation);
+  // 이름·항목 조회 뒤에 둔다. 다시 연결하면 그 조회가 분석 요청보다 먼저 나간다.
+  const analysis = useSentenceAnalysis();
+  const { request, resumeAfterLogin, clear: clearAnalysis } = analysis;
   const { clear: clearNames } = names;
   const { clear: clearItems } = myItems;
   const { advance: nextLogin } = generation;

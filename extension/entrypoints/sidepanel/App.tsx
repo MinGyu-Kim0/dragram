@@ -19,12 +19,6 @@ import { loadToken, watchConnection } from "@/utils/auth";
 import { WEB_ORIGIN } from "@/utils/external-messages";
 import { createLimiter } from "@/utils/limiter";
 import {
-  fetchNames,
-  removeName,
-  saveName,
-  type DesignatedName,
-} from "@/utils/names";
-import {
   fetchMyItems,
   watchItemsChanged,
   itemKey,
@@ -39,6 +33,8 @@ import { GuideButton } from "./GuideButton";
 import { Pager } from "./Pager";
 import { Logo } from "./Logo";
 import { ThemeButton } from "./ThemeButton";
+import { useDesignatedNames } from "./use-designated-names";
+import { useLoginGeneration } from "./use-login-generation";
 import { useHighlightStyle, usePreference } from "./use-preference";
 
 // 서버에 동시에 보내는 문장 분석 요청 수. 문장 수에는 상한이 없어서(#23), 긴 글을 골라도
@@ -75,20 +71,17 @@ function App() {
   useEffect(() => watchUpdateRequired(() => setUpdateRequired(true)), []);
   // 로그인이 필요해 분석하지 못한 요청이 있다. 연결되면 다시 분석한다.
   const waitingForLogin = useRef(false);
-  // 지정한 이름(#136). 연결되면 한 번 받고, 지정·해제하면 열린 모든 문장 페이지에 바로 쓴다.
-  const [names, setNames] = useState<DesignatedName[]>([]);
-  // 로그인 세대. 로그아웃(다른 계정으로 바꾼 연결 포함)하면 올라, 목록을 새로 받고 이전 로그인에서
-  // 보낸 이름 요청의 늦은 응답은 버린다. 다른 사람의 지정한 이름이 섞이지 않게 한다(PR #167 리뷰).
-  const [login, setLogin] = useState(0);
+  const generation = useLoginGeneration();
+  const names = useDesignatedNames(connected, generation);
+  const clearNames = names.clear;
   // 웹에서 항목을 바꿀 때마다 올라간다. 올라가면 항목을 다시 불러온다.
   const [itemsChanged, setItemsChanged] = useState(0);
   useEffect(
     () => watchItemsChanged(() => setItemsChanged((count) => count + 1)),
     [],
   );
-  const loginRef = useRef(0);
-  // 끝난 저장·해제 수. 목록을 받는 사이 바뀌었으면 그 목록은 옛것이라 다시 받는다.
-  const edits = useRef(0);
+  const loginRef = generation.ref;
+  const login = generation.value;
   // 내 일본어 항목 상태(#321, 종류:ID → 추가·숨김). 지정한 이름처럼 연결되면 받고 로그인 세대로 거른다.
   const [itemStates, setItemStates] = useState<ReadonlyMap<string, ItemState>>(
     new Map(),
@@ -120,36 +113,14 @@ function App() {
           setRequest(undefined);
           setResults(undefined);
           setPage(undefined);
-          setNames([]);
+          clearNames();
           setItemStates(new Map());
           setItemExamples(new Set());
-          loginRef.current += 1;
-          setLogin(loginRef.current);
+          generation.advance();
         },
       }),
-    [resumeAfterLogin],
+    [resumeAfterLogin, clearNames, generation.advance],
   );
-
-  useEffect(() => {
-    if (!connected) return;
-    let active = true;
-    const load = () => {
-      const seen = edits.current;
-      fetchNames().then(
-        (loaded) => {
-          if (!active) return;
-          if (edits.current !== seen) load();
-          else setNames(loaded);
-        },
-        // 받지 못하면 이름 없이 보인다. 401이면 api가 토큰을 지워 로그인 안내가 보인다.
-        () => {},
-      );
-    };
-    load();
-    return () => {
-      active = false;
-    };
-  }, [connected, login]);
 
   useEffect(() => {
     if (!connected) return;
@@ -357,26 +328,6 @@ function App() {
       ? results.bySentence[pageIndex]
       : undefined;
   const goTo = (index: number) => setPage({ requestId: request!.id, index });
-  const nameMap = new Map(
-    names.map(({ surface, reading }) => [surface, reading]),
-  );
-  const onSaveName = async (surface: string, reading: string) => {
-    const started = loginRef.current;
-    const saved = await saveName(surface, reading);
-    if (loginRef.current !== started) return;
-    edits.current += 1;
-    setNames((current) => [
-      ...current.filter((name) => name.surface !== saved.surface),
-      saved,
-    ]);
-  };
-  const onRemoveName = async (surface: string) => {
-    const started = loginRef.current;
-    await removeName(surface);
-    if (loginRef.current !== started) return;
-    edits.current += 1;
-    setNames((current) => current.filter((name) => name.surface !== surface));
-  };
 
   // 같은 항목의 바꾸기 요청은 앞 요청이 끝난 뒤 보낸다. 같은 뜻이 여러 줄에 있을 때 응답이 뒤바뀌어
   // 화면이 서버와 어긋나지 않게 한다. 기다리는 사이 로그아웃(계정 변경)했으면 보내지 않는다. 그
@@ -493,9 +444,9 @@ function App() {
           tab={tab}
           onTabChange={setTab}
           onRetry={() => retry.current?.(pageIndex)}
-          names={nameMap}
-          onSave={onSaveName}
-          onRemove={onRemoveName}
+          names={names.names}
+          onSave={names.save}
+          onRemove={names.remove}
           items={myItems}
         />
       )}

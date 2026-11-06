@@ -1,0 +1,6 @@
+/* 가이드 버튼(#370): 테마 버튼과 같은 둥근 아이콘 자리에 물음표를 둔다. */
+.guide-button {
+  font: inherit;
+  font-size: 17px;
+  font-weight: 700;
+}

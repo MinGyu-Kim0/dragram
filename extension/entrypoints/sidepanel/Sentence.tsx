@@ -1,119 +1,27 @@
 import { useState } from "react";
-import type {
-  Analysis,
-  CheckingItem,
-  GrammarItem,
-  Translation,
-  WordItem,
-} from "@/utils/api";
-import { GrammarCards, HighlightedText, SelectedGrammarCard } from "./Grammar";
+import type { GrammarItem, WordItem } from "@/utils/api";
+import { AnalyzingStatus, RetryButton } from "./AnalysisStatus";
+import { DisplayToggles } from "./DisplayToggles";
+import { GrammarCards, HighlightedText } from "./Grammar";
 import { cardAt, grammarCardCount } from "./grammar-groups";
 import { namedWords, withNameRuby, wordKey } from "./named-words";
 import { isAdded, isHidden } from "@/utils/my-items";
 import type { HighlightStyle } from "@/utils/preferences";
 import { HiddenCards, type HiddenCard, type MyItems } from "./MyItems";
+import { ResultTabs, type ResultTab } from "./ResultTabs";
+import { SelectedCard } from "./SelectedCard";
 import { senseBadges } from "./sense-badges";
-import { WordList, type NameActions } from "./Words";
+import {
+  analysisOf,
+  checkingOf,
+  earlyWordsOf,
+  grammarOf,
+  refusalOf,
+  translationOf,
+  type SentenceResult,
+} from "./sentence-result";
+import type { NameActions } from "./Words";
 import { wordRowCount } from "./word-groups";
-
-// 문장 하나의 분석 결과. 없으면 아직 아무것도 오지 않았다. early는 번역보다 먼저 온
-// grammar 이벤트(LLM 없이 확정한 문법 earlyGrammar, 판별 대상 구간 checking)만 와서
-// 번역을 기다리는 중이다. translated는 번역이 와서 문법·단어를 기다리는 중이다(번역은 아직 쓰는
-// 중인 검증 전 앞부분일 수 있다, #303). failed에 번역이
-// 있으면 번역 뒤 문법·단어에서 실패했다. earlyGrammar는 analysis가 오기 전까지 보이고(judged
-// 이벤트가 오면 첫 LLM 응답이 판정한 문법이 더해진다, #97), 실패하면 LLM 없이 확정한 문법만 남는다.
-// checking은 실패하면 지운다. earlyWords는 같은 grammar 이벤트로 먼저 온 사전 단어(뜻을 준비하는
-// 중인 단어 포함)와 judged 이벤트로 바뀐 단어(#97)이고, analysis가 오면 그 단어로 바뀌며 실패하면 지운다. reanalyzing은 stale 분석의 옛 결과(previous)를 보이며 새 결과를
-// 기다리는 중(재분석 중)이고, 그러다 실패하면 failed에 옛 결과만 남는다.
-export type SentenceResult =
-  | {
-      status: "early";
-      earlyGrammar: GrammarItem[];
-      checking: CheckingItem[];
-      earlyWords?: WordItem[];
-    }
-  | {
-      status: "translated";
-      translation: Translation;
-      earlyGrammar?: GrammarItem[];
-      checking?: CheckingItem[];
-      earlyWords?: WordItem[];
-    }
-  | { status: "done"; analysis: Analysis }
-  | { status: "reanalyzing"; previous: Analysis }
-  | {
-      status: "failed";
-      translation?: Translation;
-      earlyGrammar?: GrammarItem[];
-      previous?: Analysis;
-      // 서버가 분석을 시작하기 전에 거부한 오류 코드
-      code?: string;
-    };
-
-// 분석을 시작하기 전에 거부된 사유별 문구(#28). 그 밖의 실패는 '분석하지 못했습니다'다.
-const REFUSALS: Record<string, string> = {
-  "ANALYSIS:USAGE_LIMIT":
-    "오늘 쓸 수 있는 분석량을 다 썼습니다. 내일 다시 시도해 주세요.",
-  "ANALYSIS:TOO_MANY_REQUESTS":
-    "동시에 분석하는 문장이 너무 많습니다. 잠시 뒤 다시 시도해 주세요.",
-  "ANALYSIS:TEXT_TOO_LONG":
-    "문장이 너무 깁니다. 1,000자 이하로 나눠서 드래그해 주세요.",
-};
-
-// 지금 보일 완성된 분석. 분석이 끝났으면 그 결과, 다시 분석하는 중이거나 그러다 실패했으면 옛 결과다.
-function analysisOf(result: SentenceResult | undefined) {
-  if (result?.status === "done") return result.analysis;
-  if (result?.status === "reanalyzing" || result?.status === "failed") {
-    return result.previous;
-  }
-  return undefined;
-}
-
-// 지금 보일 판별 대상 구간(확인 중). 분석이 끝나거나 실패하면 없다.
-function checkingOf(result: SentenceResult | undefined) {
-  if (result?.status === "early" || result?.status === "translated") {
-    return result.checking ?? [];
-  }
-  return [];
-}
-
-// 분석이 끝나기 전에 먼저 온 단어. 분석이 끝나거나 실패하면 없다.
-function earlyWordsOf(result: SentenceResult | undefined) {
-  if (result?.status === "early" || result?.status === "translated") {
-    return result.earlyWords ?? [];
-  }
-  return [];
-}
-
-// 지금 보일 문법. 분석이 끝나기 전에는 먼저 온 문법만 보인다.
-function grammarOf(result: SentenceResult | undefined) {
-  const analysis = analysisOf(result);
-  if (analysis) return analysis.grammar;
-  return result && "earlyGrammar" in result ? (result.earlyGrammar ?? []) : [];
-}
-
-// 지금 보일 번역과 루비
-function translationOf(result: SentenceResult | undefined) {
-  const analysis = analysisOf(result);
-  if (analysis) return analysis;
-  return result && "translation" in result ? result.translation : undefined;
-}
-
-export type ResultTab = "grammar" | "words";
-
-const HIGHLIGHT_STYLES: [HighlightStyle, string][] = [
-  ["marker", "형광펜"],
-  ["underline", "밑줄"],
-];
-
-// 실패 문구 바로 옆에 두는 다시 시도 버튼
-function RetryButton({ onRetry }: { onRetry: () => void }) {
-  return (
-    <button type="button" className="retry" onClick={onRetry}>
-      다시 시도
-    </button>
-  );
-}
 
 // 문장 한 페이지: 원문 카드(원문, 번역) → 문법·단어 탭 → 탭 내용
 export function SentenceView({
@@ -263,6 +171,17 @@ export function SentenceView({
     ? wordRowCount(text, tabbed.words, names, analysis?.name_spans)
     : 0;
   const ruby = translation?.ruby ?? [];
+  const wordList = {
+    text,
+    ruby,
+    names,
+    chosen,
+    nameSpans: analysis?.name_spans,
+    onChooseView: chooseView,
+    onSave,
+    onRemove: removeName,
+    items,
+  };
   const shownRuby = withNameRuby(
     ruby,
     namedWords(text, allWords, names, chosen, analysis?.name_spans),
@@ -281,21 +200,12 @@ export function SentenceView({
               재분석하지 못했습니다 <RetryButton onRetry={onRetry} />
             </p>
           )}
-          <button type="button" aria-pressed={showRuby} onClick={onToggleRuby}>
-            후리가나
-          </button>
-          <div role="group" aria-label="형광펜 모양" className="style-choice">
-            {HIGHLIGHT_STYLES.map(([style, label]) => (
-              <button
-                key={style}
-                type="button"
-                aria-pressed={highlightStyle === style}
-                onClick={() => onHighlightStyleChange(style)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <DisplayToggles
+            showRuby={showRuby}
+            onToggleRuby={onToggleRuby}
+            highlightStyle={highlightStyle}
+            onHighlightStyleChange={onHighlightStyleChange}
+          />
         </div>
         <p
           lang="ja"
@@ -330,44 +240,16 @@ export function SentenceView({
           <p className="translation">{translation.translation_ko}</p>
         )}
         {selected !== undefined && (
-          <section aria-label="선택한 카드" className="selected-card">
-            <div className="selected-card-head">
-              <span className="card-meta">선택한 카드</span>
-              <button
-                type="button"
-                className="text-button"
-                onClick={() => setSelected(undefined)}
-              >
-                닫기
-              </button>
-            </div>
-            {selectedGrammar && (
-              <SelectedGrammarCard
-                text={text}
-                item={selectedGrammar}
-                items={items}
-              />
-            )}
-            {selectedWords.length > 0 && (
-              <WordList
-                text={text}
-                words={selectedWords}
-                ruby={ruby}
-                names={names}
-                chosen={chosen}
-                nameSpans={analysis?.name_spans}
-                onChooseView={chooseView}
-                onSave={onSave}
-                onRemove={removeName}
-                items={items}
-              />
-            )}
-          </section>
+          <SelectedCard
+            grammar={selectedGrammar}
+            words={selectedWords}
+            wordList={wordList}
+            onClose={() => setSelected(undefined)}
+          />
         )}
         {result?.status === "failed" && !translation && (
           <p className="error">
-            {REFUSALS[result.code ?? ""] ?? "분석하지 못했습니다"}{" "}
-            <RetryButton onRetry={onRetry} />
+            {refusalOf(result.code)} <RetryButton onRetry={onRetry} />
           </p>
         )}
       </section>
@@ -395,62 +277,19 @@ export function SentenceView({
         </p>
       )}
       {tabbed && (
-        <>
-          <div role="tablist" className="tabs">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "grammar"}
-              onClick={() => onTabChange("grammar")}
-            >
-              문법 {tabbed.grammarCount}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "words"}
-              onClick={() => onTabChange("words")}
-            >
-              단어 {wordCount}
-            </button>
-          </div>
-          {/* 먼저 온 문법·단어만 보이는 중이다. 분석이 오면 더 채워지거나 바뀐다. 내용이 길어도
-              보이게 탭 바로 밑에 둔다. */}
-          {!analysis && <AnalyzingStatus />}
-          <div role="tabpanel">
-            {/* 단어만 먼저 왔으면 문법 탭은 비워 둔다. 문법이 없다고 단정하지 않고 분석을 기다린다. */}
-            {tab === "grammar" &&
-            !analysis &&
-            tabbed.grammar.length + tabbed.checking.length ===
-              0 ? null : tab === "grammar" ? (
-              <>
-                <GrammarCards
-                  text={text}
-                  grammar={tabbed.grammar}
-                  checking={tabbed.checking}
-                  items={items}
-                />
-                {items && <HiddenCards cards={hiddenGrammar} items={items} />}
-              </>
-            ) : (
-              <>
-                <WordList
-                  text={text}
-                  words={tabbed.words}
-                  ruby={ruby}
-                  names={names}
-                  chosen={chosen}
-                  nameSpans={analysis?.name_spans}
-                  onChooseView={chooseView}
-                  onSave={onSave}
-                  onRemove={removeName}
-                  items={items}
-                />
-                {items && <HiddenCards cards={hiddenWords} items={items} />}
-              </>
-            )}
-          </div>
-        </>
+        <ResultTabs
+          tab={tab}
+          onTabChange={onTabChange}
+          analyzed={!!analysis}
+          grammar={tabbed.grammar}
+          checking={tabbed.checking}
+          grammarCount={tabbed.grammarCount}
+          words={tabbed.words}
+          wordCount={wordCount}
+          hiddenGrammar={hiddenGrammar}
+          hiddenWords={hiddenWords}
+          wordList={wordList}
+        />
       )}
     </>
   );
@@ -468,14 +307,4 @@ function hiddenCards<T>(
     if (!cards.has(key)) cards.set(key, { key, ...card });
   }
   return [...cards.values()];
-}
-
-// 문법·단어 분석을 기다리는 중. 탭 자리(탭이 생긴 뒤에는 탭 바로 밑)에 둔다.
-function AnalyzingStatus({ className = "" }: { className?: string }) {
-  return (
-    <p role="status" aria-label="분석 중" className={`analyzing ${className}`}>
-      <span aria-hidden="true" className="spinner" />
-      분석 중…
-    </p>
-  );
 }

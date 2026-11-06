@@ -1,0 +1,57 @@
+/* 단어 표제는 Zen Maru 20 / 700, 읽기는 14 text-muted(DESIGN.md 3장). */
+.word-row h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.word-reading {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.word-meaning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+/* 단어 태그. 칩 모양은 DESIGN.md 7장에서 아직 정하지 않아 중립 배지와 같은 알약을 쓴다. */
+.word-tags {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+}
+
+.word-tags li {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+}
+
+/* 뜻을 아직 고르지 않은 단어의 대기 표시 */
+.word-choosing {
+  color: var(--color-text-muted);
+}
+
+/* 사전 출처 각주(DESIGN.md 2장: 11 / 1.6) */
+.source-note {
+  margin: 14px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--color-text-muted);
+}
+
+.source-note a {
+  color: inherit;
+}

@@ -202,6 +202,19 @@ function NameRow({
   );
 }
 
+export type WordListProps = {
+  text: string;
+  words: WordItem[];
+  ruby: RubyItem[];
+  names: ReadonlyMap<string, string | null>;
+  chosen: ReadonlyMap<string, boolean>;
+  nameSpans: NameSpan[] | null | undefined;
+  // 그 자리를 이름 행(true)이나 사전 단어 행(false)으로 보인다.
+  onChooseView: (key: string, named: boolean) => void;
+  // 내 일본어 항목(#321). 있으면 뜻을 고른 단어 행에 추가·숨김 버튼을 단다.
+  items?: MyItems;
+} & NameActions;
+
 // 단어 행: 배지 줄, 사전형(표제)·읽기, 태그, 이 문장에서 고른 뜻. 같은 단어·같은 뜻은 한 행으로
 // 합치고(화면에서만, #211), 원문 순서로 보인다. 뜻을 아직 고르지 않았거나 한국어 뜻이 아직 없는 단어는 뜻 자리에 대기 표시를 둔다.
 // 사전(JMdict) 단어가 있으면 목록 아래에 출처 각주를 단다. LLM이 만든 단어만 있으면 달지 않는다(#134).
@@ -218,18 +231,7 @@ export function WordList({
   onSave,
   onRemove,
   items,
-}: {
-  text: string;
-  words: WordItem[];
-  ruby: RubyItem[];
-  names: ReadonlyMap<string, string | null>;
-  chosen: ReadonlyMap<string, boolean>;
-  nameSpans: NameSpan[] | null | undefined;
-  // 그 자리를 이름 행(true)이나 사전 단어 행(false)으로 보인다.
-  onChooseView: (key: string, named: boolean) => void;
-  // 내 일본어 항목(#321). 있으면 뜻을 고른 단어 행에 추가·숨김 버튼을 단다.
-  items?: MyItems;
-} & NameActions) {
+}: WordListProps) {
   // 읽기 입력을 연 단어 자리
   const [editing, setEditing] = useState<string>();
   // 나머지 읽기까지 펼친 단어 자리

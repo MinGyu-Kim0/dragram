@@ -1,0 +1,183 @@
+/* 해석 갈림 카드: warn-border 점선(DESIGN.md) */
+.grammar-card.divergent,
+.grammar-part.divergent {
+  border: 1.5px dashed var(--color-warn-border);
+}
+
+/* 구성 문법: 바깥 카드 안의 surface-inset 하위 박스(DESIGN.md 3장) */
+.grammar-parts {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.grammar-part {
+  background: var(--color-surface-inset);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.grammar-part h4 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* 하위 박스 바탕이 회화체 배지 바탕과 같아 배지 면이 보이게 한다. */
+.grammar-part .badge-neutral {
+  background: var(--color-surface);
+}
+
+.alternatives {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.alternative {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+}
+
+/* 미확정 카드의 "판단하지 못함" */
+.unresolved-note {
+  color: var(--color-text-muted);
+}
+
+/* 확인 중 카드: 점선 대기 카드(DESIGN.md) */
+.grammar-card.checking {
+  border: 1.5px dashed var(--color-border-control);
+  border-radius: 16px;
+}
+
+.checking-chip {
+  background: var(--color-surface-inset);
+  color: var(--color-text-muted);
+}
+
+.checking-skeleton {
+  margin-top: 8px;
+}
+
+/* 카드 첫 줄: 상태 배지(DESIGN.md 3장) */
+.card-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.grammar-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.grammar-chip {
+  border-radius: 999px;
+  padding: 3px 12px;
+  font-size: 15px;
+  font-weight: 700;
+  background: var(--color-highlight);
+  color: var(--color-highlight-text);
+}
+
+.grammar-card h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.badge-warn {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--color-warn-bg);
+  color: var(--color-warn-text);
+}
+
+/* '회화체' 배지: 경고가 아닌 중립 알약(DESIGN.md 5장) */
+.badge-neutral {
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+}
+
+/* 문법 카드 태그 줄(#151): 태그 칩은 단어 태그와 같고, 미검수 배지가 붙으면 그 뒤에 둔다. */
+.grammar-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 0;
+}
+
+.grammar-tags .word-tags {
+  margin: 0;
+}
+
+/* 대응 표현·설명·뜻 줄 앞 라벨(#358). 회색 알약인 태그와 구분되게 옅은 초록 네모다. */
+.line-label {
+  display: inline-block;
+  margin-right: 6px;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  vertical-align: 1px;
+  background: var(--color-brand-soft);
+  color: var(--color-brand-strong);
+}
+
+/* 용법의 한국어 대응 표현 한 줄(#152) */
+.korean-equivalent {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+/* 원문 형태·접속 형태·회화체 원형 안내 */
+.grammar-form,
+.variant-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.grammar-form .badge-warn {
+  margin-left: 6px;
+}
+
+/* 카드 오른쪽 메타("드래그한 부분", "확인 중") */
+.card-meta {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.grammar-explanation {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-text-secondary);
+}
+
+.no-grammar,
+.no-words {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}

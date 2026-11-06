@@ -1,0 +1,110 @@
+/* 내 일본어 항목(#321): 카드 아래 추가·표시 안 함 버튼 줄과 숨긴 카드 */
+/* 예문이 있는 항목을 빼거나 다시 보이기 전의 확인 줄. 버튼 줄 아래로 넘겨 한 줄을 차지한다. */
+.remove-confirm {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.item-actions button:not(.text-button) {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.item-actions .item-remove {
+  margin-left: auto;
+}
+
+/* 추가 토글(#362): 켜지면 brand로 채우고 체크를 단다. 켜진 버튼에 올리거나 포커스하면 누르면
+   제외된다는 걸 danger 테두리로 미리 보인다(title에 같은 안내). */
+.item-actions .item-toggle[aria-pressed="true"] {
+  border-color: var(--color-brand);
+  background: var(--color-brand);
+  color: var(--color-on-brand);
+  font-weight: 600;
+}
+
+.item-actions .item-toggle[aria-pressed="true"]::before {
+  content: "✓ " / "";
+}
+
+.item-actions .item-toggle[aria-pressed="true"]:hover,
+.item-actions .item-toggle[aria-pressed="true"]:focus-visible {
+  border-color: var(--color-danger-text);
+  background: var(--color-surface);
+  color: var(--color-danger-text);
+}
+
+.item-mark {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-brand);
+}
+
+.hidden-cards {
+  margin-top: 14px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.hidden-cards summary {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.hidden-cards ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.hidden-cards li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 14px;
+  background: var(--color-surface);
+}
+
+.hidden-cards li button {
+  margin-left: auto;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-control);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.hidden-chip {
+  background: var(--color-surface-inset);
+  color: var(--color-text-secondary);
+}

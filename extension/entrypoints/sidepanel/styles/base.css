@@ -1,0 +1,86 @@
+/* 토큰은 DESIGN.md 2장. light-dark(라이트, 다크)로 두 모드 값을 함께 둔다. 처음에는 브라우저 설정을
+   따르고, 테마 버튼으로 고르면 <html data-theme>이 color-scheme을 고정한다(#296).
+   웹(web/src/index.css)과 같은 값이다. */
+:root {
+  color-scheme: light dark;
+  --color-bg: light-dark(#f2f7f3, #111a26);
+  --color-surface: light-dark(#ffffff, #1b283a);
+  --color-surface-inset: light-dark(#e6f0e9, #23344b);
+  --color-text: light-dark(#17302a, #eef2f7);
+  --color-logo-pen: light-dark(#7ccba7, #a2bc4e);
+  --color-logo-ink: light-dark(#0f5e44, #ffffff);
+  --color-logo-outline: light-dark(#ffffff, #1d2b3f);
+  --color-text-secondary: light-dark(#33473f, #c9d3e0);
+  --color-border: light-dark(#dce7e0, #2c3d55);
+  --color-danger-text: light-dark(#9f1d1d, #ffb4b4);
+  --color-warn-bg: light-dark(#fff1d0, rgba(255, 196, 80, 0.16));
+  --color-warn-text: light-dark(#6b4100, #ffd27a);
+  --color-warn-border: light-dark(#b26a00, #e0a840);
+  --color-text-muted: light-dark(#5a6b63, #93a3b8);
+  --color-brand: light-dark(#157a57, #a2bc4e);
+  --color-brand-strong: light-dark(#0f5e44, #c8da8e);
+  --color-brand-soft: light-dark(#d7efe3, #273424);
+  --color-scrim: light-dark(rgba(23, 48, 42, 0.45), rgba(0, 0, 0, 0.6));
+  --color-on-brand: light-dark(#ffffff, #16210a);
+  --color-border-subtle: light-dark(#e1ece5, #23344b);
+  /* 세그먼트 탭·페이지 넘김 트랙: border-subtle, 다크는 surface(DESIGN §3 세그먼트 탭) */
+  --color-track: light-dark(#e1ece5, #1b283a);
+  --color-border-control: light-dark(#cfddd4, #3a4d68);
+  /* 선택 링(다크는 brand) */
+  --color-ring: light-dark(#17302a, #a2bc4e);
+  /* 형광펜(라임 한 색, #354): 칩 배경 / 칩 글자 / 본문 형광펜. 라이트 본문 형광펜은 칩 배경과
+     같고, 다크는 더 진한 반투명이다. */
+  --color-highlight: light-dark(#ddf27a, rgba(162, 188, 78, 0.2));
+  --color-highlight-text: light-dark(#3d4a00, #c8da8e);
+  --color-highlight-mark: light-dark(#ddf27a, rgba(162, 188, 78, 0.42));
+  /* 밑줄 모양의 선: 바탕과 3:1 이상(라이트 3.25, 다크 6.97) */
+  --color-highlight-line: light-dark(#7a9a1e, #a2bc4e);
+  /* 본문 형광펜은 아래쪽만 칠한다. 다크는 조금 더 높이 칠한다. */
+  --mark-cut: 46%;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  /* --mark-cut은 색이 아니라 light-dark()를 못 쓴다. 다크로 보이는 두 경우(여기와 아래)에 바꾼다. */
+  --mark-cut: 40%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --mark-cut: 40%;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+}
+
+main {
+  padding: 0 16px 16px;
+}
+
+h1 {
+  margin: 0;
+  height: 60px;
+  line-height: 60px;
+  font-family: "Jua", "IBM Plex Sans KR", sans-serif;
+  font-size: 24px;
+  font-weight: 400;
+}
+
+[lang="ja"] {
+  font-family: "Zen Maru Gothic", "IBM Plex Sans KR", sans-serif;
+}
+
+.sentence-card {
+  background: var(--color-surface);
+  border-radius: 20px;
+  padding: 20px;
+}

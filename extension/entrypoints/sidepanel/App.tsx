@@ -18,16 +18,6 @@ import {
 import { loadToken, watchConnection } from "@/utils/auth";
 import { WEB_ORIGIN } from "@/utils/external-messages";
 import { createLimiter } from "@/utils/limiter";
-import {
-  fetchMyItems,
-  watchItemsChanged,
-  itemKey,
-  saveMyItem,
-  type Example,
-  type ItemKind,
-  type ItemState,
-} from "@/utils/my-items";
-import type { MyItems } from "./MyItems";
 import { SentenceView, type ResultTab, type SentenceResult } from "./Sentence";
 import { GuideButton } from "./GuideButton";
 import { Pager } from "./Pager";
@@ -35,6 +25,7 @@ import { Logo } from "./Logo";
 import { ThemeButton } from "./ThemeButton";
 import { useDesignatedNames } from "./use-designated-names";
 import { useLoginGeneration } from "./use-login-generation";
+import { useMyItemStates } from "./use-my-item-states";
 import { useHighlightStyle, usePreference } from "./use-preference";
 
 // 서버에 동시에 보내는 문장 분석 요청 수. 문장 수에는 상한이 없어서(#23), 긴 글을 골라도
@@ -73,25 +64,9 @@ function App() {
   const waitingForLogin = useRef(false);
   const generation = useLoginGeneration();
   const names = useDesignatedNames(connected, generation);
-  const clearNames = names.clear;
-  // 웹에서 항목을 바꿀 때마다 올라간다. 올라가면 항목을 다시 불러온다.
-  const [itemsChanged, setItemsChanged] = useState(0);
-  useEffect(
-    () => watchItemsChanged(() => setItemsChanged((count) => count + 1)),
-    [],
-  );
-  const loginRef = generation.ref;
-  const login = generation.value;
-  // 내 일본어 항목 상태(#321, 종류:ID → 추가·숨김). 지정한 이름처럼 연결되면 받고 로그인 세대로 거른다.
-  const [itemStates, setItemStates] = useState<ReadonlyMap<string, ItemState>>(
-    new Map(),
-  );
-  // 저장한 예문이 있는 항목의 열쇠. 목록을 받거나 예문을 저장·항목을 빼면 바뀐다.
-  const [itemExamples, setItemExamples] = useState<ReadonlySet<string>>(
-    new Set(),
-  );
-  const itemEdits = useRef(0);
-  const itemQueues = useRef(new Map<string, Promise<unknown>>());
+  const myItems = useMyItemStates(connected, generation);
+  const { clear: clearNames } = names;
+  const { clear: clearItems } = myItems;
   // 기다리던 요청이 있으면 회차를 새로 매겨 같은 문장들을 처음부터 다시 분석한다.
   const resumeAfterLogin = useCallback(() => {
     if (!waitingForLogin.current) return;
@@ -114,50 +89,12 @@ function App() {
           setResults(undefined);
           setPage(undefined);
           clearNames();
-          setItemStates(new Map());
-          setItemExamples(new Set());
+          clearItems();
           generation.advance();
         },
       }),
-    [resumeAfterLogin, clearNames, generation.advance],
+    [resumeAfterLogin, clearNames, clearItems, generation.advance],
   );
-
-  useEffect(() => {
-    if (!connected) return;
-    let active = true;
-    const load = () => {
-      const seen = itemEdits.current;
-      fetchMyItems().then(
-        (loaded) => {
-          if (!active) return;
-          if (itemEdits.current !== seen) load();
-          else {
-            setItemStates(
-              new Map(
-                loaded.map((item) => [
-                  itemKey(item.kind, item.id),
-                  { added: item.added, hidden: item.hidden },
-                ]),
-              ),
-            );
-            setItemExamples(
-              new Set(
-                loaded
-                  .filter((item) => item.has_examples)
-                  .map((item) => itemKey(item.kind, item.id)),
-              ),
-            );
-          }
-        },
-        // 받지 못하면 숨긴 카드 없이 보인다.
-        () => {},
-      );
-    };
-    load();
-    return () => {
-      active = false;
-    };
-  }, [connected, login, itemsChanged]);
 
   useEffect(() => {
     // 이 패널이 열린 창의 요청만 받는다.
@@ -329,49 +266,6 @@ function App() {
       : undefined;
   const goTo = (index: number) => setPage({ requestId: request!.id, index });
 
-  // 같은 항목의 바꾸기 요청은 앞 요청이 끝난 뒤 보낸다. 같은 뜻이 여러 줄에 있을 때 응답이 뒤바뀌어
-  // 화면이 서버와 어긋나지 않게 한다. 기다리는 사이 로그아웃(계정 변경)했으면 보내지 않는다. 그
-  // 요청이 다음 계정의 토큰으로 나가지 않게 하기 위해서다(PR #327 리뷰).
-  const inOrder = (key: string, task: () => Promise<void>): Promise<void> => {
-    const started = loginRef.current;
-    const previous = itemQueues.current.get(key) ?? Promise.resolve();
-    const next = previous
-      .catch(() => {})
-      .then(() => (loginRef.current === started ? task() : undefined));
-    itemQueues.current.set(key, next);
-    return next;
-  };
-  const myItems: MyItems = {
-    states: itemStates,
-    withExamples: itemExamples,
-    save: (
-      kind: ItemKind,
-      id: number,
-      changes: Partial<ItemState>,
-      example?: Example,
-    ) =>
-      inOrder(itemKey(kind, id), async () => {
-        const started = loginRef.current;
-        const { added, hidden } = await saveMyItem(kind, id, changes, example);
-        if (loginRef.current !== started) return;
-        itemEdits.current += 1;
-        const key = itemKey(kind, id);
-        // 두 축이 모두 꺼지면 항목이 없어지고, 제외하면 예문도 지워진다.
-        setItemStates((current) => {
-          const next = new Map(current);
-          if (added || hidden) next.set(key, { added, hidden });
-          else next.delete(key);
-          return next;
-        });
-        setItemExamples((current) => {
-          const next = new Set(current);
-          if (!added) next.delete(key);
-          else if (example) next.add(key);
-          return next;
-        });
-      }),
-  };
-
   if (connected === false) {
     return (
       <main>
@@ -447,7 +341,7 @@ function App() {
           names={names.names}
           onSave={names.save}
           onRemove={names.remove}
-          items={myItems}
+          items={myItems.items}
         />
       )}
     </main>

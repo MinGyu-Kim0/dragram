@@ -7,8 +7,7 @@ import time
 
 from django.utils import timezone
 
-from analysis import jobs, limits, llm, timing
-from analysis.analysis_store import _sense_ids, store
+from analysis import analysis_store, jobs, limits, llm, reask, timing
 from analysis.answers import (
     SpanAnswersRejected,
     _quotes_whole_sentence,
@@ -20,7 +19,6 @@ from analysis.answers import (
 )
 from analysis.examples import _check_examples
 from analysis.models import SentenceAnalysis, SpanMatch
-from analysis.reask import ask_again, prepare
 from analysis.sentence import Sentence
 from analysis.span_rows import _PatternTaken
 from analysis.usage import RequestUsage
@@ -247,7 +245,7 @@ class Worker:
                 }
             )
         # 다시 묻기는 번역을 알린 뒤, 저장 트랜잭션 밖에서 한다.
-        asked = self.ask_again(prepare(s, validated))
+        asked = self.ask_again(reask.prepare(s, validated))
         # 사전에 없던 단어는 저장 전에 2단계로 만들어 analysis에 함께 싣는다(#134). 꼭 해야 하는
         # 다시 묻기가 요청 마감을 먼저 쓰도록 그 뒤에 한다.
         defined = define_new_words(s, self.client, validated["new_words"], self.job_outdated)
@@ -256,7 +254,7 @@ class Worker:
         self.save(asked)
         # 한국어 뜻은 저장한 뒤 만든다. 느리거나 실패해도 분석은 이미 저장돼 있고, 요청 마감을
         # 다시 묻기·예문 다시 쓰기보다 먼저 쓰지 않는다. 새 한국어 뜻은 done 뒤 analysis에 실린다.
-        make_meanings(self.client, _sense_ids(stored_words))
+        make_meanings(self.client, analysis_store._sense_ids(stored_words))
 
     def share_translation(self, translation):
         """검증한 번역을 먼저 저장하고 알린다. 늦게 붙은 요청은 저장된 번역을 읽는다."""
@@ -300,7 +298,7 @@ class Worker:
         )
 
     def ask_again(self, validated):
-        return ask_again(self.sentence, self.client, validated, self.job_outdated)
+        return reask.ask_again(self.sentence, self.client, validated, self.job_outdated)
 
     def save(self, validated, final=False):
         """검증한 결과를 공용 캐시에 저장한다.
@@ -316,7 +314,7 @@ class Worker:
             validated, self.client, s.key_text, s.content_tokens, s.key_span, self.job_outdated
         )
         try:
-            outdated = store(s, validated, final)
+            outdated = analysis_store.store(s, validated, final)
         except _PatternTaken:
             # LLM 호출은 트랜잭션 밖에서 한다.
             self.save(self.ask_again(validated), final=True)

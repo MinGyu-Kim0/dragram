@@ -12,6 +12,7 @@ backend/     Django + DRF + PostgreSQL (SudachiPy, OpenAI)
 web/         React + Vite + TypeScript 웹페이지
 extension/   크롬 확장 (사이드 패널)
 infra/       운영 배포 설정·스크립트
+e2e/         기본 사용 시나리오 E2E 테스트 (Playwright)
 docs/        요구사항, DB 스키마, 설계 결정, ADR
 compose.yaml 로컬 개발용 compose
 ```
@@ -32,6 +33,7 @@ docker compose up -d
 - API: http://localhost:8000/api/health/
 - 웹: http://localhost:5173
 - 테스트: `docker compose run --rm backend pytest`, `cd web && npm test`, `cd extension && npm test`
+- E2E: `e2e/run.sh` (실제 OpenAI를 부른다. 개발 스택과 따로 뜬다. `e2e/AGENTS.md`)
 
 LLM 추론 강도는 모든 호출에 `low`를 기본으로 쓴다. `.env`의 `OPENAI_REASONING_EFFORT`를 지우거나 비워도 `low`다. 변경하려면 현재 모델이 지원하는 값(예: `medium`)을 명시하고 `docker compose up -d --force-recreate backend worker`로 API 서버와 작업자를 모두 다시 만든다. `docker compose restart`만으로는 바뀐 환경변수를 읽지 않는다. SDK 허용 목록 밖의 값은 시작할 때 설정 오류로 거부하며, 추론 강도만 바꿔도 기존 분석 캐시는 그대로 재사용한다. 실제 속도·분석 품질 차이는 아직 측정하지 않았다(#217).
 

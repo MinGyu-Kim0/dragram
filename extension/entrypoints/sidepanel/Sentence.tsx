@@ -188,7 +188,7 @@ export function SentenceView({
   );
   return (
     <>
-      <section className="sentence-card">
+      <section className="sentence-card" aria-label="원문">
         <div className="display-toggles">
           {result?.status === "reanalyzing" && (
             <p role="status" aria-label="재분석 중" className="reanalysis">

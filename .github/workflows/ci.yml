@@ -28,6 +28,8 @@ jobs:
       extension: ${{ steps.filter.outputs.extension }}
       compose: ${{ steps.filter.outputs.compose }}
       workflows: ${{ steps.filter.outputs.workflows }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+      e2e_key: ${{ steps.e2e_key.outputs.present }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -53,6 +55,21 @@ jobs:
               - '.github/workflows/ci.yml'
             workflows:
               - '.github/workflows/**'
+            e2e:
+              - 'e2e/**'
+              - 'compose.yaml'
+              - '.github/workflows/ci.yml'
+      # E2E는 실제 OpenAI를 부른다. 시크릿이 없는 실행(등록 전, Dependabot PR 등)은 E2E를 건너뛴다.
+      - name: Check E2E key
+        id: e2e_key
+        env:
+          KEY: ${{ secrets.OPENAI_API_KEY_E2E }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::OPENAI_API_KEY_E2E 시크릿이 없어 E2E를 건너뛴다."
+          fi
 
   backend:
     needs: changes
@@ -192,3 +209,49 @@ jobs:
           persist-credentials: false
       - name: Lint workflow files
         run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color
+
+  # 기본 사용 시나리오를 빌드한 확장을 올린 크롬에서 재생한다(#397). 실제 OpenAI를 부른다.
+  e2e:
+    needs: changes
+    # dev·main push는 PR에서 이미 돌았으므로 다시 부르지 않는다(실제 API 비용).
+    if: >-
+      needs.changes.outputs.e2e_key == 'true' && github.event_name != 'push' && (
+      needs.changes.outputs.backend == 'true' ||
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.extension == 'true' ||
+      needs.changes.outputs.e2e == 'true' ||
+      github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+      - name: Typecheck
+        working-directory: e2e
+        run: npm ci && npm run typecheck
+      # 로컬처럼 .env.example(모델 이름 등)을 바탕으로 키만 넣는다.
+      - name: Write .env
+        env:
+          KEY: ${{ secrets.OPENAI_API_KEY_E2E }}
+        run: |
+          grep -v '^OPENAI_API_KEY=' .env.example > .env
+          printf 'OPENAI_API_KEY=%s\n' "$KEY" >> .env
+      - name: E2E
+        env:
+          E2E_PROJECT: dragram-e2e-${{ github.run_id }}
+        run: e2e/run.sh
+      - name: Upload E2E results
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-results
+          path: |
+            e2e/test-results/
+            e2e/playwright-report/
+          retention-days: 7

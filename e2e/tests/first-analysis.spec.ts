@@ -28,9 +28,12 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
           '[role="status"][aria-label="번역을 불러오는 중"]',
         );
         if (!loading) return;
+        // 페이지 안이라 Playwright 역할 찾기를 못 쓴다. 이름이 '문법'인 목록의 항목을 역할로 찾는다.
         const cards = [
-          ...document.querySelectorAll('[aria-label="문법"] > li'),
-        ].map((li) => li.textContent ?? "");
+          ...document.querySelectorAll(
+            ':is(ul, ol, [role="list"])[aria-label="문법"] :is(li, [role="listitem"])',
+          ),
+        ].map((item) => item.textContent ?? "");
         // 승인된 지식에는 미검수 배지가 없다.
         if (
           cards.some(

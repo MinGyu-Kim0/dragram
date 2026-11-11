@@ -256,7 +256,7 @@ def _review_action(name, transition, description):
         _apply(model_admin, request, queryset, transition)
 
     action.__name__ = name
-    return admin.action(description=description)(action)
+    return admin.action(description=description, permissions=["change"])(action)
 
 
 class _ReviewedAdmin(admin.ModelAdmin):
@@ -293,7 +293,7 @@ def _usage_mapping(data):
     return mapping
 
 
-@admin.action(description="원형에 연결(원형 패턴 ID를 넣고)")
+@admin.action(description="원형에 연결(원형 패턴 ID를 넣고)", permissions=["change"])
 def link_variant(model_admin, request, queryset):
     """선택한 회화체 패턴을 원형 패턴 ID 칸의 패턴에 연결한다(#63).
 
@@ -531,7 +531,7 @@ class UsageRuleAdmin(admin.ModelAdmin):
     fields = ["pattern", "usage", "condition", "test_cases", "status", "created_by"]
     actions = ["approve", _review_action("retire", review.retire_rule, "폐기")]
 
-    @admin.action(description="승인")
+    @admin.action(description="승인", permissions=["change"])
     def approve(self, request, queryset):
         # 승인한 관리자를 남긴다.
         _apply(self, request, queryset, lambda rule: review.approve_rule(rule, request.user))
@@ -651,7 +651,7 @@ def _meaning_action(name, old, new, description):
         model_admin.message_user(request, f"뜻 {done}개를 처리했습니다", messages.SUCCESS)
 
     action.__name__ = name
-    return admin.action(description=description)(action)
+    return admin.action(description=description, permissions=["change"])(action)
 
 
 class WordForm(forms.ModelForm):
@@ -764,7 +764,7 @@ def _sense_action(name, old, new, description):
         model_admin.message_user(request, f"뜻 {done}개를 처리했습니다", messages.SUCCESS)
 
     action.__name__ = name
-    return admin.action(description=description)(action)
+    return admin.action(description=description, permissions=["change"])(action)
 
 
 @admin.register(WordSense)

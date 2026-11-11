@@ -235,10 +235,13 @@ jobs:
       - name: Typecheck
         working-directory: e2e
         run: npm ci && npm run typecheck
-      - name: Write E2E key
+      # 로컬처럼 .env.example(모델 이름 등)을 바탕으로 키만 넣는다.
+      - name: Write .env
         env:
           KEY: ${{ secrets.OPENAI_API_KEY_E2E }}
-        run: printf 'OPENAI_API_KEY=%s\n' "$KEY" > .env
+        run: |
+          grep -v '^OPENAI_API_KEY=' .env.example > .env
+          printf 'OPENAI_API_KEY=%s\n' "$KEY" >> .env
       - name: E2E
         env:
           E2E_PROJECT: dragram-e2e-${{ github.run_id }}

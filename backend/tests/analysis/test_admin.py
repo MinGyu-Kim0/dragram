@@ -14,7 +14,7 @@ from analysis.models import (
     ReviewStatus,
     SentenceAnalysis,
 )
-from tests.analysis.helpers import analyze, new_pattern, pattern_form
+from tests.analysis.helpers import analyze, new_pattern, pattern_form, usage_form
 
 pytestmark = pytest.mark.django_db
 
@@ -121,10 +121,6 @@ def test_show_parts_can_be_edited_without_reanalysis_or_raising_the_version(admi
     refreshed = SentenceAnalysis.objects.get()
     assert (refreshed.is_stale, refreshed.generation) == (False, analysis.generation)
     assert version() == before
-
-
-def usage_form(usage, **changes):
-    return {"explanation_ko": usage.explanation_ko, "example_ja": usage.example_ja, **changes}
 
 
 def test_usage_explanation_and_example_can_be_edited(admin_client, pattern):

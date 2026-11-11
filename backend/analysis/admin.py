@@ -125,16 +125,25 @@ class GrammarUsageForm(forms.ModelForm):
         model = GrammarUsage
         fields = ["explanation_ko", "example_ja", "korean_equivalent", "function_tags"]
 
-    # 용법 화면과 패턴 화면 인라인이 쓰는 칸. 고칠 수 있는 칸과, 대응 표현을 고치면 함께 바뀌는
-    # 채움 여부·검수 상태(#152)만 쓴다.
-    SAVED_FIELDS = [
-        *Meta.fields,
-        "korean_equivalent_filled",
-        "korean_equivalent_status",
-        "function_tags_filled",
-        "function_tags_status",
-        "updated_at",
-    ]
+    # 채우기 명령(fill_usages)이 채우는 칸. 관리자가 바꿨을 때만 쓴다(#410).
+    FILLED_FIELDS = ["korean_equivalent", "function_tags"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 저장 시점 DB 값이 아니라 화면을 열 때의 값과 비교한다. 그사이 채운 값을 관리자가 비운
+        # 것으로 읽지 않는다(#410).
+        for name in self.FILLED_FIELDS:
+            self.fields[name].show_hidden_initial = True
+
+    def saved_fields(self):
+        """용법 화면과 패턴 화면 인라인이 쓰는 칸. 설명·예문과, 관리자가 바꾼 채움 칸(함께 바뀌는
+        채움 여부·검수 상태 포함, #152)만 쓴다. 그사이 채운 값을 화면이 읽어 둔 값으로 덮지 않는다.
+        """
+        fields = ["explanation_ko", "example_ja", "updated_at"]
+        for name in self.FILLED_FIELDS:
+            if name in self.changed_data:
+                fields += [name, f"{name}_filled", f"{name}_status"]
+        return fields
 
     def clean_korean_equivalent(self):
         # 비우면 '대응 없음'(NULL)이다(#152).
@@ -416,8 +425,9 @@ class GrammarPatternAdmin(_ReviewedAdmin):
             return super().save_formset(request, form, formset, change)
         # 용법은 고칠 수 있는 칸만 쓴다(GrammarUsageAdmin.save_model과 같다). commit=False도 admin
         # 변경 기록에 쓰는 changed_objects 등을 채운다.
+        forms = {usage_form.instance.pk: usage_form for usage_form in formset.forms}
         for usage in formset.save(commit=False):
-            usage.save(update_fields=GrammarUsageForm.SAVED_FIELDS)
+            usage.save(update_fields=forms[usage.pk].saved_fields())
 
     actions = [
         _review_action("approve", review.approve_pattern, "승인"),
@@ -467,7 +477,7 @@ class GrammarUsageAdmin(_ReviewedAdmin):
 
     def save_model(self, request, obj, form, change):
         # 고칠 수 있는 칸만 쓴다. 폼을 연 뒤 액션이 바꾼 상태를 화면이 읽어 둔 값으로 덮지 않는다.
-        obj.save(update_fields=GrammarUsageForm.SAVED_FIELDS)
+        obj.save(update_fields=form.saved_fields())
 
     actions = [
         _review_action("approve", review.approve_usage, "승인"),

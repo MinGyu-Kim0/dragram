@@ -10,7 +10,14 @@ from django.db import transaction
 from analysis import patterns, review
 from analysis.models import GrammarPattern, GrammarUsage, ReviewStatus, UsageLog
 from errors import AnalysisError, BusinessError
-from tests.analysis.helpers import analyze, new_pattern, new_usage, pattern_form, span_answer
+from tests.analysis.helpers import (
+    analyze,
+    new_pattern,
+    new_usage,
+    pattern_form,
+    span_answer,
+    usage_form,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -208,19 +215,52 @@ def test_alternatives_carry_their_korean_equivalent(client, fake_llm):
 def test_admin_can_edit_the_korean_equivalent(admin_client, client, fake_llm):
     registered(client, fake_llm)
     usage = GrammarUsage.objects.get()
-    form = {"explanation_ko": usage.explanation_ko, "example_ja": usage.example_ja or ""}
 
-    admin_client.post(f"{USAGES}{usage.pk}/change/", {**form, "korean_equivalent": "~는 중이다"})
+    admin_client.post(
+        f"{USAGES}{usage.pk}/change/", usage_form(usage, korean_equivalent="~는 중이다")
+    )
     usage.refresh_from_db()
     assert usage.korean_equivalent == "~는 중이다"
     # 관리자가 쓴 값은 검수한 것이다.
     assert usage.korean_equivalent_status == ReviewStatus.APPROVED
 
-    admin_client.post(f"{USAGES}{usage.pk}/change/", {**form, "korean_equivalent": ""})
+    admin_client.post(f"{USAGES}{usage.pk}/change/", usage_form(usage, korean_equivalent=""))
     usage.refresh_from_db()
     assert usage.korean_equivalent is None
     assert usage.korean_equivalent_status is None
     assert usage.korean_equivalent_filled
+
+
+@pytest.mark.parametrize("page", ["usage", "pattern"])
+def test_saving_keeps_what_was_filled_while_the_form_was_open(admin_client, client, fake_llm, page):
+    # 화면을 연 뒤 채우기 명령이 대응 표현·기능 태그를 채워도, 관리자가 설명만 고쳐 저장하면
+    # 그대로 남는다(#410).
+    registered(client, fake_llm, "")
+    GrammarUsage.objects.update(
+        korean_equivalent_filled=False, function_tags=[], function_tags_filled=False
+    )
+    usage = GrammarUsage.objects.get()
+    if page == "usage":
+        url, opened = f"{USAGES}{usage.pk}/change/", usage_form(usage, explanation_ko="새 설명")
+    else:
+        url = f"/admin/analysis/grammarpattern/{usage.pattern_id}/change/"
+        opened = pattern_form(usage.pattern, **{"usages-0-explanation_ko": "새 설명"})
+    GrammarUsage.objects.update(
+        korean_equivalent="~고 있다",
+        korean_equivalent_filled=True,
+        korean_equivalent_status=ReviewStatus.PENDING,
+        function_tags=["progressive"],
+        function_tags_filled=True,
+        function_tags_status=ReviewStatus.PENDING,
+    )
+
+    response = admin_client.post(url, opened)
+
+    assert response.status_code == 302
+    usage.refresh_from_db()
+    assert usage.explanation_ko == "새 설명"
+    assert (usage.korean_equivalent, usage.korean_equivalent_status) == ("~고 있다", "pending")
+    assert (usage.function_tags, usage.function_tags_status) == (["progressive"], "pending")
 
 
 def test_admin_edit_on_the_pattern_page_marks_the_korean_equivalent_filled(

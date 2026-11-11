@@ -9,7 +9,14 @@ from django.db import transaction
 
 from analysis import llm, patterns, review
 from analysis.models import FunctionTag, GrammarPattern, GrammarUsage, ReviewStatus
-from tests.analysis.helpers import analyze, new_pattern, new_usage, pattern_form, span_answer
+from tests.analysis.helpers import (
+    analyze,
+    new_pattern,
+    new_usage,
+    pattern_form,
+    span_answer,
+    usage_form,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -147,23 +154,23 @@ def test_alternatives_carry_their_function_tags(client, fake_llm):
 def test_admin_cannot_save_a_function_tag_outside_the_allowed_list(admin_client, client, fake_llm):
     registered(client, fake_llm)
     usage = GrammarUsage.objects.get()
-    form = {"explanation_ko": usage.explanation_ko, "example_ja": usage.example_ja or ""}
 
     response = admin_client.post(
-        f"{USAGES}{usage.pk}/change/", {**form, "function_tags": ["progressive", "unknown"]}
+        f"{USAGES}{usage.pk}/change/",
+        usage_form(usage, function_tags=["progressive", "unknown"]),
     )
 
     assert response.status_code == 200
     usage.refresh_from_db()
     assert usage.function_tags == ["progressive"]
 
-    admin_client.post(f"{USAGES}{usage.pk}/change/", {**form, "function_tags": ["past"]})
+    admin_client.post(f"{USAGES}{usage.pk}/change/", usage_form(usage, function_tags=["past"]))
     usage.refresh_from_db()
     assert usage.function_tags == ["past"]
     # 관리자가 고친 태그는 검수한 것이다.
     assert usage.function_tags_status == ReviewStatus.APPROVED
 
-    admin_client.post(f"{USAGES}{usage.pk}/change/", form)
+    admin_client.post(f"{USAGES}{usage.pk}/change/", usage_form(usage, function_tags=[]))
     usage.refresh_from_db()
     assert (usage.function_tags, usage.function_tags_status) == ([], None)
     assert usage.function_tags_filled

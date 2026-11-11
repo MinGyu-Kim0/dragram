@@ -79,6 +79,12 @@ class GrammarPatternForm(forms.ModelForm):
         model = GrammarPattern
         fields = ["name", "connection_form", "test_cases", "show_parts"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 저장 시점 DB 값이 아니라 화면을 열 때의 값과 비교한다. 그사이 LLM이 채운 값을 관리자가
+        # 비운 것으로 읽지 않는다(#410).
+        self.fields["connection_form"].show_hidden_initial = True
+
     def clean_connection_form(self):
         value = (self.cleaned_data["connection_form"] or "").strip()
         if value and answers.connection_form(value) is None:

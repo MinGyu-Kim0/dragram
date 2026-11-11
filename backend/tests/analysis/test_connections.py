@@ -227,6 +227,25 @@ def test_admin_correction_wins_over_a_running_generation(client, fake_llm, admin
     assert result["review_status"] == "approved"
 
 
+def test_saving_other_fields_keeps_connection_filled_while_the_form_was_open(
+    client, fake_llm, admin_client
+):
+    # 화면을 연 뒤 접속 형태가 채워져도, 관리자가 다른 칸만 고쳐 저장하면 그대로 남는다(#410).
+    pattern = missing(client, fake_llm)
+    pattern.refresh_from_db()
+    opened = pattern_form(pattern)
+    del opened["show_parts"]  # 다른 칸(부분 표시)만 끈다
+    fake_llm.connection_response = {"connection_form": FORM}
+    connection(client, pattern)
+
+    response = admin_client.post(f"/admin/analysis/grammarpattern/{pattern.pk}/change/", opened)
+
+    assert response.status_code == 302
+    pattern.refresh_from_db()
+    assert (pattern.connection_form, pattern.connection_status) == (FORM, "pending")
+    assert not pattern.show_parts
+
+
 def test_approved_pattern_can_review_new_connection_separately(client, fake_llm, admin_client):
     pattern = missing(client, fake_llm)
     GrammarPattern.objects.filter(pk=pattern.pk).update(status="approved")

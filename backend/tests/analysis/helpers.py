@@ -211,6 +211,8 @@ def pattern_form(pattern, **changes):
     return {
         "name": pattern.name,
         "connection_form": pattern.connection_form or "",
+        # 화면을 열 때의 값(show_hidden_initial). 브라우저가 숨은 칸으로 함께 보낸다.
+        "initial-connection_form": pattern.connection_form or "",
         "test_cases": json.dumps(pattern.test_cases, ensure_ascii=False),
         # 체크박스는 꺼져 있으면 POST에 오지 않는다.
         **({"show_parts": "on"} if pattern.show_parts else {}),

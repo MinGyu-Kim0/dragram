@@ -246,6 +246,31 @@ def test_saving_other_fields_keeps_connection_filled_while_the_form_was_open(
     assert not pattern.show_parts
 
 
+def test_admin_can_clear_a_filled_connection(client, fake_llm, admin_client):
+    pattern, _ = registered(client, fake_llm)
+
+    response = admin_client.post(
+        f"/admin/analysis/grammarpattern/{pattern.pk}/change/",
+        pattern_form(pattern, connection_form=""),
+    )
+
+    assert response.status_code == 302
+    pattern.refresh_from_db()
+    # 비운 것도 관리자가 정한 값이라 다시 채우지 않는다.
+    assert (pattern.connection_form, pattern.connection_filled) == (None, True)
+    assert pattern.connection_status is None
+
+
+def test_change_page_sends_back_the_values_it_was_opened_with(client, fake_llm, admin_client):
+    # 저장할 때 화면을 열 때의 값과 비교하려면 화면이 그 값을 숨은 칸으로 그려야 한다(#410).
+    pattern, _ = registered(client, fake_llm)
+
+    page = admin_client.get(f"/admin/analysis/grammarpattern/{pattern.pk}/change/").content.decode()
+
+    assert f'name="initial-connection_form" value="{FORM}"' in page
+    assert 'name="initial-usages-0-korean_equivalent"' in page
+
+
 def test_approved_pattern_can_review_new_connection_separately(client, fake_llm, admin_client):
     pattern = missing(client, fake_llm)
     GrammarPattern.objects.filter(pk=pattern.pk).update(status="approved")

@@ -425,9 +425,9 @@ class GrammarPatternAdmin(_ReviewedAdmin):
             return super().save_formset(request, form, formset, change)
         # 용법은 고칠 수 있는 칸만 쓴다(GrammarUsageAdmin.save_model과 같다). commit=False도 admin
         # 변경 기록에 쓰는 changed_objects 등을 채운다.
-        forms = {usage_form.instance.pk: usage_form for usage_form in formset.forms}
+        usage_forms = {usage_form.instance.pk: usage_form for usage_form in formset.forms}
         for usage in formset.save(commit=False):
-            usage.save(update_fields=forms[usage.pk].saved_fields())
+            usage.save(update_fields=usage_forms[usage.pk].saved_fields())
 
     actions = [
         _review_action("approve", review.approve_pattern, "승인"),

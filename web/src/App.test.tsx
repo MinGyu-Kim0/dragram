@@ -184,6 +184,27 @@ test("로그인 후 헤더에 내 기록과 계정 메뉴가 있고, 로그아�
   expect(header.getByRole("link", { name: "로그인" })).toBeInTheDocument();
 });
 
+test("내 기록에서 로그아웃해도 로그인 화면이 아니라 소개 페이지로 간다", async () => {
+  const user = userEvent.setup();
+  responses["GET /api/auth/me/"] = () => json({ user: ME });
+  responses["GET /api/my-japanese/grammar/?state=added"] = () =>
+    json({ usages: [] });
+  responses["POST /api/auth/logout/"] = () => {
+    // 소개 페이지가 새로 로그인 상태를 물을 때 로그아웃된 상태를 돌려준다.
+    responses["GET /api/auth/me/"] = () => json({ user: null });
+    return json({ user: null });
+  };
+  open("/sentences");
+  const header = within(screen.getByRole("banner"));
+
+  await user.click(await header.findByText("계정 메뉴"));
+  await user.click(header.getByRole("button", { name: "로그아웃" }));
+
+  expect(
+    await screen.findByRole("list", { name: "시작하는 방법" }),
+  ).toBeInTheDocument();
+});
+
 test("계정 메뉴는 Escape로 닫히고 포커스가 메뉴 단추로 돌아온다", async () => {
   const user = userEvent.setup();
   responses["GET /api/auth/me/"] = () => json({ user: ME });

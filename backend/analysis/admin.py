@@ -79,6 +79,13 @@ class GrammarPatternForm(forms.ModelForm):
         model = GrammarPattern
         fields = ["name", "connection_form", "test_cases", "show_parts"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 저장 시점 DB 값이 아니라 화면을 열 때의 값과 비교한다. 그사이 LLM이 채운 값을 관리자가
+        # 비운 것으로 읽지 않는다(#410). 조회 전용 화면의 폼에는 이 칸이 없다.
+        if "connection_form" in self.fields:
+            self.fields["connection_form"].show_hidden_initial = True
+
     def clean_connection_form(self):
         value = (self.cleaned_data["connection_form"] or "").strip()
         if value and answers.connection_form(value) is None:
@@ -107,6 +114,19 @@ class GrammarPatternForm(forms.ModelForm):
 USAGE_MOVED = "그사이 용법이 원형 용법으로 합쳐지거나 원형 아래로 옮겨졌습니다(다시 엽니다)"
 
 
+class _OpenedTagsInput(forms.MultipleHiddenInput):
+    """기능 태그의 '열 때의 값' 숨은 칸. 빈 목록도 빈 칸 하나로 그린다. 칸이 아예 없으면 Django가
+    검증 오류로 다시 그린 화면에 방금 보낸 값을 열 때의 값으로 그려, 다시 저장하면 고른 태그를
+    '안 바뀜'으로 읽는다(#410).
+    """
+
+    def get_context(self, name, value, attrs):
+        return super().get_context(name, value or [""], attrs)
+
+    def value_from_datadict(self, data, files, name):
+        return [tag for tag in super().value_from_datadict(data, files, name) if tag]
+
+
 class GrammarUsageForm(forms.ModelForm):
     # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
     example_ja = forms.CharField(widget=forms.Textarea, required=False)
@@ -119,16 +139,28 @@ class GrammarUsageForm(forms.ModelForm):
         model = GrammarUsage
         fields = ["explanation_ko", "example_ja", "korean_equivalent", "function_tags"]
 
-    # 용법 화면과 패턴 화면 인라인이 쓰는 칸. 고칠 수 있는 칸과, 대응 표현을 고치면 함께 바뀌는
-    # 채움 여부·검수 상태(#152)만 쓴다.
-    SAVED_FIELDS = [
-        *Meta.fields,
-        "korean_equivalent_filled",
-        "korean_equivalent_status",
-        "function_tags_filled",
-        "function_tags_status",
-        "updated_at",
-    ]
+    # 채우기 명령(fill_usages)이 채우는 칸. 관리자가 바꿨을 때만 쓴다(#410).
+    FILLED_FIELDS = ["korean_equivalent", "function_tags"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # 저장 시점 DB 값이 아니라 화면을 열 때의 값과 비교한다. 그사이 채운 값을 관리자가 비운
+        # 것으로 읽지 않는다(#410). 조회 전용 화면의 폼에는 이 칸이 없다.
+        for name in self.FILLED_FIELDS:
+            if name in self.fields:
+                self.fields[name].show_hidden_initial = True
+        if "function_tags" in self.fields:
+            self.fields["function_tags"].hidden_widget = _OpenedTagsInput
+
+    def saved_fields(self):
+        """용법 화면과 패턴 화면 인라인이 쓰는 칸. 설명·예문과, 관리자가 바꾼 채움 칸(함께 바뀌는
+        채움 여부·검수 상태 포함, #152)만 쓴다. 그사이 채운 값을 화면이 읽어 둔 값으로 덮지 않는다.
+        """
+        fields = ["explanation_ko", "example_ja", "updated_at"]
+        for name in self.FILLED_FIELDS:
+            if name in self.changed_data:
+                fields += [name, f"{name}_filled", f"{name}_status"]
+        return fields
 
     def clean_korean_equivalent(self):
         # 비우면 '대응 없음'(NULL)이다(#152).
@@ -410,8 +442,9 @@ class GrammarPatternAdmin(_ReviewedAdmin):
             return super().save_formset(request, form, formset, change)
         # 용법은 고칠 수 있는 칸만 쓴다(GrammarUsageAdmin.save_model과 같다). commit=False도 admin
         # 변경 기록에 쓰는 changed_objects 등을 채운다.
+        usage_forms = {usage_form.instance.pk: usage_form for usage_form in formset.forms}
         for usage in formset.save(commit=False):
-            usage.save(update_fields=GrammarUsageForm.SAVED_FIELDS)
+            usage.save(update_fields=usage_forms[usage.pk].saved_fields())
 
     actions = [
         _review_action("approve", review.approve_pattern, "승인"),
@@ -461,7 +494,7 @@ class GrammarUsageAdmin(_ReviewedAdmin):
 
     def save_model(self, request, obj, form, change):
         # 고칠 수 있는 칸만 쓴다. 폼을 연 뒤 액션이 바꾼 상태를 화면이 읽어 둔 값으로 덮지 않는다.
-        obj.save(update_fields=GrammarUsageForm.SAVED_FIELDS)
+        obj.save(update_fields=form.saved_fields())
 
     actions = [
         _review_action("approve", review.approve_usage, "승인"),

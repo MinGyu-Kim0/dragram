@@ -194,6 +194,25 @@ def wait_until_blocked():
     raise AssertionError("다른 연결이 잠금을 기다리지 않음")
 
 
+def usage_form(usage, prefix="", **changes):
+    """용법 폼 칸. 화면이 보인 값을 그대로 돌려보낸다. 채우기 명령이 채우는 칸은 화면을 열 때의
+    값(show_hidden_initial)도 브라우저처럼 숨은 칸으로 함께 보낸다.
+    """
+    shown = {
+        "explanation_ko": usage.explanation_ko,
+        "example_ja": usage.example_ja or "",
+        "korean_equivalent": usage.korean_equivalent or "",
+        "function_tags": usage.function_tags,
+    }
+    return {
+        **{f"{prefix}{name}": value for name, value in shown.items()},
+        f"initial-{prefix}korean_equivalent": shown["korean_equivalent"],
+        # 빈 목록도 화면은 빈 숨은 칸 하나로 그린다.
+        f"initial-{prefix}function_tags": shown["function_tags"] or [""],
+        **changes,
+    }
+
+
 def usage_rows(pattern):
     """패턴 변경 화면의 용법 인라인 칸. 화면이 보인 값을 그대로 돌려보낸다."""
     usages = list(pattern.usages.order_by("id"))
@@ -201,9 +220,7 @@ def usage_rows(pattern):
     for i, usage in enumerate(usages):
         data[f"usages-{i}-id"] = usage.pk
         data[f"usages-{i}-pattern"] = pattern.pk
-        data[f"usages-{i}-explanation_ko"] = usage.explanation_ko
-        data[f"usages-{i}-example_ja"] = usage.example_ja or ""
-        data[f"usages-{i}-function_tags"] = usage.function_tags
+        data.update(usage_form(usage, prefix=f"usages-{i}-"))
     return data
 
 
@@ -211,6 +228,8 @@ def pattern_form(pattern, **changes):
     return {
         "name": pattern.name,
         "connection_form": pattern.connection_form or "",
+        # 화면을 열 때의 값(show_hidden_initial). 브라우저가 숨은 칸으로 함께 보낸다.
+        "initial-connection_form": pattern.connection_form or "",
         "test_cases": json.dumps(pattern.test_cases, ensure_ascii=False),
         # 체크박스는 꺼져 있으면 POST에 오지 않는다.
         **({"show_parts": "on"} if pattern.show_parts else {}),

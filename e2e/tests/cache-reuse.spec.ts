@@ -19,10 +19,13 @@ test("다른 사용자가 같은 문장을 분석하면 LLM 호출 없이 저장
   const { sentence, drag } = CACHE_REUSE;
 
   // 첫 사용자가 분석해 공용 캐시에 넣는다.
-  await signInAndConnect(context, `cache-first-${Date.now()}@e2e.test`);
+  const firstEmail = `cache-first-${Date.now()}@e2e.test`;
+  await signInAndConnect(context, firstEmail);
   const firstPanel = await openPanel(context);
   await analyzeSelection(context, await openArticle(context, sentence), drag);
   await expectAnalysisDone(firstPanel);
+  // 정말 새 문장이었다(이미 캐시에 있었으면 아래 확인이 아무것도 보장하지 않는다).
+  expect(await requestPaths(firstEmail)).toEqual(["llm"]);
   const before = await analysisLlmCalls();
 
   // 다른 사용자(새 브라우저, 새 계정)가 같은 문장을 분석한다.

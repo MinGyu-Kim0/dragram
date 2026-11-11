@@ -1,7 +1,7 @@
 import pg from "pg";
 
 // 운영자가 확인할 수 있는 바깥 결과(사용 기록 등)를 E2E 스택 DB에서 읽는다(e2e/compose.yaml).
-export async function query<T extends pg.QueryResultRow>(
+async function query<T extends pg.QueryResultRow>(
   sql: string,
   params: unknown[] = [],
 ): Promise<T[]> {
@@ -26,11 +26,13 @@ export async function analysisLlmCalls(): Promise<number> {
   return Number(row.count);
 }
 
-// dev-login 계정의 분석 요청이 지난 경로(cache·db·llm), 요청 순서대로.
+// dev-login 계정의 분석 요청이 지난 경로(cache·db·llm), 요청 순서대로. 접속 형태 요청도 request
+// 행을 남기지만 분석과 잇지 않으므로(analysis_id 없음) 세지 않는다.
 export async function requestPaths(email: string): Promise<string[]> {
   const rows = await query<{ path: string }>(
     `select l.path from usage_log l join accounts_user u on u.id = l.user_id
-     where l.kind = 'request' and u.username = $1 order by l.id`,
+     where l.kind = 'request' and l.analysis_id is not null and u.username = $1
+     order by l.id`,
     [`dev:${email}`],
   );
   return rows.map((row) => row.path);

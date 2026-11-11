@@ -5,6 +5,6 @@ set -eu
 EXT=/tmp/extension
 mkdir -p "$EXT"
 tar -C /repo/extension --exclude=node_modules --exclude=.output --exclude=.wxt -cf - . | tar -C "$EXT" -xf -
-(cd "$EXT" && npm ci --no-audit --no-fund --loglevel=error && WXT_E2E=true npx wxt build >/dev/null)
+(cd "$EXT" && npm ci --no-audit --no-fund --loglevel=error && npx wxt build >/dev/null)
 npm ci --no-audit --no-fund --loglevel=error
 EXTENSION_PATH="$EXT/.output/chrome-mv3" exec npx playwright test "$@"

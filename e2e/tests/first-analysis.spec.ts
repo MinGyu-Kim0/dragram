@@ -37,6 +37,8 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
   await expect(card(confirmed)).toBeVisible();
   await expect(card(checking)).toContainText("확인 중");
   await expect(loadingTranslation).toBeVisible();
+  // 같은 이벤트로 시드한 사전 단어도 먼저 온다(뜻은 이어서 채워진다).
+  await expect(panel.getByRole("tab", { name: /^단어 [1-9]/ })).toBeVisible();
   // 승인된 지식에는 미검수 배지가 없다.
   await expect(card(confirmed)).not.toContainText("AI 생성·미검수");
 
@@ -59,4 +61,6 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
     .getByRole("listitem")
     .filter({ has: panel.getByRole("heading", { name: word, exact: true }) });
   await expect(row).toContainText("AI 번역");
+  // 어디에서도 실패하지 않았다(실패 문구 옆에는 늘 '다시 시도'가 있다).
+  await expect(panel.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
 });

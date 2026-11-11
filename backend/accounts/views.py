@@ -193,10 +193,13 @@ def signup(request):
 
 def _end_session(request):
     """웹 로그아웃. 이 세션이 발급한 확장 토큰도 폐기한다(다른 세션의 연결은 남긴다)."""
+    session = request._request.session
+    # 막힌 계정은 인증되지 않지만 세션에는 남아 있어 함께 본다(_start_session과 같다, #411).
+    user_id = session.get(auth.SESSION_KEY)
     with transaction.atomic():
-        if request.user.is_authenticated:
-            _lock_user(request.user)
-            tokens.revoke_session(request.user, request._request.session.session_key)
+        if user_id is not None:
+            _lock_user(user_id)
+            tokens.revoke_session(user_id, session.session_key)
         # 세션 행도 같은 트랜잭션에서 지워, 기다리던 토큰 발급이 끝난 세션을 보게 한다.
         auth.logout(request._request)
 

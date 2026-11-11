@@ -219,6 +219,19 @@ def test_web_logout_revokes_only_tokens_issued_by_that_session(fake_llm):
     assert analyze(others).status_code == 200
 
 
+def test_disabled_users_web_logout_still_revokes_that_sessions_tokens(fake_llm):
+    # 막힌 계정은 세션 인증에서 익명이 되지만, 그 세션이 발급한 토큰은 폐기한다(#411).
+    web, headers = web_session()
+    token = issue(web, headers)
+    User.objects.update(is_active=False)
+
+    web.post("/api/auth/logout/", **headers)
+    User.objects.update(is_active=True)
+
+    assert ExtensionToken.objects.get().revoked_at is not None
+    assert analyze(token).status_code == 401
+
+
 def test_issuing_is_refused_when_the_session_logged_out_while_waiting(monkeypatch):
     # 같은 세션의 로그아웃이 먼저 잠금을 잡고 끝난 뒤에 발급이 이어지는 경우
     web, headers = web_session()

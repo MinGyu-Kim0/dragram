@@ -36,7 +36,5 @@ def test_review_action_is_hidden_from_view_only_staff(client, django_user_model,
 
 
 @pytest.mark.parametrize(("model", "action"), ACTIONS)
-def test_review_action_is_offered_to_staff_who_can_change(
-    client, django_user_model, model, action
-):
+def test_review_action_is_offered_to_staff_who_can_change(client, django_user_model, model, action):
     assert action in offered_actions(client, django_user_model, model, "view", "change")

@@ -329,7 +329,8 @@ def _validate_new_words(answers, unknown):
             continue
         if token in found:
             repeated.add(token)
-        found[token] = (form, to_hiragana(reading))
+        # 가나 사전형은 그 가나가 곧 읽기다. 다시 찾을 때(words.find_again)와 같은 규칙이다(#407).
+        found[token] = (form, to_hiragana(form if words.is_kana(form) else reading))
     return {token: value for token, value in found.items() if token not in repeated}
 
 

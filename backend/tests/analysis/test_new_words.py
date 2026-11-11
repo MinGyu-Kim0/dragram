@@ -145,6 +145,23 @@ def test_made_word_is_found_like_a_dictionary_word_next_time(client, fake_llm):
     assert response.json()["words"][0]["sense"]["meaning_ko"] == "走る 뜻"
 
 
+def test_made_kana_word_with_another_reading_is_found_next_time(client, fake_llm):
+    # 가나 사전형은 그 가나가 곧 읽기다. LLM이 다른 읽기(すげえ)로 답해도 다음에 찾는다(#407).
+    fake_llm.response = {"translation_ko": "굉장해", "new_words": [new_word(0, "すげー", "すげえ")]}
+    fake_llm.define_response = {"words": [defined(0, meaning_ko="굉장하다")]}
+    analyze(client, "すげー")
+    fake_llm.forget_requests()
+    # 토큰: 0 すげー / 1 な
+    fake_llm.response = {"translation_ko": "굉장하네"}
+
+    response = analyze(client, "すげーな")
+
+    assert 0 not in fake_llm.requests[0]["unknown_words"]
+    assert fake_llm.define_requests == []
+    assert response.json()["words"][0]["sense"]["meaning_ko"] == "굉장하다"
+    assert WordSense.objects.count() == 1
+
+
 @pytest.fixture
 def honoru():
     """사전에는 있지만 SudachiPy 사전형(走る)으로는 못 찾는 단어: 奔る(はしる)."""

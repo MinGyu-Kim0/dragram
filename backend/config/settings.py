@@ -117,12 +117,29 @@ if OPENAI_REASONING_EFFORT not in {"none", "minimal", "low", "medium", "high", "
     )
 
 # 분석 시간 기록(analysis.timing, #216)을 표준 오류로 낸다. 한 줄이 JSON 하나다. 나머지 로거는
-# 기존처럼 경고 이상만 Python 기본 처리기로 나간다.
+# 경고 이상을 root 처리기로 표준 오류에 낸다. 운영에서 처리하지 못한 예외의 traceback도 여기로
+# 나온다(#406). DB 오류의 DETAIL은 원문이 실릴 수 있어 지운다(config.logs).
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"timing": {"class": "logging.StreamHandler"}},
-    "loggers": {"analysis.timing": {"handlers": ["timing"], "level": "INFO"}},
+    "formatters": {
+        "plain": {
+            "()": "config.logs.Formatter",
+            "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        }
+    },
+    "handlers": {
+        "timing": {"class": "logging.StreamHandler"},
+        "stderr": {"class": "logging.StreamHandler", "formatter": "plain"},
+    },
+    "root": {"handlers": ["stderr"], "level": "WARNING"},
+    "loggers": {
+        "analysis.timing": {"handlers": ["timing"], "level": "INFO", "propagate": False},
+        # Django 기본 처리기(DEBUG에서만 내는 console, ADMINS 없는 mail_admins)를 떼고 root로만
+        # 보낸다. 두면 DEBUG에서 같은 traceback이 두 번 나온다. root 레벨은 아래 로거에서 올라온
+        # 기록을 거르지 않아 여기서 WARNING으로 막는다(RQ 작업자의 INFO는 그대로 나간다).
+        "django": {"level": "WARNING"},
+    },
 }
 
 # 분석 작업 큐(RQ)와 작업자 소식(pub/sub)을 함께 쓰는 Redis(ADR 0005).

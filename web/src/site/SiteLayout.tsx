@@ -1,4 +1,10 @@
-import { useEffect, useId, useState, type ReactNode } from "react";
+import {
+  startTransition,
+  useEffect,
+  useId,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useNavigate } from "react-router";
 import { currentUser, type User } from "../connect/auth";
 import { logoutAndDisconnect } from "../connect/extension";
@@ -227,7 +233,9 @@ function SiteLayout({
               <AccountMenu
                 user={user}
                 onLoggedOut={() => {
-                  setUser(null);
+                  // 라우터는 이동을 transition으로 늦게 반영한다. 로그아웃도 같이 늦추지 않으면 내
+                  // 기록이 먼저 '로그인 안 됨 → /connect'로 바꿔 / 이동을 덮는다(#408).
+                  startTransition(() => setUser(null));
                   navigate("/");
                 }}
               />

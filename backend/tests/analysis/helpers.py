@@ -206,10 +206,9 @@ def usage_form(usage, prefix="", **changes):
     }
     return {
         **{f"{prefix}{name}": value for name, value in shown.items()},
-        **{
-            f"initial-{prefix}{name}": shown[name]
-            for name in ("korean_equivalent", "function_tags")
-        },
+        f"initial-{prefix}korean_equivalent": shown["korean_equivalent"],
+        # 빈 목록도 화면은 빈 숨은 칸 하나로 그린다.
+        f"initial-{prefix}function_tags": shown["function_tags"] or [""],
         **changes,
     }
 

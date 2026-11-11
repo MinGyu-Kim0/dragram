@@ -4,6 +4,7 @@ import html
 import json
 
 import pytest
+from django.contrib.auth.models import Permission
 
 from analysis import patterns
 from analysis.admin import GrammarUsageAdmin, GrammarUsageForm
@@ -121,6 +122,19 @@ def test_show_parts_can_be_edited_without_reanalysis_or_raising_the_version(admi
     refreshed = SentenceAnalysis.objects.get()
     assert (refreshed.is_stale, refreshed.generation) == (False, analysis.generation)
     assert version() == before
+
+
+@pytest.mark.parametrize("model", ["grammarpattern", "grammarusage"])
+def test_staff_who_can_only_view_can_open_the_change_page(
+    client, django_user_model, pattern, model
+):
+    # 조회 전용 화면의 폼에는 고칠 칸이 없다(#410의 숨은 초기값 칸 포함).
+    staff = django_user_model.objects.create_user("staff", password="pw", is_staff=True)
+    staff.user_permissions.add(Permission.objects.get(codename=f"view_{model}"))
+    client.force_login(staff)
+    obj = pattern if model == "grammarpattern" else pattern.usages.get()
+
+    assert client.get(f"/admin/analysis/{model}/{obj.pk}/change/").status_code == 200
 
 
 def test_usage_explanation_and_example_can_be_edited(admin_client, pattern):

@@ -82,8 +82,9 @@ class GrammarPatternForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # 저장 시점 DB 값이 아니라 화면을 열 때의 값과 비교한다. 그사이 LLM이 채운 값을 관리자가
-        # 비운 것으로 읽지 않는다(#410).
-        self.fields["connection_form"].show_hidden_initial = True
+        # 비운 것으로 읽지 않는다(#410). 조회 전용 화면의 폼에는 이 칸이 없다.
+        if "connection_form" in self.fields:
+            self.fields["connection_form"].show_hidden_initial = True
 
     def clean_connection_form(self):
         value = (self.cleaned_data["connection_form"] or "").strip()
@@ -113,6 +114,19 @@ class GrammarPatternForm(forms.ModelForm):
 USAGE_MOVED = "그사이 용법이 원형 용법으로 합쳐지거나 원형 아래로 옮겨졌습니다(다시 엽니다)"
 
 
+class _OpenedTagsInput(forms.MultipleHiddenInput):
+    """기능 태그의 '열 때의 값' 숨은 칸. 빈 목록도 빈 칸 하나로 그린다. 칸이 아예 없으면 Django가
+    검증 오류로 다시 그린 화면에 방금 보낸 값을 열 때의 값으로 그려, 다시 저장하면 고른 태그를
+    '안 바뀜'으로 읽는다(#410).
+    """
+
+    def get_context(self, name, value, attrs):
+        return super().get_context(name, value or [""], attrs)
+
+    def value_from_datadict(self, data, files, name):
+        return [tag for tag in super().value_from_datadict(data, files, name) if tag]
+
+
 class GrammarUsageForm(forms.ModelForm):
     # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
     example_ja = forms.CharField(widget=forms.Textarea, required=False)
@@ -131,9 +145,12 @@ class GrammarUsageForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # 저장 시점 DB 값이 아니라 화면을 열 때의 값과 비교한다. 그사이 채운 값을 관리자가 비운
-        # 것으로 읽지 않는다(#410).
+        # 것으로 읽지 않는다(#410). 조회 전용 화면의 폼에는 이 칸이 없다.
         for name in self.FILLED_FIELDS:
-            self.fields[name].show_hidden_initial = True
+            if name in self.fields:
+                self.fields[name].show_hidden_initial = True
+        if "function_tags" in self.fields:
+            self.fields["function_tags"].hidden_widget = _OpenedTagsInput
 
     def saved_fields(self):
         """용법 화면과 패턴 화면 인라인이 쓰는 칸. 설명·예문과, 관리자가 바꾼 채움 칸(함께 바뀌는

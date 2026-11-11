@@ -1,6 +1,7 @@
 """문법 용법의 품사 태그와 기능 태그(#151)."""
 
 import json
+import re
 from io import StringIO
 
 import pytest
@@ -174,6 +175,30 @@ def test_admin_cannot_save_a_function_tag_outside_the_allowed_list(admin_client,
     usage.refresh_from_db()
     assert (usage.function_tags, usage.function_tags_status) == ([], None)
     assert usage.function_tags_filled
+
+
+def test_tags_chosen_before_a_validation_error_are_saved_on_the_retry(
+    admin_client, client, fake_llm
+):
+    # 빈 태그에서 태그를 고르고 다른 칸 오류로 다시 그린 화면도 열 때의 값(빈 목록)과 비교한다.
+    registered(client, fake_llm, [])
+    usage = GrammarUsage.objects.get()
+    url = f"{USAGES}{usage.pk}/change/"
+    assert 'name="initial-function_tags"' in admin_client.get(url).content.decode()
+
+    refused = admin_client.post(
+        url, usage_form(usage, function_tags=["past"], example_ja="雨が降る")
+    ).content.decode()
+    # 브라우저처럼 숨은 칸마다 값을 보낸다. 빈 값이면 Django는 value 속성을 빼고 그린다.
+    hidden = re.findall(r'<input [^>]*name="initial-function_tags"[^>]*>', refused)
+    opened = [re.search(r'value="([^"]*)"', tag)[1] if "value=" in tag else "" for tag in hidden]
+    admin_client.post(
+        url, usage_form(usage, function_tags=["past"], **{"initial-function_tags": opened})
+    )
+
+    usage.refresh_from_db()
+    assert opened == [""]
+    assert (usage.function_tags, usage.function_tags_status) == (["past"], ReviewStatus.APPROVED)
 
 
 def test_admin_edit_on_the_pattern_page_marks_the_function_tags_filled(

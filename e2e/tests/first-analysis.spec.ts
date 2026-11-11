@@ -1,8 +1,10 @@
 import {
   analyzeSelection,
   expect,
+  expectAnalysisDone,
   openArticle,
   openPanel,
+  recordPanel,
   signInAndConnect,
   test,
 } from "../support/fixtures";
@@ -18,47 +20,7 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
   const panel = await openPanel(context);
   const article = await openArticle(context, sentence);
 
-  // 번역보다 먼저 보인 것을 분석 시작 전부터 기록한다. 모델이 빨리 답해도 지나간 상태를 놓치지 않는다.
-  await panel.evaluate(
-    ({ confirmed, checking }) => {
-      const seen: Record<string, boolean> = {};
-      (window as unknown as { earlySeen: typeof seen }).earlySeen = seen;
-      const record = () => {
-        const loading = document.querySelector(
-          '[role="status"][aria-label="번역을 불러오는 중"]',
-        );
-        if (!loading) return;
-        // 페이지 안이라 Playwright 역할 찾기를 못 쓴다. 이름이 '문법'인 목록의 항목을 역할로 찾는다.
-        const cards = [
-          ...document.querySelectorAll(
-            ':is(ul, ol, [role="list"])[aria-label="문법"] :is(li, [role="listitem"])',
-          ),
-        ].map((item) => item.textContent ?? "");
-        // 승인된 지식에는 미검수 배지가 없다.
-        if (
-          cards.some(
-            (c) => c.includes(confirmed) && !c.includes("AI 생성·미검수"),
-          )
-        )
-          seen.confirmed = true;
-        if (cards.some((c) => c.includes(checking) && c.includes("확인 중")))
-          seen.checking = true;
-        if (
-          [...document.querySelectorAll('[role="tab"]')].some((tab) =>
-            /^단어 [1-9]/.test(tab.textContent ?? ""),
-          )
-        )
-          seen.words = true;
-      };
-      new MutationObserver(record).observe(document.body, {
-        subtree: true,
-        childList: true,
-        characterData: true,
-      });
-    },
-    { confirmed, checking },
-  );
-
+  const states = await recordPanel(panel);
   await analyzeSelection(context, article, drag);
 
   const grammar = panel.getByRole("list", { name: "문법" });
@@ -78,11 +40,27 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
   await expect(loadingTranslation).toBeHidden();
   // 그 전에 DB로 확정한 문법(승인된 용법 하나뿐인 패턴, 미검수 배지 없음), 판별 대상 구간의
   // '확인 중' 카드, 같은 이벤트로 온 사전 단어가 보였다.
+  const early = (await states()).filter((state) => state.loadingTranslation);
   expect(
-    await panel.evaluate(
-      () => (window as unknown as { earlySeen: object }).earlySeen,
+    early.some((state) =>
+      state.grammarCards.some(
+        (c) => c.includes(confirmed) && !c.includes("AI 생성·미검수"),
+      ),
     ),
-  ).toEqual({ confirmed: true, checking: true, words: true });
+    "DB 확정 카드가 번역보다 먼저",
+  ).toBe(true);
+  expect(
+    early.some((state) =>
+      state.grammarCards.some(
+        (c) => c.includes(checking) && c.includes("확인 중"),
+      ),
+    ),
+    "확인 중 카드가 번역보다 먼저",
+  ).toBe(true);
+  expect(
+    early.some((state) => /^단어 [1-9]/.test(state.wordsTab ?? "")),
+    "사전 단어가 번역보다 먼저",
+  ).toBe(true);
   await expect(
     original.getByRole("paragraph").filter({ hasText: /[가-힣]/ }),
   ).toBeVisible();
@@ -101,6 +79,5 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
     .getByRole("listitem")
     .filter({ has: panel.getByRole("heading", { name: word, exact: true }) });
   await expect(row).toContainText("AI 번역");
-  // 어디에서도 실패하지 않았다(실패 문구 옆에는 늘 '다시 시도'가 있다).
-  await expect(panel.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
+  await expectAnalysisDone(panel);
 });

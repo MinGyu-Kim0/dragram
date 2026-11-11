@@ -11,20 +11,25 @@ const ARTICLE = "http://localhost:8000/e2e/article.html";
 // 서비스 워커 안에서 도는 코드(worker.evaluate)가 쓰는 확장 API. 메뉴 이벤트의 dispatch는 타입에 없다.
 declare const chrome: any;
 
-// 시나리오마다 새 브라우저(새 확장 저장소)로 시작한다.
+// 빌드한 확장을 올린 새 브라우저(새 확장 저장소). 다른 사용자를 흉내 낼 때 하나 더 띄운다.
+export async function launchBrowser(): Promise<BrowserContext> {
+  const extension = process.env.EXTENSION_PATH;
+  if (!extension)
+    throw new Error("EXTENSION_PATH가 없다(e2e/run.sh로 실행한다)");
+  return chromium.launchPersistentContext("", {
+    channel: "chromium",
+    locale: "ko-KR",
+    args: [
+      `--disable-extensions-except=${extension}`,
+      `--load-extension=${extension}`,
+    ],
+  });
+}
+
+// 시나리오마다 새 브라우저로 시작한다.
 export const test = base.extend<{ context: BrowserContext }>({
   context: async ({}, use) => {
-    const extension = process.env.EXTENSION_PATH;
-    if (!extension)
-      throw new Error("EXTENSION_PATH가 없다(e2e/run.sh로 실행한다)");
-    const context = await chromium.launchPersistentContext("", {
-      channel: "chromium",
-      locale: "ko-KR",
-      args: [
-        `--disable-extensions-except=${extension}`,
-        `--load-extension=${extension}`,
-      ],
-    });
+    const context = await launchBrowser();
     await use(context);
     await context.close();
   },
@@ -113,4 +118,73 @@ export async function analyzeSelection(
     },
     { url: ARTICLE, part },
   );
+}
+
+// 패널이 지나간 상태(분석 시작부터)를 기록한다. 모델이 빨리 답하면 중간 상태가 금방 사라져
+// 나중에 기다리면 놓치므로, 분석 시작 전에 걸어 두고 끝난 뒤 기록을 본다.
+export interface PanelState {
+  // '번역을 불러오는 중'이 보였다.
+  loadingTranslation: boolean;
+  // 문법·단어 분석을 기다리는 '분석 중'이 보였다.
+  analyzing: boolean;
+  // 문법 목록의 카드 글자(배지·'확인 중' 포함)
+  grammarCards: string[];
+  // '단어 N' 탭 이름. 탭이 없으면 null
+  wordsTab: string | null;
+}
+
+export async function recordPanel(
+  panel: Page,
+): Promise<() => Promise<PanelState[]>> {
+  await panel.evaluate(() => {
+    const states: PanelState[] = [];
+    (window as unknown as { panelStates: PanelState[] }).panelStates = states;
+    // 페이지 안이라 Playwright 역할 찾기를 못 쓴다. 역할과 접근성 이름으로 찾는다.
+    const status = (name: string) =>
+      !!document.querySelector(`[role="status"][aria-label="${name}"]`);
+    const record = () => {
+      const state: PanelState = {
+        loadingTranslation: status("번역을 불러오는 중"),
+        analyzing: status("분석 중"),
+        grammarCards: [
+          ...document.querySelectorAll(
+            ':is(ul, ol, [role="list"])[aria-label="문법"] :is(li, [role="listitem"])',
+          ),
+        ].map((item) => item.textContent ?? ""),
+        wordsTab:
+          [...document.querySelectorAll('[role="tab"]')]
+            .map((tab) => tab.textContent ?? "")
+            .find((name) => name.startsWith("단어")) ?? null,
+      };
+      const last = states.at(-1);
+      if (!last || JSON.stringify(last) !== JSON.stringify(state))
+        states.push(state);
+    };
+    new MutationObserver(record).observe(document.body, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+    });
+  });
+  return () =>
+    panel.evaluate(
+      () => (window as unknown as { panelStates: PanelState[] }).panelStates,
+    );
+}
+
+// 이 패널의 분석이 끝났다: 번역이 원문 카드에 있고, '분석 중'이 사라졌고, 어디에서도 실패하지
+// 않았다(실패 문구 옆에는 늘 '다시 시도'가 있다). 번역을 먼저 기다려, 요청이 패널에 닿기 전의
+// 빈 화면을 끝난 것으로 보지 않는다.
+export async function expectAnalysisDone(panel: Page) {
+  await expect(
+    panel
+      .getByRole("region", { name: "원문" })
+      .getByRole("paragraph")
+      .filter({ hasText: /[가-힣]/ }),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole("status", { name: "번역을 불러오는 중" }),
+  ).toBeHidden();
+  await expect(panel.getByRole("status", { name: "분석 중" })).toBeHidden();
+  await expect(panel.getByRole("button", { name: "다시 시도" })).toHaveCount(0);
 }

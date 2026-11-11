@@ -21,6 +21,8 @@ services:
     environment:
       HOME: /tmp
       CI: ${CI:-}
+      # 사용 기록 등 운영자가 볼 수 있는 결과를 확인한다(support/db.ts). 루트 compose.yaml의 개발용 값.
+      E2E_DATABASE_URL: postgres://dragram:dragram-dev-only@db:5432/dragram
     working_dir: /repo/e2e
     volumes:
       - .:/repo

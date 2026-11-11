@@ -37,3 +37,35 @@ export async function requestPaths(email: string): Promise<string[]> {
   );
   return rows.map((row) => row.path);
 }
+
+// 글자를 담은 칸(table.column) 목록. 사용자 원문이 공용 테이블에 남지 않았는지 볼 때 쓴다
+// (불변식: 원문은 본인 기록에만). 글자·JSON·배열 칸을 모두 훑는다.
+export async function columnsContaining(text: string): Promise<string[]> {
+  const client = new pg.Client({
+    connectionString: process.env.E2E_DATABASE_URL,
+  });
+  await client.connect();
+  try {
+    const { rows: columns } = await client.query<{
+      table_name: string;
+      column_name: string;
+    }>(
+      `select table_name, column_name from information_schema.columns
+       where table_schema = 'public'
+         and data_type in ('text', 'character varying', 'json', 'jsonb', 'ARRAY')
+       order by table_name, column_name`,
+    );
+    const found: string[] = [];
+    for (const { table_name, column_name } of columns) {
+      const { rows } = await client.query<{ hit: boolean }>(
+        `select exists(select 1 from ${client.escapeIdentifier(table_name)}
+           where strpos(${client.escapeIdentifier(column_name)}::text, $1) > 0) as hit`,
+        [text],
+      );
+      if (rows[0].hit) found.push(`${table_name}.${column_name}`);
+    }
+    return found;
+  } finally {
+    await client.end();
+  }
+}

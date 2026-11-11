@@ -42,8 +42,11 @@ async function serviceWorker(context: BrowserContext): Promise<Worker> {
   );
 }
 
-// dev-login으로 웹 세션을 만들고, 웹 '로그인·확장 연결' 화면에서 실제로 연결한다.
-export async function signInAndConnect(context: BrowserContext, email: string) {
+// dev-login으로 웹 세션을 만든다. 로그인한 웹 '로그인·확장 연결' 화면을 돌려준다.
+export async function signIn(
+  context: BrowserContext,
+  email: string,
+): Promise<Page> {
   const page = await context.newPage();
   await page.goto(`${WEB}/connect`);
   // 화면이 처음 부르는 /api/auth/me가 CSRF 쿠키를 준다.
@@ -59,6 +62,12 @@ export async function signInAndConnect(context: BrowserContext, email: string) {
   }, email);
   expect(status, "dev-login").toBe(200);
   await page.reload();
+  return page;
+}
+
+// 로그인하고 웹 '로그인·확장 연결' 화면에서 실제로 연결한다.
+export async function signInAndConnect(context: BrowserContext, email: string) {
+  const page = await signIn(context, email);
   await page.getByRole("button", { name: "확장 프로그램 연결" }).click();
   await expect(page.getByRole("heading", { name: "연결했어요" })).toBeVisible();
   await page.close();

@@ -19,6 +19,8 @@
 - 로그인은 dev-login(DEBUG + `DEV_LOGIN_ENABLED`)으로 웹 세션을 만들고, 확장 연결은 웹 '로그인·확장 연결' 화면에서 실제로 누른다.
 - 분석 시작: Playwright는 크롬 우클릭 메뉴를 누를 수 없어, 백그라운드에서 메뉴 클릭 이벤트(`contextMenus.onClicked.dispatch`)를 보낸다. 앱 코드는 메뉴를 누를 때와 같다. 테스트 페이지는 Playwright가 API 출처(`localhost:8000/e2e/...`) 주소로 내주어, `host_permissions`로 문장 추출 스크립트가 주입된다.
 - 사이드 패널은 사용자 동작 안에서만 열리므로 `sidepanel.html`을 같은 창의 탭으로 연다.
+- 운영자가 볼 수 있는 바깥 결과(사용 기록 수, 공용 테이블 내용)는 `support/db.ts`가 E2E 스택 DB(`E2E_DATABASE_URL`)에서 직접 읽는다.
+- 모델이 빨리 답하면 중간 상태(확인 중, 번역 불러오는 중)가 금방 사라진다. 지나간 상태를 확인할 때는 분석 시작 전에 `recordPanel`을 걸고 끝난 뒤 기록을 본다.
 
 ## 규칙
 

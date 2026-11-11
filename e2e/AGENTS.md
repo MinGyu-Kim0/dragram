@@ -7,6 +7,7 @@
 저장소 루트에서 실행한다. Docker(Compose)와, 루트 `.env`의 `OPENAI_API_KEY`가 필요하다.
 
 - 실행: `e2e/run.sh` (Playwright 인자를 그대로 넘긴다. 예: `e2e/run.sh --grep "첫 분석"`)
+- 같은 체크아웃에서는 한 번에 하나만 돌린다(`e2e/node_modules`·`test-results`를 함께 쓴다). 동시에 돌리려면 worktree를 따로 둔다. 스택(DB·작업자)은 실행마다 따로다.
 - 결과: 실패하면 `e2e/test-results/`(trace·스크린샷, `server.log`에 백엔드·작업자 로그)와 `e2e/playwright-report/`. trace는 `npx playwright show-trace <파일>`로 연다.
 - 타입 검사: `cd e2e && npm run typecheck`
 

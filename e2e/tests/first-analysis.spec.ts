@@ -18,6 +18,44 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
   const panel = await openPanel(context);
   const article = await openArticle(context, sentence);
 
+  // 번역보다 먼저 보인 것을 분석 시작 전부터 기록한다. 모델이 빨리 답해도 지나간 상태를 놓치지 않는다.
+  await panel.evaluate(
+    ({ confirmed, checking }) => {
+      const seen: Record<string, boolean> = {};
+      (window as unknown as { earlySeen: typeof seen }).earlySeen = seen;
+      const record = () => {
+        const loading = document.querySelector(
+          '[role="status"][aria-label="번역을 불러오는 중"]',
+        );
+        if (!loading) return;
+        const cards = [
+          ...document.querySelectorAll('[aria-label="문법"] > li'),
+        ].map((li) => li.textContent ?? "");
+        // 승인된 지식에는 미검수 배지가 없다.
+        if (
+          cards.some(
+            (c) => c.includes(confirmed) && !c.includes("AI 생성·미검수"),
+          )
+        )
+          seen.confirmed = true;
+        if (cards.some((c) => c.includes(checking) && c.includes("확인 중")))
+          seen.checking = true;
+        if (
+          [...document.querySelectorAll('[role="tab"]')].some((tab) =>
+            /^단어 [1-9]/.test(tab.textContent ?? ""),
+          )
+        )
+          seen.words = true;
+      };
+      new MutationObserver(record).observe(document.body, {
+        subtree: true,
+        childList: true,
+        characterData: true,
+      });
+    },
+    { confirmed, checking },
+  );
+
   await analyzeSelection(context, article, drag);
 
   const grammar = panel.getByRole("list", { name: "문법" });
@@ -33,17 +71,15 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
   await expect(original).toContainText("ます。");
   await expect(original).not.toContainText("以上");
 
-  // DB로 확정한 문법(승인된 용법 하나뿐인 패턴)과 판별 대상 구간이 번역보다 먼저 보인다.
-  await expect(card(confirmed)).toBeVisible();
-  await expect(card(checking)).toContainText("확인 중");
-  await expect(loadingTranslation).toBeVisible();
-  // 같은 이벤트로 시드한 사전 단어도 먼저 온다(뜻은 이어서 채워진다).
-  await expect(panel.getByRole("tab", { name: /^단어 [1-9]/ })).toBeVisible();
-  // 승인된 지식에는 미검수 배지가 없다.
-  await expect(card(confirmed)).not.toContainText("AI 생성·미검수");
-
   // 번역이 원문 카드에 채워진다.
   await expect(loadingTranslation).toBeHidden();
+  // 그 전에 DB로 확정한 문법(승인된 용법 하나뿐인 패턴, 미검수 배지 없음), 판별 대상 구간의
+  // '확인 중' 카드, 같은 이벤트로 온 사전 단어가 보였다.
+  expect(
+    await panel.evaluate(
+      () => (window as unknown as { earlySeen: object }).earlySeen,
+    ),
+  ).toEqual({ confirmed: true, checking: true, words: true });
   await expect(
     original.getByRole("paragraph").filter({ hasText: /[가-힣]/ }),
   ).toBeVisible();
@@ -51,8 +87,9 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
   // 판별 결과가 오면 '확인 중'이 모두 사라진다.
   await expect(panel.getByRole("status", { name: "분석 중" })).toBeHidden();
   await expect(grammar.getByText("확인 중", { exact: true })).toHaveCount(0);
-  // LLM이 만든 지식(미검수 패턴의 용법)은 '미검수'로 보인다.
+  // LLM이 만든 지식(미검수 패턴의 용법)은 '미검수'로, 승인된 지식은 배지 없이 보인다.
   await expect(card(checking)).toContainText("AI 생성·미검수");
+  await expect(card(confirmed)).not.toContainText("AI 생성·미검수");
 
   // 시드한 사전 단어가 단어 탭에 보이고, 사전을 옮긴 검수 안 된 뜻은 'AI 번역'으로 보인다.
   await panel.getByRole("tab", { name: /^단어/ }).click();

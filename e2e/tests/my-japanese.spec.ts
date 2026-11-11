@@ -25,13 +25,18 @@ test("사이드 패널에서 추가한 항목은 본인 '내 일본어'에만 �
   await analyzeSelection(context, await openArticle(context, sentence), drag);
   await expectAnalysisDone(panel);
 
+  // 칩 글자가 정확히 그 패턴인 카드. 구성 문법이면 바깥 카드와 하위 박스가 함께 걸리므로 가장
+  // 안쪽(마지막) 것을 고르고, 버튼도 하위 박스 버튼 뒤에 오는 그 카드 자신의 것(마지막)을 누른다.
   const grammarCard = panel
     .getByRole("list", { name: "문법" })
     .getByRole("listitem")
-    .filter({ hasText: grammar })
-    .first();
-  await grammarCard.getByRole("button", { name: "추가", exact: true }).click();
-  await grammarCard.getByRole("button", { name: "예문 저장" }).click();
+    .filter({ has: panel.getByText(grammar, { exact: true }) })
+    .last();
+  await grammarCard
+    .getByRole("button", { name: "추가", exact: true })
+    .last()
+    .click();
+  await grammarCard.getByRole("button", { name: "예문 저장" }).last().click();
   await expect(grammarCard.getByText("예문 저장됨")).toBeVisible();
 
   await panel.getByRole("tab", { name: /^단어/ }).click();
@@ -78,10 +83,7 @@ test("사이드 패널에서 추가한 항목은 본인 '내 일본어'에만 �
   }
 
   // 운영자 쪽: 원문은 본인이 고른 예문(my_example)에만 있고 공용 테이블 어디에도 없다.
-  // 끝 마침표를 떼고도 찾는다(다듬어 저장했을 때).
-  expect(await columnsContaining(sentence)).toEqual([
-    "my_example.original_text",
-  ]);
+  // 끝 마침표를 뗀 글자로 찾아, 마침표를 다듬어 저장한 칸도 놓치지 않는다.
   expect(await columnsContaining(sentence.replace(/。$/, ""))).toEqual([
     "my_example.original_text",
   ]);

@@ -58,8 +58,8 @@ export async function columnsContaining(text: string): Promise<string[]> {
     const found: string[] = [];
     for (const { table_name, column_name } of columns) {
       const { rows } = await client.query<{ hit: boolean }>(
-        `select exists(select 1 from "${table_name}"
-           where strpos("${column_name}"::text, $1) > 0) as hit`,
+        `select exists(select 1 from ${client.escapeIdentifier(table_name)}
+           where strpos(${client.escapeIdentifier(column_name)}::text, $1) > 0) as hit`,
         [text],
       );
       if (rows[0].hit) found.push(`${table_name}.${column_name}`);

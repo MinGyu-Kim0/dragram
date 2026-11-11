@@ -7,7 +7,7 @@ from django.contrib.auth.models import Permission
 
 pytestmark = pytest.mark.django_db
 
-# (모델, 액션) 액션을 만드는 방식마다 하나씩
+# (모델, 액션) admin·액션을 만드는 방식마다 하나씩
 ACTIONS = [
     ("grammarpattern", "approve"),  # _review_action
     ("grammarusage", "approve"),  # _review_action

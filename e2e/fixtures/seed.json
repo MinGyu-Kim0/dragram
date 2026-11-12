@@ -160,6 +160,262 @@
     }
   },
   {
+    "model": "analysis.word",
+    "pk": 15142,
+    "fields": {
+      "dictionary_form": "飲む",
+      "reading": "のむ",
+      "forms": "[\"飲む\", \"呑む\", \"飮む\", \"吞む\", \"のむ\"]",
+      "readings": "[\"のむ\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "v5m,vt",
+      "tags": "[\"group1\", \"transitive\", \"verb\"]",
+      "jmdict_seq": 1169870,
+      "updated_at": "2026-10-28T05:48:40.150Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 15651,
+    "fields": {
+      "dictionary_form": "駅",
+      "reading": "えき",
+      "forms": "[\"駅\", \"驛\", \"えき\"]",
+      "readings": "[\"えき\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"noun\"]",
+      "jmdict_seq": 1175140,
+      "updated_at": "2026-10-28T05:48:40.155Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 22067,
+    "fields": {
+      "dictionary_form": "近く",
+      "reading": "ちかく",
+      "forms": "[\"近く\", \"ちかく\"]",
+      "readings": "[\"ちかく\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n,adj-no,adv",
+      "tags": "[\"adverb\", \"noun\", \"suffix\"]",
+      "jmdict_seq": 1242160,
+      "updated_at": "2026-10-28T05:48:42.630Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 26460,
+    "fields": {
+      "dictionary_form": "黒板",
+      "reading": "こくばん",
+      "forms": "[\"黒板\", \"こくばん\"]",
+      "readings": "[\"こくばん\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"noun\"]",
+      "jmdict_seq": 1288080,
+      "updated_at": "2026-10-28T05:48:43.855Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 29073,
+    "fields": {
+      "dictionary_form": "字",
+      "reading": "じ",
+      "forms": "[\"字\", \"じ\"]",
+      "readings": "[\"じ\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"noun\"]",
+      "jmdict_seq": 1315130,
+      "updated_at": "2026-10-28T05:48:44.413Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 31853,
+    "fields": {
+      "dictionary_form": "書く",
+      "reading": "かく",
+      "forms": "[\"書く\", \"かく\"]",
+      "readings": "[\"かく\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "v5k,vt",
+      "tags": "[\"group1\", \"transitive\", \"verb\"]",
+      "jmdict_seq": 1343950,
+      "updated_at": "2026-10-28T05:48:45.019Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 33624,
+    "fields": {
+      "dictionary_form": "新聞",
+      "reading": "しんぶん",
+      "forms": "[\"新聞\", \"しんぶん\"]",
+      "readings": "[\"しんぶん\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"noun\"]",
+      "jmdict_seq": 1362360,
+      "updated_at": "2026-10-28T05:48:45.653Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 34466,
+    "fields": {
+      "dictionary_form": "水",
+      "reading": "みず",
+      "forms": "[\"水\", \"みず\"]",
+      "readings": "[\"みず\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"noun\"]",
+      "jmdict_seq": 1371260,
+      "updated_at": "2026-10-28T05:48:46.249Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 36071,
+    "fields": {
+      "dictionary_form": "先生",
+      "reading": "せんせい",
+      "forms": "[\"先生\", \"せんせい\"]",
+      "readings": "[\"せんせい\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"archaic\", \"honorific\", \"jocular\", \"noun\", \"suffix\"]",
+      "jmdict_seq": 1387990,
+      "updated_at": "2026-10-28T05:48:46.858Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 38446,
+    "fields": {
+      "dictionary_form": "台所",
+      "reading": "だいどころ",
+      "forms": "[\"台所\", \"臺處\", \"だいどころ\", \"だいどこ\"]",
+      "readings": "[\"だいどころ\", \"だいどこ\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"noun\"]",
+      "jmdict_seq": 1412640,
+      "updated_at": "2026-10-28T05:48:47.522Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 38471,
+    "fields": {
+      "dictionary_form": "大きな",
+      "reading": "おおきな",
+      "forms": "[\"大きな\", \"おおきな\"]",
+      "readings": "[\"おおきな\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "adj-pn",
+      "tags": "[\"adnominal\"]",
+      "jmdict_seq": 1412890,
+      "updated_at": "2026-10-28T05:48:47.523Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 44303,
+    "fields": {
+      "dictionary_form": "買う",
+      "reading": "かう",
+      "forms": "[\"買う\", \"かう\"]",
+      "readings": "[\"かう\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "v5u,vt",
+      "tags": "[\"group1\", \"transitive\", \"verb\"]",
+      "jmdict_seq": 1473740,
+      "updated_at": "2026-10-28T05:48:49.399Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 49205,
+    "fields": {
+      "dictionary_form": "毎朝",
+      "reading": "まいあさ",
+      "forms": "[\"毎朝\", \"まいあさ\", \"まいちょう\"]",
+      "readings": "[\"まいあさ\", \"まいちょう\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n,adv",
+      "tags": "[\"adverb\", \"noun\"]",
+      "jmdict_seq": 1524700,
+      "updated_at": "2026-10-28T05:48:50.597Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 52268,
+    "fields": {
+      "dictionary_form": "冷たい",
+      "reading": "つめたい",
+      "forms": "[\"冷たい\", \"つめたい\", \"つべたい\"]",
+      "readings": "[\"つめたい\", \"つべたい\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "adj-i",
+      "tags": "[\"i_adjective\"]",
+      "jmdict_seq": 1556730,
+      "updated_at": "2026-10-28T05:48:51.739Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 54585,
+    "fields": {
+      "dictionary_form": "弟",
+      "reading": "おとうと",
+      "forms": "[\"弟\", \"おとうと\", \"てい\"]",
+      "readings": "[\"おとうと\", \"てい\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"archaic\", \"noun\"]",
+      "jmdict_seq": 1581930,
+      "updated_at": "2026-10-28T05:48:52.383Z"
+    }
+  },
+  {
+    "model": "analysis.word",
+    "pk": 54604,
+    "fields": {
+      "dictionary_form": "店",
+      "reading": "みせ",
+      "forms": "[\"店\", \"見世\", \"みせ\"]",
+      "readings": "[\"みせ\"]",
+      "is_common": true,
+      "reading_restrictions": null,
+      "pos": "n",
+      "tags": "[\"noun\"]",
+      "jmdict_seq": 1582120,
+      "updated_at": "2026-10-28T05:48:52.384Z"
+    }
+  },
+  {
     "model": "analysis.wordsense",
     "pk": 19480,
     "fields": {
@@ -814,6 +1070,885 @@
       "meaning_status": "ai",
       "created_at": "2026-10-28T05:49:31.617Z",
       "updated_at": "2026-10-28T05:49:31.617Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19218,
+    "fields": {
+      "word": 15142,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["to drink", "to swallow", "to take (medicine)"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.464Z",
+      "updated_at": "2026-10-28T05:48:40.464Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19219,
+    "fields": {
+      "word": 15142,
+      "jmdict_sense_index": 2,
+      "gloss_en": ["to smoke (tobacco)"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.464Z",
+      "updated_at": "2026-10-28T05:48:40.464Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19220,
+    "fields": {
+      "word": 15142,
+      "jmdict_sense_index": 3,
+      "gloss_en": ["to swallow up", "to engulf"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.464Z",
+      "updated_at": "2026-10-28T05:48:40.464Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19221,
+    "fields": {
+      "word": 15142,
+      "jmdict_sense_index": 4,
+      "gloss_en": [
+        "to suppress (one's anger, bitter feelings, etc.)",
+        "to keep down",
+        "to hold back",
+        "to swallow (one's tears)",
+        "to catch (one's breath)"
+      ],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.464Z",
+      "updated_at": "2026-10-28T05:48:40.464Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19222,
+    "fields": {
+      "word": 15142,
+      "jmdict_sense_index": 5,
+      "gloss_en": ["to accept (a demand, conditions, etc.)", "to agree to"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.464Z",
+      "updated_at": "2026-10-28T05:48:40.464Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19223,
+    "fields": {
+      "word": 15142,
+      "jmdict_sense_index": 6,
+      "gloss_en": [
+        "to make light of (someone)",
+        "to think nothing of",
+        "to overwhelm",
+        "to overawe"
+      ],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.464Z",
+      "updated_at": "2026-10-28T05:48:40.464Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19224,
+    "fields": {
+      "word": 15142,
+      "jmdict_sense_index": 7,
+      "gloss_en": [
+        "to carry (a concealed dagger, etc.)",
+        "to conceal (up one's sleeve, etc.)"
+      ],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.464Z",
+      "updated_at": "2026-10-28T05:48:40.464Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19868,
+    "fields": {
+      "word": 15651,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["railway station", "train station"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.471Z",
+      "updated_at": "2026-10-28T05:48:40.471Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19869,
+    "fields": {
+      "word": 15651,
+      "jmdict_sense_index": 2,
+      "gloss_en": ["staging post on a highway (in pre-modern Japan)"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.471Z",
+      "updated_at": "2026-10-28T05:48:40.471Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 19870,
+    "fields": {
+      "word": 15651,
+      "jmdict_sense_index": 3,
+      "gloss_en": ["counter for railway stations and bus stations"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:40.471Z",
+      "updated_at": "2026-10-28T05:48:40.471Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 28382,
+    "fields": {
+      "word": 22067,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["near", "neighbourhood", "neighborhood", "vicinity"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:42.883Z",
+      "updated_at": "2026-10-28T05:48:42.883Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 28383,
+    "fields": {
+      "word": 22067,
+      "jmdict_sense_index": 2,
+      "gloss_en": ["nearly (e.g. \"it took nearly one year\")", "close to"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:42.883Z",
+      "updated_at": "2026-10-28T05:48:42.883Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 28384,
+    "fields": {
+      "word": 22067,
+      "jmdict_sense_index": 3,
+      "gloss_en": ["shortly", "soon"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:42.883Z",
+      "updated_at": "2026-10-28T05:48:42.883Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 34175,
+    "fields": {
+      "word": 26460,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["blackboard"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:44.019Z",
+      "updated_at": "2026-10-28T05:48:44.019Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 37605,
+    "fields": {
+      "word": 29073,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["character (esp. kanji)", "letter", "written text"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:44.640Z",
+      "updated_at": "2026-10-28T05:48:44.640Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 37606,
+    "fields": {
+      "word": 29073,
+      "jmdict_sense_index": 2,
+      "gloss_en": ["handwriting", "penmanship"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:44.640Z",
+      "updated_at": "2026-10-28T05:48:44.640Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 37607,
+    "fields": {
+      "word": 29073,
+      "jmdict_sense_index": 3,
+      "gloss_en": ["the ... word (e.g. \"the L word\" = \"love\")"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:44.640Z",
+      "updated_at": "2026-10-28T05:48:44.640Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 41337,
+    "fields": {
+      "word": 31853,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["to write", "to compose", "to pen"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:45.291Z",
+      "updated_at": "2026-10-28T05:48:45.291Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 41338,
+    "fields": {
+      "word": 31853,
+      "jmdict_sense_index": 2,
+      "gloss_en": ["to draw", "to paint"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:45.291Z",
+      "updated_at": "2026-10-28T05:48:45.291Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 43833,
+    "fields": {
+      "word": 33624,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["newspaper"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:45.914Z",
+      "updated_at": "2026-10-28T05:48:45.914Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 44928,
+    "fields": {
+      "word": 34466,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["water (esp. cool or cold)"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:46.453Z",
+      "updated_at": "2026-10-28T05:48:46.453Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 44929,
+    "fields": {
+      "word": 34466,
+      "jmdict_sense_index": 2,
+      "gloss_en": ["fluid (esp. in an animal tissue)", "liquid"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:46.453Z",
+      "updated_at": "2026-10-28T05:48:46.453Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 44930,
+    "fields": {
+      "word": 34466,
+      "jmdict_sense_index": 3,
+      "gloss_en": ["flood", "floodwaters"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:46.453Z",
+      "updated_at": "2026-10-28T05:48:46.453Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 44931,
+    "fields": {
+      "word": 34466,
+      "jmdict_sense_index": 4,
+      "gloss_en": ["water offered to wrestlers just prior to a bout"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:46.453Z",
+      "updated_at": "2026-10-28T05:48:46.453Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 44932,
+    "fields": {
+      "word": 34466,
+      "jmdict_sense_index": 5,
+      "gloss_en": ["break granted to wrestlers engaged in a prolonged bout"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:46.453Z",
+      "updated_at": "2026-10-28T05:48:46.453Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 47202,
+    "fields": {
+      "word": 36071,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["teacher", "instructor", "master"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:47.129Z",
+      "updated_at": "2026-10-28T05:48:47.129Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 47203,
+    "fields": {
+      "word": 36071,
+      "jmdict_sense_index": 2,
+      "gloss_en": [
+        "sensei",
+        "title or form of address for a teacher, master, doctor, lawyer, etc."
+      ],
+      "tags": "[\"honorific\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:47.129Z",
+      "updated_at": "2026-10-28T05:48:47.129Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 47204,
+    "fields": {
+      "word": 36071,
+      "jmdict_sense_index": 3,
+      "gloss_en": ["intimate or teasing form of address"],
+      "tags": "[\"jocular\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:47.129Z",
+      "updated_at": "2026-10-28T05:48:47.129Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 47205,
+    "fields": {
+      "word": 36071,
+      "jmdict_sense_index": 4,
+      "gloss_en": ["one's elder"],
+      "tags": "[\"archaic\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:47.129Z",
+      "updated_at": "2026-10-28T05:48:47.129Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 50384,
+    "fields": {
+      "word": 38446,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["kitchen"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:47.802Z",
+      "updated_at": "2026-10-28T05:48:47.802Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 50385,
+    "fields": {
+      "word": 38446,
+      "jmdict_sense_index": 2,
+      "gloss_en": ["financial situation", "finances"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:47.802Z",
+      "updated_at": "2026-10-28T05:48:47.802Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 50412,
+    "fields": {
+      "word": 38471,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["big", "large", "great"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:47.802Z",
+      "updated_at": "2026-10-28T05:48:47.802Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 58359,
+    "fields": {
+      "word": 44303,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["to buy", "to purchase"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:49.656Z",
+      "updated_at": "2026-10-28T05:48:49.656Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 58360,
+    "fields": {
+      "word": 44303,
+      "jmdict_sense_index": 2,
+      "gloss_en": [
+        "to value (highly)",
+        "to think highly of",
+        "to have a high opinion of",
+        "to appreciate",
+        "to recognize"
+      ],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:49.656Z",
+      "updated_at": "2026-10-28T05:48:49.656Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 58361,
+    "fields": {
+      "word": 44303,
+      "jmdict_sense_index": 3,
+      "gloss_en": [
+        "to incur (someone's anger, displeasure, etc.)",
+        "to elicit (e.g. sneers)",
+        "to invite (e.g. scorn)",
+        "to evoke",
+        "to arouse",
+        "to win (someone's favour)"
+      ],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:49.656Z",
+      "updated_at": "2026-10-28T05:48:49.656Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 58362,
+    "fields": {
+      "word": 44303,
+      "jmdict_sense_index": 4,
+      "gloss_en": ["to accept", "to take on", "to take up"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:49.656Z",
+      "updated_at": "2026-10-28T05:48:49.656Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 58363,
+    "fields": {
+      "word": 44303,
+      "jmdict_sense_index": 5,
+      "gloss_en": ["to pay for (a prostitute, geisha, etc.)"],
+      "tags": "[\"transitive\"]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:49.656Z",
+      "updated_at": "2026-10-28T05:48:49.656Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 64812,
+    "fields": {
+      "word": 49205,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["every morning"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:50.763Z",
+      "updated_at": "2026-10-28T05:48:50.763Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 68941,
+    "fields": {
+      "word": 52268,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["cold (to the touch)", "chilly", "icy", "freezing"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:51.982Z",
+      "updated_at": "2026-10-28T05:48:51.982Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 68942,
+    "fields": {
+      "word": 52268,
+      "jmdict_sense_index": 2,
+      "gloss_en": [
+        "(emotionally) cold",
+        "coldhearted",
+        "unfeeling",
+        "indifferent",
+        "unfriendly",
+        "distant"
+      ],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:51.982Z",
+      "updated_at": "2026-10-28T05:48:51.982Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 72158,
+    "fields": {
+      "word": 54585,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["younger brother", "little brother", "kid brother"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:52.611Z",
+      "updated_at": "2026-10-28T05:48:52.611Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 72159,
+    "fields": {
+      "word": 54585,
+      "jmdict_sense_index": 2,
+      "gloss_en": [
+        "brother-in-law (spouse's younger brother or younger sister's husband)"
+      ],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": {
+        "readings": ["おとうと"]
+      },
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:52.611Z",
+      "updated_at": "2026-10-28T05:48:52.611Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 72160,
+    "fields": {
+      "word": 54585,
+      "jmdict_sense_index": 3,
+      "gloss_en": ["pupil", "apprentice"],
+      "tags": "[\"archaic\"]",
+      "pair_form": null,
+      "applies_to": {
+        "readings": ["てい"]
+      },
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:52.611Z",
+      "updated_at": "2026-10-28T05:48:52.611Z"
+    }
+  },
+  {
+    "model": "analysis.wordsense",
+    "pk": 72193,
+    "fields": {
+      "word": 54604,
+      "jmdict_sense_index": 1,
+      "gloss_en": ["store", "shop", "establishment", "restaurant"],
+      "tags": "[]",
+      "pair_form": null,
+      "applies_to": null,
+      "sense_origin": "jmdict",
+      "sense_status": "approved",
+      "meaning_ko": null,
+      "meaning_source": null,
+      "meaning_status": "ai",
+      "created_at": "2026-10-28T05:48:52.612Z",
+      "updated_at": "2026-10-28T05:48:52.612Z"
     }
   },
   {

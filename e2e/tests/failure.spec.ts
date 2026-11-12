@@ -22,7 +22,9 @@ test(
     await analyzeSelection(context, await openArticle(context, sentence), drag);
 
     await expect(panel.getByText(/분석하지 못했습니다/)).toBeVisible();
-    await expect(panel.getByRole("button", { name: "다시 시도" })).toBeVisible();
+    await expect(
+      panel.getByRole("button", { name: "다시 시도" }),
+    ).toBeVisible();
     // 운영자 쪽: 요청이 맡은 공용 분석 행이 실패로 남았다(완료 행만 캐시로 내준다).
     await expect.poll(() => analysisStatuses(email)).toEqual(["failed"]);
   },
@@ -42,6 +44,8 @@ test(
         "오늘 쓸 수 있는 분석량을 다 썼습니다. 내일 다시 시도해 주세요.",
       ),
     ).toBeVisible();
-    await expect(panel.getByRole("button", { name: "다시 시도" })).toBeVisible();
+    await expect(
+      panel.getByRole("button", { name: "다시 시도" }),
+    ).toBeVisible();
   },
 );

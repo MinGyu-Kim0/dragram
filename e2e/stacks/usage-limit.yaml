@@ -1,0 +1,8 @@
+# 시나리오 4(#437): 하루 토큰 한도가 0이라 새 문장마다 한도에 걸리는 스택(e2e/run.sh가 겹친다).
+services:
+  backend:
+    environment:
+      ANALYSIS_DAILY_TOKEN_LIMIT: "0"
+  worker:
+    environment:
+      ANALYSIS_DAILY_TOKEN_LIMIT: "0"

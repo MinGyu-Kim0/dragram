@@ -1,0 +1,8 @@
+# 시나리오 4(#437): LLM 호출이 실패하는 스택. 가짜 서버 없이 키만 틀리게 준다(e2e/run.sh가 겹친다).
+services:
+  backend:
+    environment:
+      OPENAI_API_KEY: sk-e2e-wrong-key
+  worker:
+    environment:
+      OPENAI_API_KEY: sk-e2e-wrong-key

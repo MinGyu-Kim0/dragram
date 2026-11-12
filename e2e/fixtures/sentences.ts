@@ -28,3 +28,17 @@ export const MY_JAPANESE = {
   grammar: "ている",
   word: "降る",
 };
+
+// 시나리오 4: LLM 호출이 실패하는 스택(stacks/llm-failure.yaml)에서 분석하는 문장. 다른 시나리오와
+// 겹치지 않아야 캐시가 아닌 LLM 경로로 간다.
+export const LLM_FAILURE = {
+  sentence: "明日は朝から図書館で勉強します。",
+  drag: "図書館で勉強",
+};
+
+// 시나리오 4: 하루 토큰 한도가 0인 스택(stacks/usage-limit.yaml)에서 분석하는 문장. 캐시에 없어야
+// LLM을 부르려다 한도에 걸린다.
+export const USAGE_LIMIT = {
+  sentence: "週末は友達と映画を見に行きます。",
+  drag: "映画を見に",
+};

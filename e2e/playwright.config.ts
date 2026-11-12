@@ -1,4 +1,11 @@
 import { defineConfig } from "@playwright/test";
+import { readdirSync } from "node:fs";
+
+// 설정을 바꾼 스택(stacks/<이름>.yaml). 그 스택의 시나리오는 이름 태그(@<이름>)를 단다.
+// run.sh(e2e/stacks/*.yaml)와 같은 파일만 센다.
+const stacks = readdirSync(new URL("stacks", import.meta.url))
+  .filter((file) => file.endsWith(".yaml"))
+  .map((file) => file.replace(/\.yaml$/, ""));
 
 // run.sh가 compose 스택을 띄운 뒤 e2e 컨테이너 안에서 돈다(support/in-container.sh).
 export default defineConfig({
@@ -10,6 +17,19 @@ export default defineConfig({
   expect: { timeout: 90_000 },
   reporter: [["list"], ["html", { open: "never" }]],
   use: { trace: "retain-on-failure", screenshot: "only-on-failure" },
+  // 스택마다 프로젝트 하나. run.sh가 스택을 띄우고 그 프로젝트만 돌린다. 결과도 스택마다 따로 둔다.
+  projects: [
+    {
+      name: "default",
+      grepInvert: new RegExp(stacks.map((name) => `@${name}\\b`).join("|")),
+      outputDir: "test-results/default",
+    },
+    ...stacks.map((name) => ({
+      name,
+      grep: new RegExp(`@${name}\\b`),
+      outputDir: `test-results/${name}`,
+    })),
+  ],
   // 스택이 뜰 때까지 기다린다. 포트 잇기는 support/forward.mjs.
   webServer: [
     {

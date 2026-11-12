@@ -69,3 +69,17 @@ export async function columnsContaining(text: string): Promise<string[]> {
     await client.end();
   }
 }
+
+// dev-login 계정의 분석 요청이 가리킨 공용 분석 행의 상태(processing·complete·failed), 요청 순서대로.
+// complete인 행만 캐시로 내준다.
+export async function analysisStatuses(email: string): Promise<string[]> {
+  const rows = await query<{ status: string }>(
+    `select a.status from usage_log l
+     join accounts_user u on u.id = l.user_id
+     join sentence_analysis a on a.id = l.analysis_id
+     where l.kind = 'request' and u.username = $1
+     order by l.id`,
+    [`dev:${email}`],
+  );
+  return rows.map((row) => row.status);
+}

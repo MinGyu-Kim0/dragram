@@ -10,12 +10,16 @@ const FINAL = "[\\u11A8-\\u11C2]";
 const ENDING_FINAL = "[\\u11AB\\u11AF\\u11B7\\u11B8\\u11BB]";
 const EU = "ᅳ"; // ㅡ
 const EO_A = "[\\u1161\\u1165]"; // ㅏ·ㅓ
+// 열린 한 음절 어간 바로 뒤에 오는 흔한 어미 첫음절(사고·사서·사는·사러…). 사람·사라지다는 아니다.
+const ENDING_SYLLABLES = `(?:${[..."고서는면지기도세시자니러려며게네나다요"].map(jamo).join("|")})`;
+const JAMO = "[\\u1100-\\u11FF]";
 
 // 뜻 낱말 하나("사다")를 번역에서 찾을 정규식으로. 모두 어절 맨 앞에서만 맞는다.
 // - '다'로 끝나지 않는 말(명사 등)은 그대로 찾는다.
 // - 여러 음절 어간은 마지막 자모를 빼고 찾는다(마시 → 마ㅅ: 마셨다, 차갑 → 차가: 차가운).
-// - 한 음절 어간은 그 음절을 찾되, 받침 없는 어간이면 뒤에 활용 받침만 붙을 수 있다(사: 삽니다·샀다,
-//   상점은 아니다). 'ㅡ'로 끝나면 활용하며 'ㅡ'가 빠지므로 첫소리 + ㅏ·ㅓ도 맞는다(쓰 → 썼다).
+// - 한 음절 어간은 그 음절을 찾되, 받침 없는 어간이면 뒤에 활용 받침(삽니다·샀다, 상점은 아니다)이나
+//   흔한 어미 첫음절(사고·사러, 사람·사라지다는 아니다)만 오거나 어절이 끝나야 한다. 'ㅡ'로 끝나면
+//   활용하며 'ㅡ'가 빠지므로 첫소리 + ㅏ·ㅓ도 맞는다(쓰 → 썼다).
 function wordPattern(word: string) {
   const syllables = [...word.normalize("NFC")];
   if (syllables.length < 2 || syllables.at(-1) !== "다")
@@ -23,7 +27,7 @@ function wordPattern(word: string) {
   const stem = jamo(syllables.slice(0, -1).join(""));
   if (syllables.length > 2) return WORD_START + escape(stem.slice(0, -1));
   if (new RegExp(`${FINAL}$`).test(stem)) return WORD_START + escape(stem);
-  const open = `${escape(stem)}(?:${ENDING_FINAL}|(?!${FINAL}))`;
+  const open = `${escape(stem)}(?:${ENDING_FINAL}|${ENDING_SYLLABLES}|(?!${JAMO}))`;
   return stem.endsWith(EU)
     ? `${WORD_START}(?:${open}|${escape(stem[0]!)}${EO_A})`
     : WORD_START + open;

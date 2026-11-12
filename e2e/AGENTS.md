@@ -7,14 +7,16 @@
 저장소 루트에서 실행한다. Docker(Compose)와, 루트 `.env`의 `OPENAI_API_KEY`가 필요하다.
 
 - 실행: `e2e/run.sh` (Playwright 인자를 그대로 넘긴다. 예: `e2e/run.sh --grep "첫 분석"`)
+- 스택 고르기: `E2E_STACKS="llm-failure usage-limit" e2e/run.sh`. 기본은 `default`와 `stacks/`의 모든 스택이다. 두 실패 스택은 실제 OpenAI 비용이 들지 않는다.
 - 같은 체크아웃에서는 한 번에 하나만 돌린다(`e2e/node_modules`·`test-results`를 함께 쓴다). 동시에 돌리려면 worktree를 따로 둔다. 스택(DB·작업자)은 실행마다 따로다.
-- 결과: 실패하면 `e2e/test-results/`(trace·스크린샷, `server.log`에 백엔드·작업자 로그)와 `e2e/playwright-report/`. trace는 `npx playwright show-trace <파일>`로 연다.
+- 결과: 스택마다 `e2e/test-results/<스택>/`(실패한 시나리오의 trace·스크린샷), `e2e/test-results/server-<스택>.log`(백엔드·작업자 로그), `e2e/playwright-report/<스택>/`. trace는 `npx playwright show-trace <파일>`로 연다.
 - 타입 검사: `cd e2e && npm run typecheck`
 
 ## 구성
 
 - `run.sh`가 compose 프로젝트를 실행마다 따로 만든다(`compose.yaml` 위에 `e2e/compose.yaml`을 겹친다). 호스트 포트를 열지 않아 개발 스택과 함께 돌아도 된다. 끝나면 볼륨·이미지까지 지운다.
-- 순서: 이미지 빌드 → `migrate` + `fixtures/seed.json` 적재 → 백엔드·작업자·웹 → Playwright 컨테이너(`support/in-container.sh`).
+- 순서: 이미지 빌드 → `migrate` + `fixtures/seed.json` 적재 → 스택마다 [백엔드·작업자·웹 → Playwright 컨테이너(`support/in-container.sh`)].
+- 설정을 바꿔야 하는 시나리오(LLM 실패, 하루 한도, #437)는 가짜 서버 없이 설정만 바꾼 스택에서 돈다. `stacks/<이름>.yaml`이 compose 덮어쓰기이고, `run.sh`가 `default` 다음 스택마다 그 파일을 겹쳐 백엔드·작업자만 다시 만들고(DB는 그대로) Playwright 프로젝트 `<이름>`을 돌린다. 그 스택의 시나리오에는 태그 `@<이름>`을 단다. 태그 없는 시나리오는 `default`에서 돈다. 스택을 더하면 파일과 태그만 더한다.
 - Playwright 컨테이너는 확장을 복사본에서 빌드하고(저장소의 `node_modules`·개발 빌드를 덮어쓰지 않는다), `localhost:8000`·`localhost:5173`을 compose 서비스로 잇는다(`support/forward.mjs`). 그래서 확장·웹은 개발 기본 주소 그대로다.
 - 로그인은 dev-login(DEBUG + `DEV_LOGIN_ENABLED`)으로 웹 세션을 만들고, 확장 연결은 웹 '로그인·확장 연결' 화면에서 실제로 누른다.
 - 분석 시작: Playwright는 크롬 우클릭 메뉴를 누를 수 없어, 백그라운드에서 메뉴 클릭 이벤트(`contextMenus.onClicked.dispatch`)를 보낸다. 앱 코드는 메뉴를 누를 때와 같다. 테스트 페이지는 Playwright가 API 출처(`localhost:8000/e2e/...`) 주소로 내주어, `host_permissions`로 문장 추출 스크립트가 주입된다.

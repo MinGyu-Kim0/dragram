@@ -181,16 +181,19 @@ export async function recordPanel(
     );
 }
 
+// 원문 카드의 번역 줄(한글이 든 문단)
+export function translationLine(panel: Page) {
+  return panel
+    .getByRole("region", { name: "원문" })
+    .getByRole("paragraph")
+    .filter({ hasText: /[가-힣]/ });
+}
+
 // 이 패널의 분석이 끝났다: 번역이 원문 카드에 있고, '분석 중'이 사라졌고, 어디에서도 실패하지
 // 않았다(실패 문구 옆에는 늘 '다시 시도'가 있다). 번역을 먼저 기다려, 요청이 패널에 닿기 전의
 // 빈 화면을 끝난 것으로 보지 않는다.
 export async function expectAnalysisDone(panel: Page) {
-  await expect(
-    panel
-      .getByRole("region", { name: "원문" })
-      .getByRole("paragraph")
-      .filter({ hasText: /[가-힣]/ }),
-  ).toBeVisible();
+  await expect(translationLine(panel)).toBeVisible();
   await expect(
     panel.getByRole("status", { name: "번역을 불러오는 중" }),
   ).toBeHidden();

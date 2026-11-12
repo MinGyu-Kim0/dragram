@@ -6,6 +6,7 @@ import {
   openPanel,
   signInAndConnect,
   test,
+  translationLine,
 } from "../support/fixtures";
 import { meaningInTranslation } from "../support/meaning";
 import { TRANSLATION_QUALITY } from "../fixtures/sentences";
@@ -28,11 +29,7 @@ test("고정 문장의 번역이 단어 카드의 한국어 뜻을 기준 비율
     const article = await openArticle(context, sentence);
     await analyzeSelection(context, article, sentence);
     await expectAnalysisDone(panel);
-    const translation = await panel
-      .getByRole("region", { name: "원문" })
-      .getByRole("paragraph")
-      .filter({ hasText: /[가-힣]/ })
-      .innerText();
+    const translation = await translationLine(panel).innerText();
 
     await panel.getByRole("tab", { name: /^단어/ }).click();
     const words = panel.getByRole("list", { name: "단어" });
@@ -47,14 +44,17 @@ test("고정 문장의 번역이 단어 카드의 한국어 뜻을 기준 비율
         .allInnerTexts()
     ).map((line) => line.replace(/^뜻\s*/, ""));
     expect(meanings.length, `${sentence}의 단어 뜻`).toBeGreaterThan(0);
+    const failed = await words.getByText("뜻을 만들지 못했습니다").count();
 
-    const hits = meanings.filter((m) => meaningInTranslation(m, translation));
-    const missed = meanings.filter((m) => !hits.includes(m));
-    console.log(
-      `${sentence} → ${translation}\n  ${hits.length}/${meanings.length}` +
-        (missed.length ? ` (없음: ${missed.join(" / ")})` : ""),
+    const marks = meanings.map((m) =>
+      meaningInTranslation(m, translation) ? `✓ ${m}` : `✗ ${m}`,
     );
-    found += hits.length;
+    const hits = marks.filter((mark) => mark.startsWith("✓")).length;
+    console.log(
+      `${sentence} → ${translation}\n  ${hits}/${meanings.length}: ${marks.join(" / ")}` +
+        (failed ? ` (뜻을 만들지 못한 카드 ${failed}장은 세지 않음)` : ""),
+    );
+    found += hits;
     total += meanings.length;
     await article.close();
     await panel.close();

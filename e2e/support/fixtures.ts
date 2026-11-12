@@ -136,7 +136,8 @@ export interface PanelState {
   loadingTranslation: boolean;
   // 문법·단어 분석을 기다리는 '분석 중'이 보였다.
   analyzing: boolean;
-  // 문법 목록의 카드 글자(배지·'확인 중' 포함)
+  // 문법 목록의 카드 글자(배지·'확인 중' 포함). 카드 안 '구성 문법' 하위 박스의 글자는 빼서,
+  // 미검수 구성 패턴의 배지를 카드 자신의 배지로 읽지 않는다.
   grammarCards: string[];
   // '단어 N' 탭 이름. 탭이 없으면 null
   wordsTab: string | null;
@@ -151,15 +152,23 @@ export async function recordPanel(
     // 페이지 안이라 Playwright 역할 찾기를 못 쓴다. 역할과 접근성 이름으로 찾는다.
     const status = (name: string) =>
       !!document.querySelector(`[role="status"][aria-label="${name}"]`);
+    const cardText = (item: Element) => {
+      const copy = item.cloneNode(true) as Element;
+      copy
+        .querySelectorAll('[aria-label="구성 문법"]')
+        .forEach((parts) => parts.remove());
+      return copy.textContent ?? "";
+    };
     const record = () => {
       const state: PanelState = {
         loadingTranslation: status("번역을 불러오는 중"),
         analyzing: status("분석 중"),
+        // 목록이 바로 가진 항목(카드)만. 하위 박스·태그 목록의 항목은 따로 세지 않는다.
         grammarCards: [
           ...document.querySelectorAll(
-            ':is(ul, ol, [role="list"])[aria-label="문법"] :is(li, [role="listitem"])',
+            ':is(ul, ol, [role="list"])[aria-label="문법"] > :is(li, [role="listitem"])',
           ),
-        ].map((item) => item.textContent ?? ""),
+        ].map(cardText),
         wordsTab:
           [...document.querySelectorAll('[role="tab"]')]
             .map((tab) => tab.textContent ?? "")

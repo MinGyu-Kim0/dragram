@@ -8,6 +8,7 @@ import {
   signInAndConnect,
   test,
 } from "../support/fixtures";
+import type { Locator } from "@playwright/test";
 import { FIRST_ANALYSIS } from "../fixtures/sentences";
 
 // 시나리오 1: 새 문장 첫 분석(요구사항 2절 기본 사용 시나리오, #397).
@@ -70,7 +71,19 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
   await expect(grammar.getByText("확인 중", { exact: true })).toHaveCount(0);
   // LLM이 만든 지식(미검수 패턴의 용법)은 '미검수'로, 승인된 지식은 배지 없이 보인다.
   await expect(card(checking)).toContainText("AI 생성·미검수");
-  await expect(card(confirmed)).not.toContainText("AI 생성·미검수");
+  // 승인된 카드 안의 '구성 문법' 하위 박스는 미검수 구성 패턴(예: て)일 수 있어, 그 배지는 빼고 센다.
+  const pendingBadges = (scope: Locator) =>
+    scope.getByText("AI 생성·미검수", { exact: true }).count();
+  await expect
+    .poll(
+      async () =>
+        (await pendingBadges(card(confirmed))) -
+        (await pendingBadges(
+          card(confirmed).getByRole("list", { name: "구성 문법" }),
+        )),
+      { message: "승인된 카드 자신의 미검수 배지" },
+    )
+    .toBe(0);
 
   // 시드한 사전 단어가 단어 탭에 보이고, 사전을 옮긴 검수 안 된 뜻은 'AI 번역'으로 보인다.
   await panel.getByRole("tab", { name: /^단어/ }).click();

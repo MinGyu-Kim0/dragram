@@ -2,9 +2,10 @@ import { defineConfig } from "@playwright/test";
 import { readdirSync } from "node:fs";
 
 // 설정을 바꾼 스택(stacks/<이름>.yaml). 그 스택의 시나리오는 이름 태그(@<이름>)를 단다.
-const stacks = readdirSync(new URL("stacks", import.meta.url)).map((file) =>
-  file.replace(/\.yaml$/, ""),
-);
+// run.sh(e2e/stacks/*.yaml)와 같은 파일만 센다.
+const stacks = readdirSync(new URL("stacks", import.meta.url))
+  .filter((file) => file.endsWith(".yaml"))
+  .map((file) => file.replace(/\.yaml$/, ""));
 
 // run.sh가 compose 스택을 띄운 뒤 e2e 컨테이너 안에서 돈다(support/in-container.sh).
 export default defineConfig({

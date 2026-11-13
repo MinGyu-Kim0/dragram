@@ -311,6 +311,8 @@ def test_queued_job_is_dropped_if_not_started_before_the_claim_expires(
 
     [options] = queued
     assert options["ttl"] == jobs.ATTEMPT_EXPIRY_SECONDS
+    # 끝난 작업의 결과·실패 기록에도 큐 입력(원문)이 남지 않게 한다(NFR-12).
+    assert options["result_ttl"] == options["failure_ttl"] == 0
 
 
 def test_worker_waits_on_redis_only_briefly(monkeypatch):

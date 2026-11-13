@@ -38,11 +38,11 @@ def channel(sentence_hash):
     return f"analysis:{sentence_hash}"
 
 
-def _enqueue(job, *args, description, failure):
+def _enqueue(job, *args, description, reason):
     """작업 하나를 큐에 넣는다. ANALYSIS_INLINE이면 바로 실행한다. description은 로그에 찍히므로
     원문을 넣지 않고, 결과·실패 기록을 남기지 않아 큐 입력의 원문을 Redis에 두지 않는다(NFR-12).
 
-    Redis에 넣지 못하면 failure를 사유로 BusinessError다.
+    Redis에 넣지 못하면 reason(로그용 사유)으로 BusinessError다.
     """
     if settings.ANALYSIS_INLINE:
         job(*args)
@@ -58,7 +58,7 @@ def _enqueue(job, *args, description, failure):
             failure_ttl=0,
         )
     except redis.RedisError as e:
-        raise BusinessError(AnalysisError.FAILED, failure) from e
+        raise BusinessError(AnalysisError.FAILED, reason) from e
 
 
 def enqueue_analysis(analysis_id, text, usage_id, started):
@@ -76,7 +76,7 @@ def enqueue_analysis(analysis_id, text, usage_id, started):
         usage_id,
         started,
         description=f"analysis {analysis_id}",
-        failure="분석 작업을 큐에 넣지 못함",
+        reason="분석 작업을 큐에 넣지 못함",
     )
 
 
@@ -96,7 +96,7 @@ def enqueue_rematch(analysis_id, text, usage_id, version, token, basis=""):
         token,
         basis,
         description=f"rematch {analysis_id}",
-        failure="재판정 작업을 큐에 넣지 못함",
+        reason="재판정 작업을 큐에 넣지 못함",
     )
 
 
@@ -109,7 +109,7 @@ def enqueue_connection(pattern_id, started, usage_id):
         started,
         usage_id,
         description=f"pattern connection {pattern_id}",
-        failure="접속 형태 작업을 큐에 넣지 못함",
+        reason="접속 형태 작업을 큐에 넣지 못함",
     )
 
 

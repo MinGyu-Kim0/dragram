@@ -218,16 +218,16 @@ def approve_usage(usage):
 
 def approve_korean_equivalent(usage):
     """미검수 대응 표현만 승인한다. 승인된 용법에 나중에 채운 값을 검수할 때 쓴다(#152)."""
-    _approve_usage_part(usage, "korean_equivalent_status", "미검수 대응 표현이 없습니다")
+    _approve_usage_field(usage, "korean_equivalent_status", "미검수 대응 표현이 없습니다")
 
 
 def approve_function_tags(usage):
     """미검수 기능 태그만 승인한다. 승인된 용법에 나중에 채운 태그를 검수할 때 쓴다(#151)."""
-    _approve_usage_part(usage, "function_tags_status", "미검수 기능 태그가 없습니다")
+    _approve_usage_field(usage, "function_tags_status", "미검수 기능 태그가 없습니다")
 
 
 @transaction.atomic
-def _approve_usage_part(usage, status_field, refusal):
+def _approve_usage_field(usage, status_field, refusal):
     _, usage = _locked_usage(usage)
     if getattr(usage, status_field) != ReviewStatus.PENDING:
         raise Refused(refusal)

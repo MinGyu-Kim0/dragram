@@ -217,12 +217,19 @@ def register(
         PatternMorpheme(pattern=pattern, seq=seq, **c._asdict()) for seq, c in enumerate(conditions)
     )
     usage = _create_llm_usage(
-        pattern, usage_name, explanation_ko, example_ja, korean_equivalent, function_tags
+        pattern,
+        name=usage_name,
+        explanation_ko=explanation_ko,
+        example_ja=example_ja,
+        korean_equivalent=korean_equivalent,
+        function_tags=function_tags,
     )
     return pattern, usage
 
 
-def _create_llm_usage(pattern, name, explanation_ko, example_ja, korean_equivalent, function_tags):
+def _create_llm_usage(
+    pattern, *, name, explanation_ko, example_ja, korean_equivalent, function_tags
+):
     """LLM이 답한 미검수 용법을 만든다. 패턴 등록과 용법 추가가 같이 쓴다."""
     return GrammarUsage.objects.create(
         pattern=pattern,
@@ -354,7 +361,12 @@ def add_usage(
         # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
         with transaction.atomic():
             usage = _create_llm_usage(
-                pattern, name, explanation_ko, example_ja, korean_equivalent, function_tags
+                pattern,
+                name=name,
+                explanation_ko=explanation_ko,
+                example_ja=example_ja,
+                korean_equivalent=korean_equivalent,
+                function_tags=function_tags,
             )
     except IntegrityError:
         return None, False

@@ -60,17 +60,17 @@ def _example_problem(text):
     return None
 
 
-def _clean_test_cases(cases, expected):
-    """[{text, <expected>}] 목록의 모양과 예문을 검사한다. expected는 패턴이면 should_match,
+def _clean_test_cases(cases, flag_key):
+    """[{text, <flag_key>}] 목록의 모양과 예문을 검사한다. flag_key는 패턴이면 should_match,
     판별 규칙이면 should_apply다.
     """
     if not isinstance(cases, list):
-        raise forms.ValidationError(f"[{{text, {expected}}}] 목록이어야 합니다")
+        raise forms.ValidationError(f"[{{text, {flag_key}}}] 목록이어야 합니다")
     for case in cases:
-        if not isinstance(case, dict) or set(case) != {"text", expected}:
-            raise forms.ValidationError(f"항목마다 text와 {expected}만 둡니다")
-        if not isinstance(case[expected], bool):
-            raise forms.ValidationError(f"{expected}는 true 또는 false여야 합니다")
+        if not isinstance(case, dict) or set(case) != {"text", flag_key}:
+            raise forms.ValidationError(f"항목마다 text와 {flag_key}만 둡니다")
+        if not isinstance(case[flag_key], bool):
+            raise forms.ValidationError(f"{flag_key}는 true 또는 false여야 합니다")
         problem = _example_problem(case["text"])
         if problem:
             raise forms.ValidationError(problem)
@@ -298,7 +298,7 @@ def _review_action(name, transition, description):
     return admin.action(description=description, permissions=["change"])(action)
 
 
-class _ReviewedAdmin(admin.ModelAdmin):
+class _FixedRowsAdmin(admin.ModelAdmin):
     """행을 더하거나 지우지 않는 화면. 삭제 권한이 없으면 Django가 '선택한 항목 삭제'도 뺀다."""
 
     def has_add_permission(self, request):
@@ -386,7 +386,7 @@ def link_variant(model_admin, request, queryset):
 
 
 @admin.register(GrammarPattern)
-class GrammarPatternAdmin(_ReviewedAdmin):
+class GrammarPatternAdmin(_FixedRowsAdmin):
     form = GrammarPatternForm
     action_form = GrammarPatternActionForm
     list_display = [
@@ -479,7 +479,7 @@ class ExampleFilter(admin.SimpleListFilter):
 
 
 @admin.register(GrammarUsage)
-class GrammarUsageAdmin(_ReviewedAdmin):
+class GrammarUsageAdmin(_FixedRowsAdmin):
     form = GrammarUsageForm
     list_display = ["id", "name", "pattern", "status", "origin", "updated_at"]
     list_filter = ["status", "origin", ExampleFilter]
@@ -696,7 +696,7 @@ class WordForm(forms.ModelForm):
 
 
 @admin.register(Word)
-class WordAdmin(_ReviewedAdmin):
+class WordAdmin(_FixedRowsAdmin):
     form = WordForm
     list_display = ["id", "dictionary_form", "reading", "in_dictionary", "updated_at"]
     list_filter = [MeaningFilter]
@@ -784,7 +784,7 @@ def _sense_action(name, old, new, description):
 
 
 @admin.register(WordSense)
-class WordSenseAdmin(_ReviewedAdmin):
+class WordSenseAdmin(_FixedRowsAdmin):
     """뜻 하나씩 승인·반려한다. 반려된 뜻은 후보·응답에서 빠진다(#134)."""
 
     list_display = ["id", "word", "meaning_ko", "sense_origin", "sense_status", "meaning_status"]
@@ -834,7 +834,7 @@ def _correction_status_action(name, status, description):
 
 
 @admin.register(MatchCorrection)
-class MatchCorrectionAdmin(_ReviewedAdmin):
+class MatchCorrectionAdmin(_FixedRowsAdmin):
     """정정 목록(#223). 정정은 평가 결과 화면에서만 만든다(#221). 공용 분석을 ID와 키 텍스트
     위치로만 가리키고 문장은 보이지 않는다. 바꿀 수 있는 것은 적용 상태(액션)뿐이다.
     """
@@ -876,7 +876,7 @@ class MatchCorrectionAdmin(_ReviewedAdmin):
 
 
 @admin.register(UsageLog)
-class UsageLogAdmin(_ReviewedAdmin):
+class UsageLogAdmin(_FixedRowsAdmin):
     """사용자별 토큰 사용량(#386). 보기만 한다. 원문은 없고, 탈퇴한 Google 계정의 비교값
     (withdrawn_key)은 칸·찾기·거르기 어디에도 두지 않는다.
     """

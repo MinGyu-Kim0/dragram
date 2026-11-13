@@ -10,8 +10,9 @@ __pycache__/
 # Node(e2e/ 의존성. web/·extension/도 각자 막는다)
 node_modules/
 
-# 로컬 비밀값·DB 덤프
+# 로컬 비밀값·DB 덤프. extension/은 WXT가 .env.local 등을 읽는데 자기 .gitignore로 막지 않는다.
 .env
+.env*.local
 *.dump
 
 # Claude Code(로컬 설정, 워크트리, 작업 메모)

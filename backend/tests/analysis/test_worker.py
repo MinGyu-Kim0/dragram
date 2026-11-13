@@ -310,9 +310,9 @@ def test_queued_job_is_dropped_if_not_started_before_the_claim_expires(
     enqueue()
 
     [options] = queued
-    assert options["ttl"] == jobs.QUEUE_TTL_SECONDS
-    # 더 짧으면 선점이 살아 있는 동안 작업만 버려져 요청이 대기 상한까지 붙잡힌다.
-    assert jobs.QUEUE_TTL_SECONDS == stream.CLAIM_EXPIRY_SECONDS == jobs.REMATCH_LOCK_SECONDS
+    assert options["ttl"] == jobs.ATTEMPT_EXPIRY_SECONDS
+    # 끝난 작업의 결과·실패 기록에도 큐 입력(원문)이 남지 않게 한다(NFR-12).
+    assert options["result_ttl"] == options["failure_ttl"] == 0
 
 
 def test_worker_waits_on_redis_only_briefly(monkeypatch):

@@ -59,7 +59,7 @@ def published(monkeypatch):
 
 def test_expired_processing_row_is_claimed_again_by_the_next_request(client, fake_llm):
     analyze(client, TEXT)
-    old = left_processing(stream.CLAIM_EXPIRY_SECONDS + 1)
+    old = left_processing(jobs.ATTEMPT_EXPIRY_SECONDS + 1)
     fake_llm.forget_requests()
 
     response = analyze(client, TEXT)
@@ -74,7 +74,7 @@ def test_expired_processing_row_is_claimed_again_by_the_next_request(client, fak
 
 def test_processing_row_within_the_expiry_is_only_waited_on(client, fake_llm):
     analyze(client, TEXT)
-    old = left_processing(stream.CLAIM_EXPIRY_SECONDS - 10)
+    old = left_processing(jobs.ATTEMPT_EXPIRY_SECONDS - 10)
     fake_llm.forget_requests()
 
     response = analyze(client, TEXT)
@@ -87,7 +87,7 @@ def test_processing_row_within_the_expiry_is_only_waited_on(client, fake_llm):
 
 def test_only_one_of_two_requests_claims_an_expired_row(client, fake_llm, analyst, monkeypatch):
     analyze(client, TEXT)
-    left_processing(stream.CLAIM_EXPIRY_SECONDS + 1)
+    left_processing(jobs.ATTEMPT_EXPIRY_SECONDS + 1)
     queued = []
     monkeypatch.setattr(jobs, "enqueue_analysis", lambda *args: queued.append(args))
 
@@ -99,7 +99,7 @@ def test_only_one_of_two_requests_claims_an_expired_row(client, fake_llm, analys
 
 def test_queue_input_carries_the_claimed_attempt(client, fake_llm, analyst, monkeypatch):
     analyze(client, TEXT)
-    left_processing(stream.CLAIM_EXPIRY_SECONDS + 1)
+    left_processing(jobs.ATTEMPT_EXPIRY_SECONDS + 1)
     queued = []
     monkeypatch.setattr(jobs, "enqueue_analysis", lambda *args: queued.append(args))
 
@@ -112,7 +112,7 @@ def test_queue_input_carries_the_claimed_attempt(client, fake_llm, analyst, monk
 
 def test_old_job_started_after_a_reclaim_does_nothing(client, fake_llm, published):
     analyze(client, TEXT)
-    old = left_processing(stream.CLAIM_EXPIRY_SECONDS + 1, published)
+    old = left_processing(jobs.ATTEMPT_EXPIRY_SECONDS + 1, published)
     new_started = reclaim(old)
     usage = UsageLog.objects.filter(kind="request").latest("id")
     fake_llm.forget_requests()
@@ -132,7 +132,7 @@ def test_old_job_started_after_a_reclaim_does_nothing(client, fake_llm, publishe
 @pytest.mark.parametrize("fails", [False, True])
 def test_running_old_job_cannot_overwrite_the_new_attempt(client, fake_llm, published, fails):
     analyze(client, TEXT)
-    old = left_processing(stream.CLAIM_EXPIRY_SECONDS + 1, published)
+    old = left_processing(jobs.ATTEMPT_EXPIRY_SECONDS + 1, published)
     usage = UsageLog.objects.filter(kind="request").latest("id")
     started = []
     fake_llm.before_respond = lambda: started.append(reclaim(old))
@@ -157,7 +157,7 @@ def test_running_old_job_cannot_overwrite_the_new_attempt(client, fake_llm, publ
 
 def test_expired_but_unclaimed_late_job_is_saved(client, fake_llm, published):
     analyze(client, TEXT)
-    old = left_processing(stream.CLAIM_EXPIRY_SECONDS + 1)
+    old = left_processing(jobs.ATTEMPT_EXPIRY_SECONDS + 1)
     usage = UsageLog.objects.filter(kind="request").latest("id")
 
     worker.run_analysis(old.pk, TEXT, usage.pk, old.processing_started_at)

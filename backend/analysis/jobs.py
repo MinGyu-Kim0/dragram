@@ -1,6 +1,6 @@
 """분석 LLM 작업 큐(RQ)와 작업자 소식(Redis pub/sub)(#98, ADR 0005).
 
-큐에 넣는 코드는 enqueue_analysis 하나로 모은다. 나중에 django.tasks로 옮기기 쉽게 하기 위해서다.
+큐에 넣는 코드는 _enqueue 하나로 모은다. 나중에 django.tasks로 옮기기 쉽게 하기 위해서다.
 큐 입력(분석 텍스트)은 원문이라 작업이 끝나면 성공·실패와 관계없이 바로 지우고(NFR-12), 작업
 설명(로그에 찍힌다)에도 넣지 않는다. 소식에는 원문을 넣지 않는다.
 """
@@ -21,10 +21,12 @@ QUEUE_NAME = "analysis"
 # 작업 하나의 시간 제한. LLM 요청 전체 마감(llm.REQUEST_DEADLINE_SECONDS, 110초)에 저장할 시간을
 # 더한 값이다. 넘으면 RQ가 작업을 멈추고, 작업은 실패로 끝난다.
 JOB_TIMEOUT_SECONDS = 120
-# 큐에서 시작하지 못하고 기다릴 수 있는 상한. 분석·재판정 큐 입력에는 원문이 있어(NFR-12)
-# 쓸모없어진 작업을 오래 두지 않는다. 이만큼 지나면 선점·재판정 잠금이 만료되어 다음 요청이
-# 다시 넣으므로 버려도 된다(stream.CLAIM_EXPIRY_SECONDS, REMATCH_LOCK_SECONDS와 같음, #252).
-QUEUE_TTL_SECONDS = 150
+# 시도 하나의 만료. 이만큼 지난 첫 분석 선점(#99)·재판정 잠금(#114)·접속 형태 시도(#229)는 작업자가
+# 죽은 것으로 보고 다음 요청이 다시 잡는다. 작업 시간 제한(120초)과 요청 대기(130초)보다 길다.
+# 큐에서 시작하지 못하고 기다릴 수 있는 상한도 이 값이다. 큐 입력에는 원문이 있어(NFR-12) 쓸모없어진
+# 작업을 오래 두지 않고, 이만큼 지나면 다음 요청이 다시 넣으므로 버려도 된다(#252). 더 짧으면 시도가
+# 살아 있는 동안 작업만 버려져 요청이 대기 상한까지 붙잡힌다.
+ATTEMPT_EXPIRY_SECONDS = 150
 
 
 def _connection():
@@ -36,6 +38,29 @@ def channel(sentence_hash):
     return f"analysis:{sentence_hash}"
 
 
+def _enqueue(job, *args, description, reason):
+    """작업 하나를 큐에 넣는다. ANALYSIS_INLINE이면 바로 실행한다. description은 로그에 찍히므로
+    원문을 넣지 않고, 결과·실패 기록을 남기지 않아 큐 입력의 원문을 Redis에 두지 않는다(NFR-12).
+
+    Redis에 넣지 못하면 reason(로그용 사유)으로 BusinessError다.
+    """
+    if settings.ANALYSIS_INLINE:
+        job(*args)
+        return
+    try:
+        Queue(QUEUE_NAME, connection=_connection()).enqueue(
+            job,
+            *args,
+            description=description,
+            job_timeout=JOB_TIMEOUT_SECONDS,
+            ttl=ATTEMPT_EXPIRY_SECONDS,
+            result_ttl=0,
+            failure_ttl=0,
+        )
+    except redis.RedisError as e:
+        raise BusinessError(AnalysisError.FAILED, reason) from e
+
+
 def enqueue_analysis(analysis_id, text, usage_id, started):
     """분석 작업을 큐에 넣는다. text는 분석 텍스트, usage_id는 선점한 요청의 request 기록,
     started는 선점한 시도(processing_started_at)다(#99).
@@ -44,24 +69,15 @@ def enqueue_analysis(analysis_id, text, usage_id, started):
     """
     from analysis.worker import run_analysis
 
-    if settings.ANALYSIS_INLINE:
-        run_analysis(analysis_id, text, usage_id, started)
-        return
-    try:
-        Queue(QUEUE_NAME, connection=_connection()).enqueue(
-            run_analysis,
-            analysis_id,
-            text,
-            usage_id,
-            started,
-            description=f"analysis {analysis_id}",
-            job_timeout=JOB_TIMEOUT_SECONDS,
-            ttl=QUEUE_TTL_SECONDS,
-            result_ttl=0,
-            failure_ttl=0,
-        )
-    except redis.RedisError as e:
-        raise BusinessError(AnalysisError.FAILED, "분석 작업을 큐에 넣지 못함") from e
+    _enqueue(
+        run_analysis,
+        analysis_id,
+        text,
+        usage_id,
+        started,
+        description=f"analysis {analysis_id}",
+        reason="분석 작업을 큐에 넣지 못함",
+    )
 
 
 def enqueue_rematch(analysis_id, text, usage_id, version, token, basis=""):
@@ -71,52 +87,32 @@ def enqueue_rematch(analysis_id, text, usage_id, version, token, basis=""):
     """
     from analysis.rematch import run_rematch
 
-    if settings.ANALYSIS_INLINE:
-        run_rematch(analysis_id, text, usage_id, version, token, basis)
-        return
-    try:
-        Queue(QUEUE_NAME, connection=_connection()).enqueue(
-            run_rematch,
-            analysis_id,
-            text,
-            usage_id,
-            version,
-            token,
-            basis,
-            description=f"rematch {analysis_id}",
-            job_timeout=JOB_TIMEOUT_SECONDS,
-            ttl=QUEUE_TTL_SECONDS,
-            result_ttl=0,
-            failure_ttl=0,
-        )
-    except redis.RedisError as e:
-        raise BusinessError(AnalysisError.FAILED, "재판정 작업을 큐에 넣지 못함") from e
+    _enqueue(
+        run_rematch,
+        analysis_id,
+        text,
+        usage_id,
+        version,
+        token,
+        basis,
+        description=f"rematch {analysis_id}",
+        reason="재판정 작업을 큐에 넣지 못함",
+    )
 
 
 def enqueue_connection(pattern_id, started, usage_id):
     from analysis.connections import run_connection
 
-    if settings.ANALYSIS_INLINE:
-        run_connection(pattern_id, started, usage_id)
-        return
-    try:
-        Queue(QUEUE_NAME, connection=_connection()).enqueue(
-            run_connection,
-            pattern_id,
-            started,
-            usage_id,
-            description=f"pattern connection {pattern_id}",
-            job_timeout=JOB_TIMEOUT_SECONDS,
-            ttl=QUEUE_TTL_SECONDS,
-            result_ttl=0,
-            failure_ttl=0,
-        )
-    except redis.RedisError as e:
-        raise BusinessError(AnalysisError.FAILED, "접속 형태 작업을 큐에 넣지 못함") from e
+    _enqueue(
+        run_connection,
+        pattern_id,
+        started,
+        usage_id,
+        description=f"pattern connection {pattern_id}",
+        reason="접속 형태 작업을 큐에 넣지 못함",
+    )
 
 
-# 재판정 잠금의 만료. 작업 시간 제한(120초)과 요청 대기(130초)보다 길다(#114, 선점 만료와 같음).
-REMATCH_LOCK_SECONDS = 150
 # 그 값일 때만 지운다. 만료 뒤 다른 요청이 잡은 잠금을 풀지 않게 한다.
 _UNLOCK = "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) end"
 
@@ -130,7 +126,7 @@ def rematch_lock_key(sentence_hash, version, basis=""):
 
 def take_lock(key, token):
     with _connection() as connection:
-        return bool(connection.set(key, token, nx=True, ex=REMATCH_LOCK_SECONDS))
+        return bool(connection.set(key, token, nx=True, ex=ATTEMPT_EXPIRY_SECONDS))
 
 
 def lock_holder(key):

@@ -24,19 +24,6 @@ _PLACEHOLDER_WITH_PARTICLE = re.compile(
     r"⟨N(\d+)⟩(?:(은|는|이|가|을|를|과|와)(?=요?(?![가-힣]))"
     r"|(으로|로)(?=(?:서|써|부터)?(?:는|도|만|의)?요?(?![가-힣])))?"
 )
-_WRAPPING_PAIRS = {
-    "「": "」",
-    "『": "』",
-    "（": "）",
-    "(": ")",
-    "【": "】",
-    "〈": "〉",
-    "《": "》",
-    "“": "”",
-    "‘": "’",
-    '"': '"',
-    "'": "'",
-}
 # 뜻을 바꾸는 기호. 나머지 기호는 지운다.
 _MEANINGFUL_SYMBOLS = set("!?！？…‥")
 _SIGNS = set("-−－+＋")
@@ -171,30 +158,6 @@ def _remove_tildes(chars):
     return _keep(chars, lambda text, i: text[i] not in _TILDES or _is_number_range(text, i))
 
 
-def _wraps_whole(text, opening, closing):
-    """맨 앞 괄호가 맨 끝에서 닫히는가. 「a」「b」처럼 중간에 닫히면 감싼 것이 아니다."""
-    inner = text[1:-1]
-    if opening == closing:
-        return opening not in inner
-    depth = 0
-    for ch in inner:
-        depth += (ch == opening) - (ch == closing)
-        if depth < 0:
-            return False
-    return depth == 0
-
-
-def _remove_wrapping(chars):
-    """5단계: 문장 전체를 감싼 바깥 괄호·따옴표만 지운다."""
-    while len(chars) >= 2:
-        text = _text(chars)
-        closing = _WRAPPING_PAIRS.get(text[0])
-        if closing is None or text[-1] != closing or not _wraps_whole(text, text[0], closing):
-            break
-        chars = chars[1:-1]
-    return chars
-
-
 def _is_kept_symbol(text, i):
     ch = text[i]
     return (
@@ -216,7 +179,8 @@ def analysis_text(original):
     분석 텍스트는 숫자가 그대로라 SudachiPy 입력으로 쓴다. 위치는 원문 코드포인트 기준이다.
     """
     chars = [(ch, i, i + 1) for i, ch in enumerate(original)]
-    for step in (_unify_width, _remove_spaces, _remove_tildes, _remove_wrapping, _remove_symbols):
+    # 5단계(감싼 바깥 괄호 제거)는 따로 하지 않는다. 6단계가 감싼 괄호·따옴표도 함께 지운다.
+    for step in (_unify_width, _remove_spaces, _remove_tildes, _remove_symbols):
         chars = step(chars)
     return _text(chars), [(start, end) for _, start, end in chars]
 

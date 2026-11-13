@@ -69,6 +69,8 @@ test("Google이 준 ID 토큰을 CSRF 값과 함께 보내고 로그인한 계�
     json({ user: { email: "me@example.com" } });
   render(<ConnectPage />);
   await screen.findByRole("heading", { name: "Dragram에 로그인" });
+  // 콜백은 Google 스크립트를 불러온 뒤에 등록된다. 버튼이 그려질 때까지 기다린다.
+  await waitFor(() => expect(renderButton).toHaveBeenCalledTimes(1));
 
   await act(async () => googleCallback!({ credential: "google-id-token" }));
 
@@ -325,6 +327,7 @@ test("로그인이 거부되면 다시 시도하라고 안내한다", async () =
     json({ error: "AUTH:EMAIL_NOT_VERIFIED" }, 403);
   render(<ConnectPage />);
   await screen.findByRole("heading", { name: "Dragram에 로그인" });
+  await waitFor(() => expect(renderButton).toHaveBeenCalledTimes(1));
 
   await act(async () => googleCallback!({ credential: "google-id-token" }));
 

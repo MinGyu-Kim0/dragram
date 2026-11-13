@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   isAdded,
   itemKey,
+  stateTag,
   type Example,
   type ItemKind,
   type ItemState,
@@ -23,23 +24,30 @@ export interface MyItems {
   ) => Promise<void>;
 }
 
-// 카드 아래 버튼 줄. 부르는 쪽이 key에 상태를 넣어, 같은 항목을 다른 줄에서 바꾸면 이 줄의
-// '예문 저장됨'도 함께 초기화된다(PR #327 리뷰). 추가 전: 추가 · 숨김. 추가한 뒤: 추가됨 · 예문 저장 ·
-// 숨김. '추가'와 '추가됨'은 한 토글 버튼이라 추가됨을 다시 누르면 제외한다(예문이 있으면 확인,
-// #362). 숨김은 숨긴 카드로 보내고 추가·예문은 그대로 둔다. 예문은 사용자가 누를 때만 원문 그대로
-// 보낸다.
-export function ItemActions({
-  kind,
-  id,
-  example,
-  items,
-}: {
+interface ItemActionsProps {
   kind: ItemKind;
   id: number;
   // 예문으로 저장할 문장(이 페이지의 원문)과 그 안에서 이 카드가 가리키는 부분
   example: Example;
   items: MyItems;
-}) {
+}
+
+// 카드 아래 버튼 줄. key에 상태를 넣어, 같은 항목을 다른 줄에서 바꾸면 이 줄의 '예문 저장됨'도
+// 함께 초기화된다(PR #327 리뷰).
+export function ItemActions(props: ItemActionsProps) {
+  const key = itemKey(props.kind, props.id);
+  return (
+    <ActionRow
+      key={`${key}:${stateTag(props.items.states.get(key))}`}
+      {...props}
+    />
+  );
+}
+
+// 추가 전: 추가 · 숨김. 추가한 뒤: 추가됨 · 예문 저장 · 숨김. '추가'와 '추가됨'은 한 토글 버튼이라
+// 추가됨을 다시 누르면 제외한다(예문이 있으면 확인, #362). 숨김은 숨긴 카드로 보내고 추가·예문은
+// 그대로 둔다. 예문은 사용자가 누를 때만 원문 그대로 보낸다.
+function ActionRow({ kind, id, example, items }: ItemActionsProps) {
   const added = isAdded(items.states, kind, id);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(false);

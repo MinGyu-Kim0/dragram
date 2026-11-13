@@ -1,6 +1,5 @@
 import { useState } from "react";
 import type { NameSpan, RubyItem, WordItem, WordSense } from "@/utils/api";
-import { itemKey, stateTag } from "@/utils/my-items";
 import { isKana, toHiragana } from "@/utils/names";
 import { BadgeRow } from "./BadgeRow";
 import { namedWords, nameTypeLabel, wordKey } from "./named-words";
@@ -370,7 +369,6 @@ export function WordList({
               {editor}
               {items && word.sense?.id != null && (
                 <ItemActions
-                  key={`${itemKey("sense", word.sense.id)}:${stateTag(items.states.get(itemKey("sense", word.sense.id)))}`}
                   kind="sense"
                   id={word.sense.id}
                   example={{ text, start: word.start, end: word.end }}

@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { TAG_NAMES, type WordEntry, type WordSense } from "./analysis";
 
 // 내 기록 카드가 함께 쓰는 배지·단어 행. 미검수 표시는 사이드 패널과 같은 규칙이다(ADR 0003).
@@ -37,13 +36,7 @@ function senseBadges(sense: WordSense | null) {
 }
 
 // 단어 카드 내용: 표제·읽기, 태그, 고른 뜻. 카드(li)는 목록이 감싼다.
-export function WordRow({
-  word,
-  children,
-}: {
-  word: WordEntry;
-  children?: ReactNode;
-}) {
+export function WordRow({ word }: { word: WordEntry }) {
   const codes = new Set([...word.tags, ...(word.sense?.tags ?? [])]);
   const tags = Object.keys(TAG_NAMES)
     .filter((code) => codes.has(code))
@@ -81,7 +74,6 @@ export function WordRow({
       ) : (
         <p className="muted">뜻을 아직 고르지 않았어요</p>
       )}
-      {children}
     </>
   );
 }

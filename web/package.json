@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",

@@ -24,7 +24,7 @@ import { renderGoogleButton } from "./google";
 import { LogoMark } from "../site/SiteLayout";
 import "./connect.css";
 
-// 로그인·확장 연결 화면(DESIGN WebConnect)의 로그인 카드. 연결 성공 카드는 #109에서 만든다.
+// 로그인·확장 연결 화면(DESIGN WebConnect)의 로그인 카드.
 
 type State =
   | { kind: "loading" }

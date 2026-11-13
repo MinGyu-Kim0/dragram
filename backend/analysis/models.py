@@ -90,10 +90,10 @@ class GrammarPattern(models.Model):
     # [{text, should_match}]. LLM·관리자가 새로 쓴 예문만 둔다. 사용자 원문은 넣지 않는다.
     test_cases = models.JSONField("검증 예문", default=list)
     # 바뀌면 같은 트랜잭션에서 pattern_set_version을 올린다.
-    is_active = models.BooleanField("활성")
+    is_active = models.BooleanField("활성 여부")
     status = models.CharField("승인 상태", max_length=30, choices=ReviewStatus.choices)
     # 용법 완결: 관리자가 용법이 하나뿐이라고 확인한 패턴(#38)
-    usage_closed = models.BooleanField("용법 완결", default=False)
+    usage_closed = models.BooleanField("용법 완결 여부", default=False)
     # 회화체 패턴(ちゃう 등)은 관리자가 원형(てしまう 등)에 연결한다. 연결된 회화체는 자기 용법
     # 없이 원형의 용법을 쓴다. register는 연결할 때만 colloquial이 되고 해제해도 남는다(#63).
     register = models.CharField(
@@ -108,7 +108,7 @@ class GrammarPattern(models.Model):
     )
     # 이 패턴 구간 안의 구성 문법을 화면에 하위 박스로 보일지(#65). 조회할 때만 읽는 표시 칸이라
     # 바꿔도 stale·세대 번호·패턴 세트 버전을 건드리지 않는다.
-    show_parts = models.BooleanField("구성 문법 표시", default=True)
+    show_parts = models.BooleanField("구성 문법 표시 여부", default=True)
     created_at = models.DateTimeField("등록일시", auto_now_add=True)
 
     class Meta:
@@ -314,7 +314,8 @@ class SpanMatch(models.Model):
     """
 
     class State(models.TextChoices):
-        DECIDED = "decided", "확정"
+        # '확정'은 볼 때 검수 상태로 정하는 표시라 쓰지 않는다(GLOSSARY).
+        DECIDED = "decided", "용법 정해짐"
         NOT_APPLICABLE = "not_applicable", "해당 없음"
         UNFOUND = "unfound", "미발견"
         # 문장만으로 해석이 갈린다. usage는 번역과 같은 주 용법, alternatives는 대안 해석(#40)
@@ -532,7 +533,7 @@ class UsageLog(models.Model):
     input_tokens = models.IntegerField("입력 토큰 수", null=True)
     cached_input_tokens = models.IntegerField("캐시된 입력 토큰 수", null=True)
     output_tokens = models.IntegerField("출력 토큰 수", null=True)
-    success = models.BooleanField("성공")
+    success = models.BooleanField("성공 여부")
     attempt = models.SmallIntegerField("시도 차수", null=True)
     # 탈퇴한 Google 계정의 그날 행이다(PR #244). 같은 계정이 그날 다시 가입하면 하루 한도에 더한다.
     # Google 계정 식별자를 서버 비밀값으로 HMAC한 값이고, 자정이 지나면 행째 지운다.

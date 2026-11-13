@@ -85,6 +85,15 @@ def post(client, text):
     return client.post("/api/analyses/", {"text": text}, content_type="application/json")
 
 
+def act(admin_client, url, action, *objects):
+    """admin 목록에서 고른 행에 액션을 실행하고 돌아온 화면을 받는다."""
+    return admin_client.post(
+        url,
+        {"action": action, "_selected_action": [obj.pk for obj in objects]},
+        follow=True,
+    )
+
+
 def add_word(seq, kanji, kana, senses, restrictions=None, common=True, tags=("noun",)):
     """표본 단어. senses는 (영어 뜻 목록, 뜻 태그, applies_to)들이다."""
     word = Word.objects.create(

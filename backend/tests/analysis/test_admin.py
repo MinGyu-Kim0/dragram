@@ -17,7 +17,7 @@ from analysis.models import (
     ReviewStatus,
     SentenceAnalysis,
 )
-from tests.analysis.helpers import analyze, new_pattern, pattern_form, usage_form
+from tests.analysis.helpers import act, analyze, new_pattern, pattern_form, usage_form
 
 pytestmark = pytest.mark.django_db
 
@@ -167,14 +167,6 @@ def test_usage_example_that_does_not_fit_is_not_saved(admin_client, pattern, exa
     assert response.status_code == 200
     usage.refresh_from_db()
     assert usage.example_ja == "雨が降っている"
-
-
-def act(admin_client, url, action, *objects):
-    return admin_client.post(
-        url,
-        {"action": action, "_selected_action": [obj.pk for obj in objects]},
-        follow=True,
-    )
 
 
 def test_pattern_is_approved_with_an_admin_action(admin_client, pattern):

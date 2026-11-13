@@ -25,7 +25,7 @@ from analysis.models import (
     Word,
     WordSense,
 )
-from tests.analysis.helpers import add_word
+from tests.analysis.helpers import act, add_word
 
 pytestmark = pytest.mark.django_db
 
@@ -51,6 +51,9 @@ STATE_CODES = [
     "Db",
     "First Response",
     "Usage Fill",
+    "Decided",
+    "Divergent",
+    "Unresolved",
     "decided",
     "divergent",
     "unresolved",
@@ -83,18 +86,10 @@ FIELD_NAMES = sorted(
 
 
 def english(page):
-    """화면 글자로 보이는 영어 상태 코드와 영어 칸 이름."""
+    """화면 글자로 보이는 영어 상태 코드와 영어 칸 이름. 「완료」(Pending)처럼 괄호 안도 본다."""
     text = html.unescape(page.content.decode())
     words = [*STATE_CODES, *FIELD_NAMES]
-    return [word for word in words if re.search(rf">\s*{re.escape(word)}:?\s*<", text)]
-
-
-def act(admin_client, url, action, *objects):
-    return admin_client.post(
-        url,
-        {"action": action, "_selected_action": [obj.pk for obj in objects]},
-        follow=True,
-    )
+    return [word for word in words if re.search(rf"[>(]\s*{re.escape(word)}:?\s*[<)]", text)]
 
 
 def pattern(name, key, **fields):
@@ -183,6 +178,7 @@ def pages(k):
         f"{ADMIN}usagelog/",
         f"{ADMIN}usagelog/{k['request'].pk}/change/",
         f"{ADMIN}usagelog/{k['call'].pk}/change/",
+        f"{ADMIN}matchcorrection/",
         ADMIN,
     ]
 
@@ -305,7 +301,7 @@ def test_eval_result_page_shows_item_states_in_korean(admin_client, eval_result)
     page = admin_client.get(f"{ADMIN}evalresult/{eval_result.pk}/change/")
 
     text = html.unescape(page.content.decode())
-    for label in ["확정", "해석 갈림", "미확정", "승인", "미검수"]:
+    for label in ["용법 정해짐", "해석 갈림", "미확정", "승인", "미검수"]:
         assert label in text, label
     assert english(page) == []
     assert admin_client.get(f"{ADMIN}evalresult/").status_code == 200

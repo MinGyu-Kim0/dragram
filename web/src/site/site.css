@@ -521,6 +521,10 @@
   line-height: 1.7;
 }
 
+.document .danger {
+  color: var(--color-danger-text);
+}
+
 .document h1 {
   margin: 0 0 4px;
 }

@@ -338,6 +338,28 @@ test.each([
   ).toBeInTheDocument();
 });
 
+// 옛 판은 따로 불러온다(#422). 판마다 그 판에만 있는 문구로 본문이 바뀌지 않았는지 본다.
+test.each([
+  [
+    "/privacy/2026-11-02",
+    "분석하는 동안만 서버를 거치고",
+    "마지막으로 요청한 확장 프로그램 버전",
+  ],
+  [
+    "/privacy/2026-10-29",
+    "별도의 저장 버튼 없이",
+    "분석하는 동안만 서버를 거치고",
+  ],
+  ["/terms/2026-10-29", "원문은 분석한 사람의", "권리 없이 저장한 글로 분쟁"],
+])("옛 판 %s는 그 판 본문을 보여준다", async (path, shown, notShown) => {
+  open(path);
+
+  await waitFor(() =>
+    expect(screen.getByRole("main")).toHaveTextContent(shown),
+  );
+  expect(screen.getByRole("main")).not.toHaveTextContent(notShown);
+});
+
 test("최신 처리방침은 확장 연결에 확장 프로그램 버전을 적는다(#349)", () => {
   open("/privacy");
 

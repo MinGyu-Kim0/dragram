@@ -5,14 +5,17 @@ from contextlib import aclosing
 from datetime import timedelta
 
 import pytest
+import redis
 from asgiref.sync import async_to_sync
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 
 from analysis import jobs, limits, stream, words
-from analysis.models import SentenceAnalysis, UsageLog
+from analysis.models import GrammarPattern, ReviewStatus, SentenceAnalysis, UsageLog
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import analyze, connected_client, post, span_answer
+from tests.analysis.test_connections import FORM, missing
+from tests.analysis.test_connections import connection as ask_connection
 from tests.analysis.test_rematch import KITEIRU, cache_then_register_teiru
 
 pytestmark = pytest.mark.django_db
@@ -266,3 +269,31 @@ def test_job_over_the_limit_at_start_fails_without_calling_the_llm(
     assert response.json()["error"] == "ANALYSIS:USAGE_LIMIT"
     assert fake_llm.all_requests() == []
     assert SentenceAnalysis.objects.get().status == SentenceAnalysis.Status.FAILED
+
+
+def test_every_connection_reply_leaves_the_count(
+    settings, client, fake_llm, analyst, no_active, monkeypatch
+):
+    # 상한이 1이라 앞 요청이 셈에 남으면 다음 요청이 ANALYSIS:TOO_MANY_REQUESTS로 거부된다.
+    settings.ANALYSIS_MAX_CONCURRENT = 1
+    pattern = missing(client, fake_llm)
+    fake_llm.connection_response = {"connection_form": FORM}
+
+    assert ask_connection(client, pattern).json()["filled"]  # 작업을 기다린 스트림
+    assert ask_connection(client, pattern).json()["filled"]  # 이미 채워진 접속 형태
+
+    GrammarPattern.objects.filter(pk=pattern.pk).update(
+        connection_form=None, connection_filled=False, connection_status=None
+    )
+    settings.ANALYSIS_INLINE = False
+
+    def failed(*args, **kwargs):
+        raise redis.ConnectionError("테스트 오류")
+
+    monkeypatch.setattr(jobs.Queue, "enqueue", failed)
+    assert ask_connection(client, pattern).status_code == 502  # 큐 넣기 실패
+
+    GrammarPattern.objects.filter(pk=pattern.pk).update(status=ReviewStatus.REJECTED)
+    assert ask_connection(client, pattern).status_code == 404  # 사용할 수 없는 문법
+
+    assert active(analyst) == 0

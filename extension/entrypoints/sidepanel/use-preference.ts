@@ -1,51 +1,22 @@
 import { useEffect, useState } from "react";
-import {
-  loadHighlightStyle,
-  loadPreference,
-  saveHighlightStyle,
-  savePreference,
-  type HighlightStyle,
-  type Preference,
-} from "@/utils/preferences";
 
-// 켜고 끄는 표시 설정 하나. 저장된 값을 읽기 전에는 켜져 있고, 그 전에 사용자가 바꾸면
-// 늦게 읽힌 저장값으로 덮어쓰지 않는다.
-export function usePreference(key: Preference): [boolean, () => void] {
-  const [value, setValue] = useState<boolean>();
+// 확장 저장소에 기억하는 표시 설정 하나. 저장된 값을 읽기 전에는 initial이고, 그 전에 사용자가
+// 바꾸면 늦게 읽힌 저장값으로 덮어쓰지 않는다.
+export function usePreference<T>(
+  load: () => Promise<T>,
+  save: (value: T) => Promise<void>,
+  initial: T,
+): [T, (value: T) => void] {
+  const [value, setValue] = useState<T>();
 
   useEffect(() => {
-    loadPreference(key).then((stored) =>
-      setValue((current) => current ?? stored),
-    );
-  }, [key]);
+    load().then((stored) => setValue((current) => current ?? stored));
+  }, [load]);
 
-  const toggle = () => {
-    const next = !(value ?? true);
+  const change = (next: T) => {
     setValue(next);
-    savePreference(key, next);
+    save(next);
   };
 
-  return [value ?? true, toggle];
-}
-
-// 원문 형광펜 모양(#354). 저장된 값을 읽기 전에는 형광펜이고, 그 전에 사용자가 고르면
-// 늦게 읽힌 저장값으로 덮어쓰지 않는다.
-export function useHighlightStyle(): [
-  HighlightStyle,
-  (style: HighlightStyle) => void,
-] {
-  const [style, setStyle] = useState<HighlightStyle>();
-
-  useEffect(() => {
-    loadHighlightStyle().then((stored) =>
-      setStyle((current) => current ?? stored),
-    );
-  }, []);
-
-  const choose = (next: HighlightStyle) => {
-    setStyle(next);
-    saveHighlightStyle(next);
-  };
-
-  return [style ?? "marker", choose];
+  return [value ?? initial, change];
 }

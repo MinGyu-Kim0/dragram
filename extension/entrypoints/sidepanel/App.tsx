@@ -13,7 +13,13 @@ import { useDesignatedNames } from "./use-designated-names";
 import { useLoginGeneration } from "./use-login-generation";
 import { useMyItemStates } from "./use-my-item-states";
 import { useSentenceAnalysis } from "./use-sentence-analysis";
-import { useHighlightStyle, usePreference } from "./use-preference";
+import { usePreference } from "./use-preference";
+import {
+  loadHighlightStyle,
+  loadShowRuby,
+  saveHighlightStyle,
+  saveShowRuby,
+} from "@/utils/preferences";
 import { useUpdateRequired } from "./use-update-required";
 
 // 페이지에 회차 ID를 붙여, 지금 요청의 것만 쓴다.
@@ -25,8 +31,16 @@ interface Page {
 function App() {
   const [page, setPage] = useState<Page>();
   const [tab, setTab] = useState<ResultTab>("grammar");
-  const [showRuby, toggleRuby] = usePreference("showRuby");
-  const [highlightStyle, setHighlightStyle] = useHighlightStyle();
+  const [showRuby, setShowRuby] = usePreference(
+    loadShowRuby,
+    saveShowRuby,
+    true,
+  );
+  const [highlightStyle, setHighlightStyle] = usePreference(
+    loadHighlightStyle,
+    saveHighlightStyle,
+    "marker",
+  );
   // 확장 토큰이 있는지(웹에서 연결했는지). 처음 읽기 전에는 undefined다(#109).
   const [connected, setConnected] = useState<boolean>();
   const updateRequired = useUpdateRequired();
@@ -105,7 +119,7 @@ function App() {
               key={`${request!.id}-${pageIndex}`}
               text={sentence.text}
               showRuby={showRuby}
-              onToggleRuby={toggleRuby}
+              onToggleRuby={() => setShowRuby(!showRuby)}
               highlightStyle={highlightStyle}
               onHighlightStyleChange={setHighlightStyle}
               result={result}

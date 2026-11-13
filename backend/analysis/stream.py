@@ -36,9 +36,6 @@ def _ndjson(event):
 # 기다리기 시작한 때부터 센다(처음 요청한 쪽은 큐에 넣은 때라 큐 대기도 포함한다).
 # 넘으면 error 이벤트로 닫고, 작업은 계속된다(ADR 0005).
 WAIT_SECONDS = 130
-# 이만큼 지난 처리 중 행은 작업자가 죽은 것으로 보고 다음 요청이 다시 선점한다(#99). 작업 시간
-# 제한(120초)과 요청 대기(130초)보다 길다.
-CLAIM_EXPIRY_SECONDS = 150
 
 
 def claim(sentence, user, record):
@@ -92,7 +89,7 @@ def take(sentence, again=False):
         now = timezone.now()
         rows = SentenceAnalysis.objects.filter(pk=row.pk).exclude(
             status=processing,
-            processing_started_at__gt=now - timedelta(seconds=CLAIM_EXPIRY_SECONDS),
+            processing_started_at__gt=now - timedelta(seconds=jobs.ATTEMPT_EXPIRY_SECONDS),
         )
         if not again:
             rows = rows.exclude(word_spans__isnull=False, is_stale=False)

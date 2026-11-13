@@ -49,7 +49,7 @@ def test_same_cached_sentence_at_once_judges_once_and_both_get_the_saved_result(
     _wait_until(lambda: redis_db.exists(lock_key()))
     second = _read_in_thread(post(connected_client(), KITEIRU), results)
     _wait_until(lambda: holder_calls)
-    assert 0 < redis_db.ttl(lock_key()) <= jobs.REMATCH_LOCK_SECONDS
+    assert 0 < redis_db.ttl(lock_key()) <= jobs.ATTEMPT_EXPIRY_SECONDS
     _work_burst()
     first.join(10)
     second.join(10)
@@ -80,7 +80,7 @@ def test_failed_judge_falls_back_releases_the_lock_and_is_retried(client, fake_l
 def test_lock_of_a_dead_job_is_taken_again_after_it_expires(client, fake_llm, redis_db):
     cache_then_register_teiru(client, fake_llm)
     fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
-    redis_db.set(lock_key(), "dead", ex=jobs.REMATCH_LOCK_SECONDS)
+    redis_db.set(lock_key(), "dead", ex=jobs.ATTEMPT_EXPIRY_SECONDS)
 
     # 잠금을 잡은 작업이 죽었다. 기다리다 대기 상한에서 대체 응답을 받는다.
     response = analyze(client, KITEIRU)
@@ -101,7 +101,7 @@ def test_late_job_not_holding_the_lock_does_not_call_the_llm(
     client, fake_llm, redis_db, monkeypatch
 ):
     cache_then_register_teiru(client, fake_llm)
-    redis_db.set(lock_key(), "newer", ex=jobs.REMATCH_LOCK_SECONDS)
+    redis_db.set(lock_key(), "newer", ex=jobs.ATTEMPT_EXPIRY_SECONDS)
     usage = UsageLog.objects.filter(kind=UsageLog.Kind.REQUEST).latest("id")
     published = []
     monkeypatch.setattr(jobs, "publish", lambda sentence_hash, message: published.append(message))
@@ -115,7 +115,7 @@ def test_late_job_not_holding_the_lock_does_not_call_the_llm(
 
 def test_stale_reanalysis_is_not_blocked_by_the_judge_lock(client, fake_llm, redis_db):
     cache_then_register_teiru(client, fake_llm)
-    redis_db.set(lock_key(), "judging", ex=jobs.REMATCH_LOCK_SECONDS)
+    redis_db.set(lock_key(), "judging", ex=jobs.ATTEMPT_EXPIRY_SECONDS)
     SentenceAnalysis.objects.filter(pk=cached().pk).update(
         is_stale=True, generation=F("generation") + 1
     )
@@ -148,7 +148,7 @@ def test_user_over_the_limit_waits_on_a_judge_another_request_took(
     settings, client, fake_llm, redis_db
 ):
     cache_then_register_teiru(client, fake_llm)
-    redis_db.set(lock_key(), "other", ex=jobs.REMATCH_LOCK_SECONDS)
+    redis_db.set(lock_key(), "other", ex=jobs.ATTEMPT_EXPIRY_SECONDS)
     settings.ANALYSIS_DAILY_TOKEN_LIMIT = 1
 
     response = analyze(client, KITEIRU)
@@ -165,7 +165,7 @@ def test_job_whose_version_was_raised_while_queued_does_not_call_the_llm(
     cache_then_register_teiru(client, fake_llm)
     old_version = version() - 1
     old_key = jobs.rematch_lock_key(Sentence(KITEIRU).sentence_hash, old_version)
-    redis_db.set(old_key, "mine", ex=jobs.REMATCH_LOCK_SECONDS)
+    redis_db.set(old_key, "mine", ex=jobs.ATTEMPT_EXPIRY_SECONDS)
     usage = UsageLog.objects.filter(kind=UsageLog.Kind.REQUEST).latest("id")
     published = []
     monkeypatch.setattr(jobs, "publish", lambda sentence_hash, message: published.append(message))
@@ -199,7 +199,7 @@ def test_job_still_judges_when_the_requester_withdrew_while_queued(
 ):
     cache_then_register_teiru(client, fake_llm)
     fake_llm.rematch_response = {"spans": [span_answer(0, "usage", 1)]}
-    redis_db.set(lock_key(), "mine", ex=jobs.REMATCH_LOCK_SECONDS)
+    redis_db.set(lock_key(), "mine", ex=jobs.ATTEMPT_EXPIRY_SECONDS)
     usage = UsageLog.objects.filter(kind=UsageLog.Kind.REQUEST).latest("id")
     published = []
     monkeypatch.setattr(jobs, "publish", lambda sentence_hash, message: published.append(message))

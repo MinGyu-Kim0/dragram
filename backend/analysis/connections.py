@@ -60,7 +60,7 @@ def connection(request, pattern_id):
             if (
                 pattern.connection_started_at is None
                 or pattern.connection_started_at
-                <= now - timedelta(seconds=jobs.REMATCH_LOCK_SECONDS)
+                <= now - timedelta(seconds=jobs.ATTEMPT_EXPIRY_SECONDS)
             ):
                 if limits.over_limit(request.user):
                     raise BusinessError(AnalysisError.USAGE_LIMIT, "하루 토큰 한도를 넘음")
@@ -112,7 +112,7 @@ def run_connection(pattern_id, started, usage_id):
         if (
             pattern.connection_filled
             or pattern.connection_started_at != started
-            or started <= timezone.now() - timedelta(seconds=jobs.REMATCH_LOCK_SECONDS)
+            or started <= timezone.now() - timedelta(seconds=jobs.ATTEMPT_EXPIRY_SECONDS)
         ):
             return
         basis = (pattern.name, pattern.morpheme_key, pattern.variant_of_id, pattern.status)

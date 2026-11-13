@@ -178,7 +178,7 @@ def test_outdated_attempt_finishing_late_does_not_overwrite_the_new_result(queue
     old_worker = start_worker(SENTENCES)
     _wait_until(lambda: len(entered(queued)) == 1, seconds=60)
     # 옛 시도의 작업자가 LLM을 기다리는 사이 선점이 만료되어 다음 요청이 다시 선점한다.
-    expired = timedelta(seconds=stream.CLAIM_EXPIRY_SECONDS + 1)
+    expired = timedelta(seconds=jobs.ATTEMPT_EXPIRY_SECONDS + 1)
     SentenceAnalysis.objects.update(
         processing_started_at=SentenceAnalysis.objects.get().processing_started_at - expired
     )

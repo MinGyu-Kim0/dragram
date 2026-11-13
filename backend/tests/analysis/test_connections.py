@@ -332,7 +332,7 @@ def test_failed_enqueue_releases_the_lease(client, fake_llm, monkeypatch, settin
 def test_expired_job_can_be_replaced(client, fake_llm):
     pattern = missing(client, fake_llm)
     GrammarPattern.objects.filter(pk=pattern.pk).update(
-        connection_started_at=timezone.now() - timedelta(seconds=jobs.REMATCH_LOCK_SECONDS + 1)
+        connection_started_at=timezone.now() - timedelta(seconds=jobs.ATTEMPT_EXPIRY_SECONDS + 1)
     )
 
     assert connection(client, pattern).json()["text"] == FORM

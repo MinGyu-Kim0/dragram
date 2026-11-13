@@ -115,25 +115,14 @@ export function Guide() {
           >
             이전
           </button>
-          {last ? (
-            <button
-              ref={primary}
-              type="button"
-              className="primary-button"
-              onClick={() => window.close()}
-            >
-              시작하기
-            </button>
-          ) : (
-            <button
-              ref={primary}
-              type="button"
-              className="primary-button"
-              onClick={next}
-            >
-              다음
-            </button>
-          )}
+          <button
+            ref={primary}
+            type="button"
+            className="primary-button"
+            onClick={last ? () => window.close() : next}
+          >
+            {last ? "시작하기" : "다음"}
+          </button>
         </div>
       </section>
     </div>

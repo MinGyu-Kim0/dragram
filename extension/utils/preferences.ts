@@ -31,6 +31,17 @@ export async function loadTheme(): Promise<Theme | null> {
   return theme === "light" || theme === "dark" ? theme : null;
 }
 
+// 고른 테마를 첫 화면 전에 걸고 그린다(#296). 확장 페이지는 인라인 스크립트를 쓸 수 없어
+// 저장소를 읽은 뒤 그린다. 읽지 못해도 그린다.
+export function renderWithTheme(render: () => void): void {
+  loadTheme()
+    .then((theme) => {
+      if (theme) document.documentElement.dataset.theme = theme;
+    })
+    .catch(() => {})
+    .finally(render);
+}
+
 export async function saveTheme(theme: Theme): Promise<void> {
   await browser.storage.local.set({ theme });
 }

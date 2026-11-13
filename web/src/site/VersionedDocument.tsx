@@ -9,7 +9,7 @@ import { koreanDate } from "./koreanDate";
 export type Version = { effective: string; Body: ComponentType };
 
 // 옛 판은 늦게 불러온다(documents.ts). 배포 뒤 묶음 파일이 사라져 실패하면 본문 자리만 안내로 바꾼다.
-class BodyFailed extends Component<
+class BodyLoadBoundary extends Component<
   { children: ReactNode },
   { failed: boolean }
 > {
@@ -55,11 +55,11 @@ function VersionedDocument({
         {shown ? (
           <>
             <p className="muted">시행일: {koreanDate(shown.effective)}</p>
-            <BodyFailed key={shown.effective}>
+            <BodyLoadBoundary key={shown.effective}>
               <Suspense fallback={<p className="muted">불러오는 중…</p>}>
                 <shown.Body />
               </Suspense>
-            </BodyFailed>
+            </BodyLoadBoundary>
             <Section title={changeTitle}>
               {changeNote}
               <ul>

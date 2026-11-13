@@ -95,6 +95,11 @@ def _llm_spans(spans):
     ]
 
 
+def _decided_span(start_token, end_token, usage):
+    """LLM에 알릴 해석이 정해진 구간 하나. 답은 받지 않고, 그 해석대로 읽게만 한다."""
+    return {"start_token_id": start_token, "end_token_id": end_token, "name": usage.name}
+
+
 def _corrections(analysis):
     """그 분석의 활성 정정. {(키 텍스트 start, end, 매칭된 패턴 ID): 정정}(#221)."""
     if analysis is None:
@@ -184,7 +189,7 @@ class Sentence:
                 self.spans.append(span)
         self.llm_spans = _llm_spans(self.spans)
         self.decided_spans = [
-            {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
+            _decided_span(span.start_token, span.end_token, usage)
             for span, _, usage, _ in self.closed_spans
         ]
         self.content_tokens = sum(m.pos not in {"補助記号", "空白"} for m in self.morphs)

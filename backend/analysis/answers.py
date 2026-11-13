@@ -94,18 +94,31 @@ def _validate_span_answers(answers, spans):
     return _checked_span_answers(answers, spans, [FIRST_VERDICTS] * len(spans), None)[0]
 
 
-def _validate_recheck_answers(answers, spans, allowed, numbers):
-    """다시 묻기의 판정을 검증한다. 하나라도 틀리거나 빠지면 SpanAnswersRejected, 아니면 (판정들,
-    {구간 순번: [(대안 용법, 대안 번역)]}).
+def _validate_judgement(result, spans, allowed, numbers, label, final_translation):
+    """다시 묻기·재판정 응답을 검증한다. 틀리면 ANALYSIS:FAILED, 아니면 (판정들, {구간 순번:
+    [(대안 용법, 대안 번역)]}, 최종 번역).
 
-    allowed는 구간마다 받을 판정이다. 해석 갈림은 대안까지 검증하고, 근거 있는 대안이 남지 않으면
-    미확정이다.
+    allowed는 구간마다 받을 판정이고, label은 로그 사유에 넣을 호출 이름이다. 해석 갈림은 대안까지
+    검증하고, 근거 있는 대안이 남지 않으면 미확정이다. final_translation(판정들)은 대안 번역과
+    비교할 최종 번역을 돌려준다(틀렸으면 스스로 ANALYSIS:FAILED). 대안 번역이 최종 번역과 같으면
+    갈린 해석이 아니다.
     """
-    return _checked_span_answers(answers, spans, allowed, numbers)
+    if not isinstance(result, dict):
+        raise BusinessError(AnalysisError.FAILED, f"LLM 응답 검증 실패: {label}")
+    try:
+        answers, alternatives = _checked_span_answers(result.get("spans"), spans, allowed, numbers)
+    except SpanAnswersRejected as e:
+        raise BusinessError(AnalysisError.FAILED, f"LLM 응답 검증 실패: {label} ({e})") from None
+    translation = final_translation(answers)
+    if any(alt.strip() == translation.strip() for alts in alternatives.values() for _, alt in alts):
+        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 대안 번역")
+    return answers, alternatives, translation
 
 
 def _checked_span_answers(answers, spans, allowed, numbers):
-    """두 검증이 함께 쓰는 판정 검증. numbers가 None이면 첫 응답이라 대안을 보지 않는다."""
+    """첫 응답과 다시 묻기·재판정이 함께 쓰는 판정 검증. 하나라도 틀리거나 빠지면
+    SpanAnswersRejected. numbers가 None이면 첫 응답이라 대안을 보지 않는다.
+    """
     if not isinstance(answers, list):
         raise SpanAnswersRejected("not_list")
     judged, alternatives = {}, {}
@@ -169,8 +182,6 @@ def _checked_span_answers(answers, spans, allowed, numbers):
                 "function_tags": function_tags(new_usage.get("function_tags")),
             }
             judged[span_id] = (SpanMatch.State.UNFOUND, None, new_usage)
-        else:
-            raise SpanAnswersRejected("verdict_not_allowed", span=span, verdict=shown)
     if len(judged) != len(spans):
         raise SpanAnswersRejected("missing_spans", answered=f"{len(judged)}/{len(spans)}")
     return [judged[span_id] for span_id in range(len(spans))], alternatives

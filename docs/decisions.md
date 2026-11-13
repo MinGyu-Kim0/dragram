@@ -515,7 +515,7 @@ OpenAI만 쓴다. 모델은 `OPENAI_MODEL`(현재 `gpt-6-luna`), 추론 강도�
 - 근거: 이력 9절 · 28절 5 · 51·53절 · 66절 3 · NFR-12 · ADR 0005
 
 ### NDJSON 스트림(ASGI)
-분석 응답은 POST 한 번의 `application/x-ndjson` 스트림이고 서버는 uvicorn이다. 요청 쪽은 먼저 구독한 뒤 선점·큐 넣기를 한다. 운영 앞단 Caddy는 API 응답을 모아 두지 않고 바로 넘기고(`flush_interval -1`), 응답 대기 시간 제한이 기본으로 없어 요청 연결 대기 130초를 끊지 않는다.
+분석 응답은 POST 한 번의 `application/x-ndjson` 스트림이고 서버는 uvicorn이다. 요청 쪽은 먼저 구독한 뒤 선점·큐 넣기를 한다. 운영 앞단 Caddy는 이 스트림을 모아 두지 않고 130초 대기 중에 끊지도 않는다(설정은 ADR 0005).
 - 이유: EventSource는 POST·Bearer를 못 쓰고, 비동기 서버는 기다리는 연결에 묶이지 않는다.
 - 근거: 이력 31절 21 · ADR 0005 · #192 · `infra/Caddyfile`
 
@@ -594,10 +594,10 @@ LLM 스트림 60초(조각 사이 30초), 요청 하나의 LLM 대기 110초(소
 ### 운영 HTTPS와 쿠키 보안
 운영(`DJANGO_HTTPS=true`)에서는 앞단 Caddy가 HTTPS를 끝내고 `X-Forwarded-Proto`를 넘긴다. Django는 그 헤더로 http 요청을 https로 보내고, 세션·CSRF 쿠키를 `Secure`로 두며 HSTS(1년, 하위 도메인 포함, preload)를 켠다. 컨테이너 상태 확인(`/api/health/`)만 Caddy를 거치지 않고 http로 받는다.
 - 이유: backend는 Caddy 뒤에만 열려 있어 그 헤더를 믿을 수 있다.
-- 근거: 이력 49절 '범위 밖' · #192 · #193 · `backend/config/settings.py`
+- 근거: 이력 49절 '범위 밖' · #192 · `backend/config/settings.py`
 
 ### 스토어용 확장 ID
-스토어 빌드(`npm run zip:store`)는 개발용 `key`를 넣지 않아 확장 ID를 스토어가 정하고, API·웹 주소가 https가 아니면 빌드를 멈춘다. 스토어가 정한 ID를 서버 `.env`의 `VITE_EXTENSION_ID`에 넣고 다시 배포해야 운영 웹이 확장에 연결한다. 개발 빌드는 그대로 개발용 ID로 고정한다.
+스토어 빌드는 개발용 `key`를 넣지 않아 확장 ID를 스토어가 정하고, 운영 웹은 그 ID(`VITE_EXTENSION_ID`)로 다시 배포해야 확장에 연결한다. 개발 빌드는 개발용 ID로 고정한다. 빌드·반영 절차는 `extension/AGENTS.md`를 따른다.
 - 근거: 이력 49절 '범위 밖' · #197 · `extension/AGENTS.md`
 
 ### 이용약관 동의 후 가입

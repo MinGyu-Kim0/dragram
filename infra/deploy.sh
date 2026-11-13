@@ -41,9 +41,20 @@ ssh "$host" bash -s -- "$image" <<'REMOTE'
 set -euo pipefail
 image=$1
 cd ~/dragram
+# 마이그레이션이나 up이 실패하면 current를 이전 이미지로 되돌린다. 그대로 두면 나중에 누가
+# 컨테이너를 다시 만들 때 마이그레이션되지 않은 DB에 새 코드가 뜬다(README '되돌리기').
+previous=$(docker image inspect -f '{{.Id}}' dragram-backend:current 2>/dev/null </dev/null || true)
 docker tag "$image" dragram-backend:current
-docker compose run --rm -T backend python manage.py migrate </dev/null
-docker compose up -d --remove-orphans </dev/null
+if ! { docker compose run --rm -T backend python manage.py migrate </dev/null &&
+  docker compose up -d --remove-orphans </dev/null; }; then
+  if [ -n "$previous" ]; then
+    docker tag "$previous" dragram-backend:current </dev/null
+  else
+    docker rmi dragram-backend:current </dev/null
+  fi
+  echo "마이그레이션 또는 up 실패. dragram-backend:current를 이전 이미지(${previous:-없음})로 되돌렸다." >&2
+  exit 1
+fi
 # admin 정적 파일은 이미지가 빌드할 때 모아 둔 것을 꺼낸다.
 rm -rf www/static.new && mkdir www/static.new
 docker run --rm --entrypoint tar "$image" -C /app/staticfiles -c . </dev/null | tar -x -C www/static.new

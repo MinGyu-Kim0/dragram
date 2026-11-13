@@ -79,10 +79,10 @@ export function useSentenceAnalysis() {
       }));
     };
     // 같은 문장은 한 번만 분석하고, 그 문장이 나온 모든 페이지에 결과를 넣는다.
-    const indicesByText = new Map<string, number[]>();
-    request.sentences.forEach(({ text }, index) => {
-      indicesByText.set(text, [...(indicesByText.get(text) ?? []), index]);
-    });
+    const indicesByText = Map.groupBy(
+      request.sentences.keys(),
+      (index) => request.sentences[index]!.text,
+    );
     const analyze = (text: string) => {
       const indices = indicesByText.get(text)!;
       const saveAll = (result: SentenceResult | undefined) =>

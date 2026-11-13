@@ -21,7 +21,7 @@ import {
   type SentenceResult,
 } from "./sentence-result";
 import type { NameActions } from "./Words";
-import { wordRowCount } from "./word-groups";
+import { groupWords } from "./word-groups";
 
 // 문장 한 페이지: 원문 카드(원문, 번역) → 문법·단어 탭 → 탭 내용
 export function SentenceView({
@@ -168,7 +168,7 @@ export function SentenceView({
   }));
   // 단어 개수도 보이는 행 수다(합친 행은 한 행, #211).
   const wordCount = tabbed
-    ? wordRowCount(text, tabbed.words, names, analysis?.name_spans)
+    ? groupWords(text, tabbed.words, names, analysis?.name_spans).length
     : 0;
   const ruby = translation?.ruby ?? [];
   const wordList = {

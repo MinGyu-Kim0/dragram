@@ -53,13 +53,20 @@ def _attempt(started):
     return started.isoformat() if started else None
 
 
-def _fail(analysis_id, started, code):
-    """그 시도(started)로 처리 중인 분석 행을 실패로 두고 알린다. 다음 요청이 다시 선점한다."""
-    SentenceAnalysis.objects.filter(
+def _processing(analysis_id, started):
+    """그 시도(started)로 처리 중인 분석 행. 그사이 다시 선점됐거나 끝났으면 비어 있다(#99)."""
+    return SentenceAnalysis.objects.filter(
         pk=analysis_id,
         status=SentenceAnalysis.Status.PROCESSING,
         processing_started_at=started,
-    ).update(status=SentenceAnalysis.Status.FAILED, processing_translation_ko=None)
+    )
+
+
+def _fail(analysis_id, started, code):
+    """그 시도(started)로 처리 중인 분석 행을 실패로 두고 알린다. 다음 요청이 다시 선점한다."""
+    _processing(analysis_id, started).update(
+        status=SentenceAnalysis.Status.FAILED, processing_translation_ko=None
+    )
     sentence_hash = (
         SentenceAnalysis.objects.filter(pk=analysis_id)
         .values_list("sentence_hash", flat=True)
@@ -132,11 +139,7 @@ class Worker:
         if existing is None or existing.pk != analysis_id:
             raise RuntimeError(f"분석 텍스트의 해시가 분석 행과 다름: analysis_id={analysis_id}")
         # 세대 번호(Sentence가 읽음)를 읽은 뒤에 본다. 그 사이 다시 선점됐으면 여기서 걸러진다.
-        if not SentenceAnalysis.objects.filter(
-            pk=analysis_id,
-            status=SentenceAnalysis.Status.PROCESSING,
-            processing_started_at=self.started,
-        ).exists():
+        if not _processing(analysis_id, self.started).exists():
             # 다시 선점된 뒤 큐에서 늦게 꺼낸 옛 작업이다. 새 시도의 행과 소식을 건드리지 않는다.
             self.job.end("skipped")
             return
@@ -258,11 +261,9 @@ class Worker:
 
     def share_translation(self, translation):
         """검증한 번역을 먼저 저장하고 알린다. 늦게 붙은 요청은 저장된 번역을 읽는다."""
-        SentenceAnalysis.objects.filter(
-            pk=self.sentence.existing.pk,
-            status=SentenceAnalysis.Status.PROCESSING,
-            processing_started_at=self.started,
-        ).update(processing_translation_ko=translation)
+        _processing(self.sentence.existing.pk, self.started).update(
+            processing_translation_ko=translation
+        )
         self.job.mark("translation")
         self.publish({"type": "translation", "translation_ko": translation})
 

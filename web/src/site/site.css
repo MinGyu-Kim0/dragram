@@ -484,35 +484,6 @@
   line-height: 1.7;
 }
 
-@media (max-width: 480px) {
-  .site-header nav {
-    display: none;
-  }
-
-  .account-panel .narrow-only {
-    display: inline-flex;
-    align-items: center;
-    min-height: 44px;
-  }
-
-  .site-inner {
-    padding: 0 16px;
-  }
-
-  .hero {
-    padding-top: 40px;
-    gap: 32px;
-  }
-
-  .hero h1 {
-    font-size: 32px;
-  }
-
-  .document {
-    padding: 16px 16px 32px;
-  }
-}
-
 .document {
   max-width: 880px;
   margin: 0 auto;
@@ -597,4 +568,34 @@
 .site footer .footer-credits {
   margin-top: 10px;
   font-size: 12px;
+}
+
+/* 좁은 화면 규칙은 기본 규칙을 덮어야 하므로 파일 맨 끝에 둔다(#422). */
+@media (max-width: 480px) {
+  .site-header nav {
+    display: none;
+  }
+
+  .account-panel .narrow-only {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .site-inner {
+    padding: 0 16px;
+  }
+
+  .hero {
+    padding-top: 40px;
+    gap: 32px;
+  }
+
+  .hero h1 {
+    font-size: 32px;
+  }
+
+  .document {
+    padding: 16px 16px 32px;
+  }
 }

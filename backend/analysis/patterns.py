@@ -216,9 +216,17 @@ def register(
     PatternMorpheme.objects.bulk_create(
         PatternMorpheme(pattern=pattern, seq=seq, **c._asdict()) for seq, c in enumerate(conditions)
     )
-    usage = GrammarUsage.objects.create(
+    usage = _create_llm_usage(
+        pattern, usage_name, explanation_ko, example_ja, korean_equivalent, function_tags
+    )
+    return pattern, usage
+
+
+def _create_llm_usage(pattern, name, explanation_ko, example_ja, korean_equivalent, function_tags):
+    """LLM이 답한 미검수 용법을 만든다. 패턴 등록과 용법 추가가 같이 쓴다."""
+    return GrammarUsage.objects.create(
         pattern=pattern,
-        name=usage_name,
+        name=name,
         explanation_ko=explanation_ko,
         example_ja=example_ja,
         # LLM이 용법과 함께 답했으므로 비었어도 채운 것이다.
@@ -231,7 +239,6 @@ def register(
         status=ReviewStatus.PENDING,
         origin=GrammarUsage.Origin.LLM,
     )
-    return pattern, usage
 
 
 def filled_status(value):
@@ -346,19 +353,8 @@ def add_usage(
     try:
         # 같은 이름을 동시에 더하면 유일성 제약에 걸린다. 바깥 트랜잭션은 살려 둔다.
         with transaction.atomic():
-            usage = GrammarUsage.objects.create(
-                pattern=pattern,
-                name=name,
-                explanation_ko=explanation_ko,
-                example_ja=example_ja,
-                korean_equivalent=korean_equivalent,
-                korean_equivalent_filled=True,
-                korean_equivalent_status=filled_status(korean_equivalent),
-                function_tags=list(function_tags),
-                function_tags_filled=True,
-                function_tags_status=filled_status(function_tags),
-                status=ReviewStatus.PENDING,
-                origin=GrammarUsage.Origin.LLM,
+            usage = _create_llm_usage(
+                pattern, name, explanation_ko, example_ja, korean_equivalent, function_tags
             )
     except IntegrityError:
         return None, False

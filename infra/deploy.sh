@@ -47,12 +47,13 @@ previous=$(docker image inspect -f '{{.Id}}' dragram-backend:current 2>/dev/null
 docker tag "$image" dragram-backend:current
 if ! { docker compose run --rm -T backend python manage.py migrate </dev/null &&
   docker compose up -d --remove-orphans </dev/null; }; then
+  # 되돌리기마저 실패해도 원인이 보이게 먼저 알린다.
+  echo "마이그레이션 또는 up 실패. dragram-backend:current를 이전 이미지(${previous:-없음})로 되돌린다." >&2
   if [ -n "$previous" ]; then
     docker tag "$previous" dragram-backend:current </dev/null
   else
     docker rmi dragram-backend:current </dev/null
   fi
-  echo "마이그레이션 또는 up 실패. dragram-backend:current를 이전 이미지(${previous:-없음})로 되돌렸다." >&2
   exit 1
 fi
 # admin 정적 파일은 이미지가 빌드할 때 모아 둔 것을 꺼낸다.

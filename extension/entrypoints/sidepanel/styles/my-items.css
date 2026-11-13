@@ -18,9 +18,12 @@
   margin-top: 8px;
 }
 
-.item-actions button:not(.text-button) {
+/* 테두리 알약 버튼: 이름 지정 버튼 줄(names.css), 카드 아래 버튼 줄, 숨긴 카드의 복원 */
+.name-actions button:not(.text-button, .primary-button),
+.item-actions button:not(.text-button),
+.hidden-cards li button {
   min-height: 44px;
-  padding: 0 14px;
+  padding: 0 12px;
   border: 1px solid var(--color-border-control);
   border-radius: 999px;
   background: var(--color-surface);
@@ -28,6 +31,10 @@
   font: inherit;
   font-size: 13px;
   cursor: pointer;
+}
+
+.item-actions button:not(.text-button) {
+  padding: 0 14px;
 }
 
 .item-actions .item-remove {
@@ -93,15 +100,6 @@
 
 .hidden-cards li button {
   margin-left: auto;
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border-control);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
 }
 
 .hidden-chip {

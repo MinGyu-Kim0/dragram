@@ -18,16 +18,11 @@ from django.db import IntegrityError, transaction
 from django.http import HttpResponse, StreamingHttpResponse
 
 from analysis import jobs, limits, llm, patterns, stream
-from analysis.answers import (
-    FIRST_VERDICTS,
-    SpanAnswersRejected,
-    _validate_recheck_answers,
-    reject_quotes,
-)
+from analysis.answers import FIRST_VERDICTS, _validate_judgement, reject_quotes
 from analysis.examples import _check_examples
 from analysis.models import GrammarPattern, GrammarUsage, SentenceAnalysis, SpanMatch, UsageLog
 from analysis.presenter import _review_status, _with_parts
-from analysis.sentence import Sentence, _is_fresh, _llm_spans
+from analysis.sentence import Sentence, _decided_span, _is_fresh, _llm_spans
 from analysis.span_rows import (
     _basis_changed,
     _is_place_conflict,
@@ -37,7 +32,7 @@ from analysis.span_rows import (
 )
 from analysis.stream import _NDJSON, _ndjson
 from analysis.usage import RequestUsage
-from errors import AnalysisError, BusinessError
+from errors import BusinessError
 from errors.handler import log_business_error
 
 logger = logging.getLogger(__name__)
@@ -269,10 +264,9 @@ def rematch_decided(sentence, new_closed, grown=()):
         if first is None or last is None or first > last:
             continue
         if _review_status(span.pattern, span.usage) is not None:
-            decided.append({"start_token_id": first, "end_token_id": last, "name": span.usage.name})
+            decided.append(_decided_span(first, last, span.usage))
     decided += [
-        {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
-        for span, _, usage, _ in new_closed
+        _decided_span(span.start_token, span.end_token, usage) for span, _, usage, _ in new_closed
     ]
     return decided
 
@@ -298,22 +292,15 @@ def judge_rematched(sentence, event_of, new_closed, new_spans, usage, grown=()):
         rematch_decided(sentence, new_closed, grown),
         _llm_spans(span_list),
     )
-    if not isinstance(result, dict):
-        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 재판정")
-    try:
-        checked = _validate_recheck_answers(
-            result.get("spans"), span_list, [FIRST_VERDICTS] * len(span_list), sentence.numbers
-        )
-    except SpanAnswersRejected as e:
-        raise BusinessError(AnalysisError.FAILED, f"LLM 응답 검증 실패: 재판정 ({e})") from None
-    answers, alternatives = checked
-    # 대안 번역이 저장 번역과 같으면 갈린 해석이 아니다.
-    if any(
-        alt.strip() == cached.translation_ko.strip()
-        for alts in alternatives.values()
-        for _, alt in alts
-    ):
-        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 대안 번역")
+    # 번역은 바꾸지 않으므로 대안 번역은 저장 번역과 비교한다.
+    answers, alternatives, _ = _validate_judgement(
+        result,
+        span_list,
+        [FIRST_VERDICTS] * len(span_list),
+        sentence.numbers,
+        "재판정",
+        lambda _: cached.translation_ko,
+    )
     validated = {"new_patterns": [], "span_list": span_list, "spans": answers}
     reject_quotes(validated, sentence)
     new_keys = {sentence.span_key(span) for span in new_spans}

@@ -1,16 +1,10 @@
 """첫 응답의 새 구문 정리와, 해석 갈림·미확정 구간·같은 조건 패턴을 한 번에 다시 묻기."""
 
 from analysis import morphology, patterns
-from analysis.answers import (
-    FIRST_VERDICTS,
-    RECHECK_VERDICTS,
-    SpanAnswersRejected,
-    _is_text,
-    _validate_recheck_answers,
-)
+from analysis.answers import FIRST_VERDICTS, RECHECK_VERDICTS, _is_text, _validate_judgement
 from analysis.models import ReviewStatus, SpanMatch
 from analysis.normalize import has_all_placeholders
-from analysis.sentence import _llm_spans, _pattern_statuses
+from analysis.sentence import _decided_span, _llm_spans, _pattern_statuses
 from errors import AnalysisError, BusinessError
 
 
@@ -124,7 +118,7 @@ def ask_again(sentence, client, validated, job_outdated):
     llm_spans = _llm_spans(recheck_spans + asked)
     # 해석이 정해진 구간은 그 해석대로 번역하게 알린다(답은 받지 않는다).
     decided = [
-        {"start_token_id": span.start_token, "end_token_id": span.end_token, "name": usage.name}
+        _decided_span(span.start_token, span.end_token, usage)
         for span, (state, usage, _) in zip(validated["span_list"], validated["spans"], strict=True)
         if state == SpanMatch.State.DECIDED
     ]
@@ -136,30 +130,27 @@ def ask_again(sentence, client, validated, job_outdated):
         llm_spans[: len(recheck)],
         llm_spans[len(recheck) :],
     )
-    if not isinstance(result, dict):
-        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 다시 묻기")
-    try:
-        checked = _validate_recheck_answers(
-            result.get("spans"),
-            recheck_spans + asked,
-            [RECHECK_VERDICTS] * len(recheck) + [FIRST_VERDICTS] * len(asked),
-            s.numbers,
-        )
-    except SpanAnswersRejected as e:
-        raise BusinessError(AnalysisError.FAILED, f"LLM 응답 검증 실패: 다시 묻기 ({e})") from None
-    answers, new_alternatives = checked
-    translation = validated["translation_ko"]
-    if any(
-        _reading_changed(validated["spans"][index], answers[k]) for k, index in enumerate(recheck)
-    ):
+
+    def final_translation(answers):
+        """다시 물은 구간의 주 해석이 바뀌었을 때만 다시 받은 번역을 쓴다."""
+        if not any(
+            _reading_changed(validated["spans"][index], answers[k])
+            for k, index in enumerate(recheck)
+        ):
+            return validated["translation_ko"]
         translation = result.get("translation_ko")
         if not _is_text(translation) or not has_all_placeholders(translation, s.numbers):
             raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 다시 묻기 번역")
-    # 대안 번역이 최종 번역과 같으면 갈린 해석이 아니다.
-    if any(
-        alt.strip() == translation.strip() for alts in new_alternatives.values() for _, alt in alts
-    ):
-        raise BusinessError(AnalysisError.FAILED, "LLM 응답 검증 실패: 대안 번역")
+        return translation
+
+    answers, new_alternatives, translation = _validate_judgement(
+        result,
+        recheck_spans + asked,
+        [RECHECK_VERDICTS] * len(recheck) + [FIRST_VERDICTS] * len(asked),
+        s.numbers,
+        "다시 묻기",
+        final_translation,
+    )
     spans = list(validated["spans"])
     # 대안은 판정할 후보 구간 목록의 순번으로 둔다.
     positions = recheck + list(range(len(spans), len(spans) + len(asked)))

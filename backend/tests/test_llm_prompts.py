@@ -1,4 +1,8 @@
-"""용도별 프롬프트·스키마 모듈. 지시문 문구가 아니라 용도마다 지켜야 할 조립 규칙을 본다."""
+"""용도별 프롬프트·스키마 모듈. 용도마다 지켜야 할 조립 규칙을 보고, 공용 문단을 나눠 쓰는
+첫 분석·판정 지시문만 최종 문자열을 고정한다.
+"""
+
+import hashlib
 
 import pytest
 
@@ -14,6 +18,7 @@ from analysis.llm_rewrite import REWRITE_SCHEMA
 from analysis.llm_rules import (
     FUNCTION_TAGS_RULE,
     KOREAN_EQUIVALENT_RULE,
+    NUMBER_RULES,
     SPAN_VERDICTS,
     span_answers_schema,
 )
@@ -64,6 +69,26 @@ def test_every_object_requires_all_its_fields_and_forbids_others(schema):
 def test_prompts_that_write_usages_share_the_same_rules(instructions):
     assert KOREAN_EQUIVALENT_RULE in instructions
     assert FUNCTION_TAGS_RULE in instructions
+
+
+@pytest.mark.parametrize(
+    ("instructions", "digest"),
+    [
+        (
+            INSTRUCTIONS + NUMBER_RULES,
+            "0b304ea518e45e0285078e48a296052586cbec97d2e5f3a46aa92ace017dabf9",
+        ),
+        (
+            JUDGE_INSTRUCTIONS + NUMBER_RULES,
+            "8012576d0c6eeb4a33c9533cc6ffe287155b6f424c0c795db5350c87c5e7db46",
+        ),
+    ],
+    ids=["analyze", "judge"],
+)
+def test_prompts_stay_the_same_letter_for_letter(instructions, digest):
+    # 공용 문단을 옮기는 정리가 보내는 글을 바꾸지 않게 고정한다(#430). 문구를 일부러 바꿀 때만
+    # 이 값을 함께 고친다.
+    assert hashlib.sha256(instructions.encode()).hexdigest() == digest
 
 
 def test_translation_is_asked_again_only_when_rechecking():

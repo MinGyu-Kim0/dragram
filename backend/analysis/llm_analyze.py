@@ -1,9 +1,11 @@
 """첫 분석의 지시문과 응답 스키마."""
 
 from analysis.llm_rules import (
+    COLLOQUIAL_RULE,
     FUNCTION_TAGS_RULE,
     FUNCTION_TAGS_SCHEMA,
     KOREAN_EQUIVALENT_RULE,
+    USAGE_NAME_RULE,
     span_answers_schema,
 )
 
@@ -31,11 +33,9 @@ For each span give its span_id and a verdict:
   what you can judge.
 Use null for candidate_id unless the verdict is "usage" or "divergent", and null for new_usage
 unless the verdict is "unfound". Use only candidate ids given for that span.
-A span with colloquial_of matched a colloquial form (such as ちゃう) of that standard pattern
-(such as てしまう), and its candidates are usages of the standard pattern. For such a span,
-explain a new usage as a usage of the standard pattern in general, and write its example_ja
-with the standard form, not the colloquial form.
-
+"""
+    + COLLOQUIAL_RULE
+    + """
 In new_patterns, list grammar points of the sentence that no span explains: particles,
 auxiliary verbs, conjugations and grammatical expressions a learner needs. Do not list plain
 content words or grammar that a span already explains. decided_spans are grammar points already
@@ -62,9 +62,9 @@ even if a span already covers に (なる marked "lemma"). For each one:
   Cover the pattern's valid attachment forms, not this sentence's surface. Do not quote the user's
   words or names. Use null if no reliable general formula can be given. Use at most 255 characters.
 - usage_name: a short Korean name of this usage, such as 진행.
-  Divide usages of a grammar point by its general meanings, as a dictionary or grammar book
-  does (for で: place, means, cause, scope, state). Never name a usage after the topic or
-  content of this sentence (such as a score or a match result).
+"""
+    + USAGE_NAME_RULE
+    + """
 - explanation_ko: a Korean explanation of the usage in general, so that it fits every sentence
   with this usage. Do not explain this sentence or its content. For a pattern of one particle
   or auxiliary verb, explain what that word itself does, not the meaning of the word after it.

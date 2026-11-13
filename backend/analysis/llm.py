@@ -147,32 +147,19 @@ class OpenAILLMClient:
         final, success, received, sent = None, False, False, timing.clock()
         last_prefix = None
         try:
-            stream = self._client.responses.create(
-                timeout=min(TIMEOUT_SECONDS, self._deadline - now),
-                model=settings.OPENAI_MODEL,
-                reasoning={"effort": settings.OPENAI_REASONING_EFFORT},
-                # 이어 쓰기를 하지 않으므로 OpenAI에 응답 상태를 남기지 않는다.
-                store=False,
-                instructions=INSTRUCTIONS + NUMBER_RULES,
-                input=json.dumps(
-                    {
-                        "sentence": sentence,
-                        "tokens": tokens,
-                        "spans": spans,
-                        "decided_spans": decided_spans,
-                        "words": words,
-                        "unknown_words": unknown_words,
-                    },
-                    ensure_ascii=False,
-                ),
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": "sentence_analysis",
-                        "schema": RESPONSE_SCHEMA,
-                        "strict": True,
-                    }
+            stream = self._create(
+                min(TIMEOUT_SECONDS, self._deadline - now),
+                INSTRUCTIONS + NUMBER_RULES,
+                {
+                    "sentence": sentence,
+                    "tokens": tokens,
+                    "spans": spans,
+                    "decided_spans": decided_spans,
+                    "words": words,
+                    "unknown_words": unknown_words,
                 },
+                "sentence_analysis",
+                RESPONSE_SCHEMA,
                 stream=True,
             )
             # 사이드 패널이 연결을 끊어 중간에 멈춰도 OpenAI 연결을 닫는다.
@@ -348,22 +335,8 @@ class OpenAILLMClient:
             raise BusinessError(AnalysisError.FAILED, f"LLM {label} 전에 요청 시간 초과")
         response, success, sent = None, False, timing.clock()
         try:
-            response = self._client.responses.create(
-                timeout=min(TIMEOUT_SECONDS, remaining),
-                model=settings.OPENAI_MODEL,
-                reasoning={"effort": settings.OPENAI_REASONING_EFFORT},
-                # 이어 쓰기를 하지 않으므로 OpenAI에 응답 상태를 남기지 않는다.
-                store=False,
-                instructions=instructions,
-                input=json.dumps(payload, ensure_ascii=False),
-                text={
-                    "format": {
-                        "type": "json_schema",
-                        "name": name,
-                        "schema": schema,
-                        "strict": True,
-                    }
-                },
+            response = self._create(
+                min(TIMEOUT_SECONDS, remaining), instructions, payload, name, schema
             )
             if response.status != "completed":
                 raise BusinessError(AnalysisError.FAILED, f"LLM {label} 실패: {response.status}")
@@ -378,6 +351,24 @@ class OpenAILLMClient:
             raise failure(AnalysisError.FAILED, f"LLM {label} 호출 실패") from e
         finally:
             self._record_call(purpose, response, success, attempt, sent)
+
+    def _create(self, timeout, instructions, payload, name, schema, **extra):
+        """구조화된 출력 요청을 보낸다. 스트림 호출과 일반 호출이 같은 인자로 묻는다. extra는
+        stream처럼 호출마다 더하는 인자다.
+        """
+        return self._client.responses.create(
+            timeout=timeout,
+            model=settings.OPENAI_MODEL,
+            reasoning={"effort": settings.OPENAI_REASONING_EFFORT},
+            # 이어 쓰기를 하지 않으므로 OpenAI에 응답 상태를 남기지 않는다.
+            store=False,
+            instructions=instructions,
+            input=json.dumps(payload, ensure_ascii=False),
+            text={
+                "format": {"type": "json_schema", "name": name, "schema": schema, "strict": True}
+            },
+            **extra,
+        )
 
     def _record_call(self, purpose, response, success, attempt, sent):
         """보낸 호출 하나를 기록한다. response는 SDK 응답이고 받지 못했으면 None이다. sent는 보내기

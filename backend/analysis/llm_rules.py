@@ -26,6 +26,21 @@ FUNCTION_TAGS_RULE = """\
 # 기능 태그 답. 허용 목록 밖 값은 서버도 버린다(answers.function_tags).
 FUNCTION_TAGS_SCHEMA = {"type": "array", "items": {"type": "string", "enum": FunctionTag.values}}
 
+# 새 용법 이름을 짓는 규칙. 첫 분석과 다시 묻기·재판정이 같은 규칙을 쓴다. 뒤에 글이 이어지는
+# 곳이 있어 끝에 줄바꿈을 두지 않는다.
+USAGE_NAME_RULE = """\
+  Divide usages of a grammar point by its general meanings, as a dictionary or grammar book
+  does (for で: place, means, cause, scope, state). Never name a usage after the topic or
+  content of this sentence (such as a score or a match result)."""
+
+# 회화체 구간(#63)의 새 용법은 원형의 용법으로 쓴다. 첫 분석과 다시 묻기·재판정이 같은 규칙을 쓴다.
+COLLOQUIAL_RULE = """\
+A span with colloquial_of matched a colloquial form (such as ちゃう) of that standard pattern
+(such as てしまう), and its candidates are usages of the standard pattern. For such a span,
+explain a new usage as a usage of the standard pattern in general, and write its example_ja
+with the standard form, not the colloquial form.
+"""
+
 # 번역(다시 묻기의 번역과 대안 번역 포함)에 숫자 자리표시자를 옮기는 규칙
 NUMBER_RULES = """\
 Numbers in the sentence are replaced with placeholders such as ⟨N1⟩ and ⟨N2⟩.

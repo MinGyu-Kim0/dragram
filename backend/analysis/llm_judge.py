@@ -1,6 +1,12 @@
 """다시 묻기·재판정의 지시문과 응답 스키마."""
 
-from analysis.llm_rules import FUNCTION_TAGS_RULE, KOREAN_EQUIVALENT_RULE, span_answers_schema
+from analysis.llm_rules import (
+    COLLOQUIAL_RULE,
+    FUNCTION_TAGS_RULE,
+    KOREAN_EQUIVALENT_RULE,
+    USAGE_NAME_RULE,
+    span_answers_schema,
+)
 
 # 첫 응답의 해석 갈림·미확정 구간과, 같은 형태소 조건의 패턴이 이미 있는 구간을 한 번에 다시
 # 묻는 지침(#40). 이 호출이 마지막이라 여기서 받은 해석 갈림·미확정은 다시 묻지 않는다.
@@ -20,9 +26,9 @@ Answer every span in recheck_spans and in spans, each by its span_id. Give a ver
   usage in general so that it fits every sentence with this usage, not of this sentence
   (explanation_ko), a new short Japanese example sentence of your own with the same usage
   (example_ja), and korean_equivalent and function_tags as described below.
-  Divide usages of a grammar point by its general meanings, as a dictionary or grammar book
-  does (for で: place, means, cause, scope, state). Never name a usage after the topic or
-  content of this sentence (such as a score or a match result). For a pattern of one particle
+"""
+    + USAGE_NAME_RULE
+    + """ For a pattern of one particle
   or auxiliary verb, explain what that word itself does, not the meaning of the word after it.
 - "divergent": the sentence alone can really be read with more than one candidate. Give the
   candidate_id of the main reading and, in alternatives, each other candidate that also fits:
@@ -36,10 +42,9 @@ Use null for candidate_id unless the verdict is "usage" or "divergent", null for
 unless the verdict is "unfound", and null for alternatives unless the verdict is "divergent".
 Use only candidate ids given for that span. An alternative must be a candidate other than the
 main one, and its translation must differ from the translation of the whole sentence.
-A span with colloquial_of matched a colloquial form (such as ちゃう) of that standard pattern
-(such as てしまう), and its candidates are usages of the standard pattern. For such a span,
-explain a new usage as a usage of the standard pattern in general, and write its example_ja
-with the standard form, not the colloquial form.
+"""
+    + COLLOQUIAL_RULE
+    + """\
 If you receive recheck_spans, also return in translation_ko the Korean translation of the
 whole sentence with your main readings.
 In usage_name, explanation_ko and korean_equivalent, quote Japanese only from that span's own

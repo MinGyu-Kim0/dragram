@@ -60,6 +60,23 @@ def _example_problem(text):
     return None
 
 
+def _clean_test_cases(cases, expected):
+    """[{text, <expected>}] 목록의 모양과 예문을 검사한다. expected는 패턴이면 should_match,
+    판별 규칙이면 should_apply다.
+    """
+    if not isinstance(cases, list):
+        raise forms.ValidationError(f"[{{text, {expected}}}] 목록이어야 합니다")
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != {"text", expected}:
+            raise forms.ValidationError(f"항목마다 text와 {expected}만 둡니다")
+        if not isinstance(case[expected], bool):
+            raise forms.ValidationError(f"{expected}는 true 또는 false여야 합니다")
+        problem = _example_problem(case["text"])
+        if problem:
+            raise forms.ValidationError(problem)
+    return cases
+
+
 class _TestCasesField(forms.JSONField):
     """오류 화면에서 입력을 되보일 때, UTF-8로 쓸 수 없는 문자는 \\u 이스케이프로 보인다."""
 
@@ -93,17 +110,7 @@ class GrammarPatternForm(forms.ModelForm):
         return value or None
 
     def clean_test_cases(self):
-        cases = self.cleaned_data["test_cases"]
-        if not isinstance(cases, list):
-            raise forms.ValidationError("[{text, should_match}] 목록이어야 합니다")
-        for case in cases:
-            if not isinstance(case, dict) or set(case) != {"text", "should_match"}:
-                raise forms.ValidationError("항목마다 text와 should_match만 둡니다")
-            if not isinstance(case["should_match"], bool):
-                raise forms.ValidationError("should_match는 true 또는 false여야 합니다")
-            problem = _example_problem(case["text"])
-            if problem:
-                raise forms.ValidationError(problem)
+        cases = _clean_test_cases(self.cleaned_data["test_cases"], "should_match")
         # admin 변경 화면은 한 트랜잭션이라, 여기서 잠근 패턴을 저장(save_model)까지 붙든다.
         refusal = review.test_cases_refusal(self.instance, cases)
         if refusal:
@@ -525,18 +532,7 @@ class UsageRuleForm(forms.ModelForm):
         return condition
 
     def clean_test_cases(self):
-        cases = self.cleaned_data["test_cases"]
-        if not isinstance(cases, list):
-            raise forms.ValidationError("[{text, should_apply}] 목록이어야 합니다")
-        for case in cases:
-            if not isinstance(case, dict) or set(case) != {"text", "should_apply"}:
-                raise forms.ValidationError("항목마다 text와 should_apply만 둡니다")
-            if not isinstance(case["should_apply"], bool):
-                raise forms.ValidationError("should_apply는 true 또는 false여야 합니다")
-            problem = _example_problem(case["text"])
-            if problem:
-                raise forms.ValidationError(problem)
-        return cases
+        return _clean_test_cases(self.cleaned_data["test_cases"], "should_apply")
 
     def clean(self):
         cleaned = super().clean()

@@ -1,22 +1,8 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { fakeBrowser } from "wxt/testing/fake-browser";
+import { expect, test } from "vitest";
 import { LoginRequired } from "./api";
-import { loadToken, saveToken } from "./auth";
+import { loadToken } from "./auth";
 import { fetchConnection } from "./connections";
-
-beforeEach(async () => {
-  fakeBrowser.reset();
-  await saveToken("extension-token");
-});
-afterEach(() => vi.unstubAllGlobals());
-
-function respond(status: number, result: object) {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValue(new Response(JSON.stringify(result), { status }));
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
+import { respond } from "./test-support";
 
 test("패턴 ID와 확장 토큰으로만 요청하고 저장된 접속 정보를 받는다", async () => {
   const result = {

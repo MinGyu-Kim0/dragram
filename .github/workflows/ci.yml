@@ -154,8 +154,8 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
-      - run: npm run typecheck
       - run: npm test
+      # build가 tsc -b로 타입 검사를 함께 한다(typecheck와 같은 명령).
       - run: npm run build
 
   extension:

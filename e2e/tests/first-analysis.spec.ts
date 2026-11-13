@@ -71,16 +71,16 @@ test("새 문장 첫 분석: DB 결과가 먼저 보이고 번역·판별 결과
   await expect(grammar.getByText("확인 중", { exact: true })).toHaveCount(0);
   // LLM이 만든 지식(미검수 패턴의 용법)은 '미검수'로, 승인된 지식은 배지 없이 보인다.
   await expect(card(checking)).toContainText("AI 생성·미검수");
-  // 승인된 카드 안의 '구성 문법' 하위 박스는 미검수 구성 패턴(예: て)일 수 있어, 그 배지는 빼고 센다.
+  // 승인된 카드 안 '구성 문법' 하위 박스(시드한 て, 대응 표현만 미검수)에는 배지가 붙는다.
+  // 그 배지는 빼고, 카드 자신의 배지만 센다.
+  const parts = card(confirmed).getByRole("list", { name: "구성 문법" });
+  await expect(parts).toContainText("AI 생성·미검수");
   const pendingBadges = (scope: Locator) =>
     scope.getByText("AI 생성·미검수", { exact: true }).count();
   await expect
     .poll(
       async () =>
-        (await pendingBadges(card(confirmed))) -
-        (await pendingBadges(
-          card(confirmed).getByRole("list", { name: "구성 문법" }),
-        )),
+        (await pendingBadges(card(confirmed))) - (await pendingBadges(parts)),
       { message: "승인된 카드 자신의 미검수 배지" },
     )
     .toBe(0);

@@ -10,6 +10,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "./App";
+import { json, stubFetch } from "./test-support";
 
 function open(path: string) {
   render(
@@ -29,13 +30,6 @@ const footer = () => within(screen.getByRole("contentinfo"));
 
 const ME = { email: "me@example.com", account: "42" };
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 let calls: string[];
 let responses: Record<string, () => Response | Promise<Response>>;
 
@@ -44,14 +38,7 @@ beforeEach(() => {
   responses = {
     "GET /api/auth/me/": () => json({ user: null }),
   };
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, init: RequestInit = {}) => {
-      const key = `${init.method ?? "GET"} ${url}`;
-      calls.push(key);
-      return responses[key]();
-    }),
-  );
+  stubFetch(responses, (url, method) => calls.push(`${method} ${url}`));
 });
 
 afterEach(() => {

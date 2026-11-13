@@ -1,30 +1,8 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { fakeBrowser } from "wxt/testing/fake-browser";
+import { expect, test } from "vitest";
 import { LoginRequired } from "./api";
-import { loadToken, saveToken } from "./auth";
+import { loadToken } from "./auth";
 import { fetchNames, isKana, removeName, saveName, toHiragana } from "./names";
-
-beforeEach(async () => {
-  fakeBrowser.reset();
-  await saveToken("extension-token");
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-function respond(status: number, body?: object) {
-  const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
-    Promise.resolve(
-      new Response(body && JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
-    ),
-  );
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
+import { respond } from "../utils-test-support";
 
 test("지정한 이름 목록을 확장 토큰으로 받는다", async () => {
   const fetchMock = respond(200, {

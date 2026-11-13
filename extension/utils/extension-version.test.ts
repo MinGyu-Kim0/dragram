@@ -1,29 +1,13 @@
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { expect, test, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
 import { analyzeSentence, logoutExtension, watchUpdateRequired } from "./api";
-import { loadToken, saveToken } from "./auth";
+import { loadToken } from "./auth";
 import { fetchConnection } from "./connections";
 import { fetchMyItems } from "./my-items";
 import { fetchNames } from "./names";
+import { respond } from "../utils-test-support";
 
 // 확장이 서버로 보내는 모든 요청에 확장 버전을 붙이고, 서버가 업데이트를 요구하면 알린다(#349).
-
-beforeEach(async () => {
-  fakeBrowser.reset();
-  await saveToken("extension-token");
-});
-
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
-
-function respond(status: number, body: object) {
-  const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
-    Promise.resolve(new Response(JSON.stringify(body), { status })),
-  );
-  vi.stubGlobal("fetch", fetchMock);
-  return fetchMock;
-}
 
 const requests = {
   분석: () => analyzeSentence("私は学生です。", () => {}),

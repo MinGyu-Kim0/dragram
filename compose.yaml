@@ -1,6 +1,33 @@
 name: dragram
 
 # 로컬 개발용. 값은 모두 개발 전용이며 운영에서 쓰지 않는다.
+
+# backend와 worker가 같은 이미지·설정으로 돈다. 서비스별로 다른 것만 서비스에 둔다.
+x-backend: &backend
+  build:
+    context: ./backend
+    target: dev
+  # 마운트한 폴더에 만든 파일(마이그레이션 등)이 root 소유가 되지 않게 한다.
+  user: "${UID:-1000}:${GID:-1000}"
+  env_file:
+    - path: .env
+      required: false
+  environment: &backend-env
+    DJANGO_SECRET_KEY: dev-only-not-secret
+    DJANGO_DEBUG: "true"
+    POSTGRES_DB: dragram
+    POSTGRES_USER: dragram
+    POSTGRES_PASSWORD: dragram-dev-only
+    POSTGRES_HOST: db
+    REDIS_URL: redis://redis:6379/0
+  volumes:
+    - ./backend:/app
+  depends_on:
+    db:
+      condition: service_healthy
+    redis:
+      condition: service_started
+
 services:
   db:
     image: postgres:17-alpine
@@ -22,62 +49,21 @@ services:
     command: redis-server --save "" --appendonly no
 
   backend:
-    build:
-      context: ./backend
-      target: dev
-    # 마운트한 폴더에 만든 파일(마이그레이션 등)이 root 소유가 되지 않게 한다.
-    user: "${UID:-1000}:${GID:-1000}"
-    env_file:
-      - path: .env
-        required: false
+    <<: *backend
     environment:
-      DJANGO_SECRET_KEY: dev-only-not-secret
-      DJANGO_DEBUG: "true"
+      <<: *backend-env
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
-      POSTGRES_DB: dragram
-      POSTGRES_USER: dragram
-      POSTGRES_PASSWORD: dragram-dev-only
-      POSTGRES_HOST: db
-      REDIS_URL: redis://redis:6379/0
     # 분석 스트림이 LLM 결과를 기다리는 동안 서버를 붙잡지 않도록 ASGI로 띄운다(ADR 0005).
     command: sh -c "python manage.py migrate && uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --reload"
-    volumes:
-      - ./backend:/app
     ports:
       - "8000:8000"
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
 
   # 분석 LLM 작업을 실행한다. 코드를 바꾸면 `docker compose restart worker`로 다시 띄운다.
   worker:
-    build:
-      context: ./backend
-      target: dev
-    user: "${UID:-1000}:${GID:-1000}"
-    env_file:
-      - path: .env
-        required: false
-    environment:
-      DJANGO_SECRET_KEY: dev-only-not-secret
-      DJANGO_DEBUG: "true"
-      POSTGRES_DB: dragram
-      POSTGRES_USER: dragram
-      POSTGRES_PASSWORD: dragram-dev-only
-      POSTGRES_HOST: db
-      REDIS_URL: redis://redis:6379/0
+    <<: *backend
     command: python manage.py analysis_worker
     # 운영처럼 꺼지면 다시 띄운다.
     restart: unless-stopped
-    volumes:
-      - ./backend:/app
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_started
 
   web:
     build: ./web

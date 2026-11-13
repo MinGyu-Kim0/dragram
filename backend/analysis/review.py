@@ -216,24 +216,23 @@ def approve_usage(usage):
     )
 
 
-@transaction.atomic
 def approve_korean_equivalent(usage):
     """미검수 대응 표현만 승인한다. 승인된 용법에 나중에 채운 값을 검수할 때 쓴다(#152)."""
-    _, usage = _locked_usage(usage)
-    if usage.korean_equivalent_status != ReviewStatus.PENDING:
-        raise Refused("미검수 대응 표현이 없습니다")
-    usage.korean_equivalent_status = ReviewStatus.APPROVED
-    usage.save(update_fields=["korean_equivalent_status", "updated_at"])
+    _approve_usage_field(usage, "korean_equivalent_status", "미검수 대응 표현이 없습니다")
+
+
+def approve_function_tags(usage):
+    """미검수 기능 태그만 승인한다. 승인된 용법에 나중에 채운 태그를 검수할 때 쓴다(#151)."""
+    _approve_usage_field(usage, "function_tags_status", "미검수 기능 태그가 없습니다")
 
 
 @transaction.atomic
-def approve_function_tags(usage):
-    """미검수 기능 태그만 승인한다. 승인된 용법에 나중에 채운 태그를 검수할 때 쓴다(#151)."""
+def _approve_usage_field(usage, status_field, refusal):
     _, usage = _locked_usage(usage)
-    if usage.function_tags_status != ReviewStatus.PENDING:
-        raise Refused("미검수 기능 태그가 없습니다")
-    usage.function_tags_status = ReviewStatus.APPROVED
-    usage.save(update_fields=["function_tags_status", "updated_at"])
+    if getattr(usage, status_field) != ReviewStatus.PENDING:
+        raise Refused(refusal)
+    setattr(usage, status_field, ReviewStatus.APPROVED)
+    usage.save(update_fields=[status_field, "updated_at"])
 
 
 @transaction.atomic
@@ -463,8 +462,7 @@ def approve_rule(rule, user=None):
     #55). 규칙은 실제로 매칭된 패턴에만 쓰므로 연결된 회화체 구간은 넣지 않는다.
     """
     pattern, base, rule = _locked_rule(rule)
-    if rule.status != UsageRule.Status.PENDING:
-        raise Refused(f"지금 상태({rule.get_status_display()})에서는 할 수 없습니다")
+    _require(rule, UsageRule.Status.PENDING)
     if pattern.status != ReviewStatus.APPROVED or (
         base is not None and base.status != ReviewStatus.APPROVED
     ):
@@ -493,8 +491,7 @@ def retire_rule(rule):
     (미검수 규칙은 판정에 쓰인 적이 없다, #55).
     """
     _, _, rule = _locked_rule(rule)
-    if rule.status == UsageRule.Status.RETIRED:
-        raise Refused(f"지금 상태({rule.get_status_display()})에서는 할 수 없습니다")
+    _require(rule, UsageRule.Status.PENDING, UsageRule.Status.APPROVED)
     rule.status = UsageRule.Status.RETIRED
     rule.save(update_fields=["status", "updated_at"])
     patterns.make_stale(rule=rule)

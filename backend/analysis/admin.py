@@ -60,6 +60,23 @@ def _example_problem(text):
     return None
 
 
+def _clean_test_cases(cases, flag_key):
+    """[{text, <flag_key>}] 목록의 모양과 예문을 검사한다. flag_key는 패턴이면 should_match,
+    판별 규칙이면 should_apply다.
+    """
+    if not isinstance(cases, list):
+        raise forms.ValidationError(f"[{{text, {flag_key}}}] 목록이어야 합니다")
+    for case in cases:
+        if not isinstance(case, dict) or set(case) != {"text", flag_key}:
+            raise forms.ValidationError(f"항목마다 text와 {flag_key}만 둡니다")
+        if not isinstance(case[flag_key], bool):
+            raise forms.ValidationError(f"{flag_key}는 true 또는 false여야 합니다")
+        problem = _example_problem(case["text"])
+        if problem:
+            raise forms.ValidationError(problem)
+    return cases
+
+
 class _TestCasesField(forms.JSONField):
     """오류 화면에서 입력을 되보일 때, UTF-8로 쓸 수 없는 문자는 \\u 이스케이프로 보인다."""
 
@@ -93,17 +110,7 @@ class GrammarPatternForm(forms.ModelForm):
         return value or None
 
     def clean_test_cases(self):
-        cases = self.cleaned_data["test_cases"]
-        if not isinstance(cases, list):
-            raise forms.ValidationError("[{text, should_match}] 목록이어야 합니다")
-        for case in cases:
-            if not isinstance(case, dict) or set(case) != {"text", "should_match"}:
-                raise forms.ValidationError("항목마다 text와 should_match만 둡니다")
-            if not isinstance(case["should_match"], bool):
-                raise forms.ValidationError("should_match는 true 또는 false여야 합니다")
-            problem = _example_problem(case["text"])
-            if problem:
-                raise forms.ValidationError(problem)
+        cases = _clean_test_cases(self.cleaned_data["test_cases"], "should_match")
         # admin 변경 화면은 한 트랜잭션이라, 여기서 잠근 패턴을 저장(save_model)까지 붙든다.
         refusal = review.test_cases_refusal(self.instance, cases)
         if refusal:
@@ -233,7 +240,17 @@ class GrammarUsageFormSet(BaseInlineFormSet):
         super().clean()
 
 
-class GrammarUsageInline(admin.TabularInline):
+class _FixedRowsInline(admin.TabularInline):
+    """행을 더하거나 지우지 않는 인라인."""
+
+    extra = 0
+    can_delete = False
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+
+class GrammarUsageInline(_FixedRowsInline):
     # 용법 화면과 같은 폼이라 같은 예문 검사·합침 확인을 쓴다. 상태는 용법 화면 액션으로 바꾼다.
     model = GrammarUsage
     form = GrammarUsageForm
@@ -249,22 +266,12 @@ class GrammarUsageInline(admin.TabularInline):
     ]
     readonly_fields = ["name", "status", "origin"]
     ordering = ["id"]
-    extra = 0
-    can_delete = False
     show_change_link = True
 
-    def has_add_permission(self, request, obj=None):
-        return False
 
-
-class PatternMorphemeInline(admin.TabularInline):
+class PatternMorphemeInline(_FixedRowsInline):
     model = PatternMorpheme
     fields = readonly_fields = ["seq", "lemma", "pos1", "pos2", "conjugation_form"]
-    extra = 0
-    can_delete = False
-
-    def has_add_permission(self, request, obj=None):
-        return False
 
 
 def _apply(model_admin, request, queryset, transition):
@@ -291,18 +298,14 @@ def _review_action(name, transition, description):
     return admin.action(description=description, permissions=["change"])(action)
 
 
-class _ReviewedAdmin(admin.ModelAdmin):
+class _FixedRowsAdmin(admin.ModelAdmin):
+    """행을 더하거나 지우지 않는 화면. 삭제 권한이 없으면 Django가 '선택한 항목 삭제'도 뺀다."""
+
     def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
-
-    def get_actions(self, request):
-        # 기본 '선택한 항목 삭제'는 쓰지 않는다.
-        actions = super().get_actions(request)
-        actions.pop("delete_selected", None)
-        return actions
 
 
 class GrammarPatternActionForm(ActionForm):
@@ -383,7 +386,7 @@ def link_variant(model_admin, request, queryset):
 
 
 @admin.register(GrammarPattern)
-class GrammarPatternAdmin(_ReviewedAdmin):
+class GrammarPatternAdmin(_FixedRowsAdmin):
     form = GrammarPatternForm
     action_form = GrammarPatternActionForm
     list_display = [
@@ -397,6 +400,7 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         "created_at",
     ]
     list_filter = ["status", "is_active", "usage_closed", "register"]
+    list_select_related = ["variant_of"]
     # 용법 이름으로 찾아도 admin이 중복 행을 걸러 패턴은 한 번 나온다.
     search_fields = ["name", "usages__name"]
     fields = [
@@ -475,7 +479,7 @@ class ExampleFilter(admin.SimpleListFilter):
 
 
 @admin.register(GrammarUsage)
-class GrammarUsageAdmin(_ReviewedAdmin):
+class GrammarUsageAdmin(_FixedRowsAdmin):
     form = GrammarUsageForm
     list_display = ["id", "name", "pattern", "status", "origin", "updated_at"]
     list_filter = ["status", "origin", ExampleFilter]
@@ -524,18 +528,7 @@ class UsageRuleForm(forms.ModelForm):
         return condition
 
     def clean_test_cases(self):
-        cases = self.cleaned_data["test_cases"]
-        if not isinstance(cases, list):
-            raise forms.ValidationError("[{text, should_apply}] 목록이어야 합니다")
-        for case in cases:
-            if not isinstance(case, dict) or set(case) != {"text", "should_apply"}:
-                raise forms.ValidationError("항목마다 text와 should_apply만 둡니다")
-            if not isinstance(case["should_apply"], bool):
-                raise forms.ValidationError("should_apply는 true 또는 false여야 합니다")
-            problem = _example_problem(case["text"])
-            if problem:
-                raise forms.ValidationError(problem)
-        return cases
+        return _clean_test_cases(self.cleaned_data["test_cases"], "should_apply")
 
     def clean(self):
         cleaned = super().clean()
@@ -579,11 +572,6 @@ class UsageRuleAdmin(admin.ModelAdmin):
         # 판정 기록(span_match.rule)이 가리키므로 지우지 않는다.
         return False
 
-    def get_actions(self, request):
-        actions = super().get_actions(request)
-        actions.pop("delete_selected", None)
-        return actions
-
     def save_model(self, request, obj, form, change):
         if not change:
             obj.created_by = request.user
@@ -618,7 +606,7 @@ class WordSenseForm(forms.ModelForm):
         return meaning
 
 
-class WordSenseInline(admin.TabularInline):
+class WordSenseInline(_FixedRowsInline):
     # LLM 뜻의 승인·반려는 뜻 화면 액션으로 한다(#134).
     model = WordSense
     form = WordSenseForm
@@ -635,11 +623,6 @@ class WordSenseInline(admin.TabularInline):
     ]
     readonly_fields = [field for field in fields if field != "meaning_ko"]
     ordering = ["jmdict_sense_index", "id"]
-    extra = 0
-    can_delete = False
-
-    def has_add_permission(self, request, obj=None):
-        return False
 
 
 class MeaningFilter(admin.SimpleListFilter):
@@ -713,7 +696,7 @@ class WordForm(forms.ModelForm):
 
 
 @admin.register(Word)
-class WordAdmin(_ReviewedAdmin):
+class WordAdmin(_FixedRowsAdmin):
     form = WordForm
     list_display = ["id", "dictionary_form", "reading", "in_dictionary", "updated_at"]
     list_filter = [MeaningFilter]
@@ -801,7 +784,7 @@ def _sense_action(name, old, new, description):
 
 
 @admin.register(WordSense)
-class WordSenseAdmin(_ReviewedAdmin):
+class WordSenseAdmin(_FixedRowsAdmin):
     """뜻 하나씩 승인·반려한다. 반려된 뜻은 후보·응답에서 빠진다(#134)."""
 
     list_display = ["id", "word", "meaning_ko", "sense_origin", "sense_status", "meaning_status"]
@@ -851,7 +834,7 @@ def _correction_status_action(name, status, description):
 
 
 @admin.register(MatchCorrection)
-class MatchCorrectionAdmin(admin.ModelAdmin):
+class MatchCorrectionAdmin(_FixedRowsAdmin):
     """정정 목록(#223). 정정은 평가 결과 화면에서만 만든다(#221). 공용 분석을 ID와 키 텍스트
     위치로만 가리키고 문장은 보이지 않는다. 바꿀 수 있는 것은 적용 상태(액션)뿐이다.
     """
@@ -879,12 +862,6 @@ class MatchCorrectionAdmin(admin.ModelAdmin):
         ),
     ]
 
-    def has_add_permission(self, request):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
-        return False
-
     def get_queryset(self, request):
         return (
             super()
@@ -899,7 +876,7 @@ class MatchCorrectionAdmin(admin.ModelAdmin):
 
 
 @admin.register(UsageLog)
-class UsageLogAdmin(admin.ModelAdmin):
+class UsageLogAdmin(_FixedRowsAdmin):
     """사용자별 토큰 사용량(#386). 보기만 한다. 원문은 없고, 탈퇴한 Google 계정의 비교값
     (withdrawn_key)은 칸·찾기·거르기 어디에도 두지 않는다.
     """
@@ -924,13 +901,7 @@ class UsageLogAdmin(admin.ModelAdmin):
     fields = list_display
     readonly_fields = fields
 
-    def has_add_permission(self, request):
-        return False
-
     def has_change_permission(self, request, obj=None):
-        return False
-
-    def has_delete_permission(self, request, obj=None):
         return False
 
     def get_queryset(self, request):
@@ -1043,7 +1014,7 @@ class EvalRunAdmin(admin.ModelAdmin):
         return "—" if value is None else f"{value:.4f}"
 
 
-class EvalItemInline(admin.TabularInline):
+class EvalItemInline(_FixedRowsInline):
     model = EvalItem
     fields = [
         "surface",
@@ -1066,11 +1037,6 @@ class EvalItemInline(admin.TabularInline):
         "review_status",
         "correct",
     ]
-    extra = 0
-    can_delete = False
-
-    def has_add_permission(self, request, obj=None):
-        return False
 
     @admin.display(description="정정")
     def correct(self, item):

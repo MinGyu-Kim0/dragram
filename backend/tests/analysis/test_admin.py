@@ -5,6 +5,8 @@ import json
 
 import pytest
 from django.contrib.auth.models import Permission
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from analysis import patterns
 from analysis.admin import GrammarUsageAdmin, GrammarUsageForm
@@ -430,3 +432,28 @@ def test_usages_are_filtered_by_whether_they_have_an_example(admin_client, patte
     page = admin_client.get(USAGES, {"example": value}).content.decode()
 
     assert [name for name in ["결과 상태", "결과 지속"] if f">{name}<" in page] == shown
+
+
+def _list_query_count(admin_client):
+    with CaptureQueriesContext(connection) as queries:
+        assert admin_client.get(PATTERNS).status_code == 200
+    return len(queries)
+
+
+def test_pattern_list_queries_do_not_grow_with_linked_variants(admin_client, pattern):
+    # 연결된 회화체 행마다 원형을 따로 읽지 않는다(#420).
+    def add_variant(i):
+        GrammarPattern.objects.create(
+            name=f"회화체{i}",
+            morpheme_key=f"variant-{i}",
+            is_active=False,
+            status=ReviewStatus.PENDING,
+            variant_of=pattern,
+            register=GrammarPattern.Register.COLLOQUIAL,
+        )
+
+    add_variant(0)
+    one = _list_query_count(admin_client)
+    add_variant(1)
+    add_variant(2)
+    assert _list_query_count(admin_client) == one

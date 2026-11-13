@@ -42,44 +42,34 @@ def _get(pattern_id):
 @api_view(["POST"])
 @authentication_classes([ExtensionTokenAuthentication])
 @permission_classes([])
+@limits.counted
 def connection(request, pattern_id):
-    from analysis.views import _leaving
-
-    leave = limits.enter(request.user)
-    try:
-        started, usage = None, None
-        with transaction.atomic():
-            pattern = _get(pattern_id)
-            patterns.lock_links()
-            pattern = patterns.lock_families(pattern)[pattern_id]
-            _get(pattern_id)
-            if pattern.connection_filled:
-                leave()
-                return Response(item(pattern))
-            now = timezone.now()
-            if (
-                pattern.connection_started_at is None
-                or pattern.connection_started_at
-                <= now - timedelta(seconds=jobs.ATTEMPT_EXPIRY_SECONDS)
-            ):
-                if limits.over_limit(request.user):
-                    raise BusinessError(AnalysisError.USAGE_LIMIT, "하루 토큰 한도를 넘음")
-                started = now
-                pattern.connection_started_at = started
-                pattern.save(update_fields=["connection_started_at"])
-                usage = RequestUsage.start(UsageLog.Path.LLM, request.user)
-        if started is not None:
-            try:
-                jobs.enqueue_connection(pattern_id, started, usage.id)
-            except BusinessError:
-                _release(pattern_id, started)
-                raise
-        return StreamingHttpResponse(
-            _leaving(_wait(pattern_id), leave), content_type="application/json"
-        )
-    except BaseException:
-        leave()
-        raise
+    started, usage = None, None
+    with transaction.atomic():
+        pattern = _get(pattern_id)
+        patterns.lock_links()
+        pattern = patterns.lock_families(pattern)[pattern_id]
+        _get(pattern_id)
+        if pattern.connection_filled:
+            return Response(item(pattern))
+        now = timezone.now()
+        if (
+            pattern.connection_started_at is None
+            or pattern.connection_started_at <= now - timedelta(seconds=jobs.ATTEMPT_EXPIRY_SECONDS)
+        ):
+            if limits.over_limit(request.user):
+                raise BusinessError(AnalysisError.USAGE_LIMIT, "하루 토큰 한도를 넘음")
+            started = now
+            pattern.connection_started_at = started
+            pattern.save(update_fields=["connection_started_at"])
+            usage = RequestUsage.start(UsageLog.Path.LLM, request.user)
+    if started is not None:
+        try:
+            jobs.enqueue_connection(pattern_id, started, usage.id)
+        except BusinessError:
+            _release(pattern_id, started)
+            raise
+    return StreamingHttpResponse(_wait(pattern_id), content_type="application/json")
 
 
 async def _wait(pattern_id):

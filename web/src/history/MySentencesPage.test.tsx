@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import App from "../App";
 import { sendToExtension } from "../connect/extension";
+import { json, stubFetch } from "../test-support";
 import MySentencesPage from "./MySentencesPage";
 
 vi.mock("../connect/extension", async (importOriginal) => ({
@@ -15,13 +16,6 @@ type Call = { url: string; method: string; body?: unknown };
 
 let calls: Call[];
 let responses: Record<string, () => Response>;
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
 
 const USAGES = [
   {
@@ -80,18 +74,11 @@ beforeEach(() => {
     "GET /api/my-japanese/grammar/?state=added": () => json({ usages: USAGES }),
     "GET /api/my-japanese/words/?state=added": () => json({ words: WORDS }),
   };
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, init: RequestInit = {}) => {
-      const method = init.method ?? "GET";
-      calls.push({
-        url,
-        method,
-        body: init.body ? JSON.parse(init.body as string) : undefined,
-      });
-      const respond = responses[`${method} ${url}`];
-      if (!respond) throw new Error(`응답 없음: ${method} ${url}`);
-      return respond();
+  stubFetch(responses, (url, method, init) =>
+    calls.push({
+      url,
+      method,
+      body: init.body ? JSON.parse(init.body as string) : undefined,
     }),
   );
 });

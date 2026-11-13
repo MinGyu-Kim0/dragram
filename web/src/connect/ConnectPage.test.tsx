@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import ConnectPage from "./ConnectPage";
+import { json, stubFetch } from "../test-support";
 
 type Call = {
   url: string;
@@ -16,28 +17,16 @@ let responses: Record<string, () => Response>;
 let googleCallback: ((response: { credential: string }) => void) | undefined;
 const renderButton = vi.fn();
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
 beforeEach(() => {
   calls = [];
   document.cookie = "csrftoken=csrf-value";
   responses = { "GET /api/auth/me/": () => json({ user: null }) };
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(async (url: string, init: RequestInit = {}) => {
-      const method = init.method ?? "GET";
-      calls.push({
-        url,
-        method,
-        headers: (init.headers ?? {}) as Record<string, string>,
-        body: init.body as string | undefined,
-      });
-      return responses[`${method} ${url}`]();
+  stubFetch(responses, (url, method, init) =>
+    calls.push({
+      url,
+      method,
+      headers: (init.headers ?? {}) as Record<string, string>,
+      body: init.body as string | undefined,
     }),
   );
   vi.stubGlobal("google", {

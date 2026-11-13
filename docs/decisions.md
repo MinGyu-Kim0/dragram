@@ -42,7 +42,7 @@
 - 근거: 이력 8·17절 · requirements 1·8장
 
 ### 도구와 단계
-형태소 분석은 SudachiPy core·분할 모드 C, 관리 화면은 Django admin. 분석 → 회원 → 결제 순이고 Phase 1 안의 순서·미룰 것은 requirements 8장을 따른다.
+형태소 분석은 SudachiPy core·분할 모드 C, 관리 화면은 Django admin. 분석 → 회원 → 결제 순이고 Phase 1 안의 순서·미룰 것·완료 기준·공개 범위는 requirements 8장을 따른다.
 - 근거: 이력 0·11절 · requirements 8·9장
 - 보류: core → full 전환.
 
@@ -50,7 +50,7 @@
 새 테이블은 지금 쓰는 칼럼만 만들고 나머지는 쓰는 티켓의 마이그레이션으로 더한다.
 - 근거: 이력 32절 7
 
-- 보류: 애매한 히라가나 단어, 〜の 표시, 일본어 없는 입력, SudachiPy 입력 한도 초과 문장, Phase 완료 기준, 비기능 목표치(이력 10절 · requirements 8장).
+- 보류: 애매한 히라가나 단어, 〜の 표시, 일본어 없는 입력, SudachiPy 입력 한도 초과 문장, Phase 2·3 완료 기준, 비기능 목표치(이력 10절 · requirements 8장).
 
 ## 정규화·문장 해시
 
@@ -515,9 +515,9 @@ OpenAI만 쓴다. 모델은 `OPENAI_MODEL`(현재 `gpt-6-luna`), 추론 강도�
 - 근거: 이력 9절 · 28절 5 · 51·53절 · 66절 3 · NFR-12 · ADR 0005
 
 ### NDJSON 스트림(ASGI)
-분석 응답은 POST 한 번의 `application/x-ndjson` 스트림이고 서버는 uvicorn이다. 요청 쪽은 먼저 구독한 뒤 선점·큐 넣기를 한다.
+분석 응답은 POST 한 번의 `application/x-ndjson` 스트림이고 서버는 uvicorn이다. 요청 쪽은 먼저 구독한 뒤 선점·큐 넣기를 한다. 운영 앞단 Caddy는 이 스트림을 모아 두지 않고 130초 대기 중에 끊지도 않는다(설정은 ADR 0005).
 - 이유: EventSource는 POST·Bearer를 못 쓰고, 비동기 서버는 기다리는 연결에 묶이지 않는다.
-- 근거: 이력 31절 21 · ADR 0005
+- 근거: 이력 31절 21 · ADR 0005 · #192 · `infra/Caddyfile`
 
 ### 이벤트와 응답 칸 순서
 `previous` → `grammar` → `translation` → `judged` → `analysis`(해당 없으면 건너뜀). 첫 LLM 응답 칸은 `translation_ko` → `spans` → `words` → `new_patterns` → `new_words` → `name_spans`이고, 앞 세 칸은 닫히는 대로 그 칸만 검증해 먼저 보낸다. 저장은 전체 검증 뒤다.
@@ -533,7 +533,7 @@ LLM 스트림 60초(조각 사이 30초), 요청 하나의 LLM 대기 110초(소
 - 이유: 안쪽이 먼저 끝나야 저장도 오류도 없이 끊기는 일이 없다.
 - 근거: 이력 31절 23 · 34절 8 · 51~53절 · NFR-14 · ADR 0005
 
-- 보류: 재접속 때 결과 버전으로 다시 읽기, 운영 nginx 버퍼링·읽기 시간, 재판정 반복 실패 상한.
+- 보류: 재접속 때 결과 버전으로 다시 읽기, 재판정 반복 실패 상한.
 
 ## 한도·사용량
 
@@ -590,6 +590,15 @@ LLM 스트림 60초(조각 사이 30초), 요청 하나의 LLM 대기 110초(소
 ### Google 로그인
 웹이 받은 ID 토큰을 서버가 검증한다(클라이언트 비밀값 없음). 웹과 API는 같은 출처의 세션·CSRF를 쓴다. 이메일 미인증 계정은 거부하고 허용 목록은 없다.
 - 근거: 이력 49절 2·3 · FR-A01 · NFR-05
+
+### 운영 HTTPS와 쿠키 보안
+운영(`DJANGO_HTTPS=true`)에서는 앞단 Caddy가 HTTPS를 끝내고 `X-Forwarded-Proto`를 넘긴다. Django는 그 헤더로 http 요청을 https로 보내고, 세션·CSRF 쿠키를 `Secure`로 두며 HSTS(1년, 하위 도메인 포함, preload)를 켠다. 컨테이너 상태 확인(`/api/health/`)만 Caddy를 거치지 않고 http로 받는다.
+- 이유: backend는 Caddy 뒤에만 열려 있어 그 헤더를 믿을 수 있다.
+- 근거: 이력 49절 '범위 밖' · #192 · `backend/config/settings.py`
+
+### 스토어용 확장 ID
+스토어 빌드는 개발용 `key`를 넣지 않아 확장 ID를 스토어가 정하고, 운영 웹은 그 ID(`VITE_EXTENSION_ID`)로 다시 배포해야 확장에 연결한다. 개발 빌드는 개발용 ID로 고정한다. 빌드·반영 절차는 `extension/AGENTS.md`를 따른다.
+- 근거: 이력 49절 '범위 밖' · #197 · `extension/AGENTS.md`
 
 ### 이용약관 동의 후 가입
 동의 기록이 없으면 이용약관에 체크하고 '가입하기'를 눌러야 계정을 만든다. 처리방침은 고지이고, 약관·처리방침 시행일과 동의 시각은 서버가 정해 기록한다. 만 14세 이상은 안내로만 알린다. 가입 대기는 10분짜리 서명 쿠키에 둔다.

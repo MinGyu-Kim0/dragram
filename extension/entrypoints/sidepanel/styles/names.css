@@ -13,6 +13,7 @@
   margin-top: 6px;
 }
 
+/* 버튼 모양은 my-items.css의 테두리 알약 버튼 규칙을 함께 쓴다. */
 .name-actions .primary-button {
   padding: 0 16px;
 }

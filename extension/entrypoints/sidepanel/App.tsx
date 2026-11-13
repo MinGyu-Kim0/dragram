@@ -80,7 +80,7 @@ function App() {
   const goTo = (index: number) => setPage({ requestId: request!.id, index });
 
   // 옛 확장이어도(업데이트 필요) 연결은 끊을 수 있다.
-  const canLogout = connected !== false && (connected || updateRequired);
+  const canLogout = connected || (connected === undefined && updateRequired);
 
   return (
     <main>

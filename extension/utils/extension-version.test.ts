@@ -5,7 +5,7 @@ import { loadToken } from "./auth";
 import { fetchConnection } from "./connections";
 import { fetchMyItems } from "./my-items";
 import { fetchNames } from "./names";
-import { respond } from "./test-support";
+import { respond } from "../utils-test-support";
 
 // 확장이 서버로 보내는 모든 요청에 확장 버전을 붙이고, 서버가 업데이트를 요구하면 알린다(#349).
 

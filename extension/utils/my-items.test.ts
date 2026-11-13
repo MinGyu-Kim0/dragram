@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { LoginRequired } from "./api";
 import { loadToken } from "./auth";
 import { fetchMyItems, saveMyItem } from "./my-items";
-import { respond } from "./test-support";
+import { respond } from "../utils-test-support";
 
 test("내 항목 목록을 확장 토큰으로 받는다", async () => {
   const fetchMock = respond(200, {

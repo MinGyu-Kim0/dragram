@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { LoginRequired } from "./api";
 import { loadToken } from "./auth";
 import { fetchConnection } from "./connections";
-import { respond } from "./test-support";
+import { respond } from "../utils-test-support";
 
 test("패턴 ID와 확장 토큰으로만 요청하고 저장된 접속 정보를 받는다", async () => {
   const result = {

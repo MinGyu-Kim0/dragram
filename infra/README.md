@@ -67,7 +67,7 @@
 DEPLOY_HOST=ubuntu@dragram.app infra/deploy.sh
 ```
 
-backend 이미지를 커밋 해시 태그로 빌드해 서버로 보내고, 웹 빌드 결과와 이미지 속 admin 정적 파일을 서버의 `~/dragram/www`에 폴더째 바꿔 넣고, `dragram-backend:current`로 가리킨 뒤 마이그레이션하고 다시 띄운 뒤 Caddy 설정을 다시 읽힌다. 이미지는 커밋된 트리로만 빌드하고, `backend/`·`infra/`·`web/`에 커밋하지 않은 변경(새 파일 포함)이 있으면 멈춘다.
+backend 이미지를 커밋 해시 태그로 빌드해 서버로 보내고, 웹 빌드 결과와 이미지 속 admin 정적 파일을 서버의 `~/dragram/www`에 폴더째 바꿔 넣고, `dragram-backend:current`로 가리킨 뒤 마이그레이션하고 다시 띄운 뒤 Caddy 설정을 다시 읽힌다. 마이그레이션이나 다시 띄우기가 실패하면 `current`를 이전 이미지로 되돌리고 멈춘다(아래 '되돌리기'). 이미지는 커밋된 트리로만 빌드하고, `backend/`·`infra/`·`web/`에 커밋하지 않은 변경(새 파일 포함)이 있으면 멈춘다.
 
 확인:
 ```bash
@@ -114,6 +114,8 @@ docker images dragram-backend
 ```bash
 cd ~/dragram && docker tag dragram-backend:<이전 해시> dragram-backend:current && docker compose up -d
 ```
+배포가 마이그레이션이나 다시 띄우기에서 실패하면 `deploy.sh`가 `current`를 이전 이미지로 이미 되돌려 놓는다(첫 배포라 이전 이미지가 없으면 `current`를 지운다). 웹과 정적 파일은 바꾸기 전이라 그대로다. 마이그레이션이 실패했다면 떠 있는 컨테이너도 이전 이미지 그대로다. 다시 띄우기가 실패했다면 일부 컨테이너가 새 이미지로 떴을 수 있으니 위 `docker compose up -d`로 이전 이미지에 맞춘다. 이때 마이그레이션은 이미 적용됐다.
+
 웹과 admin 정적 파일은 서버에 이전 버전을 남기지 않는다. 웹도 되돌려야 하면 개발 PC에서 이전 커밋을 체크아웃해 `infra/deploy.sh`로 다시 올린다.
 
 ## 백업과 복원 (Lightsail 콘솔)

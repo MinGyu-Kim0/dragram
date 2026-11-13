@@ -60,9 +60,9 @@ class SentenceAnalysis(models.Model):
 
 
 class ReviewStatus(models.TextChoices):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
+    PENDING = "pending", "미검수"
+    APPROVED = "approved", "승인"
+    REJECTED = "rejected", "반려"
 
 
 CONNECTION_FORM_LENGTH = 255
@@ -72,41 +72,48 @@ class GrammarPattern(models.Model):
     """문법 패턴. 승인·용법 완결·회화체 칼럼은 그것을 쓰는 티켓에서 더한다(#35)."""
 
     class Register(models.TextChoices):
-        STANDARD = "standard"
-        COLLOQUIAL = "colloquial"
+        STANDARD = "standard", "표준"
+        COLLOQUIAL = "colloquial", "회화체"
 
-    name = models.CharField(max_length=255)
+    name = models.CharField("패턴명", max_length=255)
     # 문장별 설명이 아닌 패턴의 접속 형태. LLM이 채운 값은 따로 검수한다(#229).
     connection_form = models.CharField(  # noqa: DJ001
         "접속 형태", max_length=CONNECTION_FORM_LENGTH, null=True, blank=True
     )
-    connection_filled = models.BooleanField(default=False)
+    connection_filled = models.BooleanField("접속 형태 채움 여부", default=False)
     connection_status = models.CharField(  # noqa: DJ001
-        max_length=30, choices=ReviewStatus.choices, null=True
+        "접속 형태 검수 상태", max_length=30, choices=ReviewStatus.choices, null=True
     )
-    connection_started_at = models.DateTimeField(null=True)
+    connection_started_at = models.DateTimeField("접속 형태 생성 시작", null=True)
     # 형태소 조건(lemma|pos1|pos2|conj, 아무거나는 *)을 순서대로 이은 문자열의 SHA-256
-    morpheme_key = models.CharField(max_length=64, unique=True)
+    morpheme_key = models.CharField("형태소 열 키", max_length=64, unique=True)
     # [{text, should_match}]. LLM·관리자가 새로 쓴 예문만 둔다. 사용자 원문은 넣지 않는다.
-    test_cases = models.JSONField(default=list)
+    test_cases = models.JSONField("검증 예문", default=list)
     # 바뀌면 같은 트랜잭션에서 pattern_set_version을 올린다.
-    is_active = models.BooleanField()
-    status = models.CharField(max_length=30, choices=ReviewStatus.choices)
+    is_active = models.BooleanField("활성 여부")
+    status = models.CharField("승인 상태", max_length=30, choices=ReviewStatus.choices)
     # 용법 완결: 관리자가 용법이 하나뿐이라고 확인한 패턴(#38)
-    usage_closed = models.BooleanField(default=False)
+    usage_closed = models.BooleanField("용법 완결 여부", default=False)
     # 회화체 패턴(ちゃう 등)은 관리자가 원형(てしまう 등)에 연결한다. 연결된 회화체는 자기 용법
     # 없이 원형의 용법을 쓴다. register는 연결할 때만 colloquial이 되고 해제해도 남는다(#63).
-    register = models.CharField(max_length=20, choices=Register.choices, default=Register.STANDARD)
+    register = models.CharField(
+        "말투", max_length=20, choices=Register.choices, default=Register.STANDARD
+    )
     variant_of = models.ForeignKey(
-        "self", on_delete=models.PROTECT, null=True, related_name="variants"
+        "self",
+        on_delete=models.PROTECT,
+        null=True,
+        related_name="variants",
+        verbose_name="원형 패턴",
     )
     # 이 패턴 구간 안의 구성 문법을 화면에 하위 박스로 보일지(#65). 조회할 때만 읽는 표시 칸이라
     # 바꿔도 stale·세대 번호·패턴 세트 버전을 건드리지 않는다.
-    show_parts = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    show_parts = models.BooleanField("구성 문법 표시 여부", default=True)
+    created_at = models.DateTimeField("등록일시", auto_now_add=True)
 
     class Meta:
         db_table = "grammar_pattern"
+        verbose_name = verbose_name_plural = "문법 패턴"
         constraints = [
             models.CheckConstraint(
                 condition=~models.Q(variant_of=models.F("id")),
@@ -125,15 +132,21 @@ class GrammarPattern(models.Model):
 class PatternMorpheme(models.Model):
     """패턴 형태소 하나의 조건. 칸이 NULL이면 아무거나다."""
 
-    pattern = models.ForeignKey(GrammarPattern, on_delete=models.CASCADE, related_name="morphemes")
-    seq = models.SmallIntegerField()
-    lemma = models.CharField(max_length=255, null=True)  # noqa: DJ001
-    pos1 = models.CharField(max_length=30, null=True)  # noqa: DJ001
-    pos2 = models.CharField(max_length=30, null=True)  # noqa: DJ001
-    conjugation_form = models.CharField(max_length=30, null=True)  # noqa: DJ001
+    pattern = models.ForeignKey(
+        GrammarPattern,
+        on_delete=models.CASCADE,
+        related_name="morphemes",
+        verbose_name="문법 패턴",
+    )
+    seq = models.SmallIntegerField("순서")
+    lemma = models.CharField("표제어", max_length=255, null=True)  # noqa: DJ001
+    pos1 = models.CharField("품사 대분류", max_length=30, null=True)  # noqa: DJ001
+    pos2 = models.CharField("품사 중분류", max_length=30, null=True)  # noqa: DJ001
+    conjugation_form = models.CharField("활용형", max_length=30, null=True)  # noqa: DJ001
 
     class Meta:
         db_table = "pattern_morpheme"
+        verbose_name = verbose_name_plural = "패턴 형태소"
         constraints = [
             models.UniqueConstraint(fields=["pattern", "seq"], name="pattern_morpheme_seq_unique")
         ]
@@ -193,41 +206,47 @@ class GrammarUsage(models.Model):
     """용법. 설명은 용법마다 하나이고 모든 문장이 함께 쓴다(문장 기준 해설 없음)."""
 
     class Origin(models.TextChoices):
-        LLM = "llm"
-        ADMIN = "admin"
+        LLM = "llm", "LLM"
+        ADMIN = "admin", "관리자"
 
-    pattern = models.ForeignKey(GrammarPattern, on_delete=models.PROTECT, related_name="usages")
-    name = models.CharField(max_length=255)
-    explanation_ko = models.TextField()
+    pattern = models.ForeignKey(
+        GrammarPattern, on_delete=models.PROTECT, related_name="usages", verbose_name="문법 패턴"
+    )
+    name = models.CharField("용법명", max_length=255)
+    explanation_ko = models.TextField("한국어 설명")
     # LLM·관리자가 새로 쓴 예문만 둔다. 사용자 원문은 넣지 않는다.
-    example_ja = models.TextField(null=True)  # noqa: DJ001
+    example_ja = models.TextField("예문", null=True)  # noqa: DJ001
     # 이 용법이 한국어로 주로 옮겨지는 표현(#152). 마땅한 대응이 없으면 NULL이다.
     korean_equivalent = models.CharField(  # noqa: DJ001
-        max_length=KOREAN_EQUIVALENT_LENGTH, null=True, blank=True
+        "대응 표현", max_length=KOREAN_EQUIVALENT_LENGTH, null=True, blank=True
     )
     # 대응 표현을 채운 적이 있는가. NULL이 '대응 없음'인지 '아직 안 채움'인지 가른다(fill_usages).
-    korean_equivalent_filled = models.BooleanField(default=False)
+    korean_equivalent_filled = models.BooleanField("대응 표현 채움 여부", default=False)
     # 대응 표현의 검수 상태(pending·approved). 값이 없으면 NULL이다. 용법을 승인하면 함께
     # 승인되고, 승인된 용법에 LLM이 나중에 채운 값은 따로 승인할 때까지 미검수다(#152).
     korean_equivalent_status = models.CharField(  # noqa: DJ001
-        max_length=30, choices=ReviewStatus.choices, null=True
+        "대응 표현 검수 상태", max_length=30, choices=ReviewStatus.choices, null=True
     )
     # 기능 태그(FunctionTag 코드, 허용 목록 순서, #151). 대응 표현처럼 채움 여부와 검수 상태를
     # 따로 둔다. 상태는 태그가 없으면 NULL이다.
     function_tags = ArrayField(
-        models.CharField(max_length=30, choices=FunctionTag.choices), default=list, blank=True
+        models.CharField(max_length=30, choices=FunctionTag.choices),
+        default=list,
+        blank=True,
+        verbose_name="기능 태그",
     )
-    function_tags_filled = models.BooleanField(default=False)
+    function_tags_filled = models.BooleanField("기능 태그 채움 여부", default=False)
     function_tags_status = models.CharField(  # noqa: DJ001
-        max_length=30, choices=ReviewStatus.choices, null=True
+        "기능 태그 검수 상태", max_length=30, choices=ReviewStatus.choices, null=True
     )
-    status = models.CharField(max_length=30, choices=ReviewStatus.choices)
-    origin = models.CharField(max_length=30, choices=Origin.choices)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    status = models.CharField("승인 상태", max_length=30, choices=ReviewStatus.choices)
+    origin = models.CharField("등록 경로", max_length=30, choices=Origin.choices)
+    created_at = models.DateTimeField("등록일시", auto_now_add=True)
+    updated_at = models.DateTimeField("수정일시", auto_now=True)
 
     class Meta:
         db_table = "grammar_usage"
+        verbose_name = verbose_name_plural = "용법"
         constraints = [
             models.UniqueConstraint(fields=["pattern", "name"], name="grammar_usage_name_unique")
         ]
@@ -244,36 +263,45 @@ class UsageRule(models.Model):
     """
 
     class Status(models.TextChoices):
-        PENDING = "pending"
-        APPROVED = "approved"
-        RETIRED = "retired"
+        PENDING = "pending", "미검수"
+        APPROVED = "approved", "승인"
+        RETIRED = "retired", "폐기"
 
     # 실제로 매칭된 패턴. 연결된 회화체면 용법은 원형의 것이다.
-    pattern = models.ForeignKey(GrammarPattern, on_delete=models.PROTECT, related_name="rules")
-    usage = models.ForeignKey(GrammarUsage, on_delete=models.PROTECT, related_name="rules")
+    pattern = models.ForeignKey(
+        GrammarPattern, on_delete=models.PROTECT, related_name="rules", verbose_name="패턴"
+    )
+    usage = models.ForeignKey(
+        GrammarUsage, on_delete=models.PROTECT, related_name="rules", verbose_name="용법"
+    )
     # [{position: -2|-1|1|2, lemma, pos1, pos2, pos3, conjugation_form}] (analysis.rules)
-    condition = models.JSONField()
+    condition = models.JSONField("판별 조건")
     # [{text, should_apply}]. 관리자가 새로 쓴 예문만 둔다. 사용자 원문은 넣지 않는다.
-    test_cases = models.JSONField(default=list)
-    status = models.CharField(max_length=30, choices=Status.choices, default=Status.PENDING)
+    test_cases = models.JSONField("규칙 예문 테스트", default=list)
+    status = models.CharField(
+        "규칙 상태", max_length=30, choices=Status.choices, default=Status.PENDING
+    )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         related_name="+",
+        verbose_name="등록자",
     )
     approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,
         null=True,
         related_name="+",
+        verbose_name="승인자",
     )
-    approved_at = models.DateTimeField(null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    approved_at = models.DateTimeField("승인일시", null=True)
+    created_at = models.DateTimeField("등록일시", auto_now_add=True)
+    updated_at = models.DateTimeField("수정일시", auto_now=True)
 
     class Meta:
         db_table = "usage_rule"
+        verbose_name = verbose_name_plural = "판별 규칙"
 
     def __str__(self):
         return f"{self.pattern_id} → {self.usage_id} #{self.pk}"
@@ -286,13 +314,14 @@ class SpanMatch(models.Model):
     """
 
     class State(models.TextChoices):
-        DECIDED = "decided"
-        NOT_APPLICABLE = "not_applicable"
-        UNFOUND = "unfound"
+        # '확정'은 볼 때 검수 상태로 정하는 표시라 쓰지 않는다(GLOSSARY).
+        DECIDED = "decided", "용법 정해짐"
+        NOT_APPLICABLE = "not_applicable", "해당 없음"
+        UNFOUND = "unfound", "미발견"
         # 문장만으로 해석이 갈린다. usage는 번역과 같은 주 용법, alternatives는 대안 해석(#40)
-        DIVERGENT = "divergent"
+        DIVERGENT = "divergent", "해석 갈림"
         # 다시 물어도 판단하지 못했다. 정상적인 최종 판정이다(#40).
-        UNRESOLVED = "unresolved"
+        UNRESOLVED = "unresolved", "미확정"
 
     class DecidedBy(models.TextChoices):
         # 승인된 용법 완결 패턴의 단일 후보를 LLM 없이 확정(#39)
@@ -376,29 +405,49 @@ class MatchCorrection(models.Model):
         SUSPENDED = "suspended", "멈춤"
 
     analysis = models.ForeignKey(
-        SentenceAnalysis, on_delete=models.CASCADE, related_name="corrections"
+        SentenceAnalysis,
+        on_delete=models.CASCADE,
+        related_name="corrections",
+        verbose_name="문장 분석 ID",
     )
-    start_offset = models.IntegerField()
-    end_offset = models.IntegerField()
+    start_offset = models.IntegerField("시작 위치")
+    end_offset = models.IntegerField("끝 위치")
     # 정정한 구간에 실제로 매칭된 패턴. 같은 자리에 여러 패턴이 걸리면 이것으로 가른다.
-    pattern = models.ForeignKey(GrammarPattern, on_delete=models.PROTECT, related_name="+")
+    pattern = models.ForeignKey(
+        GrammarPattern, on_delete=models.PROTECT, related_name="+", verbose_name="패턴"
+    )
     before_usage = models.ForeignKey(
-        GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+"
+        GrammarUsage,
+        on_delete=models.PROTECT,
+        null=True,
+        related_name="+",
+        verbose_name="정정 전 용법",
     )
     # NULL이면 매칭 해제
     after_usage = models.ForeignKey(
-        GrammarUsage, on_delete=models.PROTECT, null=True, related_name="+"
+        GrammarUsage,
+        on_delete=models.PROTECT,
+        null=True,
+        related_name="+",
+        verbose_name="정정 후 용법",
     )
-    status = models.CharField(max_length=30, choices=Status.choices, default=Status.ACTIVE)
+    status = models.CharField(
+        "적용 상태", max_length=30, choices=Status.choices, default=Status.ACTIVE
+    )
     # 정정한 관리자가 탈퇴해도 정정은 남는다(다른 관리자 칸과 같다).
     corrected_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+        verbose_name="정정자",
     )
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField("정정일시", auto_now_add=True)
+    updated_at = models.DateTimeField("수정일시", auto_now=True)
 
     class Meta:
         db_table = "match_correction"
+        verbose_name = verbose_name_plural = "매칭 정정"
         constraints = [
             models.UniqueConstraint(
                 fields=["analysis", "start_offset", "end_offset", "pattern"],
@@ -435,52 +484,65 @@ class UsageLog(models.Model):
     """
 
     class Kind(models.TextChoices):
-        REQUEST = "request"
-        LLM = "llm"
+        REQUEST = "request", "분석 요청"
+        LLM = "llm", "LLM 호출"
 
     class Path(models.TextChoices):
         # 버전이 최신인 캐시 분석을 그대로 보냄
-        CACHE = "cache"
+        CACHE = "cache", "캐시"
         # 캐시 분석을 다시 매칭했고 LLM 없이 확정함
-        DB = "db"
+        DB = "db", "DB 확정"
         # LLM을 부름(새 문장, stale 재분석, 재매칭 재판정)
-        LLM = "llm"
+        LLM = "llm", "LLM"
 
     class Purpose(models.TextChoices):
-        FIRST_RESPONSE = "first_response"
-        REASK = "reask"
-        EXAMPLE_REWRITE = "example_rewrite"
-        REMATCH_JUDGE = "rematch_judge"
-        WORD_GLOSS = "word_gloss"
-        KANJI_GLOSS = "kanji_gloss"
+        FIRST_RESPONSE = "first_response", "첫 응답"
+        REASK = "reask", "재질문"
+        EXAMPLE_REWRITE = "example_rewrite", "예문 다시 쓰기"
+        REMATCH_JUDGE = "rematch_judge", "재매칭 판정"
+        WORD_GLOSS = "word_gloss", "단어 뜻 생성"
+        KANJI_GLOSS = "kanji_gloss", "한자 뜻 생성"
         # 이미 있는 용법의 빈 칸(대응 표현)을 채움(#152). 사용자 요청이 아니라 user는 NULL이다.
-        USAGE_FILL = "usage_fill"
-        PATTERN_CONNECTION = "pattern_connection"
+        USAGE_FILL = "usage_fill", "용법 채우기"
+        PATTERN_CONNECTION = "pattern_connection", "접속 형태 생성"
 
     # 로그인 전에는 NULL이다. 로그인 티켓에서 채운다.
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name="+"
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+        verbose_name="사용자",
     )
     # 새 문장은 저장에 성공했을 때 채운다. 저장이 되돌려지면 NULL로 남는다.
     analysis = models.ForeignKey(
-        SentenceAnalysis, on_delete=models.SET_NULL, null=True, related_name="+"
+        SentenceAnalysis,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name="+",
+        verbose_name="문장 분석 ID",
     )
-    kind = models.CharField(max_length=30, choices=Kind.choices)
-    path = models.CharField(max_length=30, choices=Path.choices, null=True)  # noqa: DJ001
-    purpose = models.CharField(max_length=30, choices=Purpose.choices, null=True)  # noqa: DJ001
-    model = models.CharField(max_length=255, null=True)  # noqa: DJ001
-    input_tokens = models.IntegerField(null=True)
-    cached_input_tokens = models.IntegerField(null=True)
-    output_tokens = models.IntegerField(null=True)
-    success = models.BooleanField()
-    attempt = models.SmallIntegerField(null=True)
+    kind = models.CharField("기록 종류", max_length=30, choices=Kind.choices)
+    path = models.CharField(  # noqa: DJ001
+        "처리 경로", max_length=30, choices=Path.choices, null=True
+    )
+    purpose = models.CharField(  # noqa: DJ001
+        "호출 목적", max_length=30, choices=Purpose.choices, null=True
+    )
+    model = models.CharField("모델명", max_length=255, null=True)  # noqa: DJ001
+    input_tokens = models.IntegerField("입력 토큰 수", null=True)
+    cached_input_tokens = models.IntegerField("캐시된 입력 토큰 수", null=True)
+    output_tokens = models.IntegerField("출력 토큰 수", null=True)
+    success = models.BooleanField("성공 여부")
+    attempt = models.SmallIntegerField("시도 차수", null=True)
     # 탈퇴한 Google 계정의 그날 행이다(PR #244). 같은 계정이 그날 다시 가입하면 하루 한도에 더한다.
     # Google 계정 식별자를 서버 비밀값으로 HMAC한 값이고, 자정이 지나면 행째 지운다.
     withdrawn_key = models.CharField(max_length=64, null=True)  # noqa: DJ001
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField("기록일시", auto_now_add=True)
 
     class Meta:
         db_table = "usage_log"
+        verbose_name = verbose_name_plural = "사용 기록"
         constraints = [
             # request에는 처리 경로만, llm에는 호출 목적만 둔다(schema.md).
             models.CheckConstraint(
@@ -509,23 +571,24 @@ class Word(models.Model):
     """
 
     # 대표 표기·읽기(표시용). 조회는 forms·readings로 한다.
-    dictionary_form = models.CharField(max_length=255)
-    reading = models.CharField(max_length=255)
+    dictionary_form = models.CharField("원형", max_length=255)
+    reading = models.CharField("읽기", max_length=255)
     # 항목의 모든 한자·가나 표기
-    forms = ArrayField(models.TextField())
+    forms = ArrayField(models.TextField(), verbose_name="모든 표기")
     # 모든 읽기. 히라가나로 통일한다.
-    readings = ArrayField(models.TextField())
-    is_common = models.BooleanField()
+    readings = ArrayField(models.TextField(), verbose_name="모든 읽기")
+    is_common = models.BooleanField("흔한 단어")
     # re_restr: {읽기: [허용 표기]}. 한자 표기에 쓰지 않는 읽기(re_nokanji)는 빈 목록이다.
-    reading_restrictions = models.JSONField(null=True)
-    pos = models.CharField(max_length=255)
+    reading_restrictions = models.JSONField("읽기 제한", null=True)
+    pos = models.CharField("품사", max_length=255)
     # 단어 전체 태그 + 검색용 뜻 태그의 합집합(analysis.jmdict.WORD_TAGS·SENSE_TAGS)
-    tags = ArrayField(models.TextField())
-    jmdict_seq = models.IntegerField(null=True, unique=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    tags = ArrayField(models.TextField(), verbose_name="단어 태그")
+    jmdict_seq = models.IntegerField("JMdict 항목 번호", null=True, unique=True)
+    updated_at = models.DateTimeField("수정일시", auto_now=True)
 
     class Meta:
         db_table = "word"
+        verbose_name = verbose_name_plural = "단어"
         indexes = [
             GinIndex(fields=["forms"], name="word_forms_gin"),
             GinIndex(fields=["readings"], name="word_readings_gin"),
@@ -552,42 +615,47 @@ class WordSense(models.Model):
     """단어 뜻. id가 고정 뜻 식별자이고 JMdict 뜻 번호는 참고용이다."""
 
     class Origin(models.TextChoices):
-        JMDICT = "jmdict"
-        LLM = "llm"
+        JMDICT = "jmdict", "JMdict"
+        LLM = "llm", "LLM"
 
     class MeaningSource(models.TextChoices):
-        DICTIONARY = "dictionary"
-        LLM = "llm"
-        ADMIN = "admin"
+        DICTIONARY = "dictionary", "사전"
+        LLM = "llm", "LLM"
+        ADMIN = "admin", "관리자"
 
     class MeaningStatus(models.TextChoices):
         # 검수 전. 'AI 번역'으로 보인다.
-        AI = "ai"
-        REVIEWED = "reviewed"
+        AI = "ai", "AI 번역"
+        REVIEWED = "reviewed", "검수됨"
         # 한국어 뜻 생성(word_gloss)에 실패했다. meaning_ko는 NULL이고 다음 새 문장에서 다시 만든다.
-        FAILED = "failed"
+        FAILED = "failed", "생성 실패"
 
-    word = models.ForeignKey(Word, on_delete=models.CASCADE, related_name="senses")
-    jmdict_sense_index = models.SmallIntegerField(null=True)
-    # JMdict 영어 뜻 목록(CC BY-SA 4.0)
-    gloss_en = models.JSONField(null=True)
-    tags = ArrayField(models.TextField())
-    pair_form = models.CharField(max_length=255, null=True)  # noqa: DJ001
-    # stagk/stagr: {"forms": [...], "readings": [...]} 중 있는 것만
-    applies_to = models.JSONField(null=True)
-    sense_origin = models.CharField(max_length=10, choices=Origin.choices)
-    # 이 뜻 자체의 검수 상태. jmdict는 approved, llm은 pending으로 시작한다.
-    sense_status = models.CharField(max_length=20, choices=ReviewStatus.choices)
-    meaning_ko = models.TextField(null=True)  # noqa: DJ001
-    meaning_source = models.CharField(  # noqa: DJ001
-        max_length=30, choices=MeaningSource.choices, null=True
+    word = models.ForeignKey(
+        Word, on_delete=models.CASCADE, related_name="senses", verbose_name="단어"
     )
-    meaning_status = models.CharField(max_length=20, choices=MeaningStatus.choices)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    jmdict_sense_index = models.SmallIntegerField("JMdict 뜻 번호", null=True)
+    # JMdict 영어 뜻 목록(CC BY-SA 4.0)
+    gloss_en = models.JSONField("영어 뜻", null=True)
+    tags = ArrayField(models.TextField(), verbose_name="뜻 태그")
+    pair_form = models.CharField("자타 대응 동사", max_length=255, null=True)  # noqa: DJ001
+    # stagk/stagr: {"forms": [...], "readings": [...]} 중 있는 것만
+    applies_to = models.JSONField("적용 제한", null=True)
+    sense_origin = models.CharField("뜻 출처", max_length=10, choices=Origin.choices)
+    # 이 뜻 자체의 검수 상태. jmdict는 approved, llm은 pending으로 시작한다.
+    sense_status = models.CharField("뜻 승인 상태", max_length=20, choices=ReviewStatus.choices)
+    meaning_ko = models.TextField("한국어 뜻", null=True)  # noqa: DJ001
+    meaning_source = models.CharField(  # noqa: DJ001
+        "한국어 뜻 출처", max_length=30, choices=MeaningSource.choices, null=True
+    )
+    meaning_status = models.CharField(
+        "한국어 뜻 검수 상태", max_length=20, choices=MeaningStatus.choices
+    )
+    created_at = models.DateTimeField("생성 시각", auto_now_add=True)
+    updated_at = models.DateTimeField("수정 시각", auto_now=True)
 
     class Meta:
         db_table = "word_sense"
+        verbose_name = verbose_name_plural = "단어 뜻"
         constraints = [
             models.UniqueConstraint(
                 fields=["word", "jmdict_sense_index"], name="word_sense_index_unique"
@@ -754,8 +822,8 @@ class EvalSentence(models.Model):
     # 끄면 다음 실행부터 빠진다. 지난 실행 결과가 가리키므로 지우지 않고 끈다.
     is_active = models.BooleanField("사용", default=True)
     note = models.TextField("메모", blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField("생성일시", auto_now_add=True)
+    updated_at = models.DateTimeField("수정일시", auto_now=True)
 
     class Meta:
         db_table = "eval_sentence"
@@ -792,8 +860,12 @@ class EvalResult(models.Model):
     채점을 이어받지 않는 기준이 된다.
     """
 
-    run = models.ForeignKey(EvalRun, on_delete=models.CASCADE, related_name="results")
-    sentence = models.ForeignKey(EvalSentence, on_delete=models.PROTECT, related_name="results")
+    run = models.ForeignKey(
+        EvalRun, on_delete=models.CASCADE, related_name="results", verbose_name="평가 실행"
+    )
+    sentence = models.ForeignKey(
+        EvalSentence, on_delete=models.PROTECT, related_name="results", verbose_name="평가 문장"
+    )
     text = models.TextField("문장")
     translation_ko = models.TextField("번역", null=True, blank=True)  # noqa: DJ001
     failed = models.BooleanField("실패", default=False)
@@ -807,7 +879,12 @@ class EvalResult(models.Model):
     output_tokens = models.PositiveIntegerField("출력 토큰", default=0)
     # 이 문장을 분석한 사용 기록의 request 행. LLM 호출 행은 그 뒤의 같은 분석 행 기록이다.
     usage_request = models.ForeignKey(
-        UsageLog, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        UsageLog,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="사용 기록",
     )
 
     class Meta:
@@ -830,20 +907,24 @@ class EvalItem(models.Model):
         WRONG_USAGE = "wrong_usage", "용법이 틀렸다"
         WRONG_SPAN = "wrong_span", "구간이 틀렸다"
 
-    result = models.ForeignKey(EvalResult, on_delete=models.CASCADE, related_name="items")
-    start = models.PositiveIntegerField()
-    end = models.PositiveIntegerField()
+    result = models.ForeignKey(
+        EvalResult, on_delete=models.CASCADE, related_name="items", verbose_name="평가 결과"
+    )
+    start = models.PositiveIntegerField("시작")
+    end = models.PositiveIntegerField("끝")
     surface = models.CharField("구간", max_length=255)
-    state = models.CharField("상태", max_length=30)
+    # 사이드 패널에 보이는 판정(확정·해석 갈림·미확정)
+    state = models.CharField("상태", max_length=30, choices=SpanMatch.State.choices)
     # 미확정이면 패턴 이름, 그 밖에는 용법 이름(화면 제목)
     name = models.CharField("이름", max_length=255)
     pattern_name = models.CharField("패턴", max_length=255)
     # 채점 이어받기 기준. 용법이 합쳐져 지워져도 남도록 참조가 아닌 값으로 둔다.
-    pattern_ref = models.BigIntegerField()
-    usage_ref = models.BigIntegerField(null=True)
+    pattern_ref = models.BigIntegerField("패턴 ID")
+    usage_ref = models.BigIntegerField("용법 ID", null=True)
     # 해석 갈림의 대안 용법 이름
     alternatives = models.JSONField("대안", default=list)
-    review_status = models.CharField("검수 상태", max_length=30)
+    # 화면에 보인 검수 상태(미검수·승인). 반려된 항목은 보이지 않아 저장하지 않는다.
+    review_status = models.CharField("검수 상태", max_length=30, choices=ReviewStatus.choices)
     grade = models.CharField("채점", max_length=30, choices=Grade.choices, default=Grade.UNGRADED)
 
     class Meta:

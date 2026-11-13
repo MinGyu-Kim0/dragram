@@ -90,7 +90,7 @@ class _TestCasesField(forms.JSONField):
 
 
 class GrammarPatternForm(forms.ModelForm):
-    test_cases = _TestCasesField()
+    test_cases = _TestCasesField(label="검증 예문")
 
     class Meta:
         model = GrammarPattern
@@ -136,10 +136,13 @@ class _OpenedTagsInput(forms.MultipleHiddenInput):
 
 class GrammarUsageForm(forms.ModelForm):
     # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
-    example_ja = forms.CharField(widget=forms.Textarea, required=False)
+    example_ja = forms.CharField(label="예문", widget=forms.Textarea, required=False)
     # 기능 태그는 허용 목록 안에서만 고른다(#151).
     function_tags = forms.MultipleChoiceField(
-        choices=FunctionTag.choices, widget=forms.CheckboxSelectMultiple, required=False
+        label="기능 태그",
+        choices=FunctionTag.choices,
+        widget=forms.CheckboxSelectMultiple,
+        required=False,
     )
 
     class Meta:
@@ -481,8 +484,24 @@ class ExampleFilter(admin.SimpleListFilter):
 @admin.register(GrammarUsage)
 class GrammarUsageAdmin(_FixedRowsAdmin):
     form = GrammarUsageForm
-    list_display = ["id", "name", "pattern", "status", "origin", "updated_at"]
-    list_filter = ["status", "origin", ExampleFilter]
+    list_display = [
+        "id",
+        "name",
+        "pattern",
+        "status",
+        "korean_equivalent_status",
+        "function_tags_status",
+        "origin",
+        "updated_at",
+    ]
+    # 승인 액션이 바꾸는 대응 표현·기능 태그 검수 상태도 거른다(#451).
+    list_filter = [
+        "status",
+        "korean_equivalent_status",
+        "function_tags_status",
+        "origin",
+        ExampleFilter,
+    ]
     search_fields = ["name", "pattern__name"]
     fields = [
         "name",
@@ -492,9 +511,18 @@ class GrammarUsageAdmin(_FixedRowsAdmin):
         "explanation_ko",
         "example_ja",
         "korean_equivalent",
+        "korean_equivalent_status",
         "function_tags",
+        "function_tags_status",
     ]
-    readonly_fields = ["name", "pattern", "status", "origin"]
+    readonly_fields = [
+        "name",
+        "pattern",
+        "status",
+        "origin",
+        "korean_equivalent_status",
+        "function_tags_status",
+    ]
 
     def save_model(self, request, obj, form, change):
         # 고칠 수 있는 칸만 쓴다. 폼을 연 뒤 액션이 바꾼 상태를 화면이 읽어 둔 값으로 덮지 않는다.
@@ -513,8 +541,8 @@ class GrammarUsageAdmin(_FixedRowsAdmin):
 
 
 class UsageRuleForm(forms.ModelForm):
-    condition = _TestCasesField()
-    test_cases = _TestCasesField()
+    condition = _TestCasesField(label="판별 조건")
+    test_cases = _TestCasesField(label="규칙 예문 테스트")
 
     class Meta:
         model = UsageRule

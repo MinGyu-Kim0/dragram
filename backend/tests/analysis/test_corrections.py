@@ -59,6 +59,8 @@ def test_correction_page_offers_the_usages_of_the_matched_pattern(admin_client, 
     assert response.status_code == 200
     page = response.content.decode()
     assert "진행" in page and "결과 상태" in page and "매칭 해제" in page
+    # 고를 용법의 검수 상태는 한국어로 보인다(#451).
+    assert "「진행」(미검수)" in page
 
 
 def test_correction_makes_the_analysis_stale_and_is_logged(admin_client, admin_user, item):

@@ -54,6 +54,22 @@ describe("확장 업데이트가 필요하면(#349)", () => {
     expect(screen.queryByText("분석하지 못했습니다")).not.toBeInTheDocument();
   });
 
+  test("업데이트 안내 화면 헤더에도 가이드·테마·로그아웃 버튼이 있다", async () => {
+    refuseOldExtension();
+    render(<App />);
+
+    await send(panelWindowId, "私は学生です。");
+
+    await screen.findByRole("heading", { name: "업데이트가 필요해요" });
+    expect(screen.getByRole("button", { name: "가이드" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "다크 모드" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "로그아웃" }),
+    ).toBeInTheDocument();
+  });
+
   test("지금 업데이트를 누르면 업데이트를 받아 확장을 다시 띄운다", async () => {
     refuseOldExtension();
     const check = updateCheck(async () => ({

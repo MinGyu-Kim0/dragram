@@ -87,9 +87,9 @@ services:
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:?}
     ports:
-      - "${HTTP_PORT:-80}:80"
-      - "${HTTPS_PORT:-443}:443"
-      - "${HTTPS_PORT:-443}:443/udp"
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
     volumes:
       # 파일이 아니라 폴더를 붙인다. 배포가 Caddyfile을 바꾸면 컨테이너가 새 내용을 보고
       # 다시 읽는다(deploy.sh). 파일 하나만 붙이면 교체된 파일을 보지 못할 수 있다.

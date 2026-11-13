@@ -13,18 +13,7 @@
   margin-top: 6px;
 }
 
-.name-actions button:not(.text-button, .primary-button) {
-  min-height: 44px;
-  padding: 0 12px;
-  border: 1px solid var(--color-border-control);
-  border-radius: 999px;
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-}
-
+/* 버튼 모양은 my-items.css의 테두리 알약 버튼 규칙을 함께 쓴다. */
 .name-actions .primary-button {
   padding: 0 16px;
 }

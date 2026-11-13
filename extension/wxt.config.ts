@@ -26,6 +26,8 @@ export default defineConfig({
   ...(store ? { outDir: ".output/store" } : {}),
   manifest: {
     name: "Dragram",
+    // sidePanel.open은 116, Map.groupBy는 117부터다.
+    minimum_chrome_version: "117",
     // scripting·activeTab: 우클릭한 탭에만, 메뉴를 누른 그때 문장 추출 스크립트를 주입한다.
     permissions: [
       "sidePanel",

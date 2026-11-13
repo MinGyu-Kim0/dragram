@@ -13,7 +13,13 @@ import { useDesignatedNames } from "./use-designated-names";
 import { useLoginGeneration } from "./use-login-generation";
 import { useMyItemStates } from "./use-my-item-states";
 import { useSentenceAnalysis } from "./use-sentence-analysis";
-import { useHighlightStyle, usePreference } from "./use-preference";
+import { usePreference } from "./use-preference";
+import {
+  loadHighlightStyle,
+  loadShowRuby,
+  saveHighlightStyle,
+  saveShowRuby,
+} from "@/utils/preferences";
 import { useUpdateRequired } from "./use-update-required";
 
 // 페이지에 회차 ID를 붙여, 지금 요청의 것만 쓴다.
@@ -25,8 +31,16 @@ interface Page {
 function App() {
   const [page, setPage] = useState<Page>();
   const [tab, setTab] = useState<ResultTab>("grammar");
-  const [showRuby, toggleRuby] = usePreference("showRuby");
-  const [highlightStyle, setHighlightStyle] = useHighlightStyle();
+  const [showRuby, setShowRuby] = usePreference(
+    loadShowRuby,
+    saveShowRuby,
+    true,
+  );
+  const [highlightStyle, setHighlightStyle] = usePreference(
+    loadHighlightStyle,
+    saveHighlightStyle,
+    "marker",
+  );
   // 확장 토큰이 있는지(웹에서 연결했는지). 처음 읽기 전에는 undefined다(#109).
   const [connected, setConnected] = useState<boolean>();
   const updateRequired = useUpdateRequired();
@@ -65,43 +79,8 @@ function App() {
   const result = analysis.resultAt(pageIndex);
   const goTo = (index: number) => setPage({ requestId: request!.id, index });
 
-  if (connected === false) {
-    return (
-      <main>
-        <header className="panel-header">
-          <Logo />
-          <div className="header-actions">
-            <GuideButton />
-            <ThemeButton />
-          </div>
-        </header>
-        <LoginPrompt />
-      </main>
-    );
-  }
-
-  if (updateRequired) {
-    return (
-      <main>
-        <header className="panel-header">
-          <Logo />
-          <div className="header-actions">
-            <GuideButton />
-            <ThemeButton />
-            {/* 옛 확장이어도 연결은 끊을 수 있다. */}
-            <button
-              type="button"
-              className="text-button"
-              onClick={() => logoutExtension()}
-            >
-              로그아웃
-            </button>
-          </div>
-        </header>
-        <UpdatePrompt />
-      </main>
-    );
-  }
+  // 옛 확장이어도(업데이트 필요) 연결은 끊을 수 있다.
+  const canLogout = connected || (connected === undefined && updateRequired);
 
   return (
     <main>
@@ -110,7 +89,7 @@ function App() {
         <div className="header-actions">
           <GuideButton />
           <ThemeButton />
-          {connected && (
+          {canLogout && (
             <button
               type="button"
               className="text-button"
@@ -121,27 +100,39 @@ function App() {
           )}
         </div>
       </header>
-      {request && request.sentences.length > 1 && (
-        <Pager index={pageIndex} total={request.sentences.length} onGo={goTo} />
-      )}
-      {sentence && (
-        <SentenceView
-          // '사전 단어 보기'는 그 페이지의 화면 상태라 페이지마다 새로 시작한다.
-          key={`${request!.id}-${pageIndex}`}
-          text={sentence.text}
-          showRuby={showRuby}
-          onToggleRuby={toggleRuby}
-          highlightStyle={highlightStyle}
-          onHighlightStyleChange={setHighlightStyle}
-          result={result}
-          tab={tab}
-          onTabChange={setTab}
-          onRetry={() => analysis.retry(pageIndex)}
-          names={names.names}
-          onSave={names.save}
-          onRemove={names.remove}
-          items={myItems.items}
-        />
+      {connected === false ? (
+        <LoginPrompt />
+      ) : updateRequired ? (
+        <UpdatePrompt />
+      ) : (
+        <>
+          {request && request.sentences.length > 1 && (
+            <Pager
+              index={pageIndex}
+              total={request.sentences.length}
+              onGo={goTo}
+            />
+          )}
+          {sentence && (
+            <SentenceView
+              // '사전 단어 보기'는 그 페이지의 화면 상태라 페이지마다 새로 시작한다.
+              key={`${request!.id}-${pageIndex}`}
+              text={sentence.text}
+              showRuby={showRuby}
+              onToggleRuby={() => setShowRuby(!showRuby)}
+              highlightStyle={highlightStyle}
+              onHighlightStyleChange={setHighlightStyle}
+              result={result}
+              tab={tab}
+              onTabChange={setTab}
+              onRetry={() => analysis.retry(pageIndex)}
+              names={names.names}
+              onSave={names.save}
+              onRemove={names.remove}
+              items={myItems.items}
+            />
+          )}
+        </>
       )}
     </main>
   );

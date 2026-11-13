@@ -12,29 +12,16 @@ export function groupWords(
   names: ReadonlyMap<string, string | null>,
   nameSpans: NameSpan[] | null | undefined,
 ): WordItem[][] {
-  const groups = new Map<unknown, WordItem[]>();
   const sorted = [...words].sort((a, b) => a.start - b.start || a.end - b.end);
-  for (const word of sorted) {
+  const groups = Map.groupBy<unknown, WordItem>(sorted, (word) => {
     const surface = text.slice(word.start, word.end);
-    const key =
-      word.sense !== null && !names.has(surface)
-        ? JSON.stringify(
-            [word, surface, nameTypeLabel(word, nameSpans)],
-            (name, value) =>
-              name === "start" || name === "end" ? undefined : value,
-          )
-        : word;
-    groups.set(key, [...(groups.get(key) ?? []), word]);
-  }
+    return word.sense !== null && !names.has(surface)
+      ? JSON.stringify(
+          [word, surface, nameTypeLabel(word, nameSpans)],
+          (name, value) =>
+            name === "start" || name === "end" ? undefined : value,
+        )
+      : word;
+  });
   return [...groups.values()];
-}
-
-// 화면에 보이는 단어 행 수(합친 행은 한 행)
-export function wordRowCount(
-  text: string,
-  words: WordItem[],
-  names: ReadonlyMap<string, string | null>,
-  nameSpans: NameSpan[] | null | undefined,
-): number {
-  return groupWords(text, words, names, nameSpans).length;
 }

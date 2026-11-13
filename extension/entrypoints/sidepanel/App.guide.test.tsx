@@ -37,4 +37,14 @@ describe("가이드(#370)", () => {
     await screen.findByRole("heading", { name: "로그인이 필요해요" });
     expect(screen.getByRole("button", { name: "가이드" })).toBeInTheDocument();
   });
+
+  test("로그인 전 헤더에는 로그아웃 버튼이 없다", async () => {
+    await fakeBrowser.storage.local.clear();
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "로그인이 필요해요" });
+    expect(
+      screen.queryByRole("button", { name: "로그아웃" }),
+    ).not.toBeInTheDocument();
+  });
 });

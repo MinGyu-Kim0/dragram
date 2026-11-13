@@ -3,7 +3,6 @@ import type { CheckingItem, GrammarItem, RubyItem } from "@/utils/api";
 import { BadgeRow } from "./BadgeRow";
 import { ConnectionNote } from "./ConnectionNote";
 import { cardAt, groupGrammar, sortGrammar } from "./grammar-groups";
-import { itemKey, stateTag } from "@/utils/my-items";
 import { ItemActions, type MyItems } from "./MyItems";
 import { TAG_NAMES } from "./tag-names";
 
@@ -190,23 +189,6 @@ function Piece({
   );
 }
 
-// '선택한 카드' 박스(#354)의 문법 카드. 목록과 같은 카드라 추가·숨김 버튼도 같다.
-export function SelectedGrammarCard({
-  text,
-  item,
-  items,
-}: {
-  text: string;
-  item: GrammarItem;
-  items?: MyItems;
-}) {
-  return (
-    <ul className="grammar-cards">
-      <GrammarCard text={text} item={item} items={items} />
-    </ul>
-  );
-}
-
 // 원문 [start, end)에 그 안에 다 들어가는 루비(원문 순서)를 단다.
 function withRuby(
   text: string,
@@ -296,7 +278,7 @@ function span(item: { start: number; end: number }) {
 
 // 구성 문법(parts)은 카드 안 하위 박스로 넣는다(DESIGN.md 3장). 합친 카드는 첫 자리의 칩 글자와
 // 구성 문법을 보인다.
-function GrammarCard({
+export function GrammarCard({
   text,
   item,
   items,
@@ -323,7 +305,6 @@ function GrammarCard({
               <GrammarBody text={text} item={part} Heading="h4" />
               {items && part.usage_id != null && (
                 <ItemActions
-                  key={`${itemKey("usage", part.usage_id)}:${stateTag(items.states.get(itemKey("usage", part.usage_id)))}`}
                   kind="usage"
                   id={part.usage_id}
                   example={{ text, start: part.start, end: part.end }}
@@ -336,7 +317,6 @@ function GrammarCard({
       )}
       {items && item.usage_id != null && (
         <ItemActions
-          key={`${itemKey("usage", item.usage_id)}:${stateTag(items.states.get(itemKey("usage", item.usage_id)))}`}
           kind="usage"
           id={item.usage_id}
           example={{ text, start: item.start, end: item.end }}

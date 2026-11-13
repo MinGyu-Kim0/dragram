@@ -10,16 +10,15 @@ export function sortGrammar(grammar: GrammarItem[]): GrammarItem[] {
 // 응답에 용법 ID가 없어 위치를 뺀 내용이 모두 같으면(구성 문법의 판정·대안까지) 같은 용법으로 본다.
 // 합친 카드는 첫 자리의 내용만 보이므로, 하나라도 다르면 합치지 않아야 다른 자리의 내용이 빠지지 않는다.
 export function groupGrammar(grammar: GrammarItem[]): GrammarItem[][] {
-  const groups = new Map<unknown, GrammarItem[]>();
-  for (const item of sortGrammar(grammar)) {
-    const key =
+  const groups = Map.groupBy<unknown, GrammarItem>(
+    sortGrammar(grammar),
+    (item) =>
       item.state === "decided"
         ? JSON.stringify(item, (name, value) =>
             name === "start" || name === "end" ? undefined : value,
           )
-        : item;
-    groups.set(key, [...(groups.get(key) ?? []), item]);
-  }
+        : item,
+  );
   return [...groups.values()];
 }
 

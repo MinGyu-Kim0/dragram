@@ -397,6 +397,7 @@ class GrammarPatternAdmin(_ReviewedAdmin):
         "created_at",
     ]
     list_filter = ["status", "is_active", "usage_closed", "register"]
+    list_select_related = ["variant_of"]
     # 용법 이름으로 찾아도 admin이 중복 행을 걸러 패턴은 한 번 나온다.
     search_fields = ["name", "usages__name"]
     fields = [

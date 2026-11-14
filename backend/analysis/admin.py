@@ -18,6 +18,7 @@ from django.core.exceptions import PermissionDenied
 from django.db.models import Exists, OuterRef, Q
 from django.forms.models import BaseInlineFormSet
 from django.shortcuts import get_object_or_404, redirect
+from django.template.loader import render_to_string
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
@@ -388,6 +389,37 @@ def link_variant(model_admin, request, queryset):
     )
 
 
+def _badge(model, field):
+    """상태 칸을 배지 조각으로 그리는 목록 칼럼(#452). 값이 없으면 admin의 빈 값 표시('-')다."""
+
+    def column(obj):
+        status = getattr(obj, field)
+        if status is None:
+            return None
+        label = getattr(obj, f"get_{field}_display")()
+        return render_to_string(
+            "admin/analysis/status_badge.html", {"status": status, "label": label}
+        )
+
+    column.__name__ = field
+    return admin.display(description=model._meta.get_field(field).verbose_name, ordering=field)(
+        column
+    )
+
+
+def _japanese(model, field, ordering):
+    """일본어 칸. lang으로 일본어 글꼴과 자형을 쓰게 한다(#452)."""
+
+    def column(obj):
+        value = getattr(obj, field)
+        return None if value is None else format_html('<span lang="ja">{}</span>', value)
+
+    column.__name__ = field
+    return admin.display(description=model._meta.get_field(field).verbose_name, ordering=ordering)(
+        column
+    )
+
+
 class ToReviewFilter(admin.SimpleListFilter):
     """패턴 자신이나 그 아래 용법(대응 표현·기능 태그 포함)·접속 형태·판별 규칙 가운데 하나라도
     미검수인 패턴. 검수 대기열로 쓴다(#452).
@@ -419,14 +451,13 @@ class GrammarPatternAdmin(_FixedRowsAdmin):
     form = GrammarPatternForm
     action_form = GrammarPatternActionForm
     list_display = [
-        "id",
-        "name",
-        "status",
+        _japanese(GrammarPattern, "name", "name"),
+        _badge(GrammarPattern, "status"),
+        _badge(GrammarPattern, "connection_status"),
+        "register",
+        _japanese(GrammarPattern, "variant_of", "variant_of__name"),
         "is_active",
         "usage_closed",
-        "register",
-        "variant_of",
-        "created_at",
     ]
     list_filter = [ToReviewFilter, "status", "is_active", "usage_closed", "register"]
     list_select_related = ["variant_of"]
@@ -511,15 +542,14 @@ class ExampleFilter(admin.SimpleListFilter):
 class GrammarUsageAdmin(_FixedRowsAdmin):
     form = GrammarUsageForm
     list_display = [
-        "id",
         "name",
-        "pattern",
-        "status",
-        "korean_equivalent_status",
-        "function_tags_status",
+        _japanese(GrammarUsage, "pattern", "pattern__name"),
+        _badge(GrammarUsage, "status"),
+        _badge(GrammarUsage, "korean_equivalent_status"),
+        _badge(GrammarUsage, "function_tags_status"),
         "origin",
-        "updated_at",
     ]
+    list_select_related = ["pattern"]
     # 승인 액션이 바꾸는 대응 표현·기능 태그 검수 상태도 거른다(#451).
     list_filter = [
         "status",
@@ -605,7 +635,13 @@ class UsageRuleForm(forms.ModelForm):
 @admin.register(UsageRule)
 class UsageRuleAdmin(admin.ModelAdmin):
     form = UsageRuleForm
-    list_display = ["id", "pattern", "usage", "status", "approved_at", "updated_at"]
+    list_display = [
+        _japanese(UsageRule, "pattern", "pattern__name"),
+        "usage",
+        _badge(UsageRule, "status"),
+        "approved_at",
+    ]
+    list_select_related = ["pattern", "usage"]
     list_filter = ["status"]
     search_fields = ["pattern__name", "usage__name"]
     fields = ["pattern", "usage", "condition", "test_cases", "status", "created_by"]

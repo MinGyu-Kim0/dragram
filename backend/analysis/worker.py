@@ -156,12 +156,6 @@ class Worker:
             log_business_error(e)
             self.fail(analysis_id, e.error_code.code)
             return
-        if SentenceAnalysis.objects.filter(
-            pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
-        ).exists():
-            # 저장하지 못하고 끝났다(다른 쓰기가 같은 구간을 먼저 넣음).
-            self.fail(analysis_id, AnalysisError.FAILED.code)
-            return
         self.usage.succeed()
         self.job.end("done")
         self.publish({"type": "done"})

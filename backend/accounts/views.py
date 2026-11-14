@@ -53,11 +53,6 @@ def _field(request, name, error_code):
     return request.data.get(name)
 
 
-def _lock_user(user_or_id):
-    """같은 사용자의 확장 토큰 발급과 웹 로그아웃·로그인을 직렬화한다(트랜잭션 안에서 부른다)."""
-    tokens.lock_user(getattr(user_or_id, "pk", user_or_id))
-
-
 def _user_body(user):
     # account: 바뀌지 않는 계정 식별자. 화면에 보인 계정으로 탈퇴하는지 서버가 대조할 때 쓴다.
     if not user.is_authenticated:
@@ -74,7 +69,7 @@ def _start_session(request, user):
     previous_id = session.get(auth.SESSION_KEY)
     with transaction.atomic():
         if previous_id is not None:
-            _lock_user(previous_id)
+            tokens.lock_user(previous_id)
         # login은 세션 키를 바꾸고, 다른 사용자면 세션을 비운다.
         auth.login(request._request, user, backend="django.contrib.auth.backends.ModelBackend")
         if previous_key:
@@ -198,7 +193,7 @@ def _end_session(request):
     user_id = session.get(auth.SESSION_KEY)
     with transaction.atomic():
         if user_id is not None:
-            _lock_user(user_id)
+            tokens.lock_user(user_id)
             tokens.revoke_session(user_id, session.session_key)
         # 세션 행도 같은 트랜잭션에서 지워, 기다리던 토큰 발급이 끝난 세션을 보게 한다.
         auth.logout(request._request)
@@ -269,7 +264,7 @@ def issue_extension_token(request):
     session = request._request.session
     with transaction.atomic():
         # 같은 세션의 로그아웃이 먼저 끝났으면 세션이 없다. 그 세션 이름으로 토큰을 남기지 않는다.
-        _lock_user(request.user)
+        tokens.lock_user(request.user.pk)
         if not session.exists(session.session_key):
             raise BusinessError(AuthError.LOGIN_REQUIRED, "로그아웃한 세션")
         token = tokens.issue(request.user, session.session_key)

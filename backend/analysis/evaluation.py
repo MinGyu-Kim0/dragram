@@ -52,27 +52,17 @@ def _fail(result, error):
     result.save(update_fields=["failed", "error"])
 
 
-def _is_fresh(row):
-    return (
-        row.status == SentenceAnalysis.Status.COMPLETE
-        and row.word_spans is not None
-        and not row.is_stale
-    )
-
-
 def _analyze(result):
     original = result.text
     text, origins = analysis_text(original)
     sentence = Sentence(text)
-    before = sentence.existing
+    before = sentence.cached
     row, claimed = take(sentence, again=True)
     if not claimed:
         _fail(result, "다른 요청이 처리 중")
         return
     # 읽은 뒤 선점 하나로만 세대 번호가 올랐으면 그사이 무효화(반려 등)가 없었다.
-    restorable = (
-        before is not None and _is_fresh(before) and row.generation == before.generation + 1
-    )
+    restorable = before is not None and row.generation == before.generation + 1
     usage = RequestUsage.start(UsageLog.Path.LLM, None, row.pk)
     result.usage_request_id = usage.id
     result.save(update_fields=["usage_request"])

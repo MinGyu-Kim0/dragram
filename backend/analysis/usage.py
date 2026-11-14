@@ -135,8 +135,8 @@ class RequestUsage:
         cached_input_tokens,
         output_tokens,
         success,
-        attempt=1,
-        seconds=None,
+        attempt,
+        seconds,
     ):
         """LLM 클라이언트가 보낸 호출마다 부른다. attempt는 시도 차수다(일시 오류로 다시 보낸
         호출은 2, #99). seconds는 호출에 걸린 시간이고 모르면 None이다. 남긴 행을 시간 기록에도

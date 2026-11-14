@@ -81,6 +81,8 @@ body {
   --hairline-color: rgba(255, 255, 255, 0.1);
   --border-color: rgba(255, 255, 255, 0.24);
   --selected-row: rgba(255, 255, 255, 0.1);
+  /* 짝수 줄 바탕. 바깥 값(surface-inset)이면 옅은 줄에 밝은 글자가 묻힌다. */
+  --darkened-bg: rgba(255, 255, 255, 0.04);
   --primary: light-dark(#0f5e44, #23344b);
   --primary-fg: #ffffff;
   color: var(--body-fg);

@@ -176,8 +176,12 @@ def _checked_span_answers(answers, spans, allowed, numbers):
             if not isinstance(new_usage, dict) or not _are_new_texts(new_usage, ("usage_name",)):
                 raise SpanAnswersRejected("new_usage_invalid", span=span)
             equivalent = korean_equivalent(new_usage.get("korean_equivalent"))
+            # 받은 칸을 통째로 펼치지 않는다. checked_example이 섞이면 예문 검사를 건너뛴다.
             new_usage = {
-                **new_usage,
+                **{
+                    field: new_usage[field]
+                    for field in ("usage_name", "explanation_ko", "example_ja")
+                },
                 "korean_equivalent": equivalent,
                 "function_tags": function_tags(new_usage.get("function_tags")),
             }

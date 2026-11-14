@@ -23,6 +23,8 @@ html[data-theme] {
   --dg-danger-text: light-dark(#9f1d1d, #ffb4b4);
   /* 와이어프레임 Admin 보드의 사이드바. 다크는 surface 남색 */
   --dg-sidebar: light-dark(#17302a, #1b283a);
+  /* 사이드바보다 한 단계 짙은 띠(경로 표시, 사이드바 앱 이름) */
+  --dg-sidebar-strong: light-dark(#0f5e44, #23344b);
 
   --font-family-primary: "IBM Plex Sans KR", system-ui, sans-serif;
 
@@ -41,7 +43,7 @@ html[data-theme] {
   --header-link-color: #ffffff;
   --breadcrumbs-fg: light-dark(#d7efe3, #c9d3e0);
   --breadcrumbs-link-fg: #ffffff;
-  --breadcrumbs-bg: light-dark(#0f5e44, #23344b);
+  --breadcrumbs-bg: var(--dg-sidebar-strong);
   --link-fg: var(--dg-brand);
   --link-hover-color: var(--dg-brand-strong);
   --link-selected-fg: var(--dg-brand-strong);
@@ -83,7 +85,7 @@ body {
   --selected-row: rgba(255, 255, 255, 0.1);
   /* 짝수 줄 바탕. 바깥 값(surface-inset)이면 옅은 줄에 밝은 글자가 묻힌다. */
   --darkened-bg: rgba(255, 255, 255, 0.04);
-  --primary: light-dark(#0f5e44, #23344b);
+  --primary: var(--dg-sidebar-strong);
   --primary-fg: #ffffff;
   color: var(--body-fg);
 }

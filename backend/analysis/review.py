@@ -414,14 +414,14 @@ def update_test_cases(pattern, cases):
         _set_active(pattern, _has_activation_basis(pattern))
 
 
-def rule_test_cases_failure(rule, cases=None):
-    """판별 규칙의 test_cases(주지 않으면 저장된 것)가 통과하지 못하는 이유. 통과하면 None(#55).
+def rule_test_cases_failure(rule):
+    """판별 규칙의 test_cases가 통과하지 못하는 이유. 통과하면 None(#55).
 
     '적용됨'·'적용 안 됨' 예문이 각각 하나 이상 있어야 한다. '적용됨'은 패턴이 걸리고 걸린 자리
     가운데 하나에서 조건이 맞아야 하고, '적용 안 됨'은 패턴은 걸리지만 걸린 어느 자리에서도
     조건이 맞지 않아야 한다. 패턴이 걸리지 않는 예문은 어느 쪽이든 실패다.
     """
-    cases = rule.test_cases if cases is None else cases
+    cases = rule.test_cases
     if not any(case["should_apply"] for case in cases):
         return "'적용됨' 예문이 없습니다"
     if all(case["should_apply"] for case in cases):

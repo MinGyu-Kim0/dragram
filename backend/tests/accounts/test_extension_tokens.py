@@ -10,7 +10,6 @@ from django.test import Client
 from django.utils import timezone
 
 from accounts import tokens
-from accounts import views as account_views
 from accounts.models import ExtensionToken
 from analysis import words
 from analysis.models import UsageLog
@@ -235,13 +234,13 @@ def test_disabled_users_web_logout_still_revokes_that_sessions_tokens(fake_llm):
 def test_issuing_is_refused_when_the_session_logged_out_while_waiting(monkeypatch):
     # 같은 세션의 로그아웃이 먼저 잠금을 잡고 끝난 뒤에 발급이 이어지는 경우
     web, headers = web_session()
-    lock = account_views._lock_user
+    lock = tokens.lock_user
 
     def logout_wins(user):
         lock(user)
         Session.objects.filter(session_key=web.session.session_key).delete()
 
-    monkeypatch.setattr(account_views, "_lock_user", logout_wins)
+    monkeypatch.setattr(tokens, "lock_user", logout_wins)
 
     response = web.post(TOKENS, **headers)
 

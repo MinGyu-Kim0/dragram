@@ -125,7 +125,7 @@ def test_tags_are_from_the_allowed_list():
 
     tags = {tag for tags in Word.objects.values_list("tags", flat=True) for tag in tags}
     tags |= {tag for tags in WordSense.objects.values_list("tags", flat=True) for tag in tags}
-    assert tags <= jmdict.ALLOWED_TAGS
+    assert tags <= jmdict.WHOLE_WORD_TAGS | jmdict.SENSE_TAG_NAMES
 
 
 def test_load_into_a_table_that_already_has_words_is_refused():

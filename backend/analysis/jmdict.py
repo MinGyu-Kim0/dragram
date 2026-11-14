@@ -71,9 +71,6 @@ WHOLE_WORD_TAGS = frozenset(
 # 뜻 태그(검색용으로 word.tags에도 모은다)
 SENSE_TAG_NAMES = frozenset(SENSE_TAGS.values()) | {LOANWORD}
 
-# 태그 허용 목록
-ALLOWED_TAGS = WHOLE_WORD_TAGS | set(SENSE_TAGS.values()) | {LOANWORD}
-
 # XML 기본 엔티티는 그대로 두고 나머지 엔티티 참조만 코드 이름으로 바꾼다.
 _ENTITY = re.compile(r"&(?!(?:amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);)([\w-]+);")
 _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"

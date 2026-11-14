@@ -73,6 +73,8 @@ class FakeLLMClient:
             cached_input_tokens=cached_input_tokens,
             output_tokens=output_tokens,
             success=error is None,
+            attempt=1,
+            seconds=None,
         )
         if error:
             raise error

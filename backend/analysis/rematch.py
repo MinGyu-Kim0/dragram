@@ -238,7 +238,7 @@ def save_rematch(
         return event_of(locked)
 
 
-def rematch_decided(sentence, new_closed, grown=()):
+def rematch_decided(sentence, new_closed, grown):
     """재판정에 알릴, 해석이 정해진 구간(이 요청 형태소의 토큰 범위).
 
     조회 규칙을 거친 저장 결정 구간, 해석 갈림의 주 용법, 새 DB 확정 구간이다. 다시 판정하는
@@ -271,7 +271,7 @@ def rematch_decided(sentence, new_closed, grown=()):
     return decided
 
 
-def judge_rematched(sentence, event_of, new_closed, new_spans, usage, grown=()):
+def judge_rematched(sentence, event_of, new_closed, new_spans, usage, grown):
     """새 판별 대상 구간과 후보가 늘어난 저장 구간(grown, #176)을 재판정 한 번으로 정하고
     저장한다. 저장하지 못했으면 None.
 
@@ -319,7 +319,7 @@ def judge_rematched(sentence, event_of, new_closed, new_spans, usage, grown=()):
     return save_rematch(sentence, event_of, new_closed, span_list, answers, alternatives, grown)
 
 
-def rematch_early(presenter, new_closed, new_spans, grown=()):
+def rematch_early(presenter, new_closed, new_spans, grown):
     """재판정을 기다리기 전에 보낼 이벤트. 저장 구간과 새 DB 확정 구간, 판별 대상(확인 중) →
     저장 번역 순서다. 다시 판정하는 저장 구간(grown)은 확정 목록에서 빼고 확인 중에 넣는다(#176).
     먼저 오는 grammar 이벤트는 평평하게 둔다. 하위 박스는 analysis에만 있다(#65).
@@ -338,7 +338,7 @@ def rematch_early(presenter, new_closed, new_spans, grown=()):
     ]
 
 
-def start_judge(sentence, usage, may_judge, grown=()):
+def start_judge(sentence, usage, may_judge, grown):
     """재판정 잠금을 잡았으면 작업을 큐에 넣는다. 기다릴 시도(잠금 값)를 돌려주고, 기다릴 작업이
     없으면(큐 넣기 실패 포함) None이다.
 

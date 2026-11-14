@@ -15,7 +15,7 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.forms.models import BaseInlineFormSet
 from django.shortcuts import get_object_or_404, redirect
 from django.template.response import TemplateResponse
@@ -388,6 +388,32 @@ def link_variant(model_admin, request, queryset):
     )
 
 
+class ToReviewFilter(admin.SimpleListFilter):
+    """패턴 자신이나 그 아래 용법(대응 표현·기능 태그 포함)·접속 형태·판별 규칙 가운데 하나라도
+    미검수인 패턴. 검수 대기열로 쓴다(#452).
+    """
+
+    title = "검수할 것"
+    parameter_name = "to_review"
+
+    def lookups(self, request, model_admin):
+        return [("yes", "검수할 것 있음")]
+
+    def queryset(self, request, queryset):
+        if self.value() != "yes":
+            return queryset
+        pending = ReviewStatus.PENDING
+        usages = GrammarUsage.objects.filter(pattern=OuterRef("pk")).filter(
+            Q(status=pending)
+            | Q(korean_equivalent_status=pending)
+            | Q(function_tags_status=pending)
+        )
+        rules = UsageRule.objects.filter(pattern=OuterRef("pk"), status=UsageRule.Status.PENDING)
+        return queryset.filter(
+            Q(status=pending) | Q(connection_status=pending) | Exists(usages) | Exists(rules)
+        )
+
+
 @admin.register(GrammarPattern)
 class GrammarPatternAdmin(_FixedRowsAdmin):
     form = GrammarPatternForm
@@ -402,7 +428,7 @@ class GrammarPatternAdmin(_FixedRowsAdmin):
         "variant_of",
         "created_at",
     ]
-    list_filter = ["status", "is_active", "usage_closed", "register"]
+    list_filter = [ToReviewFilter, "status", "is_active", "usage_closed", "register"]
     list_select_related = ["variant_of"]
     # 용법 이름으로 찾아도 admin이 중복 행을 걸러 패턴은 한 번 나온다.
     search_fields = ["name", "usages__name"]

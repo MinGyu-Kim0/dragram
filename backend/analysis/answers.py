@@ -134,6 +134,9 @@ def _checked_span_answers(answers, spans, allowed, numbers):
         if span_id in judged:
             raise SpanAnswersRejected("duplicate_span", span=span)
         verdict, candidate_id = item.get("verdict"), item.get("candidate_id")
+        # 목록·객체는 집합에서 찾다가 TypeError가 나므로 먼저 거른다.
+        if not isinstance(verdict, str):
+            verdict = None
         # LLM이 낸 글은 로그에 남기지 않는다. 판정은 정해진 값일 때만 적는다.
         shown = verdict if verdict in FIRST_VERDICTS else "?"
         if verdict not in allowed[span_id]:

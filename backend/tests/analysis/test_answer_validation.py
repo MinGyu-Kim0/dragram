@@ -62,3 +62,13 @@ def test_new_usage_with_nul_is_rejected(client, fake_llm, teiru, field):
 
     assert response.json() == {"error": "ANALYSIS:FAILED"}
     assert not GrammarUsage.objects.filter(name__startswith="결").exists()
+
+
+@pytest.mark.parametrize("verdict", [["usage"], {"usage": 1}])
+def test_verdict_that_is_not_a_string_fails_validation(client, fake_llm, teiru, caplog, verdict):
+    fake_llm.response = {"translation_ko": "그가 와 있다", "spans": [span_answer(0, verdict, 1)]}
+
+    response = analyze(client, KITEIRU)
+
+    assert response.json() == {"error": "ANALYSIS:FAILED"}
+    assert "verdict_not_allowed span=1/1 verdict=?" in caplog.text

@@ -1,0 +1,128 @@
+/* Dragram admin 테마(#452). Django admin의 CSS 변수만 덮어 틀과 테마 버튼(자동·밝게·어둡게)을
+   그대로 쓴다. 색은 DESIGN.md §2 토큰이고 light-dark(라이트, 다크)로 두 모드 값을 함께 둔다.
+   admin과 같은 선택자 세기(html[data-theme])라 뒤에 실린 이 파일이 이긴다. */
+:root,
+html[data-theme] {
+  --dg-bg: light-dark(#f2f7f3, #111a26);
+  --dg-surface: light-dark(#ffffff, #1b283a);
+  --dg-surface-inset: light-dark(#e6f0e9, #23344b);
+  --dg-row-selected: light-dark(#eef7f1, #22324a);
+  --dg-text: light-dark(#17302a, #eef2f7);
+  --dg-text-secondary: light-dark(#33473f, #c9d3e0);
+  --dg-text-muted: light-dark(#5a6b63, #93a3b8);
+  --dg-brand: light-dark(#157a57, #a2bc4e);
+  --dg-brand-strong: light-dark(#0f5e44, #c8da8e);
+  --dg-brand-soft: light-dark(#d7efe3, #273424);
+  --dg-on-brand: light-dark(#ffffff, #16210a);
+  --dg-border: light-dark(#dce7e0, #2c3d55);
+  --dg-border-control: light-dark(#cfddd4, #3a4d68);
+  --dg-success: light-dark(#1e6b3a, #8fd1a8);
+  --dg-warn-bg: light-dark(#fff1d0, rgba(255, 196, 80, 0.16));
+  --dg-warn-text: light-dark(#6b4100, #ffd27a);
+  --dg-danger-bg: light-dark(#fde8e8, rgba(255, 120, 120, 0.14));
+  --dg-danger-text: light-dark(#9f1d1d, #ffb4b4);
+  /* 와이어프레임 Admin 보드의 사이드바. 다크는 surface 남색 */
+  --dg-sidebar: light-dark(#17302a, #1b283a);
+  /* 사이드바보다 한 단계 짙은 띠(경로 표시, 사이드바 앱 이름) */
+  --dg-sidebar-strong: light-dark(#0f5e44, #23344b);
+
+  --font-family-primary: "IBM Plex Sans KR", system-ui, sans-serif;
+
+  --primary: var(--dg-brand);
+  --primary-fg: var(--dg-on-brand);
+  --secondary: var(--dg-sidebar);
+  --accent: #ddf27a;
+  --body-fg: var(--dg-text);
+  --body-bg: var(--dg-surface);
+  --body-quiet-color: var(--dg-text-muted);
+  --body-medium-color: var(--dg-text-secondary);
+  --body-loud-color: var(--dg-text);
+  --header-color: #d7efe3;
+  --header-branding-color: var(--accent);
+  --header-bg: var(--dg-sidebar);
+  --header-link-color: #ffffff;
+  --breadcrumbs-fg: light-dark(#d7efe3, #c9d3e0);
+  --breadcrumbs-link-fg: #ffffff;
+  --breadcrumbs-bg: var(--dg-sidebar-strong);
+  --link-fg: var(--dg-brand);
+  --link-hover-color: var(--dg-brand-strong);
+  --link-selected-fg: var(--dg-brand-strong);
+  --hairline-color: var(--dg-border);
+  --border-color: var(--dg-border-control);
+  --error-fg: var(--dg-danger-text);
+  --message-success-bg: var(--dg-brand-soft);
+  --message-warning-bg: var(--dg-warn-bg);
+  --message-error-bg: var(--dg-danger-bg);
+  --darkened-bg: var(--dg-surface-inset);
+  --selected-bg: var(--dg-surface-inset);
+  --selected-row: var(--dg-row-selected);
+  --button-fg: var(--dg-on-brand);
+  --button-bg: var(--dg-brand);
+  --button-hover-bg: var(--dg-brand-strong);
+  --default-button-bg: var(--dg-brand-strong);
+  --default-button-hover-bg: var(--dg-brand);
+}
+
+/* admin은 다크에서만 color-scheme을 정해, OS가 다크일 때 '밝게'를 골라도 다크로 남는다. */
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+body {
+  background: var(--dg-bg);
+}
+
+/* 사이드바 안에서만 변수를 바꿔 어두운 바탕 위 글자로 그린다. */
+#nav-sidebar {
+  --body-bg: var(--dg-sidebar);
+  --body-fg: #eef2f7;
+  --body-quiet-color: #c9d3e0;
+  --link-fg: #d7efe3;
+  --link-hover-color: #ffffff;
+  --header-color: var(--accent);
+  --hairline-color: rgba(255, 255, 255, 0.1);
+  --border-color: rgba(255, 255, 255, 0.24);
+  --selected-row: rgba(255, 255, 255, 0.1);
+  /* 짝수 줄 바탕. 바깥 값(surface-inset)이면 옅은 줄에 밝은 글자가 묻힌다. */
+  --darkened-bg: rgba(255, 255, 255, 0.04);
+  --primary: var(--dg-sidebar-strong);
+  --primary-fg: #ffffff;
+  color: var(--body-fg);
+}
+
+/* 일본어 칸(lang="ja"). 일본어 글꼴이 없으면 IBM Plex Sans KR(한국어 자형 한자) 대신 시스템의
+   일본어 글꼴로 넘긴다. */
+:lang(ja) {
+  font-family: "Zen Maru Gothic", sans-serif;
+}
+
+/* 상태 배지(admin/analysis/status_badge.html). 미검수만 경고색이라 승인과 섞여 보이지 않는다. */
+.dg-badge {
+  display: inline-block;
+  padding: 1px 10px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.dg-badge-pending {
+  background: var(--dg-warn-bg);
+  color: var(--dg-warn-text);
+}
+
+.dg-badge-approved {
+  background: var(--dg-brand-soft);
+  color: var(--dg-success);
+}
+
+.dg-badge-rejected {
+  background: var(--dg-danger-bg);
+  color: var(--dg-danger-text);
+}
+
+.dg-badge-retired {
+  background: var(--dg-surface-inset);
+  color: var(--dg-text-muted);
+}

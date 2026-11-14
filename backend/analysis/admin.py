@@ -15,9 +15,10 @@ from django import forms
 from django.contrib import admin, messages
 from django.contrib.admin.helpers import ActionForm
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q
+from django.db.models import Exists, OuterRef, Q
 from django.forms.models import BaseInlineFormSet
 from django.shortcuts import get_object_or_404, redirect
+from django.template.loader import render_to_string
 from django.template.response import TemplateResponse
 from django.urls import path, reverse
 from django.utils import timezone
@@ -89,12 +90,17 @@ class _TestCasesField(forms.JSONField):
         return text
 
 
+# 일본어 칸은 lang으로 일본어 글꼴과 자형을 쓰게 한다(#452).
+JAPANESE_ATTRS = {"lang": "ja"}
+
+
 class GrammarPatternForm(forms.ModelForm):
-    test_cases = _TestCasesField(label="검증 예문")
+    test_cases = _TestCasesField(label="검증 예문", widget=forms.Textarea(attrs=JAPANESE_ATTRS))
 
     class Meta:
         model = GrammarPattern
         fields = ["name", "connection_form", "test_cases", "show_parts"]
+        widgets = {"name": forms.TextInput(attrs=JAPANESE_ATTRS)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -136,7 +142,9 @@ class _OpenedTagsInput(forms.MultipleHiddenInput):
 
 class GrammarUsageForm(forms.ModelForm):
     # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
-    example_ja = forms.CharField(label="예문", widget=forms.Textarea, required=False)
+    example_ja = forms.CharField(
+        label="예문", widget=forms.Textarea(attrs=JAPANESE_ATTRS), required=False
+    )
     # 기능 태그는 허용 목록 안에서만 고른다(#151).
     function_tags = forms.MultipleChoiceField(
         label="기능 태그",
@@ -388,21 +396,78 @@ def link_variant(model_admin, request, queryset):
     )
 
 
+def _badge(model, field):
+    """상태 칸을 배지 조각으로 그리는 목록 칼럼(#452). 값이 없으면 admin의 빈 값 표시('-')다."""
+
+    def column(obj):
+        status = getattr(obj, field)
+        if status is None:
+            return None
+        label = getattr(obj, f"get_{field}_display")()
+        return render_to_string(
+            "admin/analysis/status_badge.html", {"status": status, "label": label}
+        )
+
+    column.__name__ = field
+    return admin.display(description=model._meta.get_field(field).verbose_name, ordering=field)(
+        column
+    )
+
+
+def _japanese(model, field, ordering):
+    """일본어 칸. lang으로 일본어 글꼴과 자형을 쓰게 한다(#452)."""
+
+    def column(obj):
+        value = getattr(obj, field)
+        return None if value is None else format_html('<span lang="ja">{}</span>', value)
+
+    column.__name__ = field
+    return admin.display(description=model._meta.get_field(field).verbose_name, ordering=ordering)(
+        column
+    )
+
+
+class ToReviewFilter(admin.SimpleListFilter):
+    """패턴 자신이나 그 아래 용법(대응 표현·기능 태그 포함)·접속 형태·판별 규칙 가운데 하나라도
+    미검수인 패턴. 검수 대기열로 쓴다(#452).
+    """
+
+    title = "검수할 것"
+    parameter_name = "to_review"
+
+    def lookups(self, request, model_admin):
+        return [("yes", "검수할 것 있음")]
+
+    def queryset(self, request, queryset):
+        if self.value() != "yes":
+            return queryset
+        pending = ReviewStatus.PENDING
+        # 대응 표현·기능 태그는 용법의 일부라, 반려된 용법이면 함께 끝난 것으로 본다.
+        usages = GrammarUsage.objects.filter(pattern=OuterRef("pk")).filter(
+            Q(status=pending)
+            | ~Q(status=ReviewStatus.REJECTED)
+            & (Q(korean_equivalent_status=pending) | Q(function_tags_status=pending))
+        )
+        rules = UsageRule.objects.filter(pattern=OuterRef("pk"), status=UsageRule.Status.PENDING)
+        return queryset.filter(
+            Q(status=pending) | Q(connection_status=pending) | Exists(usages) | Exists(rules)
+        )
+
+
 @admin.register(GrammarPattern)
 class GrammarPatternAdmin(_FixedRowsAdmin):
     form = GrammarPatternForm
     action_form = GrammarPatternActionForm
     list_display = [
-        "id",
-        "name",
-        "status",
+        _japanese(GrammarPattern, "name", "name"),
+        _badge(GrammarPattern, "status"),
+        _badge(GrammarPattern, "connection_status"),
+        "register",
+        _japanese(GrammarPattern, "variant_of", "variant_of__name"),
         "is_active",
         "usage_closed",
-        "register",
-        "variant_of",
-        "created_at",
     ]
-    list_filter = ["status", "is_active", "usage_closed", "register"]
+    list_filter = [ToReviewFilter, "status", "is_active", "usage_closed", "register"]
     list_select_related = ["variant_of"]
     # 용법 이름으로 찾아도 admin이 중복 행을 걸러 패턴은 한 번 나온다.
     search_fields = ["name", "usages__name"]
@@ -485,15 +550,14 @@ class ExampleFilter(admin.SimpleListFilter):
 class GrammarUsageAdmin(_FixedRowsAdmin):
     form = GrammarUsageForm
     list_display = [
-        "id",
         "name",
-        "pattern",
-        "status",
-        "korean_equivalent_status",
-        "function_tags_status",
+        _japanese(GrammarUsage, "pattern", "pattern__name"),
+        _badge(GrammarUsage, "status"),
+        _badge(GrammarUsage, "korean_equivalent_status"),
+        _badge(GrammarUsage, "function_tags_status"),
         "origin",
-        "updated_at",
     ]
+    list_select_related = ["pattern"]
     # 승인 액션이 바꾸는 대응 표현·기능 태그 검수 상태도 거른다(#451).
     list_filter = [
         "status",
@@ -542,7 +606,9 @@ class GrammarUsageAdmin(_FixedRowsAdmin):
 
 class UsageRuleForm(forms.ModelForm):
     condition = _TestCasesField(label="판별 조건")
-    test_cases = _TestCasesField(label="규칙 예문 테스트")
+    test_cases = _TestCasesField(
+        label="규칙 예문 테스트", widget=forms.Textarea(attrs=JAPANESE_ATTRS)
+    )
 
     class Meta:
         model = UsageRule
@@ -579,7 +645,13 @@ class UsageRuleForm(forms.ModelForm):
 @admin.register(UsageRule)
 class UsageRuleAdmin(admin.ModelAdmin):
     form = UsageRuleForm
-    list_display = ["id", "pattern", "usage", "status", "approved_at", "updated_at"]
+    list_display = [
+        _japanese(UsageRule, "pattern", "pattern__name"),
+        "usage",
+        _badge(UsageRule, "status"),
+        "approved_at",
+    ]
+    list_select_related = ["pattern", "usage"]
     list_filter = ["status"]
     search_fields = ["pattern__name", "usage__name"]
     fields = ["pattern", "usage", "condition", "test_cases", "status", "created_by"]

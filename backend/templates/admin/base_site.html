@@ -1,0 +1,4 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+{% comment %}Django admin 틀은 그대로 두고 Dragram 색·글꼴만 얹는다(DESIGN.md §4 관리자, #452).{% endcomment %}
+{% block extrastyle %}{{ block.super }}<link rel="stylesheet" href="{% static 'analysis/admin.css' %}">{% endblock %}

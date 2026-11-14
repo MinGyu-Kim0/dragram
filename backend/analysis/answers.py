@@ -18,7 +18,8 @@ from errors import AnalysisError, BusinessError
 
 
 def _is_text(value):
-    if not isinstance(value, str) or value.strip() == "":
+    # PostgreSQL 글 칸은 NUL을 담지 못해 저장에서 터진다.
+    if not isinstance(value, str) or value.strip() == "" or "\x00" in value:
         return False
     try:
         # JSON에는 단독 서로게이트(\ud800 등)가 들어올 수 있지만 UTF-8로는 인코딩할 수 없다.

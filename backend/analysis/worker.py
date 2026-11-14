@@ -156,12 +156,6 @@ class Worker:
             log_business_error(e)
             self.fail(analysis_id, e.error_code.code)
             return
-        if SentenceAnalysis.objects.filter(
-            pk=analysis_id, status=SentenceAnalysis.Status.PROCESSING
-        ).exists():
-            # 저장하지 못하고 끝났다(다른 쓰기가 같은 구간을 먼저 넣음).
-            self.fail(analysis_id, AnalysisError.FAILED.code)
-            return
         self.usage.succeed()
         self.job.end("done")
         self.publish({"type": "done"})
@@ -305,8 +299,9 @@ class Worker:
         """검증한 결과를 공용 캐시에 저장한다.
 
         저장하는 사이 다른 요청이 같은 조건의 패턴을 먼저 등록했으면, 저장을 되돌리고 그 패턴의
-        용법 목록으로 다시 물은 뒤 한 번만 다시 저장한다. 분석하는 사이 영향 범위가 바뀌었으면
-        저장하지 않고 ANALYSIS:FAILED다. 다음 요청이 다시 선점해 분석한다(#98).
+        용법 목록으로 다시 물은 뒤 한 번만 다시 저장한다. 분석하는 사이 영향 범위가 바뀌었거나
+        다른 쓰기가 같은 구간을 먼저 넣었으면 저장하지 않고 ANALYSIS:FAILED다. 다음 요청이 다시
+        선점해 분석한다(#98).
         """
         s = self.sentence
         # 다시 물어 받은 새 용법도 공용 테이블에 들어가므로 다시 본다.

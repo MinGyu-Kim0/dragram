@@ -18,7 +18,8 @@ from errors import AnalysisError, BusinessError
 
 
 def _is_text(value):
-    if not isinstance(value, str) or value.strip() == "":
+    # PostgreSQL 글 칸은 NUL을 담지 못해 저장에서 터진다.
+    if not isinstance(value, str) or value.strip() == "" or "\x00" in value:
         return False
     try:
         # JSON에는 단독 서로게이트(\ud800 등)가 들어올 수 있지만 UTF-8로는 인코딩할 수 없다.
@@ -133,6 +134,9 @@ def _checked_span_answers(answers, spans, allowed, numbers):
         if span_id in judged:
             raise SpanAnswersRejected("duplicate_span", span=span)
         verdict, candidate_id = item.get("verdict"), item.get("candidate_id")
+        # 목록·객체는 집합에서 찾다가 TypeError가 나므로 먼저 거른다.
+        if not isinstance(verdict, str):
+            verdict = None
         # LLM이 낸 글은 로그에 남기지 않는다. 판정은 정해진 값일 때만 적는다.
         shown = verdict if verdict in FIRST_VERDICTS else "?"
         if verdict not in allowed[span_id]:
@@ -175,10 +179,12 @@ def _checked_span_answers(answers, spans, allowed, numbers):
             new_usage = item.get("new_usage")
             if not isinstance(new_usage, dict) or not _are_new_texts(new_usage, ("usage_name",)):
                 raise SpanAnswersRejected("new_usage_invalid", span=span)
-            equivalent = korean_equivalent(new_usage.get("korean_equivalent"))
+            # 받은 칸을 통째로 펼치지 않는다. checked_example이 섞이면 예문 검사를 건너뛴다.
             new_usage = {
-                **new_usage,
-                "korean_equivalent": equivalent,
+                "usage_name": new_usage["usage_name"],
+                "explanation_ko": new_usage["explanation_ko"],
+                "example_ja": new_usage["example_ja"],
+                "korean_equivalent": korean_equivalent(new_usage.get("korean_equivalent")),
                 "function_tags": function_tags(new_usage.get("function_tags")),
             }
             judged[span_id] = (SpanMatch.State.UNFOUND, None, new_usage)

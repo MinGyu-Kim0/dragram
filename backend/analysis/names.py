@@ -8,6 +8,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from rest_framework.response import Response
 
 from accounts.tokens import ExtensionTokenAuthentication, lock_user
+from analysis.answers import _is_text
 from analysis.jmdict import to_hiragana
 from analysis.models import DesignatedName
 from analysis.words import is_kana
@@ -21,17 +22,8 @@ MAX_NAMES = 1000
 
 def _surface(data):
     surface = data.get("surface") if isinstance(data, dict) else None
-    if (
-        not isinstance(surface, str)
-        or not surface.strip()
-        or len(surface) > MAX_LENGTH
-        or "\x00" in surface
-    ):
+    if not _is_text(surface) or len(surface) > MAX_LENGTH:
         raise BusinessError(DesignatedNameError.INVALID, "표기가 맞지 않음")
-    try:
-        surface.encode("utf-8")
-    except UnicodeEncodeError:
-        raise BusinessError(DesignatedNameError.INVALID, "표기가 맞지 않음") from None
     return surface
 
 

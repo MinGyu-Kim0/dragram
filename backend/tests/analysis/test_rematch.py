@@ -17,6 +17,7 @@ from analysis.models import (
 )
 from errors import AnalysisError, BusinessError
 from tests.analysis.helpers import (
+    add_word,
     analyze,
     connected_client,
     grammar_item,
@@ -99,6 +100,8 @@ def test_stale_replacement_conflicting_on_the_same_span_saves_nothing(fake_llm):
     analyze(connected_client(), KITEIRU)
     analysis = SentenceAnalysis.objects.get(translation_ko="그가 와 있다")
     SentenceAnalysis.objects.filter(pk=analysis.pk).update(is_stale=True)
+    # 한국어 뜻이 없는 단어. 저장했다면 뜻을 만드는 LLM을 부른다.
+    add_word(1, ["彼"], ["かれ"], [(["he"], [], None)])
     fake_llm.response = {"translation_ko": "늦게 끝난 번역", "spans": [span_answer(0, "usage", 1)]}
     result = {}
 
@@ -127,6 +130,8 @@ def test_stale_replacement_conflicting_on_the_same_span_saves_nothing(fake_llm):
     # 저장하지 못한 요청은 성공으로 남지 않는다.
     assert not UsageLog.objects.filter(kind=UsageLog.Kind.REQUEST).latest("id").success
     assert analysis.span_matches.count() == 1
+    # 충돌한 자리에서 실패해 한국어 뜻 LLM까지 가지 않는다.
+    assert fake_llm.gloss_requests == []
 
 
 # 끝난 뒤 테이블을 비우므로, 마이그레이션이 넣은 행(pattern_set_version)을 되돌려 둔다.

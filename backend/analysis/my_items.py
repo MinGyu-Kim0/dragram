@@ -75,7 +75,7 @@ def _example(data):
         if "example_start" in data or "example_end" in data:
             raise _invalid("예문 없이 구간을 줌")
         return None
-    if not _is_text(text) or len(text) > MAX_TEXT_LENGTH or "\x00" in text:
+    if not _is_text(text) or len(text) > MAX_TEXT_LENGTH:
         raise _invalid("예문이 맞지 않음")
     start, end = data.get("example_start"), data.get("example_end")
     length = len(text.encode("utf-16-le")) // 2

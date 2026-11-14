@@ -35,10 +35,11 @@ def test_unexpected_error_is_not_hidden_as_analysis_failure(client, fake_llm):
         analyze(client, "私は学生です。")
 
 
-def test_text_with_lone_surrogate_is_rejected_without_calling_llm(client, fake_llm):
-    # JSON에는 들어올 수 있지만 UTF-8로 인코딩할 수 없는 문자
+# JSON에는 들어올 수 있지만 UTF-8로 인코딩할 수 없는 문자, PostgreSQL 글 칸이 담지 못하는 NUL
+@pytest.mark.parametrize("char", ["\\ud800", "\\u0000"])
+def test_text_that_cannot_be_stored_is_rejected_without_calling_llm(client, fake_llm, char):
     response = client.post(
-        "/api/analyses/", '{"text": "\\ud800です"}', content_type="application/json"
+        "/api/analyses/", f'{{"text": "{char}です"}}', content_type="application/json"
     )
 
     assert response.status_code == 400

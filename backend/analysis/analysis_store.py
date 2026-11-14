@@ -5,6 +5,7 @@ from django.db import IntegrityError, transaction
 from analysis import patterns
 from analysis.models import SentenceAnalysis, SpanMatch
 from analysis.span_rows import _basis_changed, _is_place_conflict, span_matches
+from errors import AnalysisError, BusinessError
 
 
 def _sense_ids(word_spans):
@@ -14,7 +15,8 @@ def _sense_ids(word_spans):
 
 def store(sentence, validated, final):
     """검증한 결과를 공용 캐시에 저장한다. 시작 뒤 세대 번호나 판정 근거가 바뀌어 저장을 되돌렸으면
-    참이다. 그사이 다른 요청이 같은 조건의 패턴을 먼저 등록했으면 _PatternTaken을 그대로 올린다.
+    참이다. 그사이 다른 요청이 같은 조건의 패턴을 먼저 등록했으면 _PatternTaken을 그대로 올리고,
+    순서를 지키지 않은 쓰기가 같은 구간을 먼저 넣었으면 ANALYSIS:FAILED다.
     """
     stored_words = sentence.word_spans(validated["words"])
     with transaction.atomic():
@@ -41,11 +43,11 @@ def _save_once(sentence, validated, stored_words, final):
             locked.span_matches.all().delete()
             SpanMatch.objects.bulk_create(rows)
     except IntegrityError as e:
-        # 순서를 지키지 않은 쓰기가 같은 구간을 먼저 넣었다. 저장하지 못한 채 끝나 run이
-        # 실패로 알린다.
+        # 순서를 지키지 않은 쓰기가 같은 구간을 먼저 넣었다. 그 자리에서 실패해 뒤의 LLM 호출을
+        # 하지 않는다.
         if not _is_place_conflict(e):
             raise
-        return False
+        raise BusinessError(AnalysisError.FAILED, "같은 구간이 먼저 저장됨") from None
     locked.status = SentenceAnalysis.Status.COMPLETE
     locked.translation_ko = validated["translation_ko"]
     locked.processing_translation_ko = None

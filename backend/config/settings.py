@@ -55,7 +55,8 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        # admin 공통 틀(admin/base_site.html)을 덮는다. 앱 폴더는 admin 앱보다 뒤라 못 덮는다.
+        "DIRS": [BASE_DIR / "templates"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [

@@ -90,12 +90,17 @@ class _TestCasesField(forms.JSONField):
         return text
 
 
+# 일본어 칸은 lang으로 일본어 글꼴과 자형을 쓰게 한다(#452).
+JAPANESE = {"lang": "ja"}
+
+
 class GrammarPatternForm(forms.ModelForm):
-    test_cases = _TestCasesField(label="검증 예문")
+    test_cases = _TestCasesField(label="검증 예문", widget=forms.Textarea(attrs=JAPANESE))
 
     class Meta:
         model = GrammarPattern
         fields = ["name", "connection_form", "test_cases", "show_parts"]
+        widgets = {"name": forms.TextInput(attrs=JAPANESE)}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -137,7 +142,9 @@ class _OpenedTagsInput(forms.MultipleHiddenInput):
 
 class GrammarUsageForm(forms.ModelForm):
     # 예문 검사를 통과하지 못해 예문 없이 등록된 용법도 있다(NULL).
-    example_ja = forms.CharField(label="예문", widget=forms.Textarea, required=False)
+    example_ja = forms.CharField(
+        label="예문", widget=forms.Textarea(attrs=JAPANESE), required=False
+    )
     # 기능 태그는 허용 목록 안에서만 고른다(#151).
     function_tags = forms.MultipleChoiceField(
         label="기능 태그",
@@ -598,7 +605,7 @@ class GrammarUsageAdmin(_FixedRowsAdmin):
 
 class UsageRuleForm(forms.ModelForm):
     condition = _TestCasesField(label="판별 조건")
-    test_cases = _TestCasesField(label="규칙 예문 테스트")
+    test_cases = _TestCasesField(label="규칙 예문 테스트", widget=forms.Textarea(attrs=JAPANESE))
 
     class Meta:
         model = UsageRule

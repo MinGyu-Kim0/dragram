@@ -12,7 +12,6 @@ from analysis.particles import particle_for
 NORMALIZE_VERSION = 1
 
 _HALFWIDTH_KANA = re.compile(r"[\uFF61-\uFF9F]+")
-_SPACE = re.compile(r"\s+")
 _LATIN = re.compile(r"[A-Za-z0-9]")
 _TILDES = set("~〜～")
 _DIGITS = re.compile(r"[0-9]+")

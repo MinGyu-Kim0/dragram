@@ -85,7 +85,6 @@ class RequestUsage:
         self._user = request.user
         self._withdrawn_key = request.withdrawn_key
         self._analysis_id = request.analysis_id
-        self._ids = [request.pk]
 
     @property
     def user(self):
@@ -164,7 +163,6 @@ class RequestUsage:
                 success=success,
                 **fields,
             )
-        self._ids.append(row.pk)
         timing.log(
             "llm_call",
             request_id=self.id,
